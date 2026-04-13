@@ -2103,6 +2103,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NullVessel_WithFallbackTrajectoryPoint_SeedsRecordingPoint()
+        {
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+            var point = new TrajectoryPoint
+            {
+                ut = 100.25,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                bodyName = "Kerbin",
+                rotation = UnityEngine.Quaternion.identity,
+                velocity = UnityEngine.Vector3.zero
+            };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris", fallbackSnapshot: null,
+                fallbackTrajectoryPoint: point);
+
+            Assert.Single(rec.Points);
+            Assert.Equal(100.25, rec.Points[0].ut);
+            Assert.Equal(345.0, rec.Points[0].altitude);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(100.25, rec.ExplicitEndUT);
+        }
+
+        [Fact]
         public void SeedBreakupChildSnapshots_PrefersPreCapturedGhostButKeepsLiveVesselSnapshot()
         {
             var rec = new Recording();

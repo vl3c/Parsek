@@ -86,9 +86,12 @@ namespace Parsek
 
         // Pending background split checks: after OnBackgroundPartJointBreak,
         // we defer one frame to let KSP finalize the vessel split, then check.
-        // Maps parent vessel PID -> (branchUT, recordingId)
-        private Dictionary<uint, (double branchUT, string recordingId)> pendingBackgroundSplitChecks
-            = new Dictionary<uint, (double, string)>();
+        // The parentBoundaryPoint is captured at the actual joint-break UT so
+        // parent continuation/closure can use an exact split-time pose instead
+        // of backdating a later sample from the deferred check frame.
+        private Dictionary<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>
+            pendingBackgroundSplitChecks
+                = new Dictionary<uint, (double, string, TrajectoryPoint?)>();
 
         // Pre-break snapshot of all vessel PIDs in FlightGlobals, per parent vessel.
         // Used to identify NEW vessels that appeared from the split.
@@ -99,6 +102,13 @@ namespace Parsek
         // This survives the "backgrounded while not yet loaded" path used by EVA splits.
         private Dictionary<uint, SegmentEnvironment> pendingInitialEnvironmentOverrides
             = new Dictionary<uint, SegmentEnvironment>();
+
+        // Optional branch-boundary point captured when a split child is first created.
+        // Consumed when the vessel opens its first loaded background TrackSection so the
+        // recording has a real playable payload at the split moment instead of waiting for
+        // the first later proximity sample.
+        private Dictionary<uint, TrajectoryPoint> pendingInitialTrajectoryPoints
+            = new Dictionary<uint, TrajectoryPoint>();
 
         // Reusable buffer for transition-check methods (avoids per-frame List<PartEvent> allocations)
         private readonly List<PartEvent> reusableEventBuffer = new List<PartEvent>();
@@ -376,7 +386,10 @@ namespace Parsek
                     }
                 }
                 preBreakVesselPidSnapshots[vesselPid] = snapshot;
-                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId);
+                TrajectoryPoint? parentBoundaryPoint = joint.Child.vessel != null
+                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(joint.Child.vessel, branchUT)
+                    : null;
+                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
 
                 ParsekLog.Info("BgRecorder",
                     $"Scheduled deferred split check for background vessel: " +
@@ -399,7 +412,7 @@ namespace Parsek
             if (pendingBackgroundSplitChecks.Count == 0) return;
 
             // Copy keys to avoid modifying dict during iteration
-            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId)>>(
+            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>>(
                 pendingBackgroundSplitChecks);
             pendingBackgroundSplitChecks.Clear();
 
@@ -408,12 +421,14 @@ namespace Parsek
                 uint parentPid = pending[i].Key;
                 double branchUT = pending[i].Value.branchUT;
                 string parentRecordingId = pending[i].Value.recordingId;
+                TrajectoryPoint? parentBoundaryPoint = pending[i].Value.parentBoundaryPoint;
 
                 HashSet<uint> preBreakPids;
                 preBreakVesselPidSnapshots.TryGetValue(parentPid, out preBreakPids);
                 preBreakVesselPidSnapshots.Remove(parentPid);
 
-                HandleBackgroundVesselSplit(parentPid, branchUT, parentRecordingId, preBreakPids);
+                HandleBackgroundVesselSplit(
+                    parentPid, branchUT, parentRecordingId, preBreakPids, parentBoundaryPoint);
             }
         }
 
@@ -424,7 +439,8 @@ namespace Parsek
         /// or when leaving physics bubble).
         /// </summary>
         internal void HandleBackgroundVesselSplit(uint parentPid, double branchUT,
-            string parentRecordingId, HashSet<uint> preBreakPids)
+            string parentRecordingId, HashSet<uint> preBreakPids,
+            TrajectoryPoint? parentBoundaryPoint = null)
         {
             if (tree == null) return;
 
@@ -511,7 +527,7 @@ namespace Parsek
             InheritedEngineState? parentEngineState = InheritedStateFromBackgroundVessel(parentLoaded);
 
             // Close parent recording: set ChildBranchPointId, close orbit segment/trajectory
-            CloseParentRecording(parentRec, parentPid, bp.Id, branchUT);
+            CloseParentRecording(parentRec, parentPid, bp.Id, branchUT, parentBoundaryPoint);
 
             // Add BranchPoint to tree
             tree.BranchPoints.Add(bp);
@@ -551,8 +567,17 @@ namespace Parsek
                 tree.AddOrReplaceRecording(parentContRec);
                 tree.BackgroundMap[parentPid] = parentContRecId;
 
-                // Re-initialize tracking state for the parent continuation
-                OnVesselBackgrounded(parentPid, parentEngineState);
+                // Re-initialize tracking state for the parent continuation.
+                // Seed the continuation with the exact split-time pose so playback can
+                // start from the branch boundary instead of waiting for the next sample.
+                TrajectoryPoint? parentInitialPoint = parentBoundaryPoint;
+                if (!parentInitialPoint.HasValue && parentVessel != null)
+                {
+                    double sampleUT = Planetarium.GetUniversalTime();
+                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(parentVessel, sampleUT);
+                }
+                OnVesselBackgrounded(parentPid, parentEngineState,
+                    initialTrajectoryPoint: parentInitialPoint);
 
                 // Set TTL for parent continuation if it's debris
                 if (parentRec.IsDebris)
@@ -585,7 +610,8 @@ namespace Parsek
         /// Closes the parent recording at a branch point: sets ChildBranchPointId, ExplicitEndUT,
         /// closes any open orbit segment, samples a final boundary point, and removes from tracking dicts.
         /// </summary>
-        private void CloseParentRecording(Recording parentRec, uint parentPid, string branchPointId, double branchUT)
+        private void CloseParentRecording(Recording parentRec, uint parentPid, string branchPointId,
+            double branchUT, TrajectoryPoint? parentBoundaryPoint = null)
         {
             parentRec.ChildBranchPointId = branchPointId;
             parentRec.ExplicitEndUT = branchUT;
@@ -601,10 +627,18 @@ namespace Parsek
             BackgroundVesselState parentLoaded;
             if (loadedStates.TryGetValue(parentPid, out parentLoaded))
             {
-                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
-                if (parentVessel != null)
+                if (parentBoundaryPoint.HasValue)
                 {
-                    SampleBoundaryPoint(parentVessel, parentRec, branchUT);
+                    ApplyTrajectoryPointToRecording(parentRec, parentBoundaryPoint.Value);
+                }
+                else
+                {
+                    Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
+                    if (parentVessel != null)
+                    {
+                        double sampleUT = Planetarium.GetUniversalTime();
+                        SampleBoundaryPoint(parentVessel, parentRec, sampleUT);
+                    }
                 }
             }
 
@@ -660,8 +694,15 @@ namespace Parsek
                 tree.AddOrReplaceRecording(child);
                 tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId;
 
-                // Initialize tracking state for new child vessel
-                OnVesselBackgrounded(child.VesselPersistentId, inherited);
+                // Initialize tracking state for new child vessel. This check runs
+                // one frame after the joint break, so any child seed captured here
+                // must use the actual sample UT rather than the earlier branchUT.
+                double sampleUT = Planetarium.GetUniversalTime();
+                TrajectoryPoint? childInitialPoint = childVessel != null
+                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(childVessel, sampleUT)
+                    : null;
+                OnVesselBackgrounded(child.VesselPersistentId, inherited,
+                    initialTrajectoryPoint: childInitialPoint);
 
                 bool hasController = newVesselInfos[i].hasController;
                 if (!hasController)
@@ -1035,19 +1076,7 @@ namespace Parsek
                 return;
             }
 
-            TrajectoryPoint point = new TrajectoryPoint
-            {
-                ut = ut,
-                latitude = bgVessel.latitude,
-                longitude = bgVessel.longitude,
-                altitude = bgVessel.altitude,
-                rotation = bgVessel.srfRelRotation,
-                velocity = currentVelocity,
-                bodyName = bgVessel.mainBody?.name ?? "Unknown",
-                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
-                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
-            };
+            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(bgVessel, ut, currentVelocity);
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
@@ -1069,7 +1098,8 @@ namespace Parsek
         /// Called when a vessel is added to the background map (transition or branch creation).
         /// </summary>
         public void OnVesselBackgrounded(uint vesselPid, InheritedEngineState? inherited = null,
-            SegmentEnvironment? initialEnvironmentOverride = null)
+            SegmentEnvironment? initialEnvironmentOverride = null,
+            TrajectoryPoint? initialTrajectoryPoint = null)
         {
             if (tree == null) return;
 
@@ -1081,6 +1111,14 @@ namespace Parsek
                 pendingInitialEnvironmentOverrides[vesselPid] = initialEnvironmentOverride.Value;
                 ParsekLog.Verbose("BgRecorder",
                     $"Queued initial environment override for pid={vesselPid}: {initialEnvironmentOverride.Value}");
+            }
+
+            if (initialTrajectoryPoint.HasValue)
+            {
+                pendingInitialTrajectoryPoints[vesselPid] = initialTrajectoryPoint.Value;
+                ParsekLog.Verbose("BgRecorder",
+                    $"Queued initial trajectory point for pid={vesselPid}: " +
+                    $"ut={initialTrajectoryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
             }
 
             // Remove any stale state from a prior initialization (e.g. constructor
@@ -1168,6 +1206,7 @@ namespace Parsek
             }
 
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
+            pendingInitialTrajectoryPoints.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
 
@@ -1336,6 +1375,7 @@ namespace Parsek
                 ParsekLog.Warn("BgRecorder", $"Background vessel destroyed: pid={pid}");
 
             pendingInitialEnvironmentOverrides.Remove(pid);
+            pendingInitialTrajectoryPoints.Remove(pid);
         }
 
         /// <summary>
@@ -1408,6 +1448,7 @@ namespace Parsek
             onRailsStates.Clear();
             loadedStates.Clear();
             pendingInitialEnvironmentOverrides.Clear();
+            pendingInitialTrajectoryPoints.Clear();
 
             ParsekLog.Info("BgRecorder", "Shutdown complete — all background states cleared");
         }
@@ -1601,6 +1642,20 @@ namespace Parsek
         private void InitializeOnRailsState(Vessel v, uint vesselPid, string recordingId)
         {
             double ut = Planetarium.GetUniversalTime();
+            TrajectoryPoint initialTrajectoryPoint;
+            bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
+            if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
+                initialTrajectoryPoint.ut = ut;
+            Recording treeRec;
+            bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRec);
+            if (hasInitialTrajectoryPoint && hasTreeRecording)
+            {
+                ApplyTrajectoryPointToRecording(treeRec, initialTrajectoryPoint);
+                ParsekLog.Info("BgRecorder",
+                    $"Initial trajectory point seeded (on-rails): pid={vesselPid} " +
+                    $"ut={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"alt={initialTrajectoryPoint.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+            }
 
             var state = new BackgroundOnRailsState
             {
@@ -1618,8 +1673,7 @@ namespace Parsek
                 state.hasOpenOrbitSegment = false;
 
                 // Capture SurfacePosition
-                Recording treeRec;
-                if (tree.Recordings.TryGetValue(recordingId, out treeRec))
+                if (hasTreeRecording)
                 {
                     treeRec.SurfacePos = new SurfacePosition
                     {
@@ -1645,8 +1699,7 @@ namespace Parsek
                 // In atmosphere — Keplerian orbit ignores drag, skip orbit segment
                 state.hasOpenOrbitSegment = false;
 
-                Recording treeRec;
-                if (tree.Recordings.TryGetValue(recordingId, out treeRec))
+                if (hasTreeRecording)
                 {
                     treeRec.ExplicitEndUT = ut;
                 }
@@ -1657,11 +1710,13 @@ namespace Parsek
             else if (v.orbit != null)
             {
                 // Open orbit segment
-                state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Kerbin");
+                state.currentOrbitSegment = CreateOrbitSegmentFromVessel(
+                    v,
+                    hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
+                    "Kerbin");
                 state.hasOpenOrbitSegment = true;
 
-                Recording treeRec;
-                if (tree.Recordings.TryGetValue(recordingId, out treeRec))
+                if (hasTreeRecording)
                 {
                     treeRec.ExplicitEndUT = ut;
                 }
@@ -1674,8 +1729,7 @@ namespace Parsek
                 // No orbit and not landed — edge case (e.g. vessel on launchpad with no orbit)
                 state.hasOpenOrbitSegment = false;
 
-                Recording treeRec;
-                if (tree.Recordings.TryGetValue(recordingId, out treeRec))
+                if (hasTreeRecording)
                 {
                     treeRec.ExplicitEndUT = ut;
                 }
@@ -1745,7 +1799,8 @@ namespace Parsek
             // trimming (bug A / #263 sibling — rover recording not trimmed because of stale
             // DeployableExtended events at UT 2068).
             Recording treeRecForSeed;
-            if (!tree.Recordings.TryGetValue(recordingId, out treeRecForSeed))
+            bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRecForSeed);
+            if (!hasTreeRecording)
             {
                 // Tree recording not found — unexpected state. The caller supplied a recordingId
                 // that doesn't exist in the tree's Recordings dict, which means a lifecycle bug
@@ -1790,6 +1845,10 @@ namespace Parsek
 
             // Initialize environment tracking and open first TrackSection
             double ut = Planetarium.GetUniversalTime();
+            TrajectoryPoint initialTrajectoryPoint;
+            bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
+            if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
+                initialTrajectoryPoint.ut = ut;
             SegmentEnvironment overrideEnv;
             SegmentEnvironment initialEnv;
             if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out overrideEnv))
@@ -1812,7 +1871,15 @@ namespace Parsek
                     v.mainBody != null && v.mainBody.ocean);
             }
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
-            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
+                hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
+            if (hasInitialTrajectoryPoint)
+            {
+                if (hasTreeRecording)
+                    ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                else
+                    AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+            }
 
             ParsekLog.Verbose("BgRecorder", $"Loaded state initialized: pid={vesselPid} " +
                 $"engines={state.cachedEngines?.Count ?? 0} rcs={state.cachedRcsModules?.Count ?? 0} " +
@@ -2074,6 +2141,28 @@ namespace Parsek
                 $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName}");
         }
 
+        internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(
+            Vessel v, double ut, Vector3? explicitVelocity = null)
+        {
+            Vector3 velocity = explicitVelocity ?? (v.packed
+                ? (Vector3)v.obt_velocity
+                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity()));
+
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = v.latitude,
+                longitude = v.longitude,
+                altitude = v.altitude,
+                rotation = v.srfRelRotation,
+                velocity = velocity,
+                bodyName = v.mainBody?.name ?? "Unknown",
+                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
+                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+            };
+        }
+
         private void FlushLoadedStateForOnRailsTransition(
             BackgroundVesselState loadedState,
             Recording flushRec,
@@ -2113,7 +2202,7 @@ namespace Parsek
         {
             if (v == null) return;
 
-            AppendBoundaryPointToRecording(treeRec, CreateTrajectoryPointFromVessel(v, ut), v.persistentId);
+            AppendBoundaryPointToRecording(treeRec, CreateAbsoluteTrajectoryPointFromVessel(v, ut), v.persistentId);
         }
 
         /// <summary>
@@ -2194,6 +2283,18 @@ namespace Parsek
             return false;
         }
 
+        private bool TryConsumePendingInitialTrajectoryPoint(uint vesselPid, out TrajectoryPoint point)
+        {
+            if (pendingInitialTrajectoryPoints.TryGetValue(vesselPid, out point))
+            {
+                pendingInitialTrajectoryPoints.Remove(vesselPid);
+                return true;
+            }
+
+            point = default(TrajectoryPoint);
+            return false;
+        }
+
         /// <summary>
         /// Opens a new TrackSection for a background vessel.
         /// Sets source = Background.
@@ -2216,6 +2317,51 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        private static void AppendFrameToCurrentTrackSection(BackgroundVesselState state, TrajectoryPoint point)
+        {
+            if (state == null || !state.trackSectionActive || state.currentTrackSection.frames == null)
+                return;
+
+            state.currentTrackSection.frames.Add(point);
+            if (float.IsNaN(state.currentTrackSection.minAltitude)
+                || point.altitude < state.currentTrackSection.minAltitude)
+            {
+                state.currentTrackSection.minAltitude = (float)point.altitude;
+            }
+            if (float.IsNaN(state.currentTrackSection.maxAltitude)
+                || point.altitude > state.currentTrackSection.maxAltitude)
+            {
+                state.currentTrackSection.maxAltitude = (float)point.altitude;
+            }
+        }
+
+        private static void ApplyInitialTrajectoryPoint(
+            BackgroundVesselState state, Recording treeRec, TrajectoryPoint point)
+        {
+            if (treeRec != null)
+                ApplyTrajectoryPointToRecording(treeRec, point);
+
+            AppendFrameToCurrentTrackSection(state, point);
+            state.lastRecordedUT = point.ut;
+            state.lastRecordedVelocity = point.velocity;
+
+            ParsekLog.Info("BgRecorder",
+                $"Initial trajectory point seeded: pid={state.vesselPid} " +
+                $"ut={point.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"alt={point.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+        }
+
+        internal static void ApplyTrajectoryPointToRecording(Recording treeRec, TrajectoryPoint point)
+        {
+            if (treeRec == null)
+                return;
+
+            treeRec.Points.Add(point);
+            treeRec.MarkFilesDirty();
+            if (double.IsNaN(treeRec.ExplicitEndUT) || treeRec.ExplicitEndUT < point.ut)
+                treeRec.ExplicitEndUT = point.ut;
         }
 
         /// <summary>
@@ -3337,6 +3483,7 @@ namespace Parsek
         internal int DebrisTTLCount => debrisTTLExpiry.Count;
 
         internal int PendingInitialEnvironmentOverrideCount => pendingInitialEnvironmentOverrides.Count;
+        internal int PendingInitialTrajectoryPointCount => pendingInitialTrajectoryPoints.Count;
 
         internal SegmentEnvironment? PeekPendingInitialEnvironmentOverrideForTesting(uint vesselPid)
         {
@@ -3346,11 +3493,27 @@ namespace Parsek
             return null;
         }
 
+        internal TrajectoryPoint? PeekPendingInitialTrajectoryPointForTesting(uint vesselPid)
+        {
+            TrajectoryPoint point;
+            if (pendingInitialTrajectoryPoints.TryGetValue(vesselPid, out point))
+                return point;
+            return null;
+        }
+
         internal SegmentEnvironment? ConsumePendingInitialEnvironmentOverrideForTesting(uint vesselPid)
         {
             SegmentEnvironment env;
             if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out env))
                 return env;
+            return null;
+        }
+
+        internal TrajectoryPoint? ConsumePendingInitialTrajectoryPointForTesting(uint vesselPid)
+        {
+            TrajectoryPoint point;
+            if (TryConsumePendingInitialTrajectoryPoint(vesselPid, out point))
+                return point;
             return null;
         }
 
@@ -3391,11 +3554,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// For testing: gets the last recorded UT baseline for a loaded vessel.
+        /// Returns double.NaN if no loaded state exists.
+        /// </summary>
+        internal double GetLastRecordedUTForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.lastRecordedUT;
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// For testing: gets the last recorded velocity baseline for a loaded vessel.
+        /// Returns Vector3.zero if no loaded state exists.
+        /// </summary>
+        internal Vector3 GetLastRecordedVelocityForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.lastRecordedVelocity;
+            return Vector3.zero;
+        }
+
+        /// <summary>
         /// For testing: injects a loaded state with environment tracking initialized.
         /// Creates the state, sets up EnvironmentHysteresis, and opens the first TrackSection.
         /// </summary>
         internal void InjectLoadedStateWithEnvironmentForTesting(
-            uint vesselPid, string recordingId, SegmentEnvironment initialEnv, double ut)
+            uint vesselPid, string recordingId, SegmentEnvironment initialEnv, double ut,
+            TrajectoryPoint? initialPoint = null)
         {
             var state = new BackgroundVesselState
             {
@@ -3403,8 +3591,45 @@ namespace Parsek
                 recordingId = recordingId,
             };
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
-            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
+                initialPoint.HasValue ? initialPoint.Value.ut : ut);
+            if (initialPoint.HasValue)
+            {
+                Recording treeRec;
+                if (tree != null && tree.Recordings.TryGetValue(recordingId, out treeRec))
+                    ApplyInitialTrajectoryPoint(state, treeRec, initialPoint.Value);
+                else
+                    AppendFrameToCurrentTrackSection(state, initialPoint.Value);
+            }
             loadedStates[vesselPid] = state;
+        }
+
+        /// <summary>
+        /// For testing: injects an on-rails state and consumes any queued initial
+        /// trajectory point into the target recording, mirroring InitializeOnRailsState's
+        /// seed-persistence behavior without requiring a live KSP Vessel.
+        /// </summary>
+        internal void InjectOnRailsStateForTesting(uint vesselPid, string recordingId, double ut)
+        {
+            TrajectoryPoint point;
+            if (TryConsumePendingInitialTrajectoryPoint(vesselPid, out point))
+            {
+                if (point.ut > ut)
+                    point.ut = ut;
+
+                Recording treeRec;
+                if (tree != null && tree.Recordings.TryGetValue(recordingId, out treeRec))
+                    ApplyTrajectoryPointToRecording(treeRec, point);
+            }
+
+            onRailsStates[vesselPid] = new BackgroundOnRailsState
+            {
+                vesselPid = vesselPid,
+                recordingId = recordingId,
+                hasOpenOrbitSegment = false,
+                isLanded = false,
+                lastExplicitEndUpdate = ut
+            };
         }
 
         internal void InjectCurrentTrackSectionFrameForTesting(uint vesselPid, TrajectoryPoint point)

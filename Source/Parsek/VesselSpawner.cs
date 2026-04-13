@@ -485,10 +485,11 @@ namespace Parsek
             double spawnLat, spawnLon, spawnAlt;
             ResolveSpawnPosition(rec, index, lastPt, out spawnLat, out spawnLon, out spawnAlt);
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
+            string spawnBodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == spawnBodyName);
             if (body == null)
             {
-                ParsekLog.Info("Spawner", $"Body lookup failed for spawn: bodyName='{lastPt.bodyName}' not found — " +
+                ParsekLog.Info("Spawner", $"Body lookup failed for spawn: bodyName='{spawnBodyName}' not found — " +
                     $"falling back to RespawnVessel without position");
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
@@ -959,6 +960,18 @@ namespace Parsek
             TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
         {
             lat = 0; lon = 0; alt = 0;
+            string endpointBodyName = lastPt.bodyName ?? "Kerbin";
+            double endpointLat = lastPt.latitude;
+            double endpointLon = lastPt.longitude;
+            double endpointAlt = lastPt.altitude;
+            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out string resolvedBodyName, out double resolvedLat, out double resolvedLon, out double resolvedAlt))
+            {
+                endpointBodyName = resolvedBodyName;
+                endpointLat = resolvedLat;
+                endpointLon = resolvedLon;
+                endpointAlt = resolvedAlt;
+            }
 
             // EVA (#175): snapshot position is from EVA start (kerbal on the pod's ladder).
             // Breakup-continuous (#224): snapshot position is from breakup time (mid-air).
@@ -969,9 +982,9 @@ namespace Parsek
 
             if (useTrajectoryEndpoint)
             {
-                lat = lastPt.latitude;
-                lon = lastPt.longitude;
-                alt = lastPt.altitude;
+                lat = endpointLat;
+                lon = endpointLon;
+                alt = endpointAlt;
                 string reason = isEva
                     ? "EVA endpoint (snapshot is from EVA start)"
                     : "breakup-continuous endpoint (snapshot is from breakup time)";
@@ -985,9 +998,9 @@ namespace Parsek
                                    && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
                 if (!hasSnapshotPos)
                 {
-                    lat = lastPt.latitude;
-                    lon = lastPt.longitude;
-                    alt = lastPt.altitude;
+                    lat = endpointLat;
+                    lon = endpointLon;
+                    alt = endpointAlt;
                     ParsekLog.Verbose("Spawner",
                         $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
                 }
@@ -1015,7 +1028,7 @@ namespace Parsek
             }
             else if (rec.TerminalStateValue == TerminalState.Landed)
             {
-                string bodyName = lastPt.bodyName ?? "Kerbin";
+                string bodyName = endpointBodyName;
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
                 if (body != null)
                 {

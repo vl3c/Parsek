@@ -183,6 +183,109 @@ namespace Parsek.Tests
             Assert.Equal(28.12, activationStartUT, 2);
         }
 
+        [Fact]
+        public void TryGetGhostActivationStartUT_UsesSeededBoundaryPointBeforeLaterOrbitSegment()
+        {
+            var rec = new Recording
+            {
+                ExplicitStartUT = 70.04,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool resolved = rec.TryGetGhostActivationStartUT(out double activationStartUT);
+
+            Assert.True(resolved);
+            Assert.Equal(70.04, activationStartUT, 2);
+        }
+
+        [Fact]
+        public void ShouldPrimeSinglePointGhostFromOrbit_ReturnsTrueAfterSeedPointUT()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.04, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool useOrbit = GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 70.58);
+
+            Assert.True(useOrbit);
+        }
+
+        [Fact]
+        public void ShouldPrimeSinglePointGhostFromOrbit_ReturnsFalseBeforeFirstOrbitSegmentStarts()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool useOrbit = GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 70.20);
+
+            Assert.False(useOrbit);
+        }
+
+        [Fact]
+        public void ShouldUseOrbitEndpoint_WhenOrbitExtendsPastLastPoint_ReturnsTrue()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool useOrbitEndpoint = RecordingEndpointResolver.ShouldUseOrbitEndpoint(traj);
+
+            Assert.True(useOrbitEndpoint);
+        }
+
+        [Fact]
+        public void TryGetOrbitEndpointUT_ReturnsLastOrbitSegmentEndUT()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool resolved = RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double endpointUT);
+
+            Assert.True(resolved);
+            Assert.Equal(122.60, endpointUT, 2);
+        }
+
         private static ConfigNode BuildSnapshot(string coM)
         {
             var snapshot = new ConfigNode("VESSEL");

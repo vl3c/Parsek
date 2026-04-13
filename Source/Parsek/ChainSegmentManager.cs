@@ -338,19 +338,19 @@ namespace Parsek
                     ParsekLog.Verbose("Chain", $"{label}: refreshed snapshot from loaded vessel");
                 }
             }
-            else if (rec.Points.Count > 0)
+            else if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out _, out double latitude, out double longitude, out double altitude))
             {
                 var snap = getSnapshot(rec);
                 if (snap != null)
                 {
-                    var last = rec.Points[rec.Points.Count - 1];
                     snap.SetValue("lat",
-                        last.latitude.ToString("R", CultureInfo.InvariantCulture), true);
+                        latitude.ToString("R", CultureInfo.InvariantCulture), true);
                     snap.SetValue("lon",
-                        last.longitude.ToString("R", CultureInfo.InvariantCulture), true);
+                        longitude.ToString("R", CultureInfo.InvariantCulture), true);
                     snap.SetValue("alt",
-                        last.altitude.ToString("R", CultureInfo.InvariantCulture), true);
-                    ParsekLog.Verbose("Chain", $"{label}: updated snapshot position from last trajectory point");
+                        altitude.ToString("R", CultureInfo.InvariantCulture), true);
+                    ParsekLog.Verbose("Chain", $"{label}: updated snapshot position from recording endpoint");
                 }
             }
         }

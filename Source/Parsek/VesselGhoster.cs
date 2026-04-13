@@ -351,9 +351,7 @@ namespace Parsek
 
             if (hasSnapPos)
             {
-                string bodyName = tipRecording?.Points != null && tipRecording.Points.Count > 0
-                    ? tipRecording.Points[tipRecording.Points.Count - 1].bodyName : null;
-                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                string bodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(tipRecording);
                 CelestialBody snapBody = FlightGlobals.GetBodyByName(bodyName);
                 if (snapBody != null)
                 {
@@ -473,35 +471,19 @@ namespace Parsek
             if (rec == null)
                 return Vector3d.zero;
 
-            // Surface terminal position
-            if (rec.TerminalPosition.HasValue)
+            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out string bodyName, out double latitude, out double longitude, out double altitude))
             {
-                var tp = rec.TerminalPosition.Value;
-                CelestialBody body = FlightGlobals.GetBodyByName(tp.body);
-                if (body != null)
-                {
-                    Vector3d pos = body.GetWorldSurfacePosition(tp.latitude, tp.longitude, tp.altitude);
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic, "ComputeSpawnWorldPosition: from terminal surface pos " +
-                            "lat={0} lon={1} alt={2}", tp.latitude.ToString("F4", ic),
-                            tp.longitude.ToString("F4", ic), tp.altitude.ToString("F1", ic)));
-                    return pos;
-                }
-            }
-
-            // Last trajectory point
-            if (rec.Points != null && rec.Points.Count > 0)
-            {
-                var last = rec.Points[rec.Points.Count - 1];
-                string bodyName = last.bodyName;
-                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
                 CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
                 if (body != null)
                 {
-                    Vector3d pos = body.GetWorldSurfacePosition(last.latitude, last.longitude, last.altitude);
+                    Vector3d pos = body.GetWorldSurfacePosition(latitude, longitude, altitude);
                     ParsekLog.Verbose(Tag,
-                        string.Format(ic, "ComputeSpawnWorldPosition: from last trajectory point " +
-                            "UT={0}", last.ut.ToString("F1", ic)));
+                        string.Format(ic, "ComputeSpawnWorldPosition: from recording endpoint " +
+                            "lat={0} lon={1} alt={2}",
+                            latitude.ToString("F4", ic),
+                            longitude.ToString("F4", ic),
+                            altitude.ToString("F1", ic)));
                     return pos;
                 }
             }

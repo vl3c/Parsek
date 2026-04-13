@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -801,6 +802,60 @@ namespace Parsek.Tests
             Assert.Equal("Debris1", coalescer.GetPreCapturedSnapshot(10)?.GetValue("name"));
             Assert.Equal("Debris2", coalescer.GetPreCapturedSnapshot(20)?.GetValue("name"));
             Assert.Null(coalescer.GetPreCapturedSnapshot(99)); // not added
+        }
+
+        [Fact]
+        public void PreCapturedTrajectoryPoint_SurvivesThroughEmission()
+        {
+            var coalescer = new CrashCoalescer(0.1);
+            var point = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+
+            coalescer.OnSplitEvent(100.0, 42, false, preTrajectoryPoint: point);
+
+            Assert.Null(coalescer.GetPreCapturedTrajectoryPoint(42));
+
+            var bp = coalescer.Tick(100.2);
+            Assert.NotNull(bp);
+
+            TrajectoryPoint? retrieved = coalescer.GetPreCapturedTrajectoryPoint(42);
+            Assert.True(retrieved.HasValue);
+            Assert.Equal(point.ut, retrieved.Value.ut, 6);
+            Assert.Equal(point.altitude, retrieved.Value.altitude, 6);
+            Assert.Equal(point.velocity, retrieved.Value.velocity);
+        }
+
+        [Fact]
+        public void PreCapturedTrajectoryPoint_ClearedOnNextEmission()
+        {
+            var coalescer = new CrashCoalescer(0.1);
+            var point = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+
+            coalescer.OnSplitEvent(100.0, 42, false, preTrajectoryPoint: point);
+            coalescer.Tick(100.2);
+            Assert.True(coalescer.GetPreCapturedTrajectoryPoint(42).HasValue);
+
+            coalescer.OnSplitEvent(200.0, 99, false);
+            coalescer.Tick(200.2);
+
+            Assert.Null(coalescer.GetPreCapturedTrajectoryPoint(42));
         }
 
         #endregion

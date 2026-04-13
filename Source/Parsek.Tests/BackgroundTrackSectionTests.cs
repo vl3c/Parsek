@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
 using Xunit;
 
@@ -181,6 +182,70 @@ namespace Parsek.Tests
             Assert.NotNull(section);
             Assert.NotNull(section.Value.checkpoints);
             Assert.Empty(section.Value.checkpoints);
+        }
+
+        [Fact]
+        public void InitLoadedState_WithInitialPoint_StartsTrackSectionAtSeedUT()
+        {
+            uint pid = 507;
+            string recId = "rec_bg8";
+            var tree = MakeTree(pid, recId);
+            var bgRecorder = new BackgroundRecorder(tree);
+            var point = new TrajectoryPoint
+            {
+                ut = 995.25,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(4f, 5f, 6f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 1000.0, initialPoint: point);
+
+            var section = bgRecorder.GetCurrentTrackSectionForTesting(pid);
+            Assert.NotNull(section);
+            Assert.Equal(point.ut, section.Value.startUT, 6);
+            Assert.Single(section.Value.frames);
+            Assert.Equal(point.ut, section.Value.frames[0].ut, 6);
+        }
+
+        [Fact]
+        public void InitLoadedState_WithInitialPoint_WritesSeedIntoRecordingAndAltitudeMetadata()
+        {
+            uint pid = 508;
+            string recId = "rec_bg9";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+            tree.Recordings[recId].ExplicitEndUT = double.NaN;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            var point = new TrajectoryPoint
+            {
+                ut = 995.25,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(4f, 5f, 6f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 1000.0, initialPoint: point);
+
+            Assert.Single(tree.Recordings[recId].Points);
+            Assert.Equal(point.ut, tree.Recordings[recId].Points[0].ut, 6);
+            Assert.Equal(point.ut, tree.Recordings[recId].ExplicitEndUT, 6);
+
+            var section = bgRecorder.GetCurrentTrackSectionForTesting(pid);
+            Assert.NotNull(section);
+            Assert.Equal((float)point.altitude, section.Value.minAltitude);
+            Assert.Equal((float)point.altitude, section.Value.maxAltitude);
+            Assert.Equal(point.ut, bgRecorder.GetLastRecordedUTForTesting(pid), 6);
+            Assert.Equal(point.velocity, bgRecorder.GetLastRecordedVelocityForTesting(pid));
         }
 
         #endregion

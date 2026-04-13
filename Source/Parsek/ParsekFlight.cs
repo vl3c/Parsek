@@ -2699,14 +2699,22 @@ namespace Parsek
                         // Pre-capture snapshot while the vessel is still alive (#157).
                         // By coalescer emission time (0.5s later), debris may be destroyed.
                         ConfigNode preSnapshot = null;
+                        TrajectoryPoint? preTrajectoryPoint = null;
                         Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
                         if (childVessel != null)
+                        {
                             preSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                            preTrajectoryPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                childVessel, branchUT);
+                        }
 
                         ParsekLog.Info("Coalescer",
                             $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
                             $", preSnapshot={preSnapshot != null}");
-                        crashCoalescer.OnSplitEvent(branchUT, newPid, hasController, preSnapshot: preSnapshot);
+                        crashCoalescer.OnSplitEvent(
+                            branchUT, newPid, hasController,
+                            preSnapshot: preSnapshot,
+                            preTrajectoryPoint: preTrajectoryPoint);
                     }
 
                     // Resume the recorder — the coalescer's Tick will emit the BREAKUP
@@ -2888,6 +2896,7 @@ namespace Parsek
             RecordingTree tree, BranchPoint breakupBp,
             uint pid, Vessel vessel, bool isDebris, string fallbackName,
             ConfigNode fallbackSnapshot = null,
+            TrajectoryPoint? fallbackTrajectoryPoint = null,
             int parentGeneration = 0)
         {
             string childRecId = Guid.NewGuid().ToString("N");
@@ -2916,6 +2925,8 @@ namespace Parsek
                 SeedBreakupChildSnapshots(childRec, pid, liveSnapshot: null, preCapturedSnapshot: fallbackSnapshot);
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
+                if (fallbackTrajectoryPoint.HasValue)
+                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, fallbackTrajectoryPoint.Value);
                 ParsekLog.Info("Coalescer",
                     $"CreateBreakupChildRecording: using pre-captured snapshot for pid={pid} (vessel destroyed)");
             }
@@ -2923,6 +2934,12 @@ namespace Parsek
             {
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
+                if (fallbackTrajectoryPoint.HasValue)
+                {
+                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, fallbackTrajectoryPoint.Value);
+                    ParsekLog.Info("Coalescer",
+                        $"CreateBreakupChildRecording: using pre-captured trajectory point for pid={pid} (vessel destroyed)");
+                }
             }
 
             tree.AddOrReplaceRecording(childRec);
@@ -3010,13 +3027,25 @@ namespace Parsek
                     ConfigNode ctrlSnap = childVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap, parentGeneration: activeRec.Generation);
+                    TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
+                        ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
                     {
+                        TrajectoryPoint? initialPoint = breakupChildPoint;
+                        if (!initialPoint.HasValue)
+                        {
+                            double sampleUT = Planetarium.GetUniversalTime();
+                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                childVessel, sampleUT);
+                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
+                        backgroundRecorder.OnVesselBackgrounded(
+                            pid,
+                            breakupEngineState,
+                            initialTrajectoryPoint: initialPoint);
                     }
 
                     ParsekLog.Info("Coalescer",
@@ -3046,12 +3075,24 @@ namespace Parsek
                     ConfigNode preSnap = debrisVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap, parentGeneration: activeRec.Generation);
+                    TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris",
+                        preSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
+                        TrajectoryPoint? initialPoint = breakupChildPoint;
+                        if (!initialPoint.HasValue)
+                        {
+                            double sampleUT = Planetarium.GetUniversalTime();
+                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                debrisVessel, sampleUT);
+                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
+                        backgroundRecorder.OnVesselBackgrounded(
+                            pid,
+                            breakupEngineState,
+                            initialTrajectoryPoint: initialPoint);
                         backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
                     }
 
@@ -7460,24 +7501,12 @@ namespace Parsek
         /// </summary>
         private static Vector3d ComputeEndpointWorldPosition(Recording rec)
         {
-            // Terminal surface position
-            if (rec.TerminalPosition.HasValue)
+            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out string bodyName, out double latitude, out double longitude, out double altitude))
             {
-                var tp = rec.TerminalPosition.Value;
-                CelestialBody body = FlightGlobals.GetBodyByName(tp.body);
-                if (body != null)
-                    return body.GetWorldSurfacePosition(tp.latitude, tp.longitude, tp.altitude);
-            }
-
-            // Last trajectory point
-            if (rec.Points != null && rec.Points.Count > 0)
-            {
-                var last = rec.Points[rec.Points.Count - 1];
-                string bodyName = last.bodyName;
-                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
                 CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
                 if (body != null)
-                    return body.GetWorldSurfacePosition(last.latitude, last.longitude, last.altitude);
+                    return body.GetWorldSurfacePosition(latitude, longitude, altitude);
             }
 
             return Vector3d.zero;

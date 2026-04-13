@@ -574,7 +574,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 336. Debris ghosts can appear ahead of their real playback start, then slide into place
+## ~~336. Debris ghosts can appear ahead of their real playback start, then slide into place~~
 
 **Observed in:** `logs/2026-04-13_1959_debris-slide-still-broken-after-pr258/` after the first debris-positioning follow-up on PR `#258`. User report: debris ghosts still appeared in visibly wrong places on their first frame and only settled into the correct path afterward.
 
@@ -598,7 +598,39 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - recordings whose `ExplicitStartUT` is earlier than the first playable debris frame
 - engine-side activation-start resolution preferring the real payload start over semantic branch timing
 
-**Status:** Fix implemented in PR `#258`; pending runtime validation from a fresh replay bundle.
+**Fresh validation:** `logs/2026-04-13_2136` no longer reproduces the bug. The breakup debris ghosts in that bundle all become visible on playable payload frames with zero activation lead:
+
+- booster debris ghosts `#1`-`#8` all log `activationLead=0.00` together with `activeFrame=Absolute`, never the earlier `activeFrame=none` / "visible before payload" failure
+- the stack-separated main-stage debris ghost `#9` (`recId=5df4e23c98ba475493fc9790f2f5584a`) appears at `ut=70.58`, `activationStart=70.58`, `activeFrame=Absolute`, and `recordingStart-root=(0.00,0.00,0.00)` even though the breakup branch itself opened earlier at `UT=70.04`
+
+That confirms PR `#258` removed the original "ghost is visible before its first playable frame, then slides into place" failure mode in a fresh replay/save bundle.
+
+**Status:** ~~Fixed~~ in PR `#258`, validated by `logs/2026-04-13_2136`
+
+---
+
+## 337. Stack-decoupled main-stage debris can still look spatially late relative to the exact separation event
+
+**Observed in:** `logs/2026-04-13_2136` follow-up after PR `#258`, plus user report from the same recent save. The radial-booster debris looked fixed, but the large main-stage debris created by the circular / stack decoupler still did not look quite right at first appearance.
+
+**Collected evidence:**
+
+- the large stage breakup child was created immediately at the branch event: `pid=2483558814`, `recId=5df4e23c98ba475493fc9790f2f5584a`, breakup `UT=70.04`
+- the first playable recorded payload for that child still arrives later:
+  - `BgRecorder` starts the child's `TrackSection` at `UT=70.56`
+  - the first saved trajectory point in `5df4e23c...prec.txt` is `ut = 70.58`
+- the first visible ghost frame is now internally consistent, which means this is **not** the old `#336` bug:
+  - `Ghost #9 "Kerbal X Debris" appearance#1 reason=playback ut=70.58 activationStart=70.58 activeFrame=Absolute ... recordingStart-root=(0.00,0.00,0.00)`
+- the readable snapshot shows the stage had already moved materially by the time that first playable frame existed:
+  - `5df4e23c..._ghost.craft.txt` records `distanceTraveled = 72.953649124686493` at `lastUT = 70.5600000000031`
+
+**Impact:** After the PR `#258` fix, the main-stage debris no longer flashes early and slides into place, but it can still appear noticeably displaced from the exact split moment because playback has no visible payload before the first background-sampled frame. On a large, fast-moving stack-separated stage that remaining branch-to-first-sample gap is much easier to notice than on the smaller radial boosters.
+
+**Root cause:** This was a different failure mode from `#336`. Ghost activation was already keyed to the first playable payload frame, but stack-decoupled breakup/background children still often had no real split-time payload at all until the first later background sample. The final fix had two parts: capture and persist an honest split-time seed only when that pose is actually known, without backdating later samples to the earlier branch UT, and stop treating that one seeded point as the true terminal pose when the recording continues farther on orbit. Spawn, loop-end, overlap-expiry, chain-tip, and deferred-spawn endpoint logic now resolve the real endpoint from orbit data when seeded-orbit recordings outlive their single split-time point.
+
+**Implemented fix:** Seed breakup/background child recordings with split-time trajectory data only when that pose is actually captured at the split moment, and otherwise fall back to the first honest post-split sample instead of backdating a later pose to the earlier branch UT. Packed/on-rails background starts still persist that seed immediately into the recording, and loaded starts still use it as the recorder's first-sample baseline.
+
+**Status:** Fix implemented in PR `#264`; `gpt-5.4` `xhigh` review found no remaining substantive issues. Runtime validation is still pending from a fresh replay/save bundle.
 
 ---
 
