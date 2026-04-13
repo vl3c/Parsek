@@ -298,6 +298,66 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("RenameGroupInHierarchy"));
         }
 
+        [Fact]
+        public void RestoreMissingDebrisParentGroups_PartiallyStaleHierarchy_RehydratesMissingEntry()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X (2) / Debris"] = "Kerbal X (2)";
+
+            var committed = new List<Recording>
+            {
+                new Recording
+                {
+                    VesselName = "Kerbal X",
+                    IsDebris = false,
+                    RecordingGroups = new List<string> { "Kerbal X" }
+                },
+                new Recording
+                {
+                    VesselName = "Kerbal X Debris",
+                    IsDebris = true,
+                    RecordingGroups = new List<string> { "Kerbal X / Debris" }
+                },
+                new Recording
+                {
+                    VesselName = "Kerbal X",
+                    IsDebris = false,
+                    RecordingGroups = new List<string> { "Kerbal X (2)" }
+                },
+                new Recording
+                {
+                    VesselName = "Kerbal X Debris",
+                    IsDebris = true,
+                    RecordingGroups = new List<string> { "Kerbal X (2) / Debris" }
+                }
+            };
+
+            int restored = GroupHierarchyStore.RestoreMissingDebrisParentGroups(committed);
+
+            Assert.Equal(1, restored);
+            Assert.Equal("Kerbal X", GroupHierarchyStore.groupParents["Kerbal X / Debris"]);
+            Assert.Equal("Kerbal X (2)", GroupHierarchyStore.groupParents["Kerbal X (2) / Debris"]);
+            Assert.Contains(logLines, l => l.Contains("Restored missing debris hierarchy"));
+        }
+
+        [Fact]
+        public void RestoreMissingDebrisParentGroups_DebrisWithoutParentGroup_DoesNotInventHierarchy()
+        {
+            var committed = new List<Recording>
+            {
+                new Recording
+                {
+                    VesselName = "Loose Debris",
+                    IsDebris = true,
+                    RecordingGroups = new List<string> { "Loose / Debris" }
+                }
+            };
+
+            int restored = GroupHierarchyStore.RestoreMissingDebrisParentGroups(committed);
+
+            Assert.Equal(0, restored);
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Loose / Debris"));
+        }
+
         // ─── RecordingStore.AddRecordingToGroup / RemoveRecordingFromGroup ─
 
         [Fact]

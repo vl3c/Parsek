@@ -630,6 +630,7 @@ namespace Parsek
                     // pending slot is populated when it runs.
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
+                    RestoreMissingDebrisGroupHierarchy("OnLoad");
 
                     // Detect revert vs scene change. On a revert, the quicksave is older:
                     // its epoch is lower (after a prior revert bumped it) or it has fewer
@@ -1148,6 +1149,8 @@ namespace Parsek
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
 
+                RestoreMissingDebrisGroupHierarchy("OnLoad initial");
+
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
                 RecordingStore.CleanOrphanFiles();
 
@@ -1486,6 +1489,24 @@ namespace Parsek
                 LedgerOrchestrator.Kerbals?.LoadSlots(node);
                 GroupHierarchyStore.LoadGroupHierarchy(node);
                 GroupHierarchyStore.LoadHiddenGroups(node);
+            }
+        }
+
+        private static void RestoreMissingDebrisGroupHierarchy(string context)
+        {
+            int restored = GroupHierarchyStore.RestoreMissingDebrisParentGroups(
+                RecordingStore.CommittedRecordings);
+
+            if (RecordingStore.HasPendingTree)
+            {
+                restored += GroupHierarchyStore.RestoreMissingDebrisParentGroups(
+                    RecordingStore.PendingTree?.Recordings?.Values);
+            }
+
+            if (restored > 0)
+            {
+                ParsekLog.Info("Scenario",
+                    $"{context}: restored {restored} missing debris group parent mapping(s) from recording tags");
             }
         }
 
