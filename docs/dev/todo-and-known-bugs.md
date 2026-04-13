@@ -359,6 +359,8 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 **Fix:** The post-destruction tree dialog now waits for deferred split resolution and any pending crash-coalescer breakup emission to finish before applying the terminal/debris-only finalization policy, then re-runs the normal guards and finalizes with the repaired tree state. Regression coverage now pins the new pending-crash wait policy branch, and the zero-point prune diagnostics were clarified to describe generic empty leaves/placeholders instead of only debris.
 
+**Residual gap:** There is still no coroutine-level regression test that drives the full `OnVesselWillDestroy -> DeferredJointBreakCheck -> TickCrashCoalescer -> ShowPostDestructionTreeMergeDialog` path. Current coverage pins the extracted pending-crash policy/helper decisions, but the end-to-end scene/coroutine ordering still depends on in-game validation.
+
 **Status:** ~~Fixed~~
 
 ---
