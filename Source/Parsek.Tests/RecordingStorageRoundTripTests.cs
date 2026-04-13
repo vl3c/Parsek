@@ -974,6 +974,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveRecordingFiles_LogsReadableVesselSource_WhenMirrorUsesPreservedAuthoritativeSnapshot()
+        {
+            string dir = Path.Combine(tempDir, "readable-mirror-log-source");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "readable-mirror-log-source.prec");
+            string vesselPath = Path.Combine(dir, "readable-mirror-log-source_vessel.craft");
+            string ghostPath = Path.Combine(dir, "readable-mirror-log-source_ghost.craft");
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "readable-mirror-log-source",
+                sidecarEpoch: 0,
+                vesselName: "Logged Vessel",
+                ghostName: "Logged Ghost",
+                pidBase: 5485,
+                pointUt: 200);
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+            rec.VesselSnapshot = null;
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            logLines.Clear();
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("SaveRecordingFiles: id=readable-mirror-log-source") &&
+                l.Contains("wroteVessel=False") &&
+                l.Contains("wroteReadableVessel=True") &&
+                l.Contains("readableVesselSource=AuthoritativeSidecar"));
+        }
+
+        [Fact]
         public void SaveRecordingFiles_ReadableMirrorFailure_DoesNotRollBackAuthoritativeSidecars()
         {
             string dir = Path.Combine(tempDir, "readable-mirror-best-effort");

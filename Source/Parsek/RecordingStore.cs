@@ -4510,6 +4510,8 @@ namespace Parsek
             public bool DeletedTrajectory;
             public bool DeletedVessel;
             public bool DeletedGhost;
+            public string VesselSource;
+            public string GhostSource;
             public string FailureReason;
         }
 
@@ -4771,7 +4773,9 @@ namespace Parsek
                         $"readableMirrorsEnabled={mirrorSummary.Enabled} " +
                         $"wroteReadableTrajectory={mirrorSummary.WroteTrajectory} " +
                         $"wroteReadableVessel={mirrorSummary.WroteVessel} " +
+                        $"readableVesselSource={mirrorSummary.VesselSource ?? "None"} " +
                         $"wroteReadableGhost={mirrorSummary.WroteGhost} " +
+                        $"readableGhostSource={mirrorSummary.GhostSource ?? "None"} " +
                         $"deletedReadableTrajectory={mirrorSummary.DeletedTrajectory} " +
                         $"deletedReadableVessel={mirrorSummary.DeletedVessel} " +
                         $"deletedReadableGhost={mirrorSummary.DeletedGhost}" +
@@ -4827,6 +4831,7 @@ namespace Parsek
                             path => WriteReadableSnapshotMirror(path, rec.VesselSnapshot),
                             readableVesselPath));
                         wroteVessel = true;
+                        summary.VesselSource = "InMemory";
                     }
                     else
                     {
@@ -4837,6 +4842,7 @@ namespace Parsek
                                 path => WriteReadableSnapshotMirror(path, preservedVesselSnapshot),
                                 readableVesselPath));
                             wroteVessel = true;
+                            summary.VesselSource = "AuthoritativeSidecar";
                         }
                     }
 
@@ -4846,6 +4852,7 @@ namespace Parsek
                             path => WriteReadableSnapshotMirror(path, rec.GhostVisualSnapshot),
                             readableGhostPath));
                         wroteGhost = true;
+                        summary.GhostSource = "InMemory";
                     }
                     else if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel &&
                              !string.IsNullOrEmpty(readableGhostPath) &&
@@ -4912,6 +4919,8 @@ namespace Parsek
                 summary.DeletedTrajectory = false;
                 summary.DeletedVessel = false;
                 summary.DeletedGhost = false;
+                summary.VesselSource = null;
+                summary.GhostSource = null;
             }
 
             return summary;
