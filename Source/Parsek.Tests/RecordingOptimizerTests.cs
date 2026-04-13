@@ -903,24 +903,55 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
 
-            var first = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            var first = MakeChainSegment("eva_chain", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17020);
             first.RecordingId = "eva_first";
             first.VesselName = "Bill Kerman";
             first.VesselPersistentId = 1001;
             first.EvaCrewName = "Bill Kerman";
             first.ParentRecordingId = "parent-1";
-            first.SegmentBodyName = "Kerbin";
             first.StartBodyName = "Kerbin";
+            first.Points.Clear();
+            first.TrackSections.Clear();
+            var firstFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17010, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" },
+            };
+            first.Points.AddRange(firstFrames);
+            first.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17000,
+                endUT = 17020,
+                frames = new List<TrajectoryPoint>(firstFrames)
+            });
 
-            var second = RecordingOptimizer.SplitAtSection(first, 1);
+            var second = MakeChainSegment("eva_chain", 1, phase: "surface", body: "Kerbin", startUT: 17019.5, endUT: 17040);
             second.RecordingId = "eva_second";
-            first.ChainId = "eva_chain";
-            second.ChainId = "eva_chain";
-            first.ChainIndex = 0;
-            second.ChainIndex = 1;
-            second.VesselName = first.VesselName;
-            second.VesselPersistentId = first.VesselPersistentId;
+            second.VesselName = "Bill Kerman";
+            second.VesselPersistentId = 1001;
+            second.EvaCrewName = "Bill Kerman";
+            second.ParentRecordingId = "parent-1";
+            second.StartBodyName = "Kerbin";
+            second.Points.Clear();
+            second.TrackSections.Clear();
+            var secondFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17019.5, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17021, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17040, bodyName = "Kerbin" },
+            };
+            second.Points.AddRange(secondFrames);
+            second.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17019.5,
+                endUT = 17040,
+                frames = new List<TrajectoryPoint>(secondFrames)
+            });
 
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(first);
@@ -931,7 +962,8 @@ namespace Parsek.Tests
             Assert.Single(recordings);
             Assert.Equal(0, recordings[0].ChainIndex);
             Assert.Equal("Bill Kerman", recordings[0].EvaCrewName);
-            Assert.True(recordings[0].Points.Count > 1);
+            Assert.Equal(new[] { 17000.0, 17010.0, 17020.0, 17021.0, 17040.0 },
+                recordings[0].Points.Select(p => p.ut).ToArray());
             for (int i = 1; i < recordings[0].Points.Count; i++)
                 Assert.True(recordings[0].Points[i - 1].ut <= recordings[0].Points[i].ut);
 

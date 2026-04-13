@@ -127,6 +127,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetSegmentPhaseLabel_MixedEvaAtmoSurface_ShowsBodyOnly()
+        {
+            var rec = new Recording
+            {
+                SegmentPhase = "atmo",
+                SegmentBodyName = "Kerbin",
+                StartBodyName = "Kerbin",
+                EvaCrewName = "Bill Kerman"
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 100,
+                endUT = 110,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                startUT = 110,
+                endUT = 120,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>()
+            });
+
+            Assert.Equal("Kerbin", RecordingStore.GetSegmentPhaseLabel(rec));
+        }
+
+        [Fact]
         public void SoiChangeFlag_DefaultsFalse()
         {
             var recorder = new FlightRecorder();

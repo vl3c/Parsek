@@ -2128,8 +2128,9 @@ namespace Parsek
                 if (string.IsNullOrEmpty(segBody))
                     segBody = rec.StartBodyName;
 
-                if (!string.IsNullOrEmpty(rec.SegmentPhase) && !string.IsNullOrEmpty(segBody))
-                    return segBody + " " + rec.SegmentPhase;
+                string segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+                if (!string.IsNullOrEmpty(segmentLabel))
+                    return segmentLabel;
                 if (!string.IsNullOrEmpty(segBody))
                     return segBody;
                 return "-";

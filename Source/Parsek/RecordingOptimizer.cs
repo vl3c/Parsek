@@ -775,13 +775,57 @@ namespace Parsek
         private static void NormalizeContinuousEvaBoundaryMerge(Recording target)
         {
             if (target.TrackSections != null && target.TrackSections.Count > 1)
+            {
                 target.TrackSections = FlightRecorder.StableSortByUT(target.TrackSections, s => s.startUT);
+                TrimOverlappingSectionFrames(target.TrackSections);
+            }
 
             bool rebuilt = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                 target, allowRelativeSections: true);
 
             if (!rebuilt && target.Points != null && target.Points.Count > 1)
                 target.Points = FlightRecorder.StableSortByUT(target.Points, p => p.ut);
+        }
+
+        private static void TrimOverlappingSectionFrames(List<TrackSection> trackSections)
+        {
+            double? previousEndUT = null;
+
+            for (int i = 0; i < trackSections.Count; i++)
+            {
+                var section = trackSections[i];
+                if ((section.referenceFrame == ReferenceFrame.Absolute
+                        || section.referenceFrame == ReferenceFrame.Relative)
+                    && section.frames != null
+                    && section.frames.Count > 0)
+                {
+                    section.frames = FlightRecorder.StableSortByUT(section.frames, p => p.ut);
+
+                    if (previousEndUT.HasValue)
+                    {
+                        int firstKeep = 0;
+                        while (firstKeep < section.frames.Count
+                            && section.frames[firstKeep].ut <= previousEndUT.Value)
+                        {
+                            firstKeep++;
+                        }
+
+                        if (firstKeep >= section.frames.Count)
+                            section.frames = new List<TrajectoryPoint>();
+                        else if (firstKeep > 0)
+                            section.frames = section.frames.GetRange(firstKeep, section.frames.Count - firstKeep);
+                    }
+
+                    if (section.frames.Count > 0)
+                    {
+                        section.startUT = section.frames[0].ut;
+                        section.endUT = section.frames[section.frames.Count - 1].ut;
+                        previousEndUT = section.endUT;
+                    }
+                }
+
+                trackSections[i] = section;
+            }
         }
 
         internal static int SplitEnvironmentClass(SegmentEnvironment env)
