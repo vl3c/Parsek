@@ -316,7 +316,7 @@ If the answer is yes, add focused regression coverage for a real continuous EVA 
 
 ---
 
-## 329. Debris explosion FX can fire noticeably after visible ground contact
+## ~~329. Debris explosion FX can fire noticeably after visible ground contact~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: there was a visible delay between debris hitting the ground and the explosion effect.
 
@@ -334,9 +334,9 @@ If the answer is yes, add focused regression coverage for a real continuous EVA 
 - the deliberate `0.5 s` crash-coalescing window before the breakup branchpoint exists
 - explosion FX being tied to ghost terminal/past-end destruction timing instead of the earliest impact-aligned sample
 
-**Fix direction:** Capture a focused debris-impact bundle and compare three times for the same fragment: trajectory impact/contact, breakup branchpoint UT, and `Triggering explosion for ghost ...` log time. If the delay is confirmed, consider keeping the coalescer for branch classification while moving the FX timing closer to the first impact-aligned sample, or reducing/special-casing the coalescing window for simple crash playback.
+**Fix implemented:** Destroyed debris playback now resolves an earlier explosion UT from the earliest eligible recorded `PartEventType.Destroyed` and completes the debris ghost there instead of waiting for `EndUT`. Flight and KSC playback both use the same helper, while breakup coalescing/classification timing remains unchanged.
 
-**Status:** Open
+**Status:** Fixed in PR `#241`
 
 ---
 
