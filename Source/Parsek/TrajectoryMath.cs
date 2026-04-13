@@ -130,6 +130,58 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Map-view policy helper: return the active orbit segment for the given UT plus
+        /// the visible time bounds to use for map-line/icon continuity. During a same-body
+        /// gap, the previous segment remains the active orbit and visibility extends until
+        /// the next segment starts so the ghost ProtoVessel does not disappear mid-SOI.
+        /// </summary>
+        internal static bool TryGetOrbitSegmentForMapDisplay(
+            List<OrbitSegment> segments, double ut,
+            out OrbitSegment segment, out double visibleStartUT, out double visibleEndUT)
+        {
+            segment = default(OrbitSegment);
+            visibleStartUT = 0;
+            visibleEndUT = 0;
+
+            OrbitSegment? current = FindOrbitSegment(segments, ut);
+            if (current.HasValue)
+            {
+                segment = current.Value;
+                visibleStartUT = current.Value.startUT;
+                visibleEndUT = current.Value.endUT;
+                return true;
+            }
+
+            if (segments == null || segments.Count < 2)
+                return false;
+
+            OrbitSegment? previous = null;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment candidate = segments[i];
+                if (candidate.endUT <= ut)
+                {
+                    previous = candidate;
+                    continue;
+                }
+
+                if (!previous.HasValue || candidate.startUT <= ut)
+                    return false;
+
+                if (string.IsNullOrEmpty(previous.Value.bodyName)
+                    || !string.Equals(previous.Value.bodyName, candidate.bodyName, System.StringComparison.Ordinal))
+                    return false;
+
+                segment = previous.Value;
+                visibleStartUT = previous.Value.startUT;
+                visibleEndUT = candidate.startUT;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Map-view policy helper: return the active orbit segment for the given UT, or
         /// carry the immediately preceding segment across a gap when the next segment stays
         /// in the same SOI/body. This avoids fragmenting ghost orbit lines across brief
@@ -137,31 +189,10 @@ namespace Parsek
         /// </summary>
         internal static OrbitSegment? FindOrbitSegmentForMapDisplay(List<OrbitSegment> segments, double ut)
         {
-            OrbitSegment? current = FindOrbitSegment(segments, ut);
-            if (current.HasValue || segments == null || segments.Count < 2)
-                return current;
-
-            OrbitSegment? previous = null;
-            for (int i = 0; i < segments.Count; i++)
-            {
-                OrbitSegment segment = segments[i];
-                if (segment.endUT <= ut)
-                {
-                    previous = segment;
-                    continue;
-                }
-
-                if (!previous.HasValue || segment.startUT <= ut)
-                    return null;
-
-                return string.IsNullOrEmpty(previous.Value.bodyName)
-                    ? (OrbitSegment?)null
-                    : (string.Equals(previous.Value.bodyName, segment.bodyName, System.StringComparison.Ordinal)
-                        ? previous
-                        : (OrbitSegment?)null);
-            }
-
-            return null;
+            return TryGetOrbitSegmentForMapDisplay(segments, ut,
+                out OrbitSegment segment, out _, out _)
+                ? (OrbitSegment?)segment
+                : null;
         }
 
         /// <summary>

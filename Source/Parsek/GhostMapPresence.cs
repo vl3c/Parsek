@@ -987,6 +987,38 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolve the visible orbit time window for a ghost vessel at the current UT.
+        /// Recording-index ghosts use dynamic same-body gap carry; other segment-based
+        /// ghosts fall back to their stored bounds.
+        /// </summary>
+        internal static bool TryGetVisibleOrbitBoundsForGhostVessel(
+            uint vesselPid, double currentUT, out double startUT, out double endUT)
+        {
+            startUT = 0;
+            endUT = 0;
+
+            int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex >= 0
+                && committed != null
+                && recordingIndex < committed.Count
+                && committed[recordingIndex].HasOrbitSegments
+                && TrajectoryMath.TryGetOrbitSegmentForMapDisplay(
+                    committed[recordingIndex].OrbitSegments, currentUT,
+                    out _, out startUT, out endUT))
+                return true;
+
+            if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
+            {
+                startUT = bounds.startUT;
+                endUT = bounds.endUT;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()

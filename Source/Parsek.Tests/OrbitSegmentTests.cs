@@ -184,6 +184,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetOrbitSegmentForMapDisplay_UTInSameBodyGap_ExtendsVisibleWindowToNextStart()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Kerbin")
+            };
+
+            bool found = TrajectoryMath.TryGetOrbitSegmentForMapDisplay(
+                segments, 220, out OrbitSegment segment, out double visibleStartUT, out double visibleEndUT);
+
+            Assert.True(found);
+            Assert.Equal(100, segment.startUT);
+            Assert.Equal(100, visibleStartUT);
+            Assert.Equal(240, visibleEndUT);
+        }
+
+        [Fact]
         public void FindOrbitSegmentForMapDisplay_UTInDifferentBodyGap_ReturnsNull()
         {
             var segments = new List<OrbitSegment>
@@ -195,6 +213,24 @@ namespace Parsek.Tests
             var result = TrajectoryMath.FindOrbitSegmentForMapDisplay(segments, 220);
 
             Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryGetOrbitSegmentForMapDisplay_UTInDifferentBodyGap_ReturnsFalse()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Mun")
+            };
+
+            bool found = TrajectoryMath.TryGetOrbitSegmentForMapDisplay(
+                segments, 220, out OrbitSegment segment, out double visibleStartUT, out double visibleEndUT);
+
+            Assert.False(found);
+            Assert.Equal(default(OrbitSegment), segment);
+            Assert.Equal(0, visibleStartUT);
+            Assert.Equal(0, visibleEndUT);
         }
 
         [Fact]
