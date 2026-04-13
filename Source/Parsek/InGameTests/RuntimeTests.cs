@@ -937,6 +937,19 @@ namespace Parsek.InGameTests
     /// </summary>
     public class SaveLoadTests
     {
+        private bool liveScenarioRoundTripMutatedSession;
+
+        [InGameTeardown]
+        private void CleanupLiveScenarioRoundTrip()
+        {
+            if (!liveScenarioRoundTripMutatedSession)
+                return;
+
+            Helpers.SyntheticScenarioLoadHelpers.CleanupFlightRuntime(
+                "SaveLoadTests live OnSave/OnLoad round-trip");
+            liveScenarioRoundTripMutatedSession = false;
+        }
+
         [InGameTest(Category = "SaveLoad",
             Description = "RecordingPaths.EnsureRecordingsDirectory creates/resolves the dir")]
         public void RecordingsDirectoryExists()
@@ -968,10 +981,12 @@ namespace Parsek.InGameTests
                 "ParsekScenario should be active (ScenarioModule loaded)");
         }
 
-        [InGameTest(Category = "SaveLoad",
+        [InGameTest(Category = "SaveLoad", RunLast = true,
             Description = "Recording count survives ConfigNode round-trip through ParsekScenario")]
         public void ScenarioRoundTripPreservesCount()
         {
+            Helpers.SyntheticScenarioLoadHelpers.EnsureRoundTripSafeToRun();
+
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             if (scenario == null)
             {
@@ -986,6 +1001,7 @@ namespace Parsek.InGameTests
             scenario.OnSave(saveNode);
 
             // Deserialize back
+            liveScenarioRoundTripMutatedSession = true;
             scenario.OnLoad(saveNode);
             int afterCount = RecordingStore.CommittedRecordings.Count;
 

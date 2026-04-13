@@ -57,8 +57,12 @@ namespace Parsek.InGameTests.Helpers
                     yield break;
                 yield return null;
             }
-            ParsekLog.Warn("TestHelper",
-                $"WaitForFlightReady: timed out after {timeoutSeconds:F0}s");
+            string activeVesselName = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.vesselName
+                : "null";
+            InGameAssert.IsTrue(false,
+                $"WaitForFlightReady timed out after {timeoutSeconds:F0}s " +
+                $"(scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, activeVessel={activeVesselName})");
         }
 
         /// <summary>
@@ -74,8 +78,13 @@ namespace Parsek.InGameTests.Helpers
                     yield break;
                 yield return null;
             }
-            ParsekLog.Warn("TestHelper",
-                $"WaitForActiveRecording: timed out after {timeoutSeconds:F0}s");
+            var flight = ParsekFlight.Instance;
+            string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId ?? "null";
+            InGameAssert.IsTrue(false,
+                $"WaitForActiveRecording timed out after {timeoutSeconds:F0}s " +
+                $"(scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, " +
+                $"parsekFlight={(flight != null)}, isRecording={flight?.IsRecording == true}, " +
+                $"hasActiveTree={flight?.HasActiveTree == true}, activeRecordingId={activeRecId})");
         }
     }
 }
