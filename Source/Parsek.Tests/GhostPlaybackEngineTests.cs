@@ -56,6 +56,60 @@ namespace Parsek.Tests
             field.SetValue(target, list);
         }
 
+        private sealed class SpawnPrimingPositioner : IGhostPositioner
+        {
+            internal int InterpolateCalls;
+            internal double LastUT;
+            internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                InterpolateCalls++;
+                LastUT = ut;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+            {
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point)
+            {
+            }
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state)
+            {
+            }
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut)
+            {
+            }
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache()
+            {
+            }
+        }
+
         // ===================================================================
         // ShouldLoopPlayback — static, pure predicate
         // ===================================================================
@@ -1126,6 +1180,29 @@ namespace Parsek.Tests
             engine.ghostStates[0] = new GhostPlaybackState();
             engine.ghostStates[3] = new GhostPlaybackState();
             Assert.Equal(0, engine.GhostCount);
+        }
+
+        [Fact]
+        public void SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+
+            engine.SpawnGhost(0, traj, 150);
+
+            Assert.True(engine.TryGetGhostState(0, out var state));
+            Assert.NotNull(state);
+            Assert.NotNull(state.ghost);
+            Assert.Equal(1, positioner.InterpolateCalls);
+            Assert.Equal(150.0, positioner.LastUT);
+            Assert.Equal(positioner.PrimedPosition, state.ghost.transform.position);
+            Assert.Equal("Kerbin", state.lastInterpolatedBodyName);
+            Assert.Equal(123.0, state.lastInterpolatedAltitude);
+            Assert.False(state.ghost.activeSelf);
+            Assert.True(state.deferVisibilityUntilPlaybackSync);
+
+            UnityEngine.Object.DestroyImmediate(state.ghost);
         }
 
         #endregion

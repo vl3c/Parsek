@@ -453,7 +453,7 @@ namespace Parsek
 
             if (state == null)
             {
-                SpawnGhost(i, traj);
+                SpawnGhost(i, traj, ctx.currentUT);
                 ghostStates.TryGetValue(i, out state);
                 ghostActive = HasLoadedGhostVisuals(state);
                 if (ghostActive)
@@ -762,7 +762,7 @@ namespace Parsek
 
             if (state == null)
             {
-                SpawnGhost(index, traj);
+                SpawnGhost(index, traj, loopUT);
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
                     return;
                 state.loopCycleIndex = cycleIndex;
@@ -864,6 +864,9 @@ namespace Parsek
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
+            double primaryCycleStartUT = traj.StartUT + lastCycle * cycleDuration;
+            double primaryPhase = Math.Max(0, Math.Min(ctx.currentUT - primaryCycleStartUT, duration));
+            double primaryLoopUT = traj.StartUT + primaryPhase;
 
             if (primaryCycleChanged)
             {
@@ -879,7 +882,7 @@ namespace Parsek
                 }
 
                 // Spawn new primary for lastCycle
-                SpawnGhost(index, traj);
+                SpawnGhost(index, traj, primaryLoopUT);
                 if (!ghostStates.TryGetValue(index, out primaryState) || primaryState == null)
                 {
                     ParsekLog.Warn("Engine",
@@ -915,31 +918,28 @@ namespace Parsek
             if (primaryState != null)
             {
                 bool primaryReady = true;
-                double cycleStartUT = traj.StartUT + lastCycle * cycleDuration;
-                double phase = Math.Max(0, Math.Min(ctx.currentUT - cycleStartUT, duration));
-                double loopUT = traj.StartUT + phase;
                 double primaryDistance = ResolvePlaybackDistance(
-                    index, traj, primaryState, loopUT, ctx.activeVesselPos);
+                    index, traj, primaryState, primaryLoopUT, ctx.activeVesselPos);
                 var zoneResult = positioner.ApplyZoneRendering(
                     index, primaryState, traj, primaryDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
                     HandleHiddenGhostVisualState(
-                        index, traj, primaryState, loopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
+                        index, traj, primaryState, primaryLoopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
                         hiddenReason: $"overlap primary hidden by distance LOD at {primaryDistance:F0}m");
                 }
                 else
                 {
                     if (!HasLoadedGhostVisuals(primaryState)
-                        && !EnsureGhostVisualsLoaded(index, traj, primaryState, loopUT, "overlap primary re-entered visible distance tier"))
+                        && !EnsureGhostVisualsLoaded(index, traj, primaryState, primaryLoopUT, "overlap primary re-entered visible distance tier"))
                         primaryReady = false;
 
                     if (primaryReady)
                     {
                         GhostPlaybackLogic.ApplyDistanceLodFidelity(primaryState, zoneResult.reduceFidelity);
                         bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                        positioner.PositionLoop(index, traj, primaryState, loopUT, effectiveSuppressVisualFx);
-                        ApplyFrameVisuals(index, traj, primaryState, loopUT, ctx.warpRate,
+                        positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
+                        ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
                             zoneResult.skipPartEvents, effectiveSuppressVisualFx);
                         ActivateGhostVisualsIfNeeded(primaryState);
                     }
@@ -1692,7 +1692,7 @@ namespace Parsek
         /// Builds the ghost mesh from the snapshot, or falls back to a sphere.
         /// Populates all ghost info dictionaries and reentry FX.
         /// </summary>
-        internal void SpawnGhost(int index, IPlaybackTrajectory traj)
+        internal void SpawnGhost(int index, IPlaybackTrajectory traj, double playbackUT)
         {
             // Debris with no snapshot would produce a distracting green sphere — skip entirely (#232)
             if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
@@ -1713,6 +1713,7 @@ namespace Parsek
             if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out string buildType))
                 return;
 
+            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
             GhostPlaybackLogic.InitializeFlagVisibility(traj, state);
             ghostStates[index] = state;
 
@@ -1876,13 +1877,13 @@ namespace Parsek
             if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out string buildType))
                 return false;
 
-            RehydrateGhostVisualState(index, traj, state, playbackUT);
+            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
             ParsekLog.VerboseRateLimited("Engine", $"rebuild-{index}",
                 $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType}, {reason})", 1.0);
             return HasLoadedGhostVisuals(state);
         }
 
-        private static void RehydrateGhostVisualState(
+        private void PrimeLoadedGhostForPlaybackUT(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
             if (state?.ghost == null)
@@ -1890,7 +1891,11 @@ namespace Parsek
 
             state.playbackIndex = 0;
             state.partEventIndex = 0;
-            GhostPlaybackLogic.ApplyPartEvents(index, traj, playbackUT, state, allowTransientEffects: false);
+            PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+            ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
+            if (state.ghost.activeSelf)
+                state.ghost.SetActive(false);
         }
 
         private void SynchronizeLoadedGhostForWatch(
