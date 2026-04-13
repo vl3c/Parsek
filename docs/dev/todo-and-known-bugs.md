@@ -703,6 +703,35 @@ The debris-only watch-protection lineage introduced for `#316` remains separate.
 
 ---
 
+## ~~340. Manual W watch switches reset the camera to the default ghost-entry angle~~
+
+**Observed in:** `logs/2026-04-13_2136/` during the Kerbal X / EVA watch-switch repro in flight mode. User report: switching between active `W` watch targets (vessel, EVA kerbal, later continuation) reset the ghost camera to a default under/overhead angle instead of keeping the previous relative watch angle around the new ghost.
+
+**Collected evidence from the bundle:**
+
+- Automatic watch handoff already preserved the current watch camera state:
+  - `TransferWatch re-target: ghost #10 "Kerbal X" ... target='horizonProxy' ... camDist=75.0`
+  - `TransferWatch re-target: ghost #13 "Kerbal X" ... target='horizonProxy' ... camDist=82.9`
+- Manual row/group `W` retargets did not. Every manual switch logged a fresh `EnterWatchMode` on `cameraPivot` at the hard-coded entry distance:
+  - `Switching watch from #16 to #14 "Bill Kerman"`
+  - `EnterWatchMode: ghost #14 "Bill Kerman" target='cameraPivot' ... camDist=50.0`
+  - `Watch camera auto-switched to HorizonLocked (alt=289m, body=Kerbin)`
+  - the same pattern repeated for `#14 -> #11`, `#11 -> #16`, and later `#11 -> #19`
+- The reset happened even when the source watch was already horizon-locked and already using a non-default distance, which ruled out button-eligibility or same-body checks as the primary cause.
+
+**Impact:** Manual ghost-to-ghost retargeting visibly snapped the camera to the default entry framing before the new target's mode settled, making watch mode feel inconsistent with its own automatic continuation handoff. The problem was especially obvious when switching between vessel and EVA ghosts because their `cameraPivot` / `horizonProxy` rotations differ.
+
+**Root cause:** `EnterWatchMode()` treated every manual `W` retarget as a brand-new watch entry. On switch it called `ExitWatchMode(skipCameraRestore: true)`, then started a fresh watch session that reset the mode state to `Free`, rebound to the raw `cameraPivot`, and forced `FlightCamera.SetDistance(50f)`. Unlike `TransferWatchToNextSegment()`, it did **not** preserve the current watch orbit, and it did not compensate pitch/heading when the old and new target transforms had different rotations.
+
+**Fix:** Manual watch retarget now snapshots the live watch-camera orbit before tearing down the old target, preserves the original player-camera restore state across repeated ghost-to-ghost switches, resolves the new ghost's effective watch mode, and reapplies the previous orbit to the new target instead of using the default watch-entry framing. The transferred pitch/heading now run through the same target-rotation compensation logic used by watch auto-follow, so `cameraPivot`/`horizonProxy` changes preserve world-facing direction instead of snapping when the target basis changes. Added coverage for:
+
+- watch-switch mode resolution with and without explicit `V`-toggle override
+- transferred watch-angle compensation preserving world direction across target-rotation changes
+
+**Status:** Fixed in PR `#267`
+
+---
+
 ## ~~326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits~~
 
 **Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.

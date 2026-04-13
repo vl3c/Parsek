@@ -333,5 +333,44 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void ResolveSwitchCameraMode_AutoMode_ChoosesHorizonLock()
+        {
+            WatchCameraMode result = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.Free,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 289);
+
+            Assert.Equal(WatchCameraMode.HorizonLocked, result);
+        }
+
+        [Fact]
+        public void ResolveSwitchCameraMode_AutoMode_ChoosesFreeAboveAtmosphere()
+        {
+            WatchCameraMode result = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.HorizonLocked,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000);
+
+            Assert.Equal(WatchCameraMode.Free, result);
+        }
+
+        [Fact]
+        public void ResolveSwitchCameraMode_UserOverride_KeepsExplicitMode()
+        {
+            WatchCameraMode result = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.Free,
+                userModeOverride: true,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 150);
+
+            Assert.Equal(WatchCameraMode.Free, result);
+        }
+
     }
 }
