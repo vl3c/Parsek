@@ -519,12 +519,14 @@ namespace Parsek
                 // reentryFxInfo intentionally null — RebuildReentryMeshes no-ops
                 playbackIndex = 0,
                 partEventIndex = 0,
-                partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot)
+                partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot),
+                logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot)
             };
 
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
 
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
+            GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
 
             // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
             GhostPlaybackLogic.InitializeFlagVisibility(rec, state);

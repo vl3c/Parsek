@@ -19,6 +19,7 @@ namespace Parsek
         public int partEventIndex;
         public long loopCycleIndex = -1;
         public Dictionary<uint, List<uint>> partTree;
+        public HashSet<uint> logicalPartIds;
         public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
         public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
@@ -36,6 +37,7 @@ namespace Parsek
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
         public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
         public Dictionary<uint, FairingGhostInfo> fairingInfos;
+        public List<CompoundPartGhostInfo> compoundPartInfos;
         public Dictionary<uint, GameObject> fakeCanopies;
         public ReentryFxInfo reentryFxInfo;
         public MaterialPropertyBlock reentryMpb; // per-ghost to avoid shared-state bugs with overlapping ghosts
@@ -76,6 +78,7 @@ namespace Parsek
             lightPlaybackStates = null;
             colorChangerInfos = null;
             fairingInfos = null;
+            compoundPartInfos = null;
             fakeCanopies = null;
             reentryFxInfo = null;
             reentryMpb = null;

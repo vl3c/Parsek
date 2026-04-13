@@ -314,6 +314,7 @@ namespace Parsek
             var collectedRcsInfos = new List<RcsGhostInfo>();
             var collectedRoboticInfos = new List<RoboticGhostInfo>();
             var collectedColorChangerInfos = new List<ColorChangerGhostInfo>();
+            var collectedCompoundPartInfos = new List<CompoundPartGhostInfo>();
             var collectedAudioInfos = new List<AudioGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
@@ -354,6 +355,7 @@ namespace Parsek
                 List<RcsGhostInfo> partRcsInfos;
                 List<RoboticGhostInfo> partRoboticInfos;
                 List<ColorChangerGhostInfo> partColorChangerInfos;
+                CompoundPartGhostInfo compoundPartInfo;
                 bool raiseLightVisualOnly =
                     !string.IsNullOrEmpty(rec.VesselName) &&
                     rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
@@ -363,7 +365,7 @@ namespace Parsek
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                     out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
-                    out partRcsInfos, out partRoboticInfos, out partColorChangerInfos,
+                    out partRcsInfos, out partRoboticInfos, out partColorChangerInfos, out compoundPartInfo,
                     raiseLightVisualOnly, raiseRcsVisualOnly);
                 if (partVisualAdded)
                     visualCount++;
@@ -393,6 +395,8 @@ namespace Parsek
                     collectedRoboticInfos.AddRange(partRoboticInfos);
                 if (partColorChangerInfos != null)
                     collectedColorChangerInfos.AddRange(partColorChangerInfos);
+                if (compoundPartInfo != null)
+                    collectedCompoundPartInfos.Add(compoundPartInfo);
 
                 // Build audio sources for engines and RCS on this part
                 var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, root);
@@ -427,6 +431,7 @@ namespace Parsek
                 rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null,
                 roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null,
                 colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null,
+                compoundPartInfos = collectedCompoundPartInfos.Count > 0 ? collectedCompoundPartInfos : null,
                 audioInfos = collectedAudioInfos.Count > 0 ? collectedAudioInfos : null,
                 oneShotAudio = BuildOneShotAudioSource(root),
             };
@@ -659,6 +664,27 @@ namespace Parsek
             }
 
             return map;
+        }
+
+        internal static HashSet<uint> BuildSnapshotPartIdSet(ConfigNode snapshotNode)
+        {
+            var ids = new HashSet<uint>();
+            if (snapshotNode == null) return ids;
+
+            var partNodes = snapshotNode.GetNodes("PART");
+            if (partNodes == null || partNodes.Length == 0) return ids;
+
+            for (int i = 0; i < partNodes.Length; i++)
+            {
+                string pidStr = partNodes[i].GetValue("persistentId");
+                uint persistentId;
+                if (pidStr != null &&
+                    uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId) &&
+                    persistentId != 0)
+                    ids.Add(persistentId);
+            }
+
+            return ids;
         }
 
         /// <summary>
@@ -5110,6 +5136,11 @@ namespace Parsek
                 data.targetRot = Quaternion.identity;
             }
 
+            string targetPidStr = partData.GetValue("tpersID");
+            if (targetPidStr != null)
+                uint.TryParse(targetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out data.targetPersistentId);
+
             // Read transform names from CModuleLinkedMesh part config (varies: fuel line
             // uses obj_line, strut uses obj_strut).
             if (partConfig != null)
@@ -5135,7 +5166,7 @@ namespace Parsek
         /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
         /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
         /// </summary>
-        private static void TryFixupCompoundPartVisuals(
+        private static CompoundPartGhostInfo TryFixupCompoundPartVisuals(
             Part prefab, ConfigNode partNode, Transform partRoot,
             Dictionary<Transform, Transform> cloneMap,
             uint persistentId, string partName)
@@ -5143,7 +5174,14 @@ namespace Parsek
             CompoundPartData data;
             if (!TryParseCompoundPartData(partNode, prefab.partInfo?.partConfig,
                     prefab is CompoundPart, persistentId, partName, out data))
-                return;
+                return null;
+
+            var compoundPartInfo = new CompoundPartGhostInfo
+            {
+                partPersistentId = persistentId,
+                targetPersistentId = data.targetPersistentId,
+                partTransform = partRoot
+            };
 
             // Find source transforms on prefab, then look up ghost clones in cloneMap
             Transform srcLine = prefab.FindModelTransform(data.lineObjName);
@@ -5157,7 +5195,7 @@ namespace Parsek
 
             if (ghostLine == null)
             {
-                return;
+                return compoundPartInfo;
             }
 
             // PARTDATA.pos is in compound part local space (= partRoot space).
@@ -5206,6 +5244,8 @@ namespace Parsek
             {
                 ghostLine.gameObject.SetActive(false);
             }
+
+            return compoundPartInfo;
         }
 
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
@@ -5215,7 +5255,7 @@ namespace Parsek
             out HeatGhostInfo heatInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
             out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
-            out List<ColorChangerGhostInfo> colorChangerInfos,
+            out List<ColorChangerGhostInfo> colorChangerInfos, out CompoundPartGhostInfo compoundPartInfo,
             bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
         {
             meshCount = 0;
@@ -5229,6 +5269,7 @@ namespace Parsek
             rcsInfos = null;
             roboticInfos = null;
             colorChangerInfos = null;
+            compoundPartInfo = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle/shroud meshes.
@@ -5438,7 +5479,7 @@ namespace Parsek
 
             // Fix up compound part visuals (fuel lines, struts) — CModuleLinkedMesh
             // normally stretches the line mesh at runtime; ghosts need manual fixup.
-            TryFixupCompoundPartVisuals(prefab, partNode, partRoot.transform,
+            compoundPartInfo = TryFixupCompoundPartVisuals(prefab, partNode, partRoot.transform,
                 cloneMap, persistentId, partName);
 
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
@@ -5583,6 +5624,7 @@ namespace Parsek
 
             if (!added)
             {
+                compoundPartInfo = null;
                 Object.Destroy(partRoot);
                 return false;
             }

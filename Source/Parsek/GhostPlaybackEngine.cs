@@ -1754,9 +1754,10 @@ namespace Parsek
             GhostBuildResult buildResult = null;
             GameObject ghost = null;
             bool builtFromSnapshot = false;
+            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
 
             // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
-            if (GhostVisualBuilder.GetGhostSnapshot(traj) != null)
+            if (snapshot != null)
             {
                 buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                     traj, $"Parsek_Timeline_{index}");
@@ -1780,7 +1781,8 @@ namespace Parsek
             state.ghost = ghost;
             state.cameraPivot = cameraPivotObj.transform;
             state.horizonProxy = horizonProxyObj.transform;
-            state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(GhostVisualBuilder.GetGhostSnapshot(traj));
+            state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
+            state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
 
             if (builtFromSnapshot)
             {
@@ -1794,6 +1796,7 @@ namespace Parsek
 
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
+            GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
 
             state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                 ghost, state.heatInfos, index, traj.VesselName);

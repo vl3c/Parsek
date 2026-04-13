@@ -178,17 +178,17 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 322. Detached one-ended struts should not remain visible after separation
+## ~~322. Detached one-ended struts should not remain visible after separation~~
 
 **Observed in:** breakup/separation playback follow-ups (2026-04-12), including the `s6` separation run. After separation, some struts whose opposite endpoint no longer exists remain visible even though they are only attached to a single surviving part.
 
 **Desired behavior:** A strut should not render once separation leaves it effectively connected to only one part.
 
-**Root cause / hypothesis:** The current ghost visual / part-event path hides decoupled parts, but strut rendering likely does not re-evaluate whether both endpoints still exist after a split. That leaves orphaned visual struts hanging off the surviving vessel.
+**Root cause:** Compound-part ghost build parsed the linked-mesh endpoint pose but did not carry the linked target part PID into playback state. After spawn, separation/destroy/inventory events hid direct part visuals, but compound-part replay never revalidated whether the other endpoint still existed logically, so orphaned strut visuals could remain attached to the surviving vessel.
 
-**Fix direction:** Inspect the ghost visual builder and separation event application for strut/link components. Add a post-separation validity check that hides or destroys struts whose second endpoint is gone, and pin it with a focused playback test.
+**Fix:** Ghost build now records compound-part target persistent IDs and logical part presence, then playback revalidates compound-part visibility both at spawn and after visibility-affecting part events. The runtime path now removes logically missing targets from the presence set on decouple/destroy/inventory removal, restores compound parts only when a later placement makes the link valid again, and includes focused regression coverage for target PID parsing plus compound visibility / subtree-removal decisions.
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 

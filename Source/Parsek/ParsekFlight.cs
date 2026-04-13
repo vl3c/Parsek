@@ -6707,6 +6707,8 @@ namespace Parsek
                         playbackIndex = 0,
                         partEventIndex = 0,
                         partTree = GhostVisualBuilder.BuildPartSubtreeMap(
+                            GhostVisualBuilder.GetGhostSnapshot(previewRecording)),
+                        logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(
                             GhostVisualBuilder.GetGhostSnapshot(previewRecording))
                     };
 
@@ -6715,6 +6717,7 @@ namespace Parsek
                     GhostPlaybackLogic.PopulateGhostInfoDictionaries(previewGhostState, buildResult);
 
                     GhostPlaybackLogic.InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
+                    GhostPlaybackLogic.RefreshCompoundPartVisibility(previewGhostState);
 
                     previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                         ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
