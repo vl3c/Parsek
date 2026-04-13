@@ -97,6 +97,13 @@ namespace Parsek
             public string ChainId;     // for chains
             public int RecIdx;         // for standalone recordings
         }
+
+        internal struct GroupDisplayBlock
+        {
+            public string Key;
+            public string DisplayName;
+            public List<int> Members;
+        }
         private int[] sortedIndices; // maps display row -> CommittedRecordings index
         private int lastSortedCount = -1;
 
@@ -1488,40 +1495,20 @@ namespace Parsek
 
             if (directMembers != null)
             {
-                // Separate chained vs standalone within this group
-                var chainsInGrp = new HashSet<string>();
-                var standaloneInGrp = new List<int>();
-
-                for (int i = 0; i < directMembers.Count; i++)
+                var displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
+                for (int i = 0; i < displayBlocks.Count; i++)
                 {
-                    int ri = directMembers[i];
-                    var rec = committed[ri];
-                    if (!string.IsNullOrEmpty(rec.ChainId))
-                        chainsInGrp.Add(rec.ChainId);
-                    else
-                        standaloneInGrp.Add(ri);
-                }
+                    var block = displayBlocks[i];
+                    if (block.Members == null || block.Members.Count == 0)
+                        continue;
 
-                // Draw chains within this group
-                var drawnChains = new HashSet<string>();
-                for (int i = 0; i < directMembers.Count; i++)
-                {
-                    var rec = committed[directMembers[i]];
-                    if (!string.IsNullOrEmpty(rec.ChainId) && drawnChains.Add(rec.ChainId))
+                    if (block.Members.Count > 1)
                     {
-                        List<int> fullChain;
-                        if (chainToRecs.TryGetValue(rec.ChainId, out fullChain))
-                        {
-                            if (DrawChainBlock(rec.ChainId, fullChain, depth + 1, committed, now))
-                                return true;
-                        }
+                        if (DrawGroupedRecordingBlock(block.Key, block.DisplayName,
+                            block.Members, depth + 1, committed, now))
+                            return true;
                     }
-                }
-
-                // Draw standalone recordings
-                for (int i = 0; i < standaloneInGrp.Count; i++)
-                {
-                    if (DrawRecordingRow(standaloneInGrp[i], committed, now, (depth + 1) * 15f))
+                    else if (DrawRecordingRow(block.Members[0], committed, now, (depth + 1) * 15f))
                         return true;
                 }
             }
@@ -1547,6 +1534,24 @@ namespace Parsek
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now)
         {
+            string chainName = members.Count > 0 ? committed[members[0]].VesselName : null;
+            return DrawRecordingBlock(chainId, chainName, members, depth,
+                committed, now, chainId, "Chain");
+        }
+
+        private bool DrawGroupedRecordingBlock(string blockKey, string blockName, List<int> members, int depth,
+            IReadOnlyList<Recording> committed, double now)
+        {
+            return DrawRecordingBlock(blockKey, blockName, members, depth,
+                committed, now, null, "Block");
+        }
+
+        private bool DrawRecordingBlock(string blockId, string blockName, List<int> members, int depth,
+            IReadOnlyList<Recording> committed, double now, string chainIdForPopup, string logKind)
+        {
+            if (members == null || members.Count == 0)
+                return false;
+
             if (GroupHierarchyStore.HideActive)
             {
                 bool anyVisible = false;
@@ -1559,61 +1564,55 @@ namespace Parsek
 
             GUILayout.BeginHorizontal();
 
-            // Enable checkbox (aggregate over chain members)
-            int chainEnabledCount = 0;
+            int blockEnabledCount = 0;
             for (int m = 0; m < members.Count; m++)
-                if (committed[members[m]].PlaybackEnabled) chainEnabledCount++;
-            bool chainAllEnabled = members.Count > 0 && chainEnabledCount == members.Count;
-            bool chainNewEnabled = GUILayout.Toggle(chainAllEnabled, "", GUILayout.Width(ColW_Enable));
-            if (chainNewEnabled != chainAllEnabled)
+                if (committed[members[m]].PlaybackEnabled) blockEnabledCount++;
+            bool blockAllEnabled = members.Count > 0 && blockEnabledCount == members.Count;
+            bool blockNewEnabled = GUILayout.Toggle(blockAllEnabled, "", GUILayout.Width(ColW_Enable));
+            if (string.IsNullOrEmpty(blockName)) blockName = logKind;
+            string logId = !string.IsNullOrEmpty(chainIdForPopup) ? chainIdForPopup : blockName;
+            if (blockNewEnabled != blockAllEnabled)
             {
                 for (int m = 0; m < members.Count; m++)
-                    committed[members[m]].PlaybackEnabled = chainNewEnabled;
-                ParsekLog.Info("UI", $"Chain '{chainId}' playback set to {chainNewEnabled} ({members.Count} segments)");
+                    committed[members[m]].PlaybackEnabled = blockNewEnabled;
+                ParsekLog.Info("UI", $"{logKind} '{logId}' playback set to {blockNewEnabled} ({members.Count} recordings)");
             }
 
             GUILayout.Space(ColW_Index);
 
-            // Indent inside Name column for chains in sub-groups
             if (indent > 0f) GUILayout.Space(indent);
 
-            bool expanded = expandedChains.Contains(chainId);
+            bool expanded = expandedChains.Contains(blockId);
             string arrow = expanded ? "\u25bc" : "\u25b6";
-            string chainName = committed[members[0]].VesselName;
-            if (string.IsNullOrEmpty(chainName)) chainName = "Chain";
 
-            double chainStart = double.MaxValue, chainEnd = double.MinValue;
+            double blockStart = double.MaxValue, blockEnd = double.MinValue;
             for (int m = 0; m < members.Count; m++)
             {
                 var mr = committed[members[m]];
-                if (mr.StartUT < chainStart) chainStart = mr.StartUT;
-                if (mr.EndUT > chainEnd) chainEnd = mr.EndUT;
+                if (mr.StartUT < blockStart) blockStart = mr.StartUT;
+                if (mr.EndUT > blockEnd) blockEnd = mr.EndUT;
             }
 
-            if (GUILayout.Button($"{arrow} {chainName} ({members.Count})",
+            if (GUILayout.Button($"{arrow} {blockName} ({members.Count})",
                 GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
-                if (expanded) expandedChains.Remove(chainId);
-                else expandedChains.Add(chainId);
-                ParsekLog.Verbose("UI", $"Chain '{chainName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} segments)");
+                if (expanded) expandedChains.Remove(blockId);
+                else expandedChains.Add(blockId);
+                ParsekLog.Verbose("UI",
+                    $"{logKind} '{blockName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} recordings)");
             }
 
-            // Phase placeholder (chains have no single phase)
             GUILayout.Label("", GUILayout.Width(ColW_Phase));
 
-            // Site (first member's launch site)
-            string chainSite = members.Count > 0 ? committed[members[0]].LaunchSiteName : null;
-            GUILayout.Label(chainSite ?? "", GUILayout.Width(ColW_Site));
+            string blockSite = committed[members[0]].LaunchSiteName;
+            GUILayout.Label(blockSite ?? "", GUILayout.Width(ColW_Site));
 
-            // Launch time (earliest among chain members)
-            GUILayout.Label(chainStart < double.MaxValue
-                ? KSPUtil.PrintDateCompact(chainStart, true) : "-",
+            GUILayout.Label(blockStart < double.MaxValue
+                ? KSPUtil.PrintDateCompact(blockStart, true) : "-",
                 GUILayout.Width(ColW_Launch));
 
-            // Duration (total span)
-            GUILayout.Label(FormatDuration(chainEnd - chainStart), GUILayout.Width(ColW_Dur));
+            GUILayout.Label(FormatDuration(blockEnd - blockStart), GUILayout.Width(ColW_Dur));
 
-            // Expanded stats spacers
             if (showExpandedStats)
             {
                 GUILayout.Label("", GUILayout.Width(ColW_MaxAlt));
@@ -1624,44 +1623,42 @@ namespace Parsek
                 GUILayout.Label("", GUILayout.Width(ColW_EndPos));
             }
 
-            // Status (closest active among chain members)
-            string chainStatusText;
-            int chainStatusOrder;
-            GetChainStatus(members, committed, now, out chainStatusText, out chainStatusOrder);
-            GUIStyle chainStatusStyle = chainStatusOrder == 0 ? statusStyleFuture
-                : chainStatusOrder == 1 ? statusStyleActive
+            string blockStatusText;
+            int blockStatusOrder;
+            GetChainStatus(members, committed, now, out blockStatusText, out blockStatusOrder);
+            GUIStyle blockStatusStyle = blockStatusOrder == 0 ? statusStyleFuture
+                : blockStatusOrder == 1 ? statusStyleActive
                 : statusStylePast;
-            GUILayout.Label(chainStatusText, chainStatusStyle, GUILayout.Width(ColW_Status));
+            GUILayout.Label(blockStatusText, blockStatusStyle, GUILayout.Width(ColW_Status));
 
-            // Chain G button takes the full ColW_Group width since chain blocks have
-            // no X (disband) button — chain segments must stay grouped to preserve
-            // tree lineage and rewind anchors. Matches the per-recording row layout
-            // where G also fills ColW_Group.
+            // Aggregated blocks expose group assignment but no disband button.
             if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
             {
                 var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                groupPicker.OpenForChain(chainId, mousePos);
-                ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
+                if (!string.IsNullOrEmpty(chainIdForPopup))
+                    groupPicker.OpenForChain(chainIdForPopup, mousePos);
+                else
+                    groupPicker.OpenForRecordings(members, mousePos);
+                ParsekLog.Verbose("UI", $"Group popup opened for {logKind.ToLowerInvariant()} '{blockName}'");
             }
 
-            // Loop checkbox (aggregate over chain members)
-            int chainLoopCount = 0;
+            int blockLoopCount = 0;
             for (int m = 0; m < members.Count; m++)
-                if (committed[members[m]].LoopPlayback) chainLoopCount++;
-            bool chainAllLoop = members.Count > 0 && chainLoopCount == members.Count;
+                if (committed[members[m]].LoopPlayback) blockLoopCount++;
+            bool blockAllLoop = members.Count > 0 && blockLoopCount == members.Count;
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
             GUILayout.FlexibleSpace();
-            bool chainNewLoop = GUILayout.Toggle(chainAllLoop, "");
+            bool blockNewLoop = GUILayout.Toggle(blockAllLoop, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-            if (chainNewLoop != chainAllLoop)
+            if (blockNewLoop != blockAllLoop)
             {
                 for (int m = 0; m < members.Count; m++)
                 {
-                    committed[members[m]].LoopPlayback = chainNewLoop;
-                    ApplyAutoLoopRange(committed[members[m]], chainNewLoop);
+                    committed[members[m]].LoopPlayback = blockNewLoop;
+                    ApplyAutoLoopRange(committed[members[m]], blockNewLoop);
                 }
-                ParsekLog.Info("UI", $"Chain '{chainId}' loop set to {chainNewLoop} ({members.Count} segments)");
+                ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({members.Count} recordings)");
             }
             GUILayout.Label("", GUILayout.Width(ColW_Period));
             if (parentUI.InFlightMode) GUILayout.Label("", GUILayout.Width(ColW_Watch));
@@ -2583,6 +2580,125 @@ namespace Parsek
             for (int i = 0; i < members.Count; i++)
                 chainStatusBuffer.Add(members[i]);
             GetGroupStatus(chainStatusBuffer, committed, now, out statusText, out statusOrder);
+        }
+
+        private static string GetGroupDisplayIdentity(Recording rec)
+        {
+            if (rec == null) return null;
+
+            if (!string.IsNullOrEmpty(rec.TreeId) && rec.VesselPersistentId != 0)
+                return $"treevessel:{rec.TreeId}:{rec.VesselPersistentId}";
+            if (!string.IsNullOrEmpty(rec.ChainId))
+                return $"chain:{rec.ChainId}";
+            return null;
+        }
+
+        private static void AddDisplayBlockMember(List<int> members, int ri)
+        {
+            if (!members.Contains(ri))
+                members.Add(ri);
+        }
+
+        private static void AddDisplayBlockMembers(List<int> members, List<int> additions)
+        {
+            if (additions == null) return;
+            for (int i = 0; i < additions.Count; i++)
+                AddDisplayBlockMember(members, additions[i]);
+        }
+
+        private static string ResolveGroupDisplayBlockName(List<int> members, IReadOnlyList<Recording> committed)
+        {
+            for (int i = 0; i < members.Count; i++)
+            {
+                int ri = members[i];
+                if (ri < 0 || ri >= committed.Count) continue;
+                string vesselName = committed[ri].VesselName;
+                if (!string.IsNullOrEmpty(vesselName))
+                    return vesselName;
+            }
+
+            return "Recording";
+        }
+
+        internal static List<GroupDisplayBlock> BuildGroupDisplayBlocks(
+            string groupName,
+            List<int> directMembers,
+            IReadOnlyList<Recording> committed,
+            Dictionary<string, List<int>> chainToRecs)
+        {
+            var blocks = new List<GroupDisplayBlock>();
+            if (directMembers == null || committed == null)
+                return blocks;
+
+            var membersByKey = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            for (int i = 0; i < directMembers.Count; i++)
+            {
+                int ri = directMembers[i];
+                if (ri < 0 || ri >= committed.Count)
+                    continue;
+
+                var rec = committed[ri];
+                string identity = GetGroupDisplayIdentity(rec);
+                if (string.IsNullOrEmpty(identity))
+                    continue;
+
+                string blockKey = (groupName ?? "") + "::" + identity;
+                if (!membersByKey.TryGetValue(blockKey, out List<int> members))
+                {
+                    members = new List<int>();
+                    membersByKey[blockKey] = members;
+                }
+
+                AddDisplayBlockMember(members, ri);
+
+                // Preserve existing grouped-chain visibility: if one row in a group
+                // belongs to a chain, render the whole chain inside that block.
+                if (!string.IsNullOrEmpty(rec.ChainId)
+                    && chainToRecs != null
+                    && chainToRecs.TryGetValue(rec.ChainId, out List<int> fullChain))
+                {
+                    AddDisplayBlockMembers(members, fullChain);
+                }
+            }
+
+            var emitted = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < directMembers.Count; i++)
+            {
+                int ri = directMembers[i];
+                if (ri < 0 || ri >= committed.Count)
+                    continue;
+
+                var rec = committed[ri];
+                string identity = GetGroupDisplayIdentity(rec);
+                string blockKey = !string.IsNullOrEmpty(identity)
+                    ? (groupName ?? "") + "::" + identity
+                    : null;
+
+                if (!string.IsNullOrEmpty(blockKey)
+                    && membersByKey.TryGetValue(blockKey, out List<int> members)
+                    && members.Count > 1)
+                {
+                    if (emitted.Add(blockKey))
+                    {
+                        blocks.Add(new GroupDisplayBlock
+                        {
+                            Key = blockKey,
+                            DisplayName = ResolveGroupDisplayBlockName(members, committed),
+                            Members = new List<int>(members)
+                        });
+                    }
+                    continue;
+                }
+
+                blocks.Add(new GroupDisplayBlock
+                {
+                    Key = (groupName ?? "") + "::rec:" + ri.ToString(CultureInfo.InvariantCulture),
+                    DisplayName = rec.VesselName,
+                    Members = new List<int> { ri }
+                });
+            }
+
+            return blocks;
         }
 
         /// <summary>

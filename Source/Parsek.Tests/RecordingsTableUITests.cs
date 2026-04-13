@@ -54,6 +54,20 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static Recording MakeDisplayRec(
+            double startUT, double endUT, string name, string groupName = null,
+            string treeId = null, uint pid = 0, string chainId = null, int chainIndex = -1)
+        {
+            var rec = MakeRec(startUT, endUT, name);
+            rec.TreeId = treeId;
+            rec.VesselPersistentId = pid;
+            rec.ChainId = chainId;
+            rec.ChainIndex = chainIndex;
+            if (groupName != null)
+                rec.RecordingGroups = new List<string> { groupName };
+            return rec;
+        }
+
         // ── PruneStaleWatchEntries (bug #279 follow-up) ──
 
         [Fact]
@@ -852,6 +866,84 @@ namespace Parsek.Tests
                 out var rootGrps, out var rootChainIds);
 
             Assert.DoesNotContain("chain-g", rootChainIds);
+        }
+
+        [Fact]
+        public void BuildGroupDisplayBlocks_TreeVesselMergesStandaloneAndChainSegments()
+        {
+            const string groupName = "Kerbal X";
+            var committed = new List<Recording>
+            {
+                MakeDisplayRec(10, 20, "Kerbal X", groupName, treeId: "tree-kx", pid: 42),
+                MakeDisplayRec(20, 30, "Kerbal X", groupName, treeId: "tree-kx", pid: 42),
+                MakeDisplayRec(30, 40, "Kerbal X", groupName, treeId: "tree-kx", pid: 42),
+                MakeDisplayRec(40, 50, "Kerbal X", groupName, treeId: "tree-kx", pid: 42, chainId: "chain-kx", chainIndex: 0),
+                MakeDisplayRec(50, 60, "Kerbal X", groupName, treeId: "tree-kx", pid: 42, chainId: "chain-kx", chainIndex: 1),
+                MakeDisplayRec(60, 70, "Kerbal X", groupName, treeId: "tree-kx", pid: 42),
+            };
+
+            var blocks = RecordingsTableUI.BuildGroupDisplayBlocks(
+                groupName,
+                new List<int> { 0, 1, 2, 3, 4, 5 },
+                committed,
+                new Dictionary<string, List<int>>
+                {
+                    { "chain-kx", new List<int> { 3, 4 } }
+                });
+
+            var block = Assert.Single(blocks);
+            Assert.Equal("Kerbal X", block.DisplayName);
+            Assert.Equal(new[] { 0, 1, 2, 3, 4, 5 }, block.Members);
+        }
+
+        [Fact]
+        public void BuildGroupDisplayBlocks_CrewGroupKeepsSingletonCrewRowsFlat()
+        {
+            const string groupName = "Kerbal X / Crew";
+            var committed = new List<Recording>
+            {
+                MakeDisplayRec(10, 20, "Bob Kerman", groupName, treeId: "tree-kx", pid: 100),
+                MakeDisplayRec(20, 30, "Bill Kerman", groupName, treeId: "tree-kx", pid: 200),
+                MakeDisplayRec(30, 40, "Jebediah Kerman", groupName, treeId: "tree-kx", pid: 300, chainId: "chain-jeb", chainIndex: 0),
+                MakeDisplayRec(40, 50, "Jebediah Kerman", groupName, treeId: "tree-kx", pid: 300, chainId: "chain-jeb", chainIndex: 1),
+            };
+
+            var blocks = RecordingsTableUI.BuildGroupDisplayBlocks(
+                groupName,
+                new List<int> { 0, 1, 2, 3 },
+                committed,
+                new Dictionary<string, List<int>>
+                {
+                    { "chain-jeb", new List<int> { 2, 3 } }
+                });
+
+            Assert.Equal(3, blocks.Count);
+            Assert.Equal(new[] { 0 }, blocks[0].Members);
+            Assert.Equal(new[] { 1 }, blocks[1].Members);
+            Assert.Equal(new[] { 2, 3 }, blocks[2].Members);
+        }
+
+        [Fact]
+        public void BuildGroupDisplayBlocks_GroupedChainKeepsFullChainVisible()
+        {
+            const string groupName = "Flights";
+            var committed = new List<Recording>
+            {
+                MakeDisplayRec(10, 20, "Seg0", groupName, chainId: "chain-1", chainIndex: 0),
+                MakeDisplayRec(20, 30, "Seg1", chainId: "chain-1", chainIndex: 1),
+            };
+
+            var blocks = RecordingsTableUI.BuildGroupDisplayBlocks(
+                groupName,
+                new List<int> { 0 },
+                committed,
+                new Dictionary<string, List<int>>
+                {
+                    { "chain-1", new List<int> { 0, 1 } }
+                });
+
+            var block = Assert.Single(blocks);
+            Assert.Equal(new[] { 0, 1 }, block.Members);
         }
 
         // ── LaunchSite sorting ──
