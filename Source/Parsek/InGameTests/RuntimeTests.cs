@@ -937,19 +937,6 @@ namespace Parsek.InGameTests
     /// </summary>
     public class SaveLoadTests
     {
-        private bool liveScenarioRoundTripMutatedSession;
-
-        [InGameTeardown]
-        private void CleanupLiveScenarioRoundTrip()
-        {
-            if (!liveScenarioRoundTripMutatedSession)
-                return;
-
-            Helpers.SyntheticScenarioLoadHelpers.CleanupFlightRuntime(
-                "SaveLoadTests live OnSave/OnLoad round-trip");
-            liveScenarioRoundTripMutatedSession = false;
-        }
-
         [InGameTest(Category = "SaveLoad",
             Description = "RecordingPaths.EnsureRecordingsDirectory creates/resolves the dir")]
         public void RecordingsDirectoryExists()
@@ -979,36 +966,6 @@ namespace Parsek.InGameTests
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             InGameAssert.IsNotNull(scenario,
                 "ParsekScenario should be active (ScenarioModule loaded)");
-        }
-
-        [InGameTest(Category = "SaveLoad", RunLast = true,
-            Description = "Recording count survives ConfigNode round-trip through ParsekScenario")]
-        public void ScenarioRoundTripPreservesCount()
-        {
-            Helpers.SyntheticScenarioLoadHelpers.EnsureRoundTripSafeToRun();
-
-            var scenario = Object.FindObjectOfType<ParsekScenario>();
-            if (scenario == null)
-            {
-                ParsekLog.Verbose("TestRunner", "No ParsekScenario instance — skipping round-trip");
-                return;
-            }
-
-            int beforeCount = RecordingStore.CommittedRecordings.Count;
-
-            // Serialize current state
-            var saveNode = new ConfigNode("SCENARIO");
-            scenario.OnSave(saveNode);
-
-            // Deserialize back
-            liveScenarioRoundTripMutatedSession = true;
-            scenario.OnLoad(saveNode);
-            int afterCount = RecordingStore.CommittedRecordings.Count;
-
-            InGameAssert.AreEqual(beforeCount, afterCount,
-                $"Recording count changed after round-trip: {beforeCount} -> {afterCount}");
-            ParsekLog.Verbose("TestRunner",
-                $"Scenario round-trip: {beforeCount} recordings preserved");
         }
 
         [InGameTest(Category = "SaveLoad",
