@@ -260,8 +260,33 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
             Assert.Contains("BuildWatchObservabilitySuffix(flight, ri)", uiSrc);
-            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx)", uiSrc);
+            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)", uiSrc);
             Assert.Contains("beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}", uiSrc);
+        }
+
+        [Fact]
+        public void GroupWatchUsesResolvedTargetWhileRowsStayExact_PinnedBySourceInspection()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            int rowWatchStart = uiSrc.IndexOf("// Watch button (flight only)", StringComparison.Ordinal);
+            int rowWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button", rowWatchStart, StringComparison.Ordinal);
+            string rowWatchBlock = uiSrc.Substring(rowWatchStart, rowWatchEnd - rowWatchStart);
+
+            Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", rowWatchBlock);
+            Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
+
+            int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — follows the group's current live continuation", StringComparison.Ordinal);
+            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
+            string groupWatchBlock = uiSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
+
+            Assert.Contains("ResolveEffectiveWatchTargetIndex", groupWatchBlock);
+            Assert.Contains("flight.WatchedRecordingIndex == resolvedWatchIdx", groupWatchBlock);
+            Assert.Contains("resolvedWatchIdx", groupWatchBlock);
         }
 
         // ── GetRecordingSortKey ──

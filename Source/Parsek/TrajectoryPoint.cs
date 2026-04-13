@@ -14,7 +14,7 @@ namespace Parsek
         public double longitude;
         public double altitude;
         public Quaternion rotation;
-        public Vector3 velocity;    // Surface-relative velocity
+        public Vector3 velocity;    // Playback velocity captured from KSP; not guaranteed surface-relative
         public string bodyName;     // Reference celestial body
 
         // Career mode resources (absolute values at this tick)
