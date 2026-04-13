@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using KSP.UI.Screens.Mapview;
 using UnityEngine;
 
 namespace Parsek
@@ -74,6 +75,8 @@ namespace Parsek
         private string lastLoggedWatchTargetMismatch;
         private string lastLoggedWatchFocusKey;
         private string lastLoggedHorizonVectorKey;
+        private bool lastMapViewEnabled;
+        private bool pendingMapFocusRestore;
 
         internal WatchModeController(ParsekFlight host)
         {
@@ -872,6 +875,8 @@ namespace Parsek
             userModeOverride = false;
             currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
             lastLoggedHorizonVectorKey = null;
+            lastMapViewEnabled = MapView.MapIsEnabled;
+            pendingMapFocusRestore = lastMapViewEnabled;
             return true;
         }
 
@@ -908,6 +913,8 @@ namespace Parsek
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
             lastLoggedHorizonVectorKey = null;
+            lastMapViewEnabled = false;
+            pendingMapFocusRestore = false;
         }
 
         private void RestoreCameraAfterWatchExit(bool skipCameraRestore)
@@ -1043,6 +1050,8 @@ namespace Parsek
             savedCameraDistance = 0f;
             savedCameraPitch = 0f;
             savedCameraHeading = 0f;
+            lastMapViewEnabled = false;
+            pendingMapFocusRestore = false;
 
             if (overlapCameraAnchor == null)
                 return;
@@ -1566,6 +1575,8 @@ namespace Parsek
         {
             if (watchedRecordingIndex < 0) return;
 
+            UpdateMapFocusRestore();
+
             // Watch-end hold timer: after non-looped playback completes, the ghost
             // is held visible for a few seconds so the user sees the terminal state.
             // During the hold, try to auto-follow to a continuation ghost each frame
@@ -1621,6 +1632,47 @@ namespace Parsek
             UpdateHorizonProxy(state);
             LogWatchTargetMismatch(state);
             LogWatchFocusStateChanged(state);
+        }
+
+        private void UpdateMapFocusRestore()
+        {
+            bool mapViewEnabled = MapView.MapIsEnabled;
+            if (!mapViewEnabled)
+            {
+                lastMapViewEnabled = false;
+                pendingMapFocusRestore = false;
+                return;
+            }
+
+            if (!lastMapViewEnabled)
+                pendingMapFocusRestore = true;
+
+            lastMapViewEnabled = true;
+
+            if (!pendingMapFocusRestore)
+                return;
+
+            uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(watchedRecordingIndex);
+            if (ghostPid == 0)
+                return;
+
+            Vessel ghostVessel = FlightRecorder.FindVesselByPid(ghostPid);
+            if (ghostVessel == null)
+                return;
+
+            if ((ghostVessel.mapObject == null || ghostVessel.orbitRenderer == null)
+                && MapView.fetch != null)
+            {
+                GhostMapPresence.EnsureGhostOrbitRenderers();
+            }
+
+            if (PlanetariumCamera.fetch == null || ghostVessel.mapObject == null)
+                return;
+
+            PlanetariumCamera.fetch.SetTarget(ghostVessel.mapObject);
+            pendingMapFocusRestore = false;
+            ParsekLog.Info("GhostMap",
+                $"Restored map focus to watched ghost '{ghostVessel.vesselName}' (recIndex={watchedRecordingIndex})");
         }
 
         /// <summary>
