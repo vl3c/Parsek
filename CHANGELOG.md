@@ -6,11 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.1
 
+### Recording System Optimization
+
+- Binary/lossless recording sidecars are cutting recording payload size by 85.17% across 12 comparable packages (1.34 MB authoritative '.prec' / '_vessel.craft' / '_ghost.craft' files versus 9.03 MB readable text mirrors, 7.69 MB saved); April 13, 2026 log-bundle measurements also showed the latest bundle dropping from 745,079 B to 102,845 B (86.20% smaller).
+- Phase 11.5 snapshot-storage follow-up now writes `_vessel.craft` / `_ghost.craft` sidecars as lossless header-dispatched `Deflate` envelopes at the highest built-in .NET compression level, while still loading legacy text snapshot files, preserving the existing alias/separate fallback rules, only falling back to vessel visuals when the ghost sidecar is actually missing, and using staged sidecar writes so caught partial-write failures roll back cleanly.
+- Recording storage now has a default-on diagnostics flag that writes readable `.txt` mirrors next to the authoritative `.prec`, `_vessel.craft`, and `_ghost.craft` sidecars for comparison/debugging, deletes stale mirrors when the flag is turned off, and includes mirror bytes in the storage diagnostics breakdown without making mirror failures fatal to real saves.
+
 ### Improvements
 
 - Phase 11.5 ghost LOD is now live in Flight: shared distance thresholds, unwatched reduced tier at `2.3-50 km`, hidden-mesh tier at `50-120 km`, and live diagnostics counts for `full / reduced / hidden / watched override`.
-- Phase 11.5 snapshot-storage follow-up now writes `_vessel.craft` / `_ghost.craft` sidecars as lossless header-dispatched `Deflate` envelopes at the highest built-in .NET compression level, while still loading legacy text snapshot files, preserving the existing alias/separate fallback rules, only falling back to vessel visuals when the ghost sidecar is actually missing, and using staged sidecar writes so caught partial-write failures roll back cleanly.
-- Recording storage now has a default-on diagnostics flag that writes readable `.txt` mirrors next to the authoritative `.prec`, `_vessel.craft`, and `_ghost.craft` sidecars for comparison/debugging, deletes stale mirrors when the flag is turned off, and includes mirror bytes in the storage diagnostics breakdown without making mirror failures fatal to real saves.
 - Hidden-tier ghosts now unload built mesh/resources while keeping their logical playback shell alive, prewarm shortly before visible-tier re-entry or imminent structural part events, and rebuild from snapshot state without replaying transient puff/audio effects.
 - Ghost performance tuning is now backend-owned. The old ghost soft-cap settings and the soft-cap subsystem were removed instead of leaving user-facing knobs that conflicted with the new distance policy.
 
