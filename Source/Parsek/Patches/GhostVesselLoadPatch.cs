@@ -7,6 +7,143 @@ using UnityEngine.UI;
 
 namespace Parsek.Patches
 {
+    internal enum GhostMapWatchAction
+    {
+        Unavailable,
+        NoActiveGhost,
+        DifferentBody,
+        Start,
+        Stop,
+        Refresh,
+    }
+
+    internal static class GhostMapWatchHelper
+    {
+        internal static GhostMapWatchAction ResolveWatchAction(
+            int recordingIndex,
+            int watchedRecordingIndex,
+            bool hasActiveGhost,
+            bool sameBody,
+            bool toggleIfAlreadyWatching)
+        {
+            if (recordingIndex < 0)
+                return GhostMapWatchAction.Unavailable;
+            if (watchedRecordingIndex == recordingIndex)
+                return toggleIfAlreadyWatching
+                    ? GhostMapWatchAction.Stop
+                    : GhostMapWatchAction.Refresh;
+            if (!hasActiveGhost)
+                return GhostMapWatchAction.NoActiveGhost;
+            if (!sameBody)
+                return GhostMapWatchAction.DifferentBody;
+            return GhostMapWatchAction.Start;
+        }
+
+        internal static bool TryFocusGhostInMapView(Vessel vessel, string source)
+        {
+            if (vessel == null
+                || PlanetariumCamera.fetch == null
+                || !MapView.MapIsEnabled
+                || vessel.mapObject == null)
+            {
+                ParsekLog.Warn("GhostMap",
+                    $"Focus failed via {source}: vessel={vessel != null} " +
+                    $"camera={PlanetariumCamera.fetch != null} map={MapView.MapIsEnabled} " +
+                    $"mapObj={vessel?.mapObject != null}");
+                return false;
+            }
+
+            PlanetariumCamera.fetch.SetTarget(vessel.mapObject);
+            ParsekLog.Info("GhostMap",
+                $"Focused map camera on ghost '{vessel.vesselName}' via {source}");
+            return true;
+        }
+
+        internal static void HandleWatchRequest(
+            Vessel vessel,
+            int recIndex,
+            string source,
+            bool toggleIfAlreadyWatching)
+        {
+            string vesselName = vessel?.vesselName ?? "Ghost";
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                ScreenMessages.PostScreenMessage(
+                    $"<b>{vesselName}</b> is a ghost — it will materialize when its timeline reaches the spawn point.",
+                    5f, ScreenMessageStyle.UPPER_CENTER);
+                ParsekLog.Info("GhostMap",
+                    $"Ghost '{vesselName}' watch unavailable via {source} (flight controller missing, recIndex={recIndex})");
+                return;
+            }
+
+            bool hasActiveGhost = recIndex >= 0 && flight.HasActiveGhost(recIndex);
+            bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
+            GhostMapWatchAction action = ResolveWatchAction(
+                recIndex,
+                flight.WatchedRecordingIndex,
+                hasActiveGhost,
+                sameBody,
+                toggleIfAlreadyWatching);
+
+            switch (action)
+            {
+                case GhostMapWatchAction.Unavailable:
+                    ScreenMessages.PostScreenMessage(
+                        $"<b>{vesselName}</b> is a ghost — it will materialize when its timeline reaches the spawn point.",
+                        5f, ScreenMessageStyle.UPPER_CENTER);
+                    ParsekLog.Info("GhostMap",
+                        $"Ghost '{vesselName}' watch unavailable via {source} (recIndex={recIndex})");
+                    return;
+
+                case GhostMapWatchAction.NoActiveGhost:
+                    ScreenMessages.PostScreenMessage(
+                        $"<b>{vesselName}</b> — ghost not active yet (recording may be in the future).",
+                        5f, ScreenMessageStyle.UPPER_CENTER);
+                    ParsekLog.Info("GhostMap",
+                        $"Ghost '{vesselName}' watch refused via {source} — no active ghost (recIndex={recIndex})");
+                    return;
+
+                case GhostMapWatchAction.DifferentBody:
+                    ScreenMessages.PostScreenMessage(
+                        $"<b>{vesselName}</b> — ghost is in a different SOI.",
+                        5f, ScreenMessageStyle.UPPER_CENTER);
+                    ParsekLog.Info("GhostMap",
+                        $"Ghost '{vesselName}' watch refused via {source} — different SOI (recIndex={recIndex})");
+                    return;
+
+                case GhostMapWatchAction.Stop:
+                    flight.ExitWatchMode();
+                    ParsekLog.Info("GhostMap",
+                        $"Ghost '{vesselName}' watch stopped via {source} (recIndex={recIndex})");
+                    return;
+
+                case GhostMapWatchAction.Refresh:
+                    TryFocusGhostInMapView(vessel, source + " refresh");
+                    ParsekLog.Info("GhostMap",
+                        $"Ghost '{vesselName}' watch refreshed via {source} (recIndex={recIndex})");
+                    return;
+
+                case GhostMapWatchAction.Start:
+                    break;
+            }
+
+            string beforeFocus = flight.DescribeWatchFocusForLogs();
+            flight.EnterWatchMode(recIndex);
+            if (flight.WatchedRecordingIndex != recIndex)
+            {
+                ParsekLog.Warn("GhostMap",
+                    $"Ghost '{vesselName}' watch request via {source} did not enter watch mode " +
+                    $"(recIndex={recIndex}) beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
+                return;
+            }
+
+            TryFocusGhostInMapView(vessel, source + " watch");
+            ParsekLog.Info("GhostMap",
+                $"Ghost '{vesselName}' watch started via {source} (recIndex={recIndex})");
+        }
+    }
+
     /// <summary>
     /// Prevents ghost vessel orbit lines from being clickable in map view (#172).
     /// Ghost orbit lines are visual-only — clicking them should not open the target
@@ -51,6 +188,11 @@ namespace Parsek.Patches
             Vessel v = __instance.vessel;
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
             string vesselName = v.vesselName ?? "Ghost";
+            var flight = ParsekFlight.Instance;
+            bool isWatchingThisGhost = flight != null
+                && recIndex >= 0
+                && flight.WatchedRecordingIndex == recIndex;
+            string watchButtonLabel = isWatchingThisGhost ? "Stop Watching" : "Watch";
 
             // Dismiss any existing ghost menu before opening a new one
             DismissCurrentMenu();
@@ -79,36 +221,14 @@ namespace Parsek.Patches
                         ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' set as target via icon click");
                     }
                 }, dismissOnSelect: true),
-                new DialogGUIButton("Watch", () =>
+                new DialogGUIButton(watchButtonLabel, () =>
                 {
                     currentGhostMenu = null;
-                    var flight = ParsekFlight.Instance;
-                    if (flight == null || recIndex < 0)
-                    {
-                        ScreenMessages.PostScreenMessage(
-                            $"<b>{vesselName}</b> is a ghost — it will materialize when its timeline reaches the spawn point.",
-                            5f, ScreenMessageStyle.UPPER_CENTER);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch unavailable (recIndex={recIndex})");
-                    }
-                    else if (!flight.HasActiveGhost(recIndex))
-                    {
-                        ScreenMessages.PostScreenMessage(
-                            $"<b>{vesselName}</b> — ghost not active yet (recording may be in the future).",
-                            5f, ScreenMessageStyle.UPPER_CENTER);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — no active ghost (recIndex={recIndex})");
-                    }
-                    else if (!flight.IsGhostOnSameBody(recIndex))
-                    {
-                        ScreenMessages.PostScreenMessage(
-                            $"<b>{vesselName}</b> — ghost is in a different SOI.",
-                            5f, ScreenMessageStyle.UPPER_CENTER);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — different SOI (recIndex={recIndex})");
-                    }
-                    else
-                    {
-                        flight.EnterWatchMode(recIndex);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch started via icon click (recIndex={recIndex})");
-                    }
+                    GhostMapWatchHelper.HandleWatchRequest(
+                        v,
+                        recIndex,
+                        source: "icon menu",
+                        toggleIfAlreadyWatching: true);
                 }, dismissOnSelect: true)
             };
 
@@ -281,18 +401,13 @@ namespace Parsek.Patches
             }
 
             var flight = ParsekFlight.Instance;
-            if (flight != null)
+            if (flight != null || recIndex >= 0)
             {
-                flight.EnterWatchMode(recIndex);
-                ParsekLog.Info("GhostMap",
-                    $"Redirected SetActiveVessel to watch mode for ghost '{v.vesselName}' recording #{recIndex}");
-            }
-
-            // Focus the map camera on the ghost vessel (#193)
-            if (PlanetariumCamera.fetch != null && MapView.MapIsEnabled && v.mapObject != null)
-            {
-                PlanetariumCamera.fetch.SetTarget(v.mapObject);
-                ParsekLog.Info("GhostMap", $"Focused map camera on ghost '{v.vesselName}'");
+                GhostMapWatchHelper.HandleWatchRequest(
+                    v,
+                    recIndex,
+                    source: "map double-click",
+                    toggleIfAlreadyWatching: false);
             }
 
             return false;
