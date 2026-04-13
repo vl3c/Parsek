@@ -960,6 +960,8 @@ namespace Parsek.InGameTests
             bool previousInitialLoadDone = (bool)initialLoadDoneField.GetValue(null);
             string previousLastSaveFolder = (string)lastSaveFolderField.GetValue(null);
             GameScenes previousLastOnSaveScene = (GameScenes)lastOnSaveSceneField.GetValue(null);
+            var restoreNode = new ConfigNode("SCENARIO");
+            scenario.OnSave(restoreNode);
 
             try
             {
@@ -1015,6 +1017,16 @@ namespace Parsek.InGameTests
             }
             finally
             {
+                RecordingStore.ResetForTesting();
+                MilestoneStore.ResetForTesting();
+                GroupHierarchyStore.ResetGroupsForTesting();
+                CrewReservationManager.ResetReplacementsForTesting();
+                RewindContext.ResetForTesting();
+
+                initialLoadDoneField.SetValue(null, false);
+                lastSaveFolderField.SetValue(null, HighLogic.SaveFolder);
+                scenario.OnLoad(restoreNode);
+
                 lastOnSaveSceneField.SetValue(null, previousLastOnSaveScene);
                 lastSaveFolderField.SetValue(null, previousLastSaveFolder);
                 initialLoadDoneField.SetValue(null, previousInitialLoadDone);
