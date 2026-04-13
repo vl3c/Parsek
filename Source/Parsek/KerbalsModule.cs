@@ -26,6 +26,8 @@ namespace Parsek
         /// and IsKerbalInAnyRecording. Excludes loop and disabled-chain recordings.
         /// </summary>
         private HashSet<string> allRecordingCrew = new HashSet<string>();
+        private Dictionary<string, HashSet<string>> rawRecordingCrew
+            = new Dictionary<string, HashSet<string>>();
 
         // ── Recording metadata cache (built in PrePass) ──
         private Dictionary<string, RecordingMeta> recordingMeta
@@ -100,6 +102,7 @@ namespace Parsek
             reservations.Clear();
             retiredKerbals.Clear();
             allRecordingCrew.Clear();
+            rawRecordingCrew.Clear();
             recordingMeta.Clear();
             loopingChainIds.Clear();
         }
@@ -132,6 +135,10 @@ namespace Parsek
                     IsDisabledChain = isDisabled,
                     EndUT = rec.EndUT
                 };
+
+                var rawCrew = ExtractRawCrewFromRecording(rec);
+                if (rawCrew.Count > 0)
+                    rawRecordingCrew[rec.RecordingId] = new HashSet<string>(rawCrew);
 
                 // Identify chains that contain a looping segment
                 if (isLoop && isChain && !string.IsNullOrEmpty(chainId))
@@ -174,6 +181,12 @@ namespace Parsek
 
             // Build the all-crew set for O(1) lookup in ComputeRetiredSet
             allRecordingCrew.Add(name);
+            HashSet<string> rawCrew;
+            if (rawRecordingCrew.TryGetValue(recordingId, out rawCrew))
+            {
+                foreach (var rawName in rawCrew)
+                    allRecordingCrew.Add(rawName);
+            }
 
             KerbalEndState endState = action.KerbalEndStateField;
 
@@ -395,6 +408,23 @@ namespace Parsek
                     $"InferCrewEndState: crew='{crewName}' terminalState={ts} inSnapshot={inSnapshot} -> {result}");
                 return result;
             }
+        }
+
+        private static List<string> ExtractRawCrewFromRecording(Recording rec)
+        {
+            var result = new List<string>();
+            if (rec == null)
+                return result;
+
+            var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            for (int i = 0; i < crew.Count; i++)
+                result.Add(crew[i]);
+
+            if (result.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
+                result.Add(rec.EvaCrewName);
+
+            return result;
         }
 
         /// <summary>

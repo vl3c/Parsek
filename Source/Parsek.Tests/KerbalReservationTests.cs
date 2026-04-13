@@ -760,6 +760,59 @@ namespace Parsek.Tests
             Assert.True((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
         }
 
+        [Fact]
+        public void Recalculate_RepairedStandInRecording_StillRetiresHistoricalStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            var ownerRec = MakeRecording("Owner Flight", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            ownerRec.RecordingId = "rec-owner";
+            RecordingStore.AddRecordingWithTreeForTesting(ownerRec);
+
+            var standInSnapshot = new ConfigNode("VESSEL");
+            var standInPart = standInSnapshot.AddNode("PART");
+            standInPart.AddValue("crew", "Kirrim");
+            var standInRec = new Recording
+            {
+                RecordingId = "rec-standin",
+                VesselName = "Stand-In Flight",
+                GhostVisualSnapshot = standInSnapshot,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 1000,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jeb", KerbalEndState.Recovered }
+                }
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(standInRec);
+
+            var actions = new List<GameAction>();
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-owner", 0.0, 1000.0));
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-standin", 0.0, 1000.0));
+
+            module.Reset();
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+            module.PostWalk();
+
+            Assert.Contains("Kirrim", module.RetiredKerbals);
+            Assert.DoesNotContain("Hanley", module.RetiredKerbals);
+            Assert.Equal("Hanley", module.GetActiveOccupant("Jeb"));
+        }
+
         // ── Serialization ──
 
         [Fact]

@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#349` Kerbal retirement tracking now preserves raw snapshot crew names alongside the repaired logical owner names, so historical stand-ins still retire/delete correctly after `KerbalAssignment` repair rewrites their ledger rows back to the slot owner.
 - `#348` The displaced-stand-in roster fix now preserves retired stand-ins as a special case, so missing retired roster entries are still recreated while truly unused displaced stand-ins stay deleted.
 - `#347` Historical stand-in repair now falls back to persisted `KERBAL_SLOTS` as well as the live `CREW_REPLACEMENTS` bridge, so old ledgers with stale stand-in names still heal after the current replacement map has already been cleared.
 - `#346` Ghost-only handoff fallback is now limited to unresolved or truly resolved chain segments instead of every snapshot-less chain recording, so auto-committed stable chain tips with `Orbiting`/`Landed`/`Splashed`/`Docked` terminals no longer get incorrectly collapsed to finite `Recovered` reservations.
