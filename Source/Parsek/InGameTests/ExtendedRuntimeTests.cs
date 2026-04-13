@@ -729,43 +729,13 @@ namespace Parsek.InGameTests
                 }
             }
 
-            if (entries == 0)
-                InGameAssert.Skip("No BackgroundMap entries to check");
+            if (trees.Count == 0)
+                InGameAssert.Skip("No committed trees");
 
             ParsekLog.Verbose("TestRunner",
                 $"BackgroundMap entries: total={entries} dangling={dangling} wrongPid={wrongPid} ineligible={ineligible}");
             InGameAssert.AreEqual(0, dangling + wrongPid + ineligible,
                 $"{dangling + wrongPid + ineligible} BackgroundMap integrity issue(s) found");
-        }
-
-        [InGameTest(Category = "TreeIntegrity",
-            Description = "BackgroundMap picks the deterministic preferred eligible recording for each PID")]
-        public void BackgroundMapUsesPreferredEligibleRecordingWithinTree()
-        {
-            var trees = RecordingStore.CommittedTrees;
-            int mismatches = 0;
-
-            for (int i = 0; i < trees.Count; i++)
-            {
-                foreach (var kvp in trees[i].BackgroundMap)
-                {
-                    string preferredId = trees[i].FindPreferredBackgroundMapRecordingId(kvp.Key);
-                    if (preferredId == null || preferredId == kvp.Value)
-                        continue;
-
-                    mismatches++;
-                    ParsekLog.Warn("TestRunner",
-                        $"Tree '{trees[i].Id}' BackgroundMap pid={kvp.Key} points at '{kvp.Value}', expected preferred '{preferredId}'");
-                }
-            }
-
-            if (trees.Count == 0)
-                InGameAssert.Skip("No committed trees");
-
-            ParsekLog.Verbose("TestRunner",
-                $"BackgroundMap preferred-recording check: trees={trees.Count} mismatches={mismatches}");
-            InGameAssert.AreEqual(0, mismatches,
-                $"{mismatches} BackgroundMap preferred-recording mismatch(es) found");
         }
 
         [InGameTest(Category = "TreeIntegrity",

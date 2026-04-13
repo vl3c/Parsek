@@ -118,6 +118,7 @@ namespace Parsek
 
         // --- Tree linkage (null for legacy/standalone recordings) ---
         public string TreeId;                          // null = standalone (pre-tree recording)
+        public int TreeOrder = -1;                    // persisted insertion / creation order within the tree
         public uint VesselPersistentId;                // 0 = not set
 
         // --- Terminal state ---
@@ -431,6 +432,7 @@ namespace Parsek
             // boundaries. Start fields are captured fresh per segment in StartRecording.
             // Use CopyStartLocationFrom for explicit start-field propagation.
             TreeId = source.TreeId;
+            TreeOrder = source.TreeOrder;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;
             TerminalOrbitInclination = source.TerminalOrbitInclination;

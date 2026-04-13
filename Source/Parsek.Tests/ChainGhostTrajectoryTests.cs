@@ -388,8 +388,13 @@ namespace Parsek.Tests
                 interactionType = "MERGE"
             });
 
+            var preClaim = ParsekFlight.FindPreClaimChainRecordingAtUT(
+                trees, chain, 1030, out bool hasCoverage, out bool isAmbiguous);
             var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1030);
 
+            Assert.False(hasCoverage);
+            Assert.False(isAmbiguous);
+            Assert.Null(preClaim);
             Assert.NotNull(result);
             Assert.Equal("bg-alt", result.RecordingId);
         }
@@ -474,11 +479,53 @@ namespace Parsek.Tests
             });
 
             var result = ParsekFlight.FindPreClaimChainRecordingAtUT(
-                new List<RecordingTree> { chainTree }, chain, 1030, out bool hasCoverage);
+                new List<RecordingTree> { chainTree }, chain, 1030,
+                out bool hasCoverage, out bool isAmbiguous);
 
             Assert.True(hasCoverage);
+            Assert.False(isAmbiguous);
             Assert.NotNull(result);
             Assert.Equal("bg-chain-pre", result.RecordingId);
+        }
+
+        [Fact]
+        public void FindPreClaimChainRecordingAtUT_EqualTimeClaimTrees_ReturnsUniqueCandidateAcrossTrees()
+        {
+            var claimA = MakeRecordingNoPoints("A1", 50, 1000, 1060);
+            var treeA = MakeTree("tree-a", new[] { claimA }, null);
+
+            var claimB = MakeRecordingNoPoints("B1", 60, 1000, 1060);
+            var preClaimB = MakeRecordingWithPoints("bg-tree-b-pre", 100, 1000, 1050);
+            var treeB = MakeTree("tree-b", new[] { claimB, preClaimB }, null);
+
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-b"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "A1",
+                treeId = "tree-a",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "B1",
+                treeId = "tree-b",
+                ut = 1060,
+                interactionType = "UNDOCK"
+            });
+
+            var result = ParsekFlight.FindPreClaimChainRecordingAtUT(
+                new List<RecordingTree> { treeA, treeB }, chain, 1030,
+                out bool hasCoverage, out bool isAmbiguous);
+
+            Assert.True(hasCoverage);
+            Assert.False(isAmbiguous);
+            Assert.NotNull(result);
+            Assert.Equal("bg-tree-b-pre", result.RecordingId);
         }
 
         /// <summary>
@@ -506,7 +553,7 @@ namespace Parsek.Tests
                         new[] { "R1" }, new[] { "bg-chain-post" })
                 });
 
-            var recordings = new List<Recording> { altRec, claimRec, preA, preB, postClaimChainRec };
+            var recordings = new List<Recording> { claimRec, preA, preB, postClaimChainRec, altRec };
             var trees = new List<RecordingTree> { altTree, chainTree };
             var chain = new GhostChain
             {
@@ -521,8 +568,93 @@ namespace Parsek.Tests
                 interactionType = "MERGE"
             });
 
+            var preClaim = ParsekFlight.FindPreClaimChainRecordingAtUT(
+                trees, chain, 1030, out bool hasCoverage, out bool isAmbiguous);
             var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1030);
 
+            Assert.True(hasCoverage);
+            Assert.True(isAmbiguous);
+            Assert.Null(preClaim);
+            Assert.NotNull(result);
+            Assert.Equal("bg-alt", result.RecordingId);
+        }
+
+        [Fact]
+        public void FindPositionFallbackRecordingForChain_AmbiguousPreClaimCoverage_AllowsGlobalOrbitFallback()
+        {
+            var altRec = MakeRecordingOrbitOnly("bg-alt-orbit", 100, 1000, 1100);
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
+
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            var preA = MakeRecordingOrbitOnly("bg-chain-pre-a", 100, 1000, 1050);
+            var preB = MakeRecordingOrbitOnly("bg-chain-pre-b", 100, 1000, 1050);
+            var chainTree = MakeTree("tree-1", new[] { claimRec, preA, preB }, null);
+
+            var recordings = new List<Recording> { claimRec, preA, preB, altRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindPositionFallbackRecordingForChain(
+                recordings, trees, chain, 1030);
+
+            Assert.NotNull(result);
+            Assert.Equal("bg-alt-orbit", result.RecordingId);
+        }
+
+        [Fact]
+        public void FindBackgroundRecordingForChain_EqualTimeClaimTrees_AmbiguousCoverage_AllowsGlobalFallback()
+        {
+            var altRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
+
+            var claimA = MakeRecordingNoPoints("A1", 50, 1000, 1060);
+            var preA = MakeRecordingWithPoints("bg-tree-a-pre", 100, 1000, 1050);
+            var treeA = MakeTree("tree-a", new[] { claimA, preA }, null);
+
+            var claimB = MakeRecordingNoPoints("B1", 60, 1000, 1060);
+            var preB = MakeRecordingWithPoints("bg-tree-b-pre", 100, 1000, 1050);
+            var treeB = MakeTree("tree-b", new[] { claimB, preB }, null);
+
+            var recordings = new List<Recording> { claimA, preA, claimB, preB, altRec };
+            var trees = new List<RecordingTree> { altTree, treeA, treeB };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-b"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "A1",
+                treeId = "tree-a",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "B1",
+                treeId = "tree-b",
+                ut = 1060,
+                interactionType = "UNDOCK"
+            });
+
+            var preClaim = ParsekFlight.FindPreClaimChainRecordingAtUT(
+                trees, chain, 1030, out bool hasCoverage, out bool isAmbiguous);
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1030);
+
+            Assert.True(hasCoverage);
+            Assert.True(isAmbiguous);
+            Assert.Null(preClaim);
             Assert.NotNull(result);
             Assert.Equal("bg-alt", result.RecordingId);
         }

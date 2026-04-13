@@ -1877,7 +1877,7 @@ namespace Parsek
                 restoredRec.SidecarLoadFailed = false;
                 restoredRec.SidecarLoadFailureReason = null;
                 restoredRec.MarkFilesDirty();
-                loadedTree.Recordings[recordingId] = restoredRec;
+                loadedTree.AddOrReplaceRecording(restoredRec);
                 restored++;
             }
 

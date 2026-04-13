@@ -1176,7 +1176,7 @@ namespace Parsek
                     {
                         if (committedTrees[t].Id == original.TreeId)
                         {
-                            committedTrees[t].Recordings[second.RecordingId] = second;
+                            committedTrees[t].AddOrReplaceRecording(second);
                             break;
                         }
                     }
@@ -1276,7 +1276,7 @@ namespace Parsek
 
                 tree.Recordings.Remove(absorbed.RecordingId);
                 if (target != null)
-                    tree.Recordings[target.RecordingId] = target;
+                    tree.AddOrReplaceRecording(target);
 
                 if (tree.RootRecordingId == absorbed.RecordingId && target != null)
                     tree.RootRecordingId = target.RecordingId;
@@ -1708,7 +1708,7 @@ namespace Parsek
                     RootRecordingId = rec.RecordingId
                 };
                 rec.TreeId = tree.Id;
-                tree.Recordings[rec.RecordingId] = rec;
+                tree.AddOrReplaceRecording(rec);
                 committedTrees.Add(tree);
             }
             committedRecordings.Add(rec);

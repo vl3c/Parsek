@@ -543,7 +543,7 @@ namespace Parsek
                     Generation = parentRec.Generation
                 };
                 bp.ChildRecordingIds.Insert(0, parentContRecId);
-                tree.Recordings[parentContRecId] = parentContRec;
+                tree.AddOrReplaceRecording(parentContRec);
                 tree.BackgroundMap[parentPid] = parentContRecId;
 
                 // Re-initialize tracking state for the parent continuation
@@ -652,7 +652,7 @@ namespace Parsek
                         $"name='{child.VesselName}' — vessel not found, ghost will not render");
                 }
 
-                tree.Recordings[child.RecordingId] = child;
+                tree.AddOrReplaceRecording(child);
                 tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId;
 
                 // Initialize tracking state for new child vessel

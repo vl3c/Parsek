@@ -1947,8 +1947,8 @@ namespace Parsek
 
             // Add to tree
             activeTree.BranchPoints.Add(bp);
-            activeTree.Recordings[activeChild.RecordingId] = activeChild;
-            activeTree.Recordings[bgChild.RecordingId] = bgChild;
+            activeTree.AddOrReplaceRecording(activeChild);
+            activeTree.AddOrReplaceRecording(bgChild);
 
             // Set active recording
             activeTree.ActiveRecordingId = activeChild.RecordingId;
@@ -2102,7 +2102,7 @@ namespace Parsek
 
             // 8. Add to tree
             activeTree.BranchPoints.Add(bp);
-            activeTree.Recordings[mergedChild.RecordingId] = mergedChild;
+            activeTree.AddOrReplaceRecording(mergedChild);
 
             // 9. Set active recording
             activeTree.ActiveRecordingId = mergedChild.RecordingId;
@@ -2771,7 +2771,7 @@ namespace Parsek
                 childRec.ExplicitEndUT = breakupBp.UT;
             }
 
-            tree.Recordings[childRecId] = childRec;
+            tree.AddOrReplaceRecording(childRec);
             breakupBp.ChildRecordingIds.Add(childRecId);
 
             return childRec;
@@ -4810,7 +4810,7 @@ namespace Parsek
                         rootRec.GhostVisualSnapshot = startSnap;
                 }
 
-                activeTree.Recordings[rootRecId] = rootRec;
+                activeTree.AddOrReplaceRecording(rootRec);
 
                 backgroundRecorder = new BackgroundRecorder(activeTree);
                 backgroundRecorder.SubscribePartEvents();
@@ -6802,17 +6802,53 @@ namespace Parsek
         /// happens to reuse the same PID.
         /// </summary>
         internal static Recording FindBackgroundRecordingForVessel(
-            IReadOnlyList<Recording> committedRecordings, uint vesselPid, double currentUT)
+            IReadOnlyList<Recording> committedRecordings,
+            uint vesselPid,
+            double currentUT,
+            ISet<string> excludedTreeIds = null)
         {
             if (committedRecordings == null) return null;
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var rec = committedRecordings[i];
+                if (excludedTreeIds != null
+                    && !string.IsNullOrEmpty(rec.TreeId)
+                    && excludedTreeIds.Contains(rec.TreeId))
+                    continue;
                 if (rec.VesselPersistentId == vesselPid &&
                     rec.Points != null && rec.Points.Count > 0 &&
                     currentUT >= rec.StartUT && currentUT <= rec.EndUT)
                     return rec;
             }
+            return null;
+        }
+
+        /// <summary>
+        /// Finds the first committed recording with non-point playback data that covers
+        /// the given UT for a vessel PID. Used by chain ghost fallback positioning.
+        /// </summary>
+        internal static Recording FindPlaybackFallbackRecordingForVessel(
+            IReadOnlyList<Recording> committedRecordings,
+            uint vesselPid,
+            double currentUT,
+            ISet<string> excludedTreeIds = null)
+        {
+            if (committedRecordings == null) return null;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (excludedTreeIds != null
+                    && !string.IsNullOrEmpty(rec.TreeId)
+                    && excludedTreeIds.Contains(rec.TreeId))
+                    continue;
+                if (rec.VesselPersistentId != vesselPid)
+                    continue;
+                if (!RecordingHasUsableNonPointPlaybackDataAtUT(rec, currentUT))
+                    continue;
+
+                return rec;
+            }
+
             return null;
         }
 
@@ -6838,45 +6874,58 @@ namespace Parsek
                 return null;
 
             var preClaimRec = FindPreClaimChainRecordingAtUT(
-                committedTrees, chain, currentUT, out bool hasPreClaimCoverage);
-            if (hasPreClaimCoverage)
+                committedTrees, chain, currentUT,
+                out bool hasPreClaimCoverage, out bool preClaimAmbiguous);
+            if (hasPreClaimCoverage && !preClaimAmbiguous)
                 return preClaimRec != null && preClaimRec.Points != null && preClaimRec.Points.Count > 0
                     ? preClaimRec : null;
 
             return FindBackgroundRecordingForVessel(
-                committedRecordings, chain.OriginalVesselPid, currentUT);
+                committedRecordings, chain.OriginalVesselPid, currentUT,
+                preClaimAmbiguous ? GetFirstClaimTreeIds(chain) : null);
         }
 
         internal static Recording FindPreClaimChainRecordingAtUT(
             IReadOnlyList<RecordingTree> committedTrees,
             GhostChain chain,
             double currentUT,
-            out bool hasChainLocalCoverage)
+            out bool hasChainLocalCoverage,
+            out bool isAmbiguous)
         {
             hasChainLocalCoverage = false;
+            isAmbiguous = false;
             if (committedTrees == null || chain == null || chain.Links == null || chain.Links.Count == 0)
                 return null;
 
-            RecordingTree firstClaimTree = FindCommittedTree(committedTrees, chain.Links[0].treeId);
-            if (firstClaimTree == null)
+            var firstClaimTreeIds = GetFirstClaimTreeIds(chain);
+            if (firstClaimTreeIds.Count == 0)
                 return null;
 
             Recording unique = null;
-            foreach (var rec in firstClaimTree.Recordings.Values)
+            foreach (var treeId in firstClaimTreeIds)
             {
-                if (rec.VesselPersistentId != chain.OriginalVesselPid)
-                    continue;
-                if (currentUT < rec.StartUT || currentUT > rec.EndUT)
-                    continue;
-                if (!RecordingHasUsablePlaybackDataAtUT(rec, currentUT))
+                RecordingTree firstClaimTree = FindCommittedTree(committedTrees, treeId);
+                if (firstClaimTree == null)
                     continue;
 
-                if (unique != null)
+                foreach (var rec in firstClaimTree.Recordings.Values)
                 {
-                    return null;
-                }
+                    if (rec.VesselPersistentId != chain.OriginalVesselPid)
+                        continue;
+                    if (currentUT < rec.StartUT || currentUT > rec.EndUT)
+                        continue;
+                    if (!RecordingHasUsablePlaybackDataAtUT(rec, currentUT))
+                        continue;
 
-                unique = rec;
+                    if (unique != null)
+                    {
+                        isAmbiguous = true;
+                        hasChainLocalCoverage = true;
+                        return null;
+                    }
+
+                    unique = rec;
+                }
             }
 
             hasChainLocalCoverage = unique != null;
@@ -6900,6 +6949,70 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Finds the best non-point playback source for positioning a chain ghost when
+        /// point-backed trajectory playback is unavailable.
+        /// </summary>
+        internal static Recording FindPositionFallbackRecordingForChain(
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            GhostChain chain,
+            double currentUT)
+        {
+            if (chain == null)
+                return null;
+
+            var chainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
+            if (RecordingHasUsableNonPointPlaybackDataAtUT(chainRec, currentUT))
+                return chainRec;
+
+            if (ChainHasStarted(chain, currentUT))
+                return null;
+
+            var preClaimRec = FindPreClaimChainRecordingAtUT(
+                committedTrees, chain, currentUT,
+                out bool hasPreClaimCoverage, out bool preClaimAmbiguous);
+            if (hasPreClaimCoverage && !preClaimAmbiguous)
+                return RecordingHasUsableNonPointPlaybackDataAtUT(preClaimRec, currentUT)
+                    ? preClaimRec
+                    : null;
+
+            return FindPlaybackFallbackRecordingForVessel(
+                committedRecordings, chain.OriginalVesselPid, currentUT,
+                preClaimAmbiguous ? GetFirstClaimTreeIds(chain) : null);
+        }
+
+        private static HashSet<string> GetFirstClaimTreeIds(GhostChain chain)
+        {
+            var firstClaimTreeIds = new HashSet<string>();
+            if (chain == null || chain.Links == null || chain.Links.Count == 0)
+                return firstClaimTreeIds;
+
+            double firstClaimUT = double.MaxValue;
+            for (int i = 0; i < chain.Links.Count; i++)
+            {
+                var link = chain.Links[i];
+                if (link.ut < firstClaimUT)
+                    firstClaimUT = link.ut;
+            }
+
+            if (firstClaimUT == double.MaxValue)
+                return firstClaimTreeIds;
+
+            for (int i = 0; i < chain.Links.Count; i++)
+            {
+                var link = chain.Links[i];
+                if (string.IsNullOrEmpty(link.treeId))
+                    continue;
+                if (Math.Abs(link.ut - firstClaimUT) > 0.001)
+                    continue;
+
+                firstClaimTreeIds.Add(link.treeId);
+            }
+
+            return firstClaimTreeIds;
         }
 
         private static Recording FindChainPathRecordingAtUT(
@@ -7063,8 +7176,7 @@ namespace Parsek
                 return true;
             }
 
-            if (rec.SurfacePos.HasValue
-                && currentUT >= rec.StartUT && currentUT <= rec.EndUT)
+            if (HasSurfaceCoverageAtUT(rec, currentUT))
             {
                 PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
                 ParsekLog.VerboseRateLimited("Flight",
@@ -7090,8 +7202,19 @@ namespace Parsek
             if (HasOrbitCoverageAtUT(rec, currentUT))
                 return true;
 
-            return rec.SurfacePos.HasValue
-                && currentUT >= rec.StartUT && currentUT <= rec.EndUT;
+            return HasSurfaceCoverageAtUT(rec, currentUT);
+        }
+
+        private static bool RecordingHasUsableNonPointPlaybackDataAtUT(
+            Recording rec, double currentUT)
+        {
+            if (rec == null)
+                return false;
+
+            if (HasOrbitCoverageAtUT(rec, currentUT))
+                return true;
+
+            return HasSurfaceCoverageAtUT(rec, currentUT);
         }
 
         private static bool HasOrbitCoverageAtUT(Recording rec, double currentUT)
@@ -7106,6 +7229,14 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static bool HasSurfaceCoverageAtUT(Recording rec, double currentUT)
+        {
+            return rec != null
+                && rec.SurfacePos.HasValue
+                && currentUT >= rec.StartUT
+                && currentUT <= rec.EndUT;
         }
 
         /// <summary>
@@ -7231,30 +7362,10 @@ namespace Parsek
             var committedTrees = RecordingStore.CommittedTrees;
             if (committed != null)
             {
-                var exactChainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
+                var fallbackRec = FindPositionFallbackRecordingForChain(
+                    committed, committedTrees, chain, currentUT);
                 positioned = TryPositionChainFallbackFromRecording(
-                    ghostGO, chain, exactChainRec, currentUT);
-
-                bool chainHasStarted = ChainHasStarted(chain, currentUT);
-                if (!chainHasStarted)
-                {
-                    var preClaimRec = FindPreClaimChainRecordingAtUT(
-                        committedTrees, chain, currentUT, out bool hasPreClaimCoverage);
-                    if (hasPreClaimCoverage)
-                    {
-                        positioned = TryPositionChainFallbackFromRecording(
-                            ghostGO, chain, preClaimRec, currentUT);
-                    }
-
-                    for (int i = 0; i < committed.Count && !positioned && !hasPreClaimCoverage; i++)
-                    {
-                        var rec = committed[i];
-                        if (rec.VesselPersistentId != chain.OriginalVesselPid)
-                            continue;
-                        positioned = TryPositionChainFallbackFromRecording(
-                            ghostGO, chain, rec, currentUT);
-                    }
-                }
+                    ghostGO, chain, fallbackRec, currentUT);
             }
 
             if (!positioned)

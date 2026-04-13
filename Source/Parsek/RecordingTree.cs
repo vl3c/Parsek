@@ -39,6 +39,15 @@ namespace Parsek
         // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
         public HashSet<uint> RecordedVesselPids = new HashSet<uint>();
 
+        internal void AddOrReplaceRecording(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return;
+
+            AssignTreeOrderIfMissing(rec);
+            Recordings[rec.RecordingId] = rec;
+        }
+
         /// <summary>
         /// Returns the maximum EndUT across all recordings in this tree.
         /// Returns 0 if all recordings have 0 points (degraded tree).
@@ -80,7 +89,10 @@ namespace Parsek
             treeNode.AddValue("resourcesApplied", ResourcesApplied.ToString());
 
             // Serialize each recording
-            foreach (var rec in Recordings.Values)
+            EnsureRecordingTreeOrder();
+            var orderedRecordings = new List<Recording>(Recordings.Values);
+            orderedRecordings.Sort(CompareRecordingTreeOrder);
+            foreach (var rec in orderedRecordings)
             {
                 ConfigNode recNode = treeNode.AddNode("RECORDING");
                 SaveRecordingInto(recNode, rec);
@@ -134,7 +146,7 @@ namespace Parsek
             {
                 var rec = new Recording();
                 LoadRecordingFrom(recNodes[i], rec);
-                tree.Recordings[rec.RecordingId] = rec;
+                tree.AddOrReplaceRecording(rec);
             }
 
             // Load branch points
@@ -157,25 +169,47 @@ namespace Parsek
         {
             BackgroundMap.Clear();
             RecordedVesselPids.Clear();
-            var bestByPid = new Dictionary<uint, Recording>();
-            foreach (var kvp in Recordings)
+            EnsureRecordingTreeOrder();
+            var duplicateEligiblePids = new HashSet<uint>();
+            var duplicateExamples = new List<string>();
+            var orderedRecordings = new List<Recording>(Recordings.Values);
+            orderedRecordings.Sort(CompareRecordingTreeOrder);
+            foreach (var rec in orderedRecordings)
             {
-                var rec = kvp.Value;
                 if (rec.VesselPersistentId != 0)
                     RecordedVesselPids.Add(rec.VesselPersistentId);
 
                 if (IsBackgroundMapEligible(rec))
                 {
-                    if (!bestByPid.TryGetValue(rec.VesselPersistentId, out Recording existing)
-                        || CompareBackgroundMapCandidates(rec, existing) > 0)
+                    if (BackgroundMap.TryGetValue(rec.VesselPersistentId, out string existingId))
                     {
-                        bestByPid[rec.VesselPersistentId] = rec;
+                        duplicateEligiblePids.Add(rec.VesselPersistentId);
+
+                        if (duplicateExamples.Count < 3)
+                        {
+                            duplicateExamples.Add(
+                                $"{rec.VesselPersistentId}:{existingId}->{rec.RecordingId}");
+                        }
                     }
+
+                    BackgroundMap[rec.VesselPersistentId] = rec.RecordingId;
                 }
             }
 
-            foreach (var kvp in bestByPid)
-                BackgroundMap[kvp.Key] = kvp.Value.RecordingId;
+            if (duplicateEligiblePids.Count > 0)
+            {
+                string treeId = !string.IsNullOrEmpty(Id) ? Id : (TreeName ?? "unknown");
+                string exampleSuffix = duplicateExamples.Count > 0
+                    ? $" examples=[{string.Join(", ", duplicateExamples)}]"
+                    : string.Empty;
+                ParsekLog.VerboseRateLimited(
+                    "RecordingTree",
+                    $"bgmap-duplicate-{treeId}",
+                    $"RebuildBackgroundMap: tree='{treeId}' has {duplicateEligiblePids.Count} " +
+                    $"duplicate eligible PID(s); BackgroundMap kept the latest tree-order winner." +
+                    exampleSuffix,
+                    60.0);
+            }
 
             ParsekLog.Verbose("RecordingTree",
                 $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count}");
@@ -210,24 +244,61 @@ namespace Parsek
             return false;
         }
 
-        private static int CompareBackgroundMapCandidates(Recording candidate, Recording existing)
+        private void EnsureRecordingTreeOrder()
         {
-            if (candidate == null && existing == null)
+            int nextOrder = 0;
+            foreach (var rec in Recordings.Values)
+            {
+                if (rec != null && rec.TreeOrder >= nextOrder)
+                    nextOrder = rec.TreeOrder + 1;
+            }
+
+            foreach (var rec in Recordings.Values)
+            {
+                if (rec != null && rec.TreeOrder < 0)
+                    rec.TreeOrder = nextOrder++;
+            }
+        }
+
+        private void AssignTreeOrderIfMissing(Recording rec)
+        {
+            if (rec == null || rec.TreeOrder >= 0)
+                return;
+
+            int nextOrder = 0;
+            foreach (var existing in Recordings.Values)
+            {
+                if (existing != null && existing.TreeOrder >= nextOrder)
+                    nextOrder = existing.TreeOrder + 1;
+            }
+
+            rec.TreeOrder = nextOrder;
+        }
+
+        private static int CompareRecordingTreeOrder(Recording a, Recording b)
+        {
+            if (ReferenceEquals(a, b))
                 return 0;
-            if (candidate == null)
+            if (a == null)
                 return -1;
-            if (existing == null)
+            if (b == null)
                 return 1;
 
-            int cmp = candidate.EndUT.CompareTo(existing.EndUT);
+            int aOrder = a.TreeOrder >= 0 ? a.TreeOrder : int.MaxValue;
+            int bOrder = b.TreeOrder >= 0 ? b.TreeOrder : int.MaxValue;
+            int cmp = aOrder.CompareTo(bOrder);
             if (cmp != 0)
                 return cmp;
 
-            cmp = candidate.StartUT.CompareTo(existing.StartUT);
+            cmp = a.StartUT.CompareTo(b.StartUT);
             if (cmp != 0)
                 return cmp;
 
-            return string.CompareOrdinal(candidate.RecordingId, existing.RecordingId);
+            cmp = a.EndUT.CompareTo(b.EndUT);
+            if (cmp != 0)
+                return cmp;
+
+            return string.CompareOrdinal(a.RecordingId, b.RecordingId);
         }
 
         internal List<uint> FindDuplicateBackgroundMapPids()
@@ -251,22 +322,6 @@ namespace Parsek
 
             return duplicates;
         }
-
-        internal string FindPreferredBackgroundMapRecordingId(uint pid)
-        {
-            Recording best = null;
-            foreach (var rec in Recordings.Values)
-            {
-                if (rec.VesselPersistentId != pid || !IsBackgroundMapEligible(rec))
-                    continue;
-
-                if (best == null || CompareBackgroundMapCandidates(rec, best) > 0)
-                    best = rec;
-            }
-
-            return best != null ? best.RecordingId : null;
-        }
-
         // --- Recording serialization helpers ---
 
         internal static void SaveRecordingInto(ConfigNode recNode, Recording rec)
@@ -277,6 +332,8 @@ namespace Parsek
             recNode.AddValue("vesselName", rec.VesselName ?? "");
             if (rec.TreeId != null)
                 recNode.AddValue("treeId", rec.TreeId);
+            if (rec.TreeOrder >= 0)
+                recNode.AddValue("treeOrder", rec.TreeOrder.ToString(ic));
             recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(ic));
 
             if (!double.IsNaN(rec.ExplicitStartUT))
@@ -496,6 +553,9 @@ namespace Parsek
 
             rec.VesselName = Recording.ResolveLocalizedName(recNode.GetValue("vesselName") ?? "");
             rec.TreeId = recNode.GetValue("treeId");
+            int treeOrder;
+            if (int.TryParse(recNode.GetValue("treeOrder"), NumberStyles.Integer, ic, out treeOrder))
+                rec.TreeOrder = treeOrder;
 
             uint vesselPid;
             if (uint.TryParse(recNode.GetValue("vesselPersistentId"), NumberStyles.Integer, ic, out vesselPid))
