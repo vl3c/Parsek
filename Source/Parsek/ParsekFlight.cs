@@ -3015,7 +3015,13 @@ namespace Parsek
                     if (childVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
+                        backgroundRecorder.OnVesselBackgrounded(
+                            pid,
+                            breakupEngineState,
+                            initialTrajectoryPoint: childVessel != null
+                                ? (TrajectoryPoint?)BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                    childVessel, breakupBp.UT)
+                                : null);
                     }
 
                     ParsekLog.Info("Coalescer",
@@ -3050,7 +3056,13 @@ namespace Parsek
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
+                        backgroundRecorder.OnVesselBackgrounded(
+                            pid,
+                            breakupEngineState,
+                            initialTrajectoryPoint: debrisVessel != null
+                                ? (TrajectoryPoint?)BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                    debrisVessel, breakupBp.UT)
+                                : null);
                         backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
                     }
 

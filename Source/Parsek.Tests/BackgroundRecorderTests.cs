@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -476,6 +477,108 @@ namespace Parsek.Tests
 
             Assert.Equal(0, bgRecorder.PendingInitialEnvironmentOverrideCount);
             Assert.Null(bgRecorder.PeekPendingInitialEnvironmentOverrideForTesting(100));
+        }
+
+        [Fact]
+        public void OnVesselBackgrounded_WithInitialTrajectoryPoint_QueuesPendingPoint()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            var point = new TrajectoryPoint
+            {
+                ut = 123.45,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.OnVesselBackgrounded(100, initialTrajectoryPoint: point);
+
+            Assert.Equal(1, bgRecorder.PendingInitialTrajectoryPointCount);
+            TrajectoryPoint? queued = bgRecorder.PeekPendingInitialTrajectoryPointForTesting(100);
+            Assert.True(queued.HasValue);
+            Assert.Equal(point.ut, queued.Value.ut, 6);
+            Assert.Equal(point.altitude, queued.Value.altitude, 6);
+            Assert.Equal(point.bodyName, queued.Value.bodyName);
+        }
+
+        [Fact]
+        public void ConsumePendingInitialTrajectoryPointForTesting_RemovesQueuedPoint()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            var point = new TrajectoryPoint
+            {
+                ut = 123.45,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.OnVesselBackgrounded(100, initialTrajectoryPoint: point);
+
+            TrajectoryPoint? consumed = bgRecorder.ConsumePendingInitialTrajectoryPointForTesting(100);
+
+            Assert.True(consumed.HasValue);
+            Assert.Equal(point.ut, consumed.Value.ut, 6);
+            Assert.Equal(0, bgRecorder.PendingInitialTrajectoryPointCount);
+        }
+
+        [Fact]
+        public void OnVesselRemovedFromBackground_ClearsPendingInitialTrajectoryPoint()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            var point = new TrajectoryPoint
+            {
+                ut = 123.45,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.OnVesselBackgrounded(100, initialTrajectoryPoint: point);
+            bgRecorder.OnVesselRemovedFromBackground(100);
+
+            Assert.Equal(0, bgRecorder.PendingInitialTrajectoryPointCount);
+            Assert.Null(bgRecorder.PeekPendingInitialTrajectoryPointForTesting(100));
+        }
+
+        [Fact]
+        public void InjectOnRailsStateForTesting_ConsumesQueuedInitialPoint_AndWritesSeedToRecording()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            tree.Recordings["rec_bg1"].Points.Clear();
+            tree.Recordings["rec_bg1"].ExplicitEndUT = double.NaN;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            var point = new TrajectoryPoint
+            {
+                ut = 123.45,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.OnVesselBackgrounded(100, initialTrajectoryPoint: point);
+            bgRecorder.InjectOnRailsStateForTesting(100, "rec_bg1", 130.0);
+
+            Assert.Equal(0, bgRecorder.PendingInitialTrajectoryPointCount);
+            Assert.Single(tree.Recordings["rec_bg1"].Points);
+            Assert.Equal(point.ut, tree.Recordings["rec_bg1"].Points[0].ut, 6);
+            Assert.Equal(point.ut, tree.Recordings["rec_bg1"].ExplicitEndUT, 6);
         }
 
         #endregion

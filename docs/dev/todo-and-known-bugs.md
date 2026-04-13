@@ -418,7 +418,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 336. Debris ghosts can appear ahead of their real playback start, then slide into place
+## ~~336. Debris ghosts can appear ahead of their real playback start, then slide into place~~
 
 **Observed in:** `logs/2026-04-13_1959_debris-slide-still-broken-after-pr258/` after the first debris-positioning follow-up on PR `#258`. User report: debris ghosts still appeared in visibly wrong places on their first frame and only settled into the correct path afterward.
 
@@ -442,7 +442,39 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - recordings whose `ExplicitStartUT` is earlier than the first playable debris frame
 - engine-side activation-start resolution preferring the real payload start over semantic branch timing
 
-**Status:** Fix implemented in PR `#258`; pending runtime validation from a fresh replay bundle.
+**Fresh validation:** `logs/2026-04-13_2136` no longer reproduces the bug. The breakup debris ghosts in that bundle all become visible on playable payload frames with zero activation lead:
+
+- booster debris ghosts `#1`-`#8` all log `activationLead=0.00` together with `activeFrame=Absolute`, never the earlier `activeFrame=none` / "visible before payload" failure
+- the stack-separated main-stage debris ghost `#9` (`recId=5df4e23c98ba475493fc9790f2f5584a`) appears at `ut=70.58`, `activationStart=70.58`, `activeFrame=Absolute`, and `recordingStart-root=(0.00,0.00,0.00)` even though the breakup branch itself opened earlier at `UT=70.04`
+
+That confirms PR `#258` removed the original "ghost is visible before its first playable frame, then slides into place" failure mode in a fresh replay/save bundle.
+
+**Status:** ~~Fixed~~ in PR `#258`, validated by `logs/2026-04-13_2136`
+
+---
+
+## 337. Stack-decoupled main-stage debris can still look spatially late relative to the exact separation event
+
+**Observed in:** `logs/2026-04-13_2136` follow-up after PR `#258`, plus user report from the same recent save. The radial-booster debris looked fixed, but the large main-stage debris created by the circular / stack decoupler still did not look quite right at first appearance.
+
+**Collected evidence:**
+
+- the large stage breakup child was created immediately at the branch event: `pid=2483558814`, `recId=5df4e23c98ba475493fc9790f2f5584a`, breakup `UT=70.04`
+- the first playable recorded payload for that child still arrives later:
+  - `BgRecorder` starts the child's `TrackSection` at `UT=70.56`
+  - the first saved trajectory point in `5df4e23c...prec.txt` is `ut = 70.58`
+- the first visible ghost frame is now internally consistent, which means this is **not** the old `#336` bug:
+  - `Ghost #9 "Kerbal X Debris" appearance#1 reason=playback ut=70.58 activationStart=70.58 activeFrame=Absolute ... recordingStart-root=(0.00,0.00,0.00)`
+- the readable snapshot shows the stage had already moved materially by the time that first playable frame existed:
+  - `5df4e23c..._ghost.craft.txt` records `distanceTraveled = 72.953649124686493` at `lastUT = 70.5600000000031`
+
+**Impact:** After the PR `#258` fix, the main-stage debris no longer flashes early and slides into place, but it can still appear noticeably displaced from the exact split moment because playback has no visible payload before the first background-sampled frame. On a large, fast-moving stack-separated stage that remaining branch-to-first-sample gap is much easier to notice than on the smaller radial boosters.
+
+**Root cause hypothesis:** This looks like a different gap from `#336`. Ghost visibility is now correctly keyed off the first playable payload frame, but the stack-separated debris recording still has no playable absolute sample until the new child vessel is backgrounded and sampled ~0.5 s after the split. The player expectation is anchored to the separation event, while the current playback path can only show the first recorded background sample.
+
+**Implemented fix:** Seed breakup/background child recordings with a real branch-boundary trajectory point and persist it immediately into the child recording, so playback has a playable absolute pose at the split UT instead of waiting for the first later background sample. The same seed is now carried through loaded and packed/on-rails background starts, and it becomes the recorder's first-sample baseline rather than an out-of-band cosmetic-only point.
+
+**Status:** Fix implemented on `fix/337-main-stage-debris-start-offset`; pending runtime validation from a fresh replay/save bundle
 
 ---
 

@@ -183,6 +183,28 @@ namespace Parsek.Tests
             Assert.Equal(28.12, activationStartUT, 2);
         }
 
+        [Fact]
+        public void TryGetGhostActivationStartUT_UsesSeededBoundaryPointBeforeLaterOrbitSegment()
+        {
+            var rec = new Recording
+            {
+                ExplicitStartUT = 70.04,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool resolved = rec.TryGetGhostActivationStartUT(out double activationStartUT);
+
+            Assert.True(resolved);
+            Assert.Equal(70.04, activationStartUT, 2);
+        }
+
         private static ConfigNode BuildSnapshot(string coM)
         {
             var snapshot = new ConfigNode("VESSEL");
