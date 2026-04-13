@@ -760,16 +760,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyPostDestructionMergeResolution_WaitsForActiveCrashFallback()
+        public void ClassifyPostDestructionMergeResolution_FinalizesWhenOnlyDebrisBlockersRemain()
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: true,
                 allLeavesTerminal: false,
                 onlyDebrisBlockersRemain: true);
 
-            Assert.Equal(
-                ParsekFlight.PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange,
-                result);
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, result);
         }
 
         [Fact]

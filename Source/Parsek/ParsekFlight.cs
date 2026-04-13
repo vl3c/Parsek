@@ -1195,102 +1195,77 @@ namespace Parsek
             // Wait one frame for destruction events to settle
             yield return null;
 
-            const int maxDebrisSettleFrames = 240;
-            int debrisSettleFrames = 0;
-            while (true)
+            // Guard: tree cleaned up during wait (scene change, etc.)
+            if (activeTree == null)
             {
-                // Guard: tree cleaned up during wait (scene change, etc.)
-                if (activeTree == null)
+                if (sceneChangeInProgress)
                 {
-                    if (sceneChangeInProgress)
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionTreeMergeDialog: activeTree is null during scene change — aborting in-flight merge");
+                }
+                else
+                {
+                    Patches.FlightResultsPatch.CancelDeferredMerge(
+                        "tree destruction dialog aborted: activeTree null");
+                    ParsekLog.Verbose("Flight",
+                        "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                }
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            // Guard: someone else handled it
+            if (!treeDestructionDialogPending)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: flag already cleared — aborting");
+                yield break;
+            }
+
+            // Guard: active vessel still alive
+            if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
+            {
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    "tree destruction dialog aborted: active vessel survived");
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            bool activeDestroyed = recorder == null || !recorder.IsRecording
+                || recorder.VesselDestroyedDuringRecording;
+            bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
+                activeTree.Recordings,
+                activeTree.ActiveRecordingId,
+                activeDestroyed);
+            bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
+                activeTree.Recordings,
+                activeTree.ActiveRecordingId);
+            switch (ClassifyPostDestructionMergeResolution(
+                activeDestroyed,
+                allLeavesTerminal,
+                onlyDebrisBlockersRemain))
+            {
+                case PostDestructionMergeResolution.CancelDeferredMerge:
+                    Patches.FlightResultsPatch.CancelDeferredMerge(
+                        "tree destruction dialog aborted: not all leaves terminal");
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
+                    treeDestructionDialogPending = false;
+                    yield break;
+
+                case PostDestructionMergeResolution.FinalizeNow:
+                    if (allLeavesTerminal)
                     {
                         ParsekLog.Info("Flight",
-                            "ShowPostDestructionTreeMergeDialog: activeTree is null during scene change — aborting in-flight merge");
+                            "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
                     }
                     else
                     {
-                        Patches.FlightResultsPatch.CancelDeferredMerge(
-                            "tree destruction dialog aborted: activeTree null");
-                        ParsekLog.Verbose("Flight",
-                            "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
-                    }
-                    treeDestructionDialogPending = false;
-                    yield break;
-                }
-
-                // Guard: someone else handled it
-                if (!treeDestructionDialogPending)
-                {
-                    ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: flag already cleared — aborting");
-                    yield break;
-                }
-
-                // Guard: active vessel still alive
-                if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
-                {
-                    Patches.FlightResultsPatch.CancelDeferredMerge(
-                        "tree destruction dialog aborted: active vessel survived");
-                    ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
-                    treeDestructionDialogPending = false;
-                    yield break;
-                }
-
-                bool activeDestroyed = recorder == null || !recorder.IsRecording
-                    || recorder.VesselDestroyedDuringRecording;
-                bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
-                    activeTree.Recordings,
-                    activeTree.ActiveRecordingId,
-                    activeDestroyed);
-                bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
-                    activeTree.Recordings,
-                    activeTree.ActiveRecordingId);
-                switch (ClassifyPostDestructionMergeResolution(
-                    activeDestroyed,
-                    allLeavesTerminal,
-                    onlyDebrisBlockersRemain))
-                {
-                    case PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange:
-                        if (sceneChangeInProgress)
-                        {
-                            ParsekLog.Info("Flight",
-                                "ShowPostDestructionTreeMergeDialog: scene change started while waiting for debris leaves — aborting in-flight merge");
-                            treeDestructionDialogPending = false;
-                            yield break;
-                        }
-
-                        if (debrisSettleFrames == 0)
-                        {
-                            ParsekLog.Info("Flight",
-                                "ShowPostDestructionTreeMergeDialog: only debris leaves still block same-scene merge — waiting for tree to settle in flight");
-                        }
-
-                        if (debrisSettleFrames++ >= maxDebrisSettleFrames)
-                        {
-                            Patches.FlightResultsPatch.CancelDeferredMerge(
-                                "tree destruction dialog timed out waiting for debris leaves");
-                            ParsekLog.Warn("Flight",
-                                "ShowPostDestructionTreeMergeDialog: timed out waiting for debris leaves to settle");
-                            treeDestructionDialogPending = false;
-                            yield break;
-                        }
-
-                        yield return null;
-                        continue;
-
-                    case PostDestructionMergeResolution.CancelDeferredMerge:
-                        Patches.FlightResultsPatch.CancelDeferredMerge(
-                            "tree destruction dialog aborted: not all leaves terminal");
                         ParsekLog.Info("Flight",
-                            "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
-                        treeDestructionDialogPending = false;
-                        yield break;
-                }
-
-                break;
+                            "ShowPostDestructionTreeMergeDialog: only debris leaves still block same-scene merge — finalizing tree in flight");
+                    }
+                    break;
             }
-
-            // All leaves are terminal — finalize and show dialog
-            ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
 
             double commitUT = Planetarium.GetUniversalTime();
 
@@ -3077,7 +3052,6 @@ namespace Parsek
         internal enum PostDestructionMergeResolution
         {
             FinalizeNow,
-            WaitForMoreLeavesOrSceneChange,
             CancelDeferredMerge,
         }
 
@@ -3086,12 +3060,10 @@ namespace Parsek
             bool allLeavesTerminal,
             bool onlyDebrisBlockersRemain)
         {
-            if (allLeavesTerminal)
+            if (allLeavesTerminal || (activeDestroyed && onlyDebrisBlockersRemain))
                 return PostDestructionMergeResolution.FinalizeNow;
 
-            return activeDestroyed && onlyDebrisBlockersRemain
-                ? PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange
-                : PostDestructionMergeResolution.CancelDeferredMerge;
+            return PostDestructionMergeResolution.CancelDeferredMerge;
         }
 
         /// <summary>
