@@ -257,6 +257,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SerializeTrajectoryInto_V1WithStaleTrackSections_FallsBackToFlatTrajectoryAndRoundTripsTail()
+        {
+            var rec = BuildStaleTrackSectionTailRecording(formatVersion: 1);
+
+            logLines.Clear();
+            var node = new ConfigNode("PARSEK_RECORDING");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            ConfigNode[] pointNodes = node.GetNodes("POINT");
+            Assert.Equal(3, pointNodes.Length);
+            Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Single(node.GetNodes("TRACK_SECTION"));
+            Assert.Equal("False", node.GetValue("sectionAuthoritative"));
+            Assert.Equal(120.0, double.Parse(
+                pointNodes[2].GetValue("ut"),
+                CultureInfo.InvariantCulture));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("SerializeTrajectoryInto") &&
+                l.Contains("used flat fallback path"));
+
+            logLines.Clear();
+            var restored = new Recording { RecordingId = rec.RecordingId };
+            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+
+            Assert.Equal(3, restored.Points.Count);
+            Assert.Equal(100.0, restored.Points[0].ut);
+            Assert.Equal(110.0, restored.Points[1].ut);
+            Assert.Equal(120.0, restored.Points[2].ut);
+            Assert.Single(restored.TrackSections);
+            Assert.Equal(2, restored.TrackSections[0].frames.Count);
+            Assert.Equal(100.0, restored.TrackSections[0].startUT);
+            Assert.Equal(110.0, restored.TrackSections[0].endUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("DeserializeTrajectoryFrom") &&
+                l.Contains("used flat fallback path"));
+        }
+
+        [Fact]
         public void SerializeTrajectoryInto_MissingHeader_BackfillsVersionAndRecordingId()
         {
             var rec = new Recording
@@ -509,6 +549,52 @@ namespace Parsek.Tests
                 bodyName = "Kerbin"
             });
             return rec;
+        }
+
+        private static Recording BuildStaleTrackSectionTailRecording(int formatVersion)
+        {
+            var first = MakePoint(100.0, 0.0, 0.0, 1000.0);
+            var second = MakePoint(110.0, 0.05, 0.02, 1200.0);
+            var tail = MakePoint(120.0, 0.08, 0.06, 900.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "stale-track-tail",
+                RecordingFormatVersion = formatVersion,
+                VesselName = "Tail Vessel"
+            };
+            rec.Points.Add(first);
+            rec.Points.Add(second);
+            rec.Points.Add(tail);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = first.ut,
+                endUT = second.ut,
+                frames = new List<TrajectoryPoint> { first, second },
+                checkpoints = new List<OrbitSegment>()
+            });
+            return rec;
+        }
+
+        private static TrajectoryPoint MakePoint(
+            double ut,
+            double latitude,
+            double longitude,
+            double altitude)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 0, 0)
+            };
         }
 
         #endregion

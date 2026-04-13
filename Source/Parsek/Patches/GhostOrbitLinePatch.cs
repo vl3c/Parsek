@@ -47,36 +47,37 @@ namespace Parsek.Patches
 
             uint pid = __instance.vessel.persistentId;
             if (!GhostMapPresence.IsGhostMapVessel(pid)) return;
-            if (!GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds)) return;
+            double currentUT = Planetarium.GetUniversalTime();
+            if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                pid, currentUT, out double startUT, out double endUT))
+                return;
 
             Orbit orbit = __instance.orbit;
             if (orbit == null || orbit.eccentricity >= 1.0 || orbit.period <= 0) return;
 
-            double currentUT = Planetarium.GetUniversalTime();
-
             // Past recording bounds → clamp to endUT so icon sits at last recorded position
-            if (currentUT > bounds.endUT)
+            if (currentUT > endUT)
             {
-                orbit.UpdateFromUT(bounds.endUT);
+                orbit.UpdateFromUT(endUT);
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 return;
             }
-            if (currentUT < bounds.startUT)
+            if (currentUT < startUT)
             {
-                orbit.UpdateFromUT(bounds.startUT);
+                orbit.UpdateFromUT(startUT);
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 return;
             }
 
             // Within bounds — check if on the visible arc
-            bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, bounds.startUT, bounds.endUT, currentUT);
+            bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
             if (!onArc)
             {
                 // Off the visible arc (underground) — clamp to the nearest arc endpoint
                 double period = orbit.period;
                 double obtNow = ((orbit.getObtAtUT(currentUT) % period) + period) % period;
-                double obtStart = ((orbit.getObtAtUT(bounds.startUT) % period) + period) % period;
-                double obtEnd = ((orbit.getObtAtUT(bounds.endUT) % period) + period) % period;
+                double obtStart = ((orbit.getObtAtUT(startUT) % period) + period) % period;
+                double obtEnd = ((orbit.getObtAtUT(endUT) % period) + period) % period;
 
                 // Pick the closer endpoint in orbital-time space
                 double distToStart, distToEnd;
@@ -93,14 +94,14 @@ namespace Parsek.Patches
                     distToEnd = (obtNow >= obtEnd) ? (obtNow - obtEnd) : (obtNow + period - obtEnd);
                 }
 
-                double clampUT = (distToEnd <= distToStart) ? bounds.endUT : bounds.startUT;
+                double clampUT = (distToEnd <= distToStart) ? endUT : startUT;
                 orbit.UpdateFromUT(clampUT);
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
 
                 ParsekLog.VerboseRateLimited("GhostOrbitIcon", "clamp-" + pid,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Icon clamped pid={0} UT={1:F1} clampUT={2:F1} bounds=[{3:F1},{4:F1}]",
-                        pid, currentUT, clampUT, bounds.startUT, bounds.endUT));
+                        pid, currentUT, clampUT, startUT, endUT));
                 return;
             }
 
@@ -144,10 +145,11 @@ namespace Parsek.Patches
 
             // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch.
             // When UT is past the recording bounds, hide the line entirely.
-            if (GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var timeBounds))
+            double currentUT = Planetarium.GetUniversalTime();
+            if (GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                pid, currentUT, out double startUT, out double endUT))
             {
-                double currentUT = Planetarium.GetUniversalTime();
-                if (currentUT > timeBounds.endUT || currentUT < timeBounds.startUT || belowAtmosphere)
+                if (currentUT > endUT || currentUT < startUT || belowAtmosphere)
                 {
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
@@ -229,7 +231,9 @@ namespace Parsek.Patches
             if (__instance.vessel == null) return true;
             uint pid = __instance.vessel.persistentId;
             if (!GhostMapPresence.IsGhostMapVessel(pid)) return true;
-            if (!GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds))
+            double currentUT = Planetarium.GetUniversalTime();
+            if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                pid, currentUT, out double startUT, out double endUT))
             {
                 ParsekLog.VerboseRateLimited(Tag, "nobounds-" + pid,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -243,11 +247,11 @@ namespace Parsek.Patches
             if (orbit.eccentricity >= 1.0) return true; // let stock handle hyperbolic
 
             // Full orbit or more — let stock draw the complete ellipse
-            if (bounds.endUT - bounds.startUT >= orbit.period) return true;
+            if (endUT - startUT >= orbit.period) return true;
 
             // Convert UT bounds to eccentric anomaly (same as PatchRendering/Trajectory)
-            double fromE = orbit.EccentricAnomalyAtUT(bounds.startUT);
-            double toE = orbit.EccentricAnomalyAtUT(bounds.endUT);
+            double fromE = orbit.EccentricAnomalyAtUT(startUT);
+            double toE = orbit.EccentricAnomalyAtUT(endUT);
 
             // NaN guard — degenerate orbits or UT outside validity
             if (double.IsNaN(fromE) || double.IsNaN(toE)) return true;

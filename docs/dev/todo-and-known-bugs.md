@@ -43,6 +43,21 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 ---
 
+## ~~350. Boarded EVA re-entry playback can drop the boarded tail and final capsule spawn~~
+
+**Observed in:** `logs/2026-04-14_0000_main-stage-forward-bias/`. User report: during playback, the last kerbal showed the initial EVA exit but not the later circling/re-entry back into the capsule, and at recording end only the two EVA kerbals spawned while the capsule with the re-boarded kerbal never materialized.
+
+**Root cause:** The repro had two separate failures in the same board/re-entry chain.
+
+- `SessionMerger.MergeTree()` rebuilt the parent recording's flat trajectory from stale `TrackSections` even after newer flat points had been appended post-boarding. That collapsed the merged parent down to the section payload prefix and discarded the visible tail covering the last kerbal's circling/re-entry path.
+- The boarded child recording ended as a legitimate single-point landed leaf. Playback/spawn gating still treated `< 2` points as "no renderable ghost data", so the leaf never ran the normal completion/spawn path and the final capsule with the boarded kerbal was skipped.
+
+**Fix:** `SessionMerger` now preserves the flat trajectory whenever resolved `TrackSections` only match a prefix of newer flat data, `RecordingStore`/sidecar logic keeps those cases on the conservative flat-fallback path instead of writing them as section-authoritative, and ghost playback/spawn now treats single-point leaf recordings as renderable data while seeding the same interpolated state consumers expect from the normal point path. Added regressions for the merge path, single-point playback gating/state seeding, and direct stale-section serialization fallback coverage.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~349. Repaired stand-in rows can hide historical stand-in usage from retirement logic~~
 
 **Observed in:** final GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After the repair path started rewriting old stand-in `KerbalAssignment` rows back to the slot owner, the kerbals walk only recorded that logical owner name in `allRecordingCrew`. Retirement and roster-healing logic still asked whether the displaced stand-in's own name had ever appeared in recordings, so a historical stand-in like `Kirrim` could be treated as unused and deleted instead of retired once the owner reclaimed the slot.
