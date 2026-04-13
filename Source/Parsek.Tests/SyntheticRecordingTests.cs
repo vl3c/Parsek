@@ -4707,11 +4707,14 @@ namespace Parsek.Tests
                 ConfigNode vesselSnapshot;
                 Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(vesselPath, out vesselSnapshot));
                 Assert.Equal("Flea Flight", vesselSnapshot.GetValue("name"));
+                Assert.True(File.Exists(precPath + ".txt"), $"Expected readable .prec mirror at {precPath}.txt");
+                Assert.True(File.Exists(vesselPath + ".txt"), $"Expected readable vessel mirror at {vesselPath}.txt");
 
                 // FleaFlight only has a vessel snapshot, so sidecar writing aliases the
                 // effective ghost snapshot to _vessel.craft instead of writing _ghost.craft.
                 string ghostPath = Path.Combine(recDir, $"{id}_ghost.craft");
                 Assert.False(File.Exists(ghostPath), $"Did not expect _ghost.craft at {ghostPath}");
+                Assert.False(File.Exists(ghostPath + ".txt"), $"Did not expect readable _ghost.craft mirror at {ghostPath}.txt");
 
                 ConfigNode scenarioNode = writer.BuildScenarioNode();
                 ConfigNode[] trees = scenarioNode.GetNodes("RECORDING_TREE");
@@ -4747,6 +4750,8 @@ namespace Parsek.Tests
                     string id = segments[i].GetRecordingId();
                     Assert.True(File.Exists(Path.Combine(recDir, $"{id}.prec")),
                         $"Expected .prec sidecar for segment {id}");
+                    Assert.True(File.Exists(Path.Combine(recDir, $"{id}.prec.txt")),
+                        $"Expected readable .prec mirror for segment {id}");
 
                     var snapshotModeRecording = new Recording
                     {
@@ -4756,6 +4761,7 @@ namespace Parsek.Tests
                     bool expectGhostSidecar =
                         RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
                     Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft")));
+                    Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft.txt")));
                 }
             }
             finally
@@ -4783,11 +4789,17 @@ namespace Parsek.Tests
             Assert.Contains("testid123.prec", RecordingPaths.BuildTrajectoryRelativePath(id));
             Assert.Contains("testid123_vessel.craft", RecordingPaths.BuildVesselSnapshotRelativePath(id));
             Assert.Contains("testid123_ghost.craft", RecordingPaths.BuildGhostSnapshotRelativePath(id));
+            Assert.Contains("testid123.prec.txt", RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(id));
+            Assert.Contains("testid123_vessel.craft.txt", RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(id));
+            Assert.Contains("testid123_ghost.craft.txt", RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(id));
 
             // All paths are under Parsek/Recordings/
             Assert.StartsWith("Parsek", RecordingPaths.BuildTrajectoryRelativePath(id));
             Assert.StartsWith("Parsek", RecordingPaths.BuildVesselSnapshotRelativePath(id));
             Assert.StartsWith("Parsek", RecordingPaths.BuildGhostSnapshotRelativePath(id));
+            Assert.StartsWith("Parsek", RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(id));
+            Assert.StartsWith("Parsek", RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(id));
+            Assert.StartsWith("Parsek", RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(id));
         }
 
         #endregion
@@ -6008,7 +6020,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft) and rewind
+        /// Copies recording sidecar files (authoritative + readable mirrors) and rewind
         /// save files from the default career to the target save directory.
         /// </summary>
         private static void CopyRealRecordingFiles(
@@ -6027,7 +6039,7 @@ namespace Parsek.Tests
                     string id = recordings[i].GetValue("recordingId");
                     if (string.IsNullOrEmpty(id)) continue;
 
-                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft" };
+                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".prec.txt", "_vessel.craft.txt", "_ghost.craft.txt" };
                     for (int s = 0; s < suffixes.Length; s++)
                     {
                         string fileName = id + suffixes[s];

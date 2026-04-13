@@ -178,6 +178,7 @@ namespace Parsek
                 s.autoRecordOnEva = true;
                 s.autoMerge = false;
                 s.verboseLogging = true;
+                s.writeReadableSidecarMirrors = true;
                 s.minSampleInterval = 0.2f;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
@@ -185,6 +186,9 @@ namespace Parsek
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
+                ParsekSettingsPersistence.RecordGhostCameraCutoff(s.ghostCameraCutoffKm);
+                ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
+                RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
                 settingsCameraCutoffEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
@@ -358,6 +362,17 @@ namespace Parsek
             {
                 s.verboseLogging = verboseLogging;
                 ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
+            }
+
+            bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
+                new GUIContent(" Write readable sidecar mirrors",
+                    "Also write human-readable .txt mirrors of .prec and snapshot sidecars for debugging and binary/text comparison"));
+            if (writeReadableSidecarMirrors != s.writeReadableSidecarMirrors)
+            {
+                s.writeReadableSidecarMirrors = writeReadableSidecarMirrors;
+                ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
+                RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
+                ParsekLog.Info("UI", $"Setting changed: writeReadableSidecarMirrors={s.writeReadableSidecarMirrors}");
             }
 
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
