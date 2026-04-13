@@ -130,6 +130,165 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: returns true when two orbit segments represent the same underlying orbit
+        /// for map-display continuity purposes. Epoch and mean anomaly are intentionally
+        /// ignored because the same orbit can be serialized at different times.
+        /// </summary>
+        internal static bool AreOrbitSegmentsEquivalentForMapDisplay(OrbitSegment a, OrbitSegment b)
+        {
+            if (string.IsNullOrEmpty(a.bodyName)
+                || !string.Equals(a.bodyName, b.bodyName, System.StringComparison.Ordinal))
+                return false;
+
+            double smaTolerance = System.Math.Max(10.0, System.Math.Abs(a.semiMajorAxis) * 1e-6);
+            const double EccTolerance = 1e-5;
+            const double AngleToleranceDeg = 0.01;
+
+            return System.Math.Abs(a.semiMajorAxis - b.semiMajorAxis) <= smaTolerance
+                && System.Math.Abs(a.eccentricity - b.eccentricity) <= EccTolerance
+                && AngularDeltaDegrees(a.inclination, b.inclination) <= AngleToleranceDeg
+                && AngularDeltaDegrees(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode) <= AngleToleranceDeg
+                && AngularDeltaDegrees(a.argumentOfPeriapsis, b.argumentOfPeriapsis) <= AngleToleranceDeg;
+        }
+
+        private static double AngularDeltaDegrees(double a, double b)
+        {
+            double delta = System.Math.Abs(a - b) % 360.0;
+            return delta > 180.0 ? 360.0 - delta : delta;
+        }
+
+        private static void ExpandEquivalentOrbitWindow(
+            List<OrbitSegment> segments,
+            int seedFirstIndex,
+            int seedLastIndex,
+            out double visibleStartUT,
+            out double visibleEndUT,
+            out int firstVisibleIndex,
+            out int lastVisibleIndex)
+        {
+            firstVisibleIndex = seedFirstIndex;
+            while (firstVisibleIndex > 0
+                && AreOrbitSegmentsEquivalentForMapDisplay(
+                    segments[firstVisibleIndex - 1], segments[firstVisibleIndex]))
+            {
+                firstVisibleIndex--;
+            }
+
+            lastVisibleIndex = seedLastIndex;
+            while (lastVisibleIndex < segments.Count - 1
+                && AreOrbitSegmentsEquivalentForMapDisplay(
+                    segments[lastVisibleIndex], segments[lastVisibleIndex + 1]))
+            {
+                lastVisibleIndex++;
+            }
+
+            visibleStartUT = segments[firstVisibleIndex].startUT;
+            visibleEndUT = segments[lastVisibleIndex].endUT;
+        }
+
+        /// <summary>
+        /// Map-view policy helper: return the active orbit segment for the given UT plus
+        /// the merged visible time bounds to use for map-line/icon continuity.
+        /// Equivalent same-body segments are expanded into one continuous visible window,
+        /// including brief gaps between them, so prerecorded same-SOI journeys render as
+        /// one uninterrupted map line.
+        /// </summary>
+        internal static bool TryGetOrbitWindowForMapDisplay(
+            List<OrbitSegment> segments,
+            double ut,
+            out OrbitSegment segment,
+            out double visibleStartUT,
+            out double visibleEndUT,
+            out int firstVisibleIndex,
+            out int lastVisibleIndex,
+            out bool carriedAcrossGap)
+        {
+            segment = default(OrbitSegment);
+            visibleStartUT = 0;
+            visibleEndUT = 0;
+            firstVisibleIndex = -1;
+            lastVisibleIndex = -1;
+            carriedAcrossGap = false;
+
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                bool inRange = (i == segments.Count - 1)
+                    ? (ut >= segments[i].startUT && ut <= segments[i].endUT)
+                    : (ut >= segments[i].startUT && ut < segments[i].endUT);
+                if (!inRange)
+                    continue;
+
+                segment = segments[i];
+                ExpandEquivalentOrbitWindow(
+                    segments, i, i,
+                    out visibleStartUT, out visibleEndUT,
+                    out firstVisibleIndex, out lastVisibleIndex);
+                return true;
+            }
+
+            if (segments.Count < 2)
+                return false;
+
+            int previousIndex = -1;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment candidate = segments[i];
+                if (candidate.endUT <= ut)
+                {
+                    previousIndex = i;
+                    continue;
+                }
+
+                if (previousIndex < 0 || candidate.startUT <= ut)
+                    return false;
+
+                if (!AreOrbitSegmentsEquivalentForMapDisplay(segments[previousIndex], candidate))
+                    return false;
+
+                segment = segments[previousIndex];
+                carriedAcrossGap = true;
+                ExpandEquivalentOrbitWindow(
+                    segments, previousIndex, i,
+                    out visibleStartUT, out visibleEndUT,
+                    out firstVisibleIndex, out lastVisibleIndex);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Map-view policy helper: return the active orbit segment for the given UT plus
+        /// the visible time bounds to use for map-line/icon continuity.
+        /// </summary>
+        internal static bool TryGetOrbitSegmentForMapDisplay(
+            List<OrbitSegment> segments, double ut,
+            out OrbitSegment segment, out double visibleStartUT, out double visibleEndUT)
+        {
+            return TryGetOrbitWindowForMapDisplay(
+                segments, ut,
+                out segment, out visibleStartUT, out visibleEndUT,
+                out _, out _, out _);
+        }
+
+        /// <summary>
+        /// Map-view policy helper: return the active orbit segment for the given UT, or
+        /// carry the immediately preceding segment across a gap when the next segment stays
+        /// in the same SOI/body. This avoids fragmenting ghost orbit lines across brief
+        /// off-rails sections during a continuous same-body journey.
+        /// </summary>
+        internal static OrbitSegment? FindOrbitSegmentForMapDisplay(List<OrbitSegment> segments, double ut)
+        {
+            return TryGetOrbitSegmentForMapDisplay(segments, ut,
+                out OrbitSegment segment, out _, out _)
+                ? (OrbitSegment?)segment
+                : null;
+        }
+
+        /// <summary>
         /// Find the waypoint index for interpolation using cached lookup.
         /// Parameterized to work with any point list + cached index.
         /// </summary>

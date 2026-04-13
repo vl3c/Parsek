@@ -449,8 +449,9 @@ namespace Parsek
 
         /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
-        /// Creates ghosts when UT enters an orbit segment range (handles time warp),
-        /// and removes them when UT passes the segment endUT.
+        /// Creates ghosts when UT enters a map-visible orbit range (handles time warp),
+        /// carries them across brief same-body gaps, and removes them when the visible
+        /// orbit range is truly exhausted.
         /// Called periodically from ParsekTrackingStation.Update.
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
@@ -458,21 +459,44 @@ namespace Parsek
         internal static void UpdateTrackingStationGhostLifecycle()
         {
             double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
+            bool hasCommittedRecordings = committed != null && committed.Count > 0;
 
-            // --- Phase 1: remove expired ghosts ---
+            // --- Phase 1: refresh existing segment-based ghosts or remove exhausted ones ---
             if (vesselsByRecordingIndex.Count > 0)
             {
                 List<int> toRemove = null;
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
+                    int idx = kvp.Key;
+                    if (!hasCommittedRecordings)
+                    {
+                        if (toRemove == null) toRemove = new List<int>();
+                        toRemove.Add(idx);
+                        continue;
+                    }
+
                     uint pid = kvp.Value.persistentId;
                     if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
 
-                    if (currentUT > bounds.endUT)
+                    if (idx < 0 || idx >= committed.Count)
                     {
                         if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(kvp.Key);
+                        toRemove.Add(idx);
+                        continue;
                     }
+
+                    var rec = committed[idx];
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                    if (!seg.HasValue)
+                    {
+                        if (toRemove == null) toRemove = new List<int>();
+                        toRemove.Add(idx);
+                        continue;
+                    }
+
+                    if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
+                        UpdateGhostOrbitForRecording(idx, seg.Value);
                 }
 
                 if (toRemove != null)
@@ -483,16 +507,19 @@ namespace Parsek
                         RemoveGhostVesselForRecording(idx, "tracking-station-expired");
                         ParsekLog.Info(Tag,
                             string.Format(ic,
-                                "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
+                                "Removed expired ghost #{0} — UT {1:F1} past visible orbit range",
                                 idx, currentUT));
                     }
                 }
             }
 
-            // --- Phase 2: create ghosts for recordings that just entered orbit segment range ---
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0) return;
+            if (!hasCommittedRecordings)
+            {
+                CachedSupersededIds = new HashSet<string>();
+                return;
+            }
 
+            // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---
             // Compute once per tick — also used by ParsekTrackingStation.OnGUI via CachedSupersededIds
             var superseded = FindSupersededRecordingIds(committed);
             CachedSupersededIds = superseded;
@@ -514,7 +541,7 @@ namespace Parsek
                 }
                 else if (rec.HasOrbitSegments)
                 {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)
                         v = CreateGhostVesselFromSegment(i, rec, seg.Value);
                 }
@@ -525,7 +552,7 @@ namespace Parsek
                     EnsureGhostOrbitRenderers();
                     ParsekLog.Info(Tag,
                         string.Format(ic,
-                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
+                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range",
                             i, rec.VesselName ?? "(null)", currentUT));
                 }
             }
@@ -791,7 +818,7 @@ namespace Parsek
             // Orbit segments: find the one matching currentUT
             if (rec.HasOrbitSegments)
             {
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                 if (seg.HasValue)
                     return (true, null);
                 return (false, "no-current-segment");
@@ -841,7 +868,7 @@ namespace Parsek
                 }
                 else if (rec.HasOrbitSegments)
                 {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)
                         v = CreateGhostVesselFromSegment(i, rec, seg.Value);
                 }
@@ -970,6 +997,89 @@ namespace Parsek
             if (vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel v))
                 return v.persistentId;
             return 0;
+        }
+
+        /// <summary>
+        /// Resolve the visible orbit time window for a ghost vessel at the current UT.
+        /// Recording-index ghosts use dynamic same-body gap carry; other segment-based
+        /// ghosts fall back to their stored bounds.
+        /// </summary>
+        internal static bool TryGetVisibleOrbitBoundsForGhostVessel(
+            uint vesselPid, double currentUT, out double startUT, out double endUT)
+        {
+            startUT = 0;
+            endUT = 0;
+
+            int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex >= 0
+                && committed != null
+                && recordingIndex < committed.Count
+                && committed[recordingIndex].HasOrbitSegments
+                && TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                    committed[recordingIndex].OrbitSegments, currentUT,
+                    out OrbitSegment segment,
+                    out startUT,
+                    out endUT,
+                    out int firstVisibleIndex,
+                    out int lastVisibleIndex,
+                    out bool carriedAcrossGap))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic,
+                        "visible-window-{0}-{1:F3}-{2:F3}-{3:F3}-{4:F3}-{5}",
+                        vesselPid,
+                        segment.startUT,
+                        segment.endUT,
+                        startUT,
+                        endUT,
+                        carriedAcrossGap ? "gap" : "segment"),
+                    string.Format(ic,
+                        "Map-visible orbit window pid={0} recIndex={1} ut={2:F2} body={3} " +
+                        "segmentUT={4:F2}-{5:F2} windowUT={6:F2}-{7:F2} windowIndices={8}-{9} gapCarry={10}",
+                        vesselPid,
+                        recordingIndex,
+                        currentUT,
+                        segment.bodyName,
+                        segment.startUT,
+                        segment.endUT,
+                        startUT,
+                        endUT,
+                        firstVisibleIndex,
+                        lastVisibleIndex,
+                        carriedAcrossGap),
+                    1.0);
+                return true;
+            }
+
+            if (recordingIndex >= 0
+                && committed != null
+                && recordingIndex < committed.Count
+                && committed[recordingIndex].HasOrbitSegments)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "visible-window-none-" + vesselPid,
+                    string.Format(ic,
+                        "Map-visible orbit window unavailable pid={0} recIndex={1} ut={2:F2} — " +
+                        "no active or equivalent same-orbit segment chain",
+                        vesselPid, recordingIndex, currentUT),
+                    1.0);
+            }
+
+            if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
+            {
+                startUT = bounds.startUT;
+                endUT = bounds.endUT;
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "visible-window-fallback-{0}-{1:F3}-{2:F3}", vesselPid, startUT, endUT),
+                    string.Format(ic,
+                        "Map-visible orbit window pid={0} source=stored-bounds ut={1:F2} windowUT={2:F2}-{3:F2}",
+                        vesselPid, currentUT, startUT, endUT),
+                    1.0);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
