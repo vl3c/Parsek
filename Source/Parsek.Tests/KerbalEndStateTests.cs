@@ -189,6 +189,25 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]") && l.Contains("has no crew"));
         }
 
+        [Fact]
+        public void PopulateCrewEndStates_MissingStartSnapshot_LeavesUnresolved()
+        {
+            var rec = new Recording
+            {
+                VesselName = "DamagedSnapshotShip",
+                RecordingId = "test-002b",
+                TerminalStateValue = TerminalState.Orbiting,
+                GhostVisualSnapshot = null,
+                VesselSnapshot = BuildSnapshotWithCrew("Jeb")
+            };
+
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            Assert.Null(rec.CrewEndStates);
+            Assert.False(rec.CrewEndStatesResolved);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]") && l.Contains("has no start crew source"));
+        }
+
         /// <summary>
         /// Null recording -> no crash, just logs and skips.
         /// Guards: defensive null handling.
