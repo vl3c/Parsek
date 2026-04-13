@@ -131,7 +131,7 @@ That combination was enough to produce contradictory summaries like `maxSpeed>0`
 
 ---
 
-## 319. Watch buttons can disable as "no ghost" after chain transfer even when the user expects an in-range watch target
+## ~~319. Watch buttons can disable as "no ghost" after chain transfer even when the user expects an in-range watch target~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The user reported disabled watch buttons while apparently within the ghost camera cutoff distance.
 
@@ -142,11 +142,11 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 - Later rows for descendant recordings `#12` and `#13` also logged `disabled (no ghost)`, not `disabled (out of range)`.
 - Debris rows were separately disabled as `debris`, which is expected and distinct from the reported symptom.
 
-**Root cause / hypothesis:** This does not currently look like a pure cutoff-distance bug. The watched chain can retarget to a descendant ghost while the table/group still evaluates watch eligibility against the group's main recording, whose own ghost is gone. The resulting `no ghost` state looks like a range/cutoff failure to the player even though the underlying reason is target selection/UI state.
+**Root cause:** This was not a pure cutoff-distance bug. Watch auto-follow could legitimately retarget to a descendant ghost while the recordings table still evaluated the group `W` button against the group's original main recording, whose own ghost had already been destroyed. That stale source-row evaluation produced a misleading `disabled (no ghost)` state even though watch had already transferred to a valid descendant.
 
-**Fix direction:** Decide whether group and row watch affordances should follow the currently watchable chain descendant, or at least surface a clearer reason when the main row is unwatched but an active descendant ghost exists.
+**Fix:** Added shared watch-target resolution in `GhostPlaybackLogic` so group watch affordances follow the same continuation lineage as watch auto-follow, including multi-hop same-PID handoffs through inactive intermediates. Group `W` now evaluates and enters watch on the resolved live target, while per-row `W` semantics stay exact-recording to avoid duplicate/stale `W*` states. Logging now includes both source and resolved watch-target context, and the fallback rules remain aligned with actual auto-follow semantics (no illegal descent through non-breakup fallback branches, no breakup fallback to different-PID children).
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 
@@ -263,7 +263,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 327. Main stage can appear frozen or off-trajectory after separation while debris paths continue
+## ~~327. Main stage can appear frozen or off-trajectory after separation while debris paths continue~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: the main stage appeared to freeze in the air or move along the wrong trajectory position, while the debris recordings continued playing normally.
 
@@ -277,13 +277,13 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - The same `s13` bundle **does** show a save/load storage gap in the main-stage `.prec` payload. At `03:03:26`, `FlushRecorderIntoActiveTreeForSerialization` logged `103` live points for root recording `034b687...`, but the sidecar written immediately afterward still contained only `trackSections=1 / sparsePoints=35`; the next quickload rebuilt only that single section. The `a936e14...` and `8109e9e...` same-PID continuations showed the same pattern at later save boundaries.
 - A saved local inspector script, `tools/inspect-recording-sidecar.ps1`, confirmed the persisted `Kerbal X` chain had large gaps between section-authoritative sparse segments even though live recording had advanced further in memory before save.
 
-**Impact:** If this is real on current head, the parent/main-stage recording can become visually unreliable after separation even while child debris recordings continue correctly. That would be a more serious playback-integrity bug than simple camera recovery or grouping.
+**Impact:** When it happened, the parent/main-stage recording could become visually unreliable after separation even while child debris recordings continued correctly. That made the playback-integrity failure more serious than a simple camera recovery or grouping issue.
 
-**Root cause / hypothesis:** Root cause isolated on the `fix/327-main-stage-freeze-after-separation` branch. `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization()` appended only already-closed `recorder.TrackSections` into the active-tree recording and then cleared them, but it did **not** checkpoint the recorder's currently-open `TrackSection` first. Mid-flight saves could therefore write a section-authoritative `.prec` sidecar that was missing the live in-progress sparse trajectory chunk, and quickload playback could freeze or drift across that gap while debris/child recordings continued normally.
+**Root cause:** `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization()` appended only already-closed `recorder.TrackSections` into the active-tree recording and then cleared them, but it did **not** checkpoint the recorder's currently-open `TrackSection` first. Mid-flight saves could therefore write a section-authoritative `.prec` sidecar that was missing the live in-progress sparse trajectory chunk, and quickload playback could freeze or drift across that gap while debris/child recordings continued normally.
 
-**Fix direction:** The branch now checkpoints the open active `TrackSection` during save-time serialization, immediately reopens a continuation section with the same environment/reference metadata, and adds regression coverage for absolute, relative, and orbital-checkpoint cases. This still needs an in-game save/load breakup repro on current head to confirm the visible frozen/off-trajectory symptom is gone.
+**Fix:** PR `#242` now checkpoints the open active `TrackSection` during save-time serialization, immediately reopens a continuation section with the same environment/reference metadata, and adds regression coverage for absolute, relative, and orbital-checkpoint cases. The changelog entry for `0.8.1` already records this shipped fix.
 
-**Status:** Open (fix implemented on branch; needs in-game verification)
+**Status:** ~~Fixed~~ (PR #242)
 
 ---
 
