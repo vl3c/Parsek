@@ -48,6 +48,7 @@ namespace Parsek
         public bool distanceLodReduced;  // true when distance-based LOD applied ReduceFidelity
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
         public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
+        public bool deferVisibilityUntilPlaybackSync; // fresh/rebuilt ghost stays hidden until positioned and synced
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
         public Vector3 lastInterpolatedVelocity;
@@ -88,6 +89,7 @@ namespace Parsek
             distanceLodReduced = false;
             fidelityDisabledRenderers = null;
             simplified = false;
+            deferVisibilityUntilPlaybackSync = false;
             cameraPivot = null;
             horizonProxy = null;
         }

@@ -7354,7 +7354,7 @@ namespace Parsek
                     return false;
 
                 PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
-                    (int)(chain.OriginalVesselPid * 10000));
+                    (int)(chain.OriginalVesselPid * 10000), allowActivation: true);
                 UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
                 ParsekLog.VerboseRateLimited("Flight",
                     "chain-ghost-orbit-" + chain.OriginalVesselPid,
@@ -7366,7 +7366,7 @@ namespace Parsek
 
             if (HasSurfaceCoverageAtUT(rec, currentUT))
             {
-                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
+                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value, allowActivation: true);
                 ParsekLog.VerboseRateLimited("Flight",
                     "chain-ghost-surface-" + chain.OriginalVesselPid,
                     string.Format(CultureInfo.InvariantCulture,
@@ -8669,7 +8669,8 @@ namespace Parsek
                     if (forceWatchedFullFidelity)
                     {
                         GhostPlaybackLogic.RestoreWatchedFullFidelityState(state);
-                        if (state != null && state.ghost != null && !state.ghost.activeSelf)
+                        if (ShouldAutoActivateGhost(state)
+                            && state != null && state.ghost != null && !state.ghost.activeSelf)
                             state.ghost.SetActive(true);
                         if (zone == RenderingZone.Beyond)
                         {
@@ -8725,7 +8726,8 @@ namespace Parsek
             }
 
             // Zone 1 or 2: ensure ghost is visible
-            if (state != null && state.ghost != null && !state.ghost.activeSelf)
+            if (ShouldAutoActivateGhost(state)
+                && state != null && state.ghost != null && !state.ghost.activeSelf)
             {
                 state.ghost.SetActive(true);
                 ParsekLog.VerboseRateLimited("Zone", "zone-show",
@@ -8740,6 +8742,11 @@ namespace Parsek
                 suppressVisualFx = distanceSuppressVisualFx,
                 reduceFidelity = distanceReduceFidelity
             };
+        }
+
+        private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
+        {
+            return state == null || !state.deferVisibilityUntilPlaybackSync;
         }
 
         internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
@@ -8768,7 +8775,8 @@ namespace Parsek
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
             InterpolationResult interpResult;
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
-                ref playbackIdx, ut, index * 10000, out interpResult, skipOrbitSegments: surfaceSkip);
+                ref playbackIdx, ut, index * 10000, out interpResult,
+                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -8786,7 +8794,7 @@ namespace Parsek
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
             InterpolateAndPositionRelative(state.ghost, sectionFrames, ref playbackIdx,
-                ut, anchorVesselId, out interpResult);
+                ut, anchorVesselId, ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -8902,7 +8910,7 @@ namespace Parsek
             GhostPlaybackState state)
         {
             if (state?.ghost == null || traj?.SurfacePos == null) return;
-            PositionGhostAtSurface(state.ghost, traj.SurfacePos.Value);
+            PositionGhostAtSurface(state.ghost, traj.SurfacePos.Value, ShouldAutoActivateGhost(state));
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -8932,7 +8940,8 @@ namespace Parsek
             }
             InterpolationResult interpResult;
             PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
-                index, index * 10000, useAnchor, out interpResult);
+                index, index * 10000, useAnchor,
+                ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -8955,7 +8964,8 @@ namespace Parsek
 
         // CreateGhostSphere moved to GhostVisualBuilder.CreateGhostSphere (T25 Phase 4 prep)
 
-        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, out InterpolationResult interpResult)
+        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
+            double targetUT, bool allowActivation, out InterpolationResult interpResult)
         {
             TrajectoryPoint before, after;
             float t;
@@ -8993,7 +9003,7 @@ namespace Parsek
                 ghost.SetActive(false);
                 return;
             }
-            if (!ghost.activeSelf) ghost.SetActive(true);
+            if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, before.altitude);
@@ -9227,7 +9237,8 @@ namespace Parsek
         /// Positions a ghost using only orbit segments (no trajectory points).
         /// Used for background-only recordings (vessels that stayed on rails).
         /// </summary>
-        void PositionGhostFromOrbitOnly(GameObject ghost, Recording rec, double ut, int orbitCacheBase)
+        void PositionGhostFromOrbitOnly(GameObject ghost, Recording rec, double ut, int orbitCacheBase,
+            bool allowActivation)
         {
             for (int s = 0; s < rec.OrbitSegments.Count; s++)
             {
@@ -9239,7 +9250,8 @@ namespace Parsek
                         Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
                             $"sma={seg.semiMajorAxis:F0}, UT {seg.startUT:F0}-{seg.endUT:F0}");
                     PositionGhostFromOrbit(ghost, seg, ut, cacheKey);
-                    ghost.SetActive(true);
+                    if (allowActivation)
+                        ghost.SetActive(true);
                     return;
                 }
             }
@@ -9251,7 +9263,7 @@ namespace Parsek
         /// Positions a ghost at a fixed surface position (body, lat, lon, alt, rotation).
         /// Used for background vessels that are landed/splashed.
         /// </summary>
-        void PositionGhostAtSurface(GameObject ghost, SurfacePosition surfPos)
+        void PositionGhostAtSurface(GameObject ghost, SurfacePosition surfPos, bool allowActivation)
         {
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == surfPos.body);
             if (body == null)
@@ -9262,7 +9274,8 @@ namespace Parsek
             }
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
-            ghost.SetActive(true);
+            if (allowActivation)
+                ghost.SetActive(true);
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
             ghostPosEntries.Add(new GhostPosEntry
@@ -9562,6 +9575,7 @@ namespace Parsek
             int recIdx,
             int ghostIdSalt,
             bool useAnchor,
+            bool allowActivation,
             out InterpolationResult interpResult)
         {
             if (useAnchor)
@@ -9581,14 +9595,15 @@ namespace Parsek
 
                     InterpolateAndPositionRelative(
                         ghost, sectionFrames, ref playbackIdx, loopUT,
-                        rec.LoopAnchorVesselId, out interpResult);
+                        rec.LoopAnchorVesselId, allowActivation, out interpResult);
                     return;
                 }
             }
 
             // Absolute positioning fallback
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
-                ref playbackIdx, loopUT, ghostIdSalt, out interpResult);
+                ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
+                allowActivation: allowActivation);
         }
 
         /// <summary>
@@ -9602,6 +9617,7 @@ namespace Parsek
             ref int cachedIndex,
             double targetUT,
             uint anchorVesselId,
+            bool allowActivation,
             out InterpolationResult interpResult)
         {
             if (frames == null || frames.Count == 0)
@@ -9616,7 +9632,7 @@ namespace Parsek
             if (indexBefore < 0)
             {
                 // Before first frame — position at first frame's offset
-                PositionGhostRelativeAt(ghost, frames[0], anchorVesselId);
+                PositionGhostRelativeAt(ghost, frames[0], anchorVesselId, allowActivation);
                 interpResult = new InterpolationResult(frames[0].velocity, frames[0].bodyName, 0);
                 return;
             }
@@ -9627,7 +9643,7 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
-                PositionGhostRelativeAt(ghost, before, anchorVesselId);
+                PositionGhostRelativeAt(ghost, before, anchorVesselId, allowActivation);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, 0);
                 return;
             }
@@ -9644,7 +9660,7 @@ namespace Parsek
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
             interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
 
-            if (!ghost.activeSelf) ghost.SetActive(true);
+            if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
             // Find anchor vessel
             Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
@@ -9711,9 +9727,10 @@ namespace Parsek
         /// Positions a ghost at a single RELATIVE frame point (no interpolation).
         /// Used for edge cases (before first frame, zero-duration segments).
         /// </summary>
-        void PositionGhostRelativeAt(GameObject ghost, TrajectoryPoint point, uint anchorVesselId)
+        void PositionGhostRelativeAt(GameObject ghost, TrajectoryPoint point, uint anchorVesselId,
+            bool allowActivation)
         {
-            if (!ghost.activeSelf) ghost.SetActive(true);
+            if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
             double dx = point.latitude;
@@ -9757,7 +9774,7 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult, bool skipOrbitSegments = false)
+            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -9801,7 +9818,7 @@ namespace Parsek
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, out interpResult);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult);
         }
 
         #endregion

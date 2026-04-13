@@ -1810,6 +1810,7 @@ namespace Parsek
             // current UT. This prevents one-frame flashes at the recording-start snapshot.
             if (ghost.activeSelf)
                 ghost.SetActive(false);
+            state.deferVisibilityUntilPlaybackSync = true;
 
             buildType = builtFromSnapshot
                 ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
@@ -1953,8 +1954,13 @@ namespace Parsek
 
         private static void ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
         {
-            if (state?.ghost != null && !state.ghost.activeSelf)
+            if (state?.ghost == null)
+                return;
+
+            if (!state.ghost.activeSelf)
                 state.ghost.SetActive(true);
+
+            state.deferVisibilityUntilPlaybackSync = false;
         }
 
         private void UnloadGhostVisuals(int index, GhostPlaybackState state, string reason)
