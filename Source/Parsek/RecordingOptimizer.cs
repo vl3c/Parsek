@@ -9,10 +9,14 @@ namespace Parsek
     /// </summary>
     internal static class RecordingOptimizer
     {
+        internal const double MaxEvaBoundaryGapSeconds = 2.0;
+        internal const double MaxEvaBoundaryOverlapSeconds = 2.0;
+
         /// <summary>
         /// Can two consecutive chain segments be auto-merged?
         /// Returns false if any user-intent signal differs from defaults,
-        /// if they have different phases/bodies, if a branch point separates them,
+        /// if they have different phases/bodies (except continuous EVA atmo/surface),
+        /// if a branch point separates them,
         /// or if either has ghosting-trigger part events (snapshot would be wrong).
         /// </summary>
         internal static bool CanAutoMerge(Recording a, Recording b)
@@ -28,9 +32,15 @@ namespace Parsek
             // No branch point between them
             if (!string.IsNullOrEmpty(a.ChildBranchPointId)) return false;
 
-            // Same phase and body
-            if (a.SegmentPhase != b.SegmentPhase) return false;
-            if (a.SegmentBodyName != b.SegmentBodyName) return false;
+            bool samePhase = a.SegmentPhase == b.SegmentPhase;
+            if (samePhase)
+            {
+                if (a.SegmentBodyName != b.SegmentBodyName) return false;
+            }
+            else if (!CanMergeContinuousEvaAtmoSurfaceBoundary(a, b))
+            {
+                return false;
+            }
 
             // Neither has ghosting-trigger events (snapshot would be wrong for merged recording)
             if (GhostingTriggerClassifier.HasGhostingTriggerEvents(a)) return false;
@@ -62,6 +72,7 @@ namespace Parsek
             if (rec == null) return false;
             if (rec.TrackSections == null || rec.TrackSections.Count < 2) return false;
             if (sectionIndex < 1 || sectionIndex >= rec.TrackSections.Count) return false;
+            if (ShouldKeepContinuousEvaAtmoSurfaceTogether(rec, sectionIndex)) return false;
 
             // No ghosting triggers anywhere — snapshot is valid for both halves
             if (GhostingTriggerClassifier.HasGhostingTriggerEvents(rec)) return false;
@@ -87,6 +98,7 @@ namespace Parsek
             if (rec == null) return false;
             if (rec.TrackSections == null || rec.TrackSections.Count < 2) return false;
             if (sectionIndex < 1 || sectionIndex >= rec.TrackSections.Count) return false;
+            if (ShouldKeepContinuousEvaAtmoSurfaceTogether(rec, sectionIndex)) return false;
 
             // Both halves must be longer than 5 seconds
             double splitUT = rec.TrackSections[sectionIndex].startUT;
@@ -216,6 +228,8 @@ namespace Parsek
         /// </summary>
         internal static string MergeInto(Recording target, Recording absorbed)
         {
+            bool normalizeEvaBoundaryMerge = CanMergeContinuousEvaAtmoSurfaceBoundary(target, absorbed);
+
             // 1. Concatenate Points (already UT-ordered within each recording)
             if (absorbed.Points != null && absorbed.Points.Count > 0)
                 target.Points.AddRange(absorbed.Points);
@@ -316,6 +330,9 @@ namespace Parsek
             // 11. AntennaSpecs: keep target's if present, else inherit
             if (target.AntennaSpecs == null && absorbed.AntennaSpecs != null)
                 target.AntennaSpecs = absorbed.AntennaSpecs;
+
+            if (normalizeEvaBoundaryMerge)
+                NormalizeContinuousEvaBoundaryMerge(target);
 
             // 12. Invalidate cached stats
             target.CachedStats = null;
@@ -626,6 +643,189 @@ namespace Parsek
             if (section.frames != null && section.frames.Count > 0)
                 return section.frames[0].bodyName;
             return null;
+        }
+
+        private static bool IsEvaRecording(Recording rec)
+        {
+            return rec != null && !string.IsNullOrEmpty(rec.EvaCrewName);
+        }
+
+        internal static bool CanMergeContinuousEvaAtmoSurfaceBoundary(Recording a, Recording b)
+        {
+            if (!HasSameEvaIdentity(a, b)) return false;
+            if (!TryGetCommonRecordingBody(a, b, out _)) return false;
+            if (!IsAtmoSurfacePhasePair(a.SegmentPhase, b.SegmentPhase)) return false;
+            if (!HasContinuousBoundaryTiming(a.EndUT, b.StartUT)) return false;
+            return true;
+        }
+
+        private static bool HasSameEvaIdentity(Recording a, Recording b)
+        {
+            if (!IsEvaRecording(a) || !IsEvaRecording(b)) return false;
+            if (a.EvaCrewName != b.EvaCrewName) return false;
+
+            if ((!string.IsNullOrEmpty(a.ParentRecordingId) || !string.IsNullOrEmpty(b.ParentRecordingId))
+                && a.ParentRecordingId != b.ParentRecordingId)
+                return false;
+
+            if (a.VesselPersistentId != 0 && b.VesselPersistentId != 0
+                && a.VesselPersistentId != b.VesselPersistentId)
+                return false;
+
+            return true;
+        }
+
+        private static bool TryGetCommonRecordingBody(Recording a, Recording b, out string bodyName)
+        {
+            bodyName = null;
+            string bodyA = GetRecordingBody(a);
+            string bodyB = GetRecordingBody(b);
+            if (string.IsNullOrEmpty(bodyA) || string.IsNullOrEmpty(bodyB) || bodyA != bodyB)
+                return false;
+            bodyName = bodyA;
+            return true;
+        }
+
+        private static string GetRecordingBody(Recording rec)
+        {
+            if (rec == null) return null;
+            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                return rec.SegmentBodyName;
+            if (rec.Points != null)
+            {
+                for (int i = 0; i < rec.Points.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(rec.Points[i].bodyName))
+                        return rec.Points[i].bodyName;
+                }
+            }
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+                return rec.StartBodyName;
+            return null;
+        }
+
+        private static bool ShouldKeepContinuousEvaAtmoSurfaceTogether(Recording rec, int sectionIndex)
+        {
+            if (!IsEvaRecording(rec)) return false;
+            var prev = rec.TrackSections[sectionIndex - 1];
+            var next = rec.TrackSections[sectionIndex];
+            if (!IsAtmoSurfaceEnvironmentPair(prev.environment, next.environment)) return false;
+            if (!TryGetCommonSectionBody(rec, prev, next, out _)) return false;
+            if (!HasContinuousBoundaryTiming(prev.endUT, next.startUT)) return false;
+            return true;
+        }
+
+        private static bool TryGetCommonSectionBody(
+            Recording rec, TrackSection prev, TrackSection next, out string bodyName)
+        {
+            bodyName = null;
+            string prevBody = GetSectionBody(rec, prev);
+            string nextBody = GetSectionBody(rec, next);
+            if (string.IsNullOrEmpty(prevBody) || string.IsNullOrEmpty(nextBody) || prevBody != nextBody)
+                return false;
+            bodyName = prevBody;
+            return true;
+        }
+
+        private static string GetSectionBody(Recording rec, TrackSection section)
+        {
+            string body = GetSectionBody(section);
+            if (!string.IsNullOrEmpty(body))
+                return body;
+
+            if (rec?.Points != null)
+            {
+                for (int i = 0; i < rec.Points.Count; i++)
+                {
+                    if (rec.Points[i].ut >= section.startUT && !string.IsNullOrEmpty(rec.Points[i].bodyName))
+                        return rec.Points[i].bodyName;
+                }
+
+                for (int i = rec.Points.Count - 1; i >= 0; i--)
+                {
+                    if (!string.IsNullOrEmpty(rec.Points[i].bodyName))
+                        return rec.Points[i].bodyName;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsAtmoSurfacePhasePair(string phaseA, string phaseB)
+        {
+            return (phaseA == "atmo" && phaseB == "surface")
+                || (phaseA == "surface" && phaseB == "atmo");
+        }
+
+        private static bool IsAtmoSurfaceEnvironmentPair(SegmentEnvironment a, SegmentEnvironment b)
+        {
+            int classA = SplitEnvironmentClass(a);
+            int classB = SplitEnvironmentClass(b);
+            return (classA == 0 && classB == 2) || (classA == 2 && classB == 0);
+        }
+
+        private static bool HasContinuousBoundaryTiming(double earlierEndUT, double laterStartUT)
+        {
+            double delta = laterStartUT - earlierEndUT;
+            if (delta > MaxEvaBoundaryGapSeconds) return false;
+            if (delta < -MaxEvaBoundaryOverlapSeconds) return false;
+            return true;
+        }
+
+        private static void NormalizeContinuousEvaBoundaryMerge(Recording target)
+        {
+            if (target.TrackSections != null && target.TrackSections.Count > 1)
+            {
+                target.TrackSections = FlightRecorder.StableSortByUT(target.TrackSections, s => s.startUT);
+                TrimOverlappingSectionFrames(target.TrackSections);
+            }
+
+            bool rebuilt = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                target, allowRelativeSections: true);
+
+            if (!rebuilt && target.Points != null && target.Points.Count > 1)
+                target.Points = FlightRecorder.StableSortByUT(target.Points, p => p.ut);
+        }
+
+        private static void TrimOverlappingSectionFrames(List<TrackSection> trackSections)
+        {
+            double? previousEndUT = null;
+
+            for (int i = 0; i < trackSections.Count; i++)
+            {
+                var section = trackSections[i];
+                if ((section.referenceFrame == ReferenceFrame.Absolute
+                        || section.referenceFrame == ReferenceFrame.Relative)
+                    && section.frames != null
+                    && section.frames.Count > 0)
+                {
+                    section.frames = FlightRecorder.StableSortByUT(section.frames, p => p.ut);
+
+                    if (previousEndUT.HasValue)
+                    {
+                        int firstKeep = 0;
+                        while (firstKeep < section.frames.Count
+                            && section.frames[firstKeep].ut <= previousEndUT.Value)
+                        {
+                            firstKeep++;
+                        }
+
+                        if (firstKeep >= section.frames.Count)
+                            section.frames = new List<TrajectoryPoint>();
+                        else if (firstKeep > 0)
+                            section.frames = section.frames.GetRange(firstKeep, section.frames.Count - firstKeep);
+                    }
+
+                    if (section.frames.Count > 0)
+                    {
+                        section.startUT = section.frames[0].ut;
+                        section.endUT = section.frames[section.frames.Count - 1].ut;
+                        previousEndUT = section.endUT;
+                    }
+                }
+
+                trackSections[i] = section;
+            }
         }
 
         internal static int SplitEnvironmentClass(SegmentEnvironment env)

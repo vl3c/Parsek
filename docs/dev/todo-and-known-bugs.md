@@ -287,7 +287,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 328. Continuous EVA chains can still remain split across `atmo` -> `surface` boundaries
+## ~~328. Continuous EVA chains can still remain split across `atmo` -> `surface` boundaries~~
 
 **Observed in:** `logs/2026-04-13_0315_s13-snapshot-storage-check/` (`s13`). User expectation was that a continuous EVA should merge if the motion is continuous, but the committed Bill Kerman chain remained split into atmospheric and surface segments.
 
@@ -299,23 +299,20 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - `persistent.sfs` preserves two real Bill recordings in the same tree:
   - chain index `0`, `segmentPhase = atmo`, `pointCount = 49`
   - chain index `1`, `segmentPhase = surface`, `pointCount = 2`
-- Current merge policy makes this behavior explicit. `RecordingOptimizer.CanAutoMerge(...)` requires both `SegmentPhase` and `SegmentBodyName` to match exactly before any automatic merge is allowed.
+- Pre-fix merge policy made this behavior explicit: `RecordingOptimizer.CanAutoMerge(...)` required both `SegmentPhase` and `SegmentBodyName` to match exactly before any automatic merge was allowed.
 
 **Impact:** On atmospheric bodies, a continuous EVA touchdown / near-surface sequence can still appear as two adjacent recordings even after the old bogus-atmospheric-stub bug (`#326`) was fixed. This is not the same defect as `#326`: both resulting segments contain real data.
 
-**Root cause:** Current optimizer policy treats phase changes as hard merge boundaries. For EVA chains, `atmo -> surface` is therefore never eligible for auto-merge, even when the sidecar timing is continuous and there is no ghosting-trigger event between the sections.
+**Root cause:** The optimizer treated all phase changes as meaningful split boundaries and all cross-phase neighbors as merge-ineligible. That was too strict for atmospheric-body EVA continuity: a real kerbal recording could be split into `atmo` + `surface` segments during optimization, but the later merge pass could never heal that pair because the phase tags differed. Older already-split saves also carried slight overlap at the boundary, so naïve append-only repair would risk rebuilding non-monotonic flat points from the section payload.
 
-**Fix direction:** Decide whether this should remain intentional or whether EVA-only merge rules should allow adjacent `atmo <-> surface` sections to merge when all of the following are true:
+**Fix:** PR `#248` now treats continuous same-body EVA `atmo <-> surface` boundaries as non-meaningful optimizer splits, allows already-split EVA neighbors to rejoin when EVA identity/body/timing match, trims overlapping loaded section frames before rebuilding flat points, and suppresses misleading mixed phase labels so the repaired recording no longer presents as only `atmo` or only `surface`. Regression coverage now pins:
 
-- same chain, consecutive indices, primary branch
-- same body
-- sidecar bounds are continuous / non-gapped
-- no branch point between them
-- no ghosting-trigger events that require separate snapshots
+- split suppression for continuous same-body EVA atmosphere/surface sections
+- rejection of non-EVA, unknown-body, or gapped boundaries
+- repair of already-split overlapping loaded EVA pairs through the section-authoritative rebuild path
+- UI/body-label formatting for repaired mixed-phase EVA recordings
 
-If the answer is yes, add focused regression coverage for a real continuous EVA touchdown/liftoff on an atmospheric body and keep non-continuous or event-bearing transitions split.
-
-**Status:** Open (policy / design decision needed)
+**Status:** ~~Fixed~~ (PR #248)
 
 ---
 
