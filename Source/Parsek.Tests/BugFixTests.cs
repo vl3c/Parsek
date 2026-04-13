@@ -1384,6 +1384,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TreeBranch_PidMatchNoGhost_PendingActivationUsesActualPayloadStartUT()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-main", "child-debris" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1"),
+                MakeRec("child-debris", vesselPid: 200, treeId: "t1"),
+            };
+
+            recs[1].ExplicitStartUT = 110.0;
+            recs[1].Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 130.0 },
+                new TrajectoryPoint { ut = 140.0 }
+            };
+
+            bool found = GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => false, out double activationUT);
+
+            Assert.True(found);
+            Assert.Equal(130.0, activationUT);
+        }
+
+        [Fact]
+        public void TreeBranch_PidMatchGhostAlreadyActive_NoPendingActivationReturned()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1"),
+            };
+
+            bool found = GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => idx == 1, out _);
+
+            Assert.False(found);
+        }
+
+        [Fact]
         public void TreeBranch_PidMatchWithGhost_StillPreferred()
         {
             // Both continuation and debris have ghosts — PID match wins as before.

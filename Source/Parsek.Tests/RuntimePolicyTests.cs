@@ -210,6 +210,33 @@ namespace Parsek.Tests
         #endregion
 
         [Fact]
+        public void ComputePendingWatchHoldSeconds_ExtendsHoldForFutureContinuationAt1x()
+        {
+            float holdSeconds = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
+                3f, currentUT: 53.68, continuationActivationUT: 83.04, warpRate: 1f);
+
+            Assert.InRange(holdSeconds, 31f, 33f);
+        }
+
+        [Fact]
+        public void ComputePendingWatchHoldSeconds_UsesWarpRateForEstimatedRealTime()
+        {
+            float holdSeconds = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
+                3f, currentUT: 53.68, continuationActivationUT: 83.04, warpRate: 5f);
+
+            Assert.InRange(holdSeconds, 8f, 9f);
+        }
+
+        [Fact]
+        public void ComputePendingWatchHoldSeconds_NoFutureGap_LeavesBaseHold()
+        {
+            float holdSeconds = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
+                3f, currentUT: 83.04, continuationActivationUT: 83.04, warpRate: 1f);
+
+            Assert.Equal(3f, holdSeconds);
+        }
+
+        [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {
             float rate = GhostPlaybackLogic.ComputeScaledRcsEmissionRate(

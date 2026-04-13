@@ -342,6 +342,27 @@ namespace Parsek
                     // Uses real time (Time.time), not UT, so the hold duration is warp-independent.
                     float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
                         ? 5f : 3f;
+                    string holdDetail = null;
+                    if (evt.Index >= 0 && evt.Index < committed.Count
+                        && GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                            committed[evt.Index],
+                            committed,
+                            RecordingStore.CommittedTrees,
+                            engine.HasActiveGhost,
+                            out double continuationActivationUT))
+                    {
+                        float extendedHold = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
+                            holdSeconds, evt.CurrentUT, continuationActivationUT, TimeWarp.CurrentRate);
+                        if (extendedHold > holdSeconds)
+                        {
+                            holdSeconds = extendedHold;
+                            holdDetail = string.Format(
+                                CultureInfo.InvariantCulture,
+                                " pendingContinuationUT={0:F1} currentUT={1:F1}",
+                                continuationActivationUT,
+                                evt.CurrentUT);
+                        }
+                    }
                     host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
 
                     // Trigger explosion if terminal was Destroyed
@@ -350,7 +371,8 @@ namespace Parsek
 
                     ParsekLog.Info("Policy",
                         $"Watch hold started for #{evt.Index}: {holdSeconds:F0}s " +
-                        $"terminal={evt.Trajectory?.TerminalStateValue}");
+                        $"terminal={evt.Trajectory?.TerminalStateValue}" +
+                        (holdDetail ?? string.Empty));
                     // Ghost stays alive — ParsekFlight's watch hold timer will destroy it
                     return;
                 }
