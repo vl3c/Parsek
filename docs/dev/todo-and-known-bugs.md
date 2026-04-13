@@ -7,6 +7,30 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~351. Long-range landed ghosts can clip into terrain on held final-pose paths~~
+
+**Observed in:** `logs/2026-04-13_2136` ghost-underground follow-up (2026-04-13). A landed watched ghost in the visual tier could still end a playback step with its mesh partially sunk into terrain even though the normal in-flight clamp path kept earlier frames above ground.
+
+**Root cause:** the immediate surface-position paths (`past-end` hold, loop hold/boundary, overlap expiry) still used only the small fixed landed-ghost floor while normal frame-by-frame playback already used distance-aware terrain clearance. At long watch distances, or on legacy recordings with `TerrainHeightAtEnd = NaN`, the held terminal pose could therefore clip into terrain on the last frame.
+
+**Fix:** `PositionGhostAtPoint` now routes landed/splashed hold positioning through the same clearance-aware `ApplyLandedGhostClearance(...)` logic, and the legacy-NaN fallback keeps the historical minimum floor while allowing larger distance-aware clearance when needed. Added regression coverage for the long-range repro and the NaN fallback policy.
+
+**Status:** ~~Fixed~~ in PR `#262`
+
+---
+
+## ~~350. Automatic watch handoff can briefly snap `HorizonLocked` camera orientation on retarget~~
+
+**Observed in:** automatic watch-retarget follow-up (2026-04-13). When watch auto-follow transferred to a continuation ghost while already `HorizonLocked`, the first frame after retarget could use the new target with a stale horizon basis, causing a visible heading/pitch snap before the next per-frame horizon update corrected it.
+
+**Root cause:** `TransferWatchToNextSegment()` and the watch-mode toggle path applied the new target before refreshing that ghost's `horizonProxy` rotation. Camera-target compensation therefore ran against stale orientation state on the first retargeted frame.
+
+**Fix:** extracted `UpdateHorizonProxyRotation()` and now prime the target orientation before `ApplyCameraTarget()` on auto-follow retargets and watch-mode toggles, so the first `HorizonLocked` frame already uses the correct target basis.
+
+**Status:** ~~Fixed~~ in PR `#255`
+
+---
+
 ## ~~349. Repaired stand-in rows can hide historical stand-in usage from retirement logic~~
 
 **Observed in:** final GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After the repair path started rewriting old stand-in `KerbalAssignment` rows back to the slot owner, the kerbals walk only recorded that logical owner name in `allRecordingCrew`. Retirement and roster-healing logic still asked whether the displaced stand-in's own name had ever appeared in recordings, so a historical stand-in like `Kirrim` could be treated as unused and deleted instead of retired once the owner reclaimed the slot.
@@ -660,7 +684,7 @@ The debris-only watch-protection lineage introduced for `#316` remains separate.
 
 **Fix:** `ParsekFlight.ResolvePlaybackDistanceForEngine(...)` now resolves playback LOD distance from the live flight camera position in flight view, falls back to the active vessel when no usable scene camera exists or when map view is active, and has focused regression coverage in `PlaybackDistancePolicyTests`.
 
-**Status:** Fixed in branch `investigate/watch-eva-lod` — pending fresh runtime validation
+**Status:** Fix implemented in PR `#260`; pending fresh runtime validation
 
 ---
 
