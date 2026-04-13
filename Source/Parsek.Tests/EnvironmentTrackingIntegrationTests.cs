@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -280,6 +281,118 @@ namespace Parsek.Tests
             Assert.Equal(123456789u, reopened.anchorVesselId);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
+        }
+
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_PrefersDiscardedCurrentSectionMetadata()
+        {
+            var lastAbsolutePoint = new TrajectoryPoint
+            {
+                ut = 109.5,
+                altitude = 88.0,
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 109.5,
+                frames = new List<TrajectoryPoint> { lastAbsolutePoint },
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(lastAbsolutePoint);
+
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Relative, 109.8);
+            SetCurrentTrackSectionAnchor(recorder, 123456789u);
+            recorder.CloseCurrentTrackSection(110.0);
+
+            Assert.Single(recorder.TrackSections);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(110.0);
+            recorder.CloseCurrentTrackSection(120.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            var reopened = recorder.TrackSections[1];
+            Assert.Equal(ReferenceFrame.Relative, reopened.referenceFrame);
+            Assert.Equal(123456789u, reopened.anchorVesselId);
+            Assert.Empty(reopened.frames);
+        }
+
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_CheckpointResumeRestoresOnRailsState()
+        {
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = 300.0,
+                endUT = 330.0,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 300.0,
+                        endUT = 330.0,
+                        bodyName = "Kerbin"
+                    }
+                }
+            });
+
+            var resumedSegment = new OrbitSegment
+            {
+                startUT = 330.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 12345.0,
+                eccentricity = 0.1,
+                inclination = 1.5
+            };
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(330.0, resumedSegment);
+
+            var reopened = GetCurrentTrackSection(recorder);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, reopened.referenceFrame);
+            Assert.Equal(TrackSectionSource.Checkpoint, reopened.source);
+            Assert.Empty(reopened.frames);
+            Assert.Empty(reopened.checkpoints);
+            Assert.True(GetPrivateField<bool>(recorder, "isOnRails"));
+
+            var currentOrbitSegment = GetPrivateField<OrbitSegment>(recorder, "currentOrbitSegment");
+            Assert.Equal(resumedSegment.startUT, currentOrbitSegment.startUT);
+            Assert.Equal(resumedSegment.bodyName, currentOrbitSegment.bodyName);
+            Assert.Equal(resumedSegment.semiMajorAxis, currentOrbitSegment.semiMajorAxis);
+        }
+
+        private static void SetCurrentTrackSectionAnchor(FlightRecorder recorder, uint anchorPid)
+        {
+            var field = typeof(FlightRecorder).GetField(
+                "currentTrackSection",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(field);
+
+            var section = (TrackSection)field.GetValue(recorder);
+            section.anchorVesselId = anchorPid;
+            field.SetValue(recorder, section);
+        }
+
+        private static TrackSection GetCurrentTrackSection(FlightRecorder recorder)
+        {
+            return GetPrivateField<TrackSection>(recorder, "currentTrackSection");
+        }
+
+        private static T GetPrivateField<T>(FlightRecorder recorder, string fieldName)
+        {
+            var field = typeof(FlightRecorder).GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(field);
+            return (T)field.GetValue(recorder);
         }
 
         #endregion
