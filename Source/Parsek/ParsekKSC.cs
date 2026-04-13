@@ -520,7 +520,7 @@ namespace Parsek
                 playbackIndex = 0,
                 partEventIndex = 0,
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot),
-                snapshotPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot)
+                logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot)
             };
 
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);

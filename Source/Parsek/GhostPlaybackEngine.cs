@@ -1782,7 +1782,7 @@ namespace Parsek
             state.cameraPivot = cameraPivotObj.transform;
             state.horizonProxy = horizonProxyObj.transform;
             state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
-            state.snapshotPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
+            state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
 
             if (builtFromSnapshot)
             {

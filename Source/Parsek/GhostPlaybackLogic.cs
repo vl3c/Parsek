@@ -918,7 +918,7 @@ namespace Parsek
                 return false;
 
             bool changed = false;
-            var snapshotPartIds = state.snapshotPartIds;
+            var logicalPartIds = state.logicalPartIds;
             var ghostTransform = state.ghost.transform;
             for (int i = 0; i < state.compoundPartInfos.Count; i++)
             {
@@ -927,14 +927,20 @@ namespace Parsek
                     continue;
 
                 GameObject partObject = info.partTransform.gameObject;
-                if (partObject == null || !partObject.activeSelf)
+                if (partObject == null)
                     continue;
 
-                bool hidePart = false;
+                if (logicalPartIds != null && logicalPartIds.Count > 0
+                    && !logicalPartIds.Contains(info.partPersistentId))
+                    continue;
+
+                if (!partObject.activeSelf)
+                    continue;
+
                 Transform targetTransform = ghostTransform.Find($"ghost_part_{info.targetPersistentId}");
-                hidePart = ShouldHideCompoundPart(
+                bool hidePart = ShouldHideCompoundPart(
                     info.targetPersistentId,
-                    snapshotPartIds,
+                    logicalPartIds,
                     targetTransform != null,
                     targetTransform != null && targetTransform.gameObject.activeSelf);
 
@@ -950,18 +956,102 @@ namespace Parsek
 
         internal static bool ShouldHideCompoundPart(
             uint targetPersistentId,
-            HashSet<uint> snapshotPartIds,
+            HashSet<uint> logicalPartIds,
             bool targetVisualExists,
             bool targetVisualActive)
         {
             if (targetPersistentId == 0)
                 return false;
 
-            if (snapshotPartIds != null && snapshotPartIds.Count > 0
-                && !snapshotPartIds.Contains(targetPersistentId))
+            if (logicalPartIds != null && logicalPartIds.Count > 0
+                && !logicalPartIds.Contains(targetPersistentId))
                 return true;
 
             return targetVisualExists && !targetVisualActive;
+        }
+
+        internal static bool ShouldRestoreCompoundPart(
+            uint sourcePersistentId,
+            uint targetPersistentId,
+            HashSet<uint> logicalPartIds,
+            bool targetVisualExists,
+            bool targetVisualActive)
+        {
+            if (logicalPartIds != null && logicalPartIds.Count > 0
+                && !logicalPartIds.Contains(sourcePersistentId))
+                return false;
+
+            return !ShouldHideCompoundPart(
+                targetPersistentId,
+                logicalPartIds,
+                targetVisualExists,
+                targetVisualActive);
+        }
+
+        internal static void RemovePartSubtreeFromLogicalPresence(
+            HashSet<uint> logicalPartIds,
+            uint rootPid,
+            Dictionary<uint, List<uint>> tree)
+        {
+            if (logicalPartIds == null || logicalPartIds.Count == 0)
+                return;
+
+            var stack = new Stack<uint>();
+            stack.Push(rootPid);
+            while (stack.Count > 0)
+            {
+                uint pid = stack.Pop();
+                logicalPartIds.Remove(pid);
+
+                if (tree == null)
+                    continue;
+
+                List<uint> children;
+                if (!tree.TryGetValue(pid, out children))
+                    continue;
+
+                for (int i = 0; i < children.Count; i++)
+                    stack.Push(children[i]);
+            }
+        }
+
+        internal static bool RestoreCompoundPartsForPlacedTargets(
+            GhostPlaybackState state,
+            HashSet<uint> placedTargetPartIds)
+        {
+            if (state == null || state.ghost == null || state.compoundPartInfos == null
+                || state.compoundPartInfos.Count == 0 || placedTargetPartIds == null
+                || placedTargetPartIds.Count == 0)
+                return false;
+
+            bool changed = false;
+            var logicalPartIds = state.logicalPartIds;
+            var ghostTransform = state.ghost.transform;
+            for (int i = 0; i < state.compoundPartInfos.Count; i++)
+            {
+                CompoundPartGhostInfo info = state.compoundPartInfos[i];
+                if (info == null || info.partTransform == null
+                    || !placedTargetPartIds.Contains(info.targetPersistentId))
+                    continue;
+
+                GameObject partObject = info.partTransform.gameObject;
+                if (partObject == null || partObject.activeSelf)
+                    continue;
+
+                Transform targetTransform = ghostTransform.Find($"ghost_part_{info.targetPersistentId}");
+                if (!ShouldRestoreCompoundPart(
+                    info.partPersistentId,
+                    info.targetPersistentId,
+                    logicalPartIds,
+                    targetTransform != null,
+                    targetTransform != null && targetTransform.gameObject.activeSelf))
+                    continue;
+
+                partObject.SetActive(true);
+                changed = true;
+            }
+
+            return changed;
         }
 
         #endregion
@@ -983,8 +1073,10 @@ namespace Parsek
             int evtIdx = state.partEventIndex;
             var tree = state.partTree;
             var ghost = state.ghost;
+            var logicalPartIds = state.logicalPartIds;
             bool visibilityChanged = false;
             bool needsReentryMeshRebuild = false;
+            HashSet<uint> placedTargetPartIds = null;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
@@ -999,9 +1091,15 @@ namespace Parsek
                         if (allowTransientEffects)
                             SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)
+                        {
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
+                            RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, tree);
+                        }
                         else
+                        {
                             HideGhostPart(ghost, evt.partPersistentId);
+                            RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
+                        }
                         visibilityChanged = true;
                         needsReentryMeshRebuild = true;
                         break;
@@ -1015,6 +1113,7 @@ namespace Parsek
                         if (allowTransientEffects)
                             SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
+                        RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
                         visibilityChanged = true;
                         needsReentryMeshRebuild = true;
                         break;
@@ -1048,6 +1147,7 @@ namespace Parsek
                         }
                         DestroyFakeCanopy(state, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
+                        RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
                         visibilityChanged = true;
                         break;
                     case PartEventType.ParachuteSemiDeployed:
@@ -1156,10 +1256,16 @@ namespace Parsek
                         break;
                     case PartEventType.InventoryPartPlaced:
                         SetGhostPartActive(ghost, evt.partPersistentId, true);
+                        if (logicalPartIds != null)
+                            logicalPartIds.Add(evt.partPersistentId);
+                        if (placedTargetPartIds == null)
+                            placedTargetPartIds = new HashSet<uint>();
+                        placedTargetPartIds.Add(evt.partPersistentId);
                         visibilityChanged = true;
                         break;
                     case PartEventType.InventoryPartRemoved:
                         SetGhostPartActive(ghost, evt.partPersistentId, false);
+                        RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
                         visibilityChanged = true;
                         break;
                 }
@@ -1174,6 +1280,8 @@ namespace Parsek
             if (visibilityChanged)
             {
                 if (RefreshCompoundPartVisibility(state))
+                    needsReentryMeshRebuild = true;
+                if (RestoreCompoundPartsForPlacedTargets(state, placedTargetPartIds))
                     needsReentryMeshRebuild = true;
                 if (needsReentryMeshRebuild)
                     GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);

@@ -71,6 +71,50 @@ namespace Parsek.Tests
             Assert.True(result);
         }
 
+        [Fact]
+        public void ShouldRestoreCompoundPart_RestoresWhenSourcePresentAndTargetVisible()
+        {
+            bool result = GhostPlaybackLogic.ShouldRestoreCompoundPart(
+                100,
+                200,
+                new HashSet<uint> { 100, 200 },
+                targetVisualExists: true,
+                targetVisualActive: true);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldRestoreCompoundPart_DoesNotRestoreWhenSourceNoLongerPresent()
+        {
+            bool result = GhostPlaybackLogic.ShouldRestoreCompoundPart(
+                100,
+                200,
+                new HashSet<uint> { 200 },
+                targetVisualExists: true,
+                targetVisualActive: true);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void RemovePartSubtreeFromLogicalPresence_RemovesRootAndChildren()
+        {
+            var logicalPartIds = new HashSet<uint> { 100, 200, 201, 202 };
+            var tree = new Dictionary<uint, List<uint>>
+            {
+                [200] = new List<uint> { 201 },
+                [201] = new List<uint> { 202 }
+            };
+
+            GhostPlaybackLogic.RemovePartSubtreeFromLogicalPresence(logicalPartIds, 200, tree);
+
+            Assert.Contains(100u, logicalPartIds);
+            Assert.DoesNotContain(200u, logicalPartIds);
+            Assert.DoesNotContain(201u, logicalPartIds);
+            Assert.DoesNotContain(202u, logicalPartIds);
+        }
+
         private static void AddSnapshotPart(ConfigNode snapshot, string name, string persistentId)
         {
             var part = snapshot.AddNode("PART");

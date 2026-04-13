@@ -6708,7 +6708,7 @@ namespace Parsek
                         partEventIndex = 0,
                         partTree = GhostVisualBuilder.BuildPartSubtreeMap(
                             GhostVisualBuilder.GetGhostSnapshot(previewRecording)),
-                        snapshotPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(
+                        logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(
                             GhostVisualBuilder.GetGhostSnapshot(previewRecording))
                     };
 

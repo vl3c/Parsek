@@ -19,7 +19,7 @@ namespace Parsek
         public int partEventIndex;
         public long loopCycleIndex = -1;
         public Dictionary<uint, List<uint>> partTree;
-        public HashSet<uint> snapshotPartIds;
+        public HashSet<uint> logicalPartIds;
         public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
         public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
