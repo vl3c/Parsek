@@ -534,6 +534,7 @@ namespace Parsek
             // Apply visual events
             ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
                 zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
+            ActivateGhostVisualsIfNeeded(state);
 
             if (allowEarlyDestroyedDebrisCompletion
                 && TryHandleEarlyDestroyedDebrisCompletion(
@@ -940,6 +941,7 @@ namespace Parsek
                         positioner.PositionLoop(index, traj, primaryState, loopUT, effectiveSuppressVisualFx);
                         ApplyFrameVisuals(index, traj, primaryState, loopUT, ctx.warpRate,
                             zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                        ActivateGhostVisualsIfNeeded(primaryState);
                     }
                 }
             }
@@ -1031,6 +1033,7 @@ namespace Parsek
                 positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
                 ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
                     zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                ActivateGhostVisualsIfNeeded(ovState);
             }
         }
 
@@ -1064,6 +1067,7 @@ namespace Parsek
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
+            ActivateGhostVisualsIfNeeded(state);
         }
 
         #endregion
@@ -1802,6 +1806,11 @@ namespace Parsek
                 ghost, state.heatInfos, index, traj.VesselName);
             state.reentryMpb = new MaterialPropertyBlock();
 
+            // Keep fresh builds hidden until the playback loop has positioned them at the
+            // current UT. This prevents one-frame flashes at the recording-start snapshot.
+            if (ghost.activeSelf)
+                ghost.SetActive(false);
+
             buildType = builtFromSnapshot
                 ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
                 : "sphere fallback";
@@ -1894,9 +1903,7 @@ namespace Parsek
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
                 skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
-
-            if (state.ghost != null && !state.ghost.activeSelf)
-                state.ghost.SetActive(true);
+            ActivateGhostVisualsIfNeeded(state);
         }
 
         private void PositionLoadedGhostAtPlaybackUT(
@@ -1942,6 +1949,12 @@ namespace Parsek
 
             if (hasOrbitData)
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
+        }
+
+        private static void ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
+        {
+            if (state?.ghost != null && !state.ghost.activeSelf)
+                state.ghost.SetActive(true);
         }
 
         private void UnloadGhostVisuals(int index, GhostPlaybackState state, string reason)
