@@ -8826,19 +8826,10 @@ namespace Parsek
                 var term = traj.TerminalStateValue;
                 if (term == TerminalState.Landed || term == TerminalState.Splashed)
                 {
-                    double minClearanceMeters = 0.5;
-                    CelestialBody clearanceBody = FlightGlobals.Bodies?.Find(b => b.name == point.bodyName);
-                    if (clearanceBody != null && FlightGlobals.ActiveVessel != null)
-                    {
-                        Vector3d pointWorld = clearanceBody.GetWorldSurfacePosition(
-                            point.latitude, point.longitude, point.altitude);
-                        double distToVessel = Vector3d.Distance(
-                            pointWorld, FlightGlobals.ActiveVessel.GetWorldPos3D());
-                        minClearanceMeters = ComputeTerrainClearance(distToVessel);
-                    }
-
                     positioned = ApplyLandedGhostClearance(
-                        point, index, traj.VesselName, traj.TerrainHeightAtEnd, minClearanceMeters);
+                        point, index, traj.VesselName, traj.TerrainHeightAtEnd,
+                        ResolveImmediateLandedGhostClearanceMeters(
+                            point.bodyName, point.latitude, point.longitude, point.altitude));
                 }
             }
 
@@ -8849,6 +8840,18 @@ namespace Parsek
             // for its "ghost at alt N m on Kerbin" line — if we don't update it,
             // the log reports the buried raw altitude even after the visual is fixed.
             state.lastInterpolatedAltitude = positioned.altitude;
+        }
+
+        private static double ResolveImmediateLandedGhostClearanceMeters(
+            string bodyName, double latitude, double longitude, double altitude)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null || FlightGlobals.ActiveVessel == null)
+                return 0.5;
+
+            Vector3d pointWorld = body.GetWorldSurfacePosition(latitude, longitude, altitude);
+            double distToVessel = Vector3d.Distance(pointWorld, FlightGlobals.ActiveVessel.GetWorldPos3D());
+            return ComputeTerrainClearance(distToVessel);
         }
 
         /// <summary>
@@ -8933,7 +8936,25 @@ namespace Parsek
             GhostPlaybackState state)
         {
             if (state?.ghost == null || traj?.SurfacePos == null) return;
-            PositionGhostAtSurface(state.ghost, traj.SurfacePos.Value, ShouldAutoActivateGhost(state));
+
+            SurfacePosition positioned = traj.SurfacePos.Value;
+            var syntheticPoint = new TrajectoryPoint
+            {
+                latitude = positioned.latitude,
+                longitude = positioned.longitude,
+                altitude = positioned.altitude,
+                rotation = positioned.rotation,
+                bodyName = positioned.body,
+            };
+            syntheticPoint = ApplyLandedGhostClearance(
+                syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
+                ResolveImmediateLandedGhostClearanceMeters(
+                    positioned.body, positioned.latitude, positioned.longitude, positioned.altitude));
+            positioned.altitude = syntheticPoint.altitude;
+
+            PositionGhostAtSurface(state.ghost, positioned, ShouldAutoActivateGhost(state));
+            state.lastInterpolatedBodyName = positioned.body;
+            state.lastInterpolatedAltitude = positioned.altitude;
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
