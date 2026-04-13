@@ -36,6 +36,14 @@ namespace Parsek.Patches
         /// </summary>
         internal static string PendingOutcomeMsg;
 
+        /// <summary>
+        /// Active-crash fallback path: the original crash flow is still resolving whether a
+        /// later scene-change / OnFlightReady path will materialize a real merge owner.
+        /// While this is true, deferred FlightResults state may survive scene change, but it
+        /// must be resolved explicitly once the post-load owner state is known.
+        /// </summary>
+        internal static bool AwaitingSceneChangeMergeOwner;
+
         internal static DisplayInterceptDecision ClassifyDisplayIntercept(
             bool bypass,
             bool isAutoMerge,
@@ -139,11 +147,66 @@ namespace Parsek.Patches
         internal static void DisarmDeferredMerge(string reason)
         {
             if (!DeferredMergeArmed)
+            {
+                AwaitingSceneChangeMergeOwner = false;
                 return;
+            }
 
             DeferredMergeArmed = false;
+            AwaitingSceneChangeMergeOwner = false;
             ParsekLog.Info("FlightResultsPatch",
                 $"Disarmed deferred FlightResults suppression ({reason})");
+        }
+
+        internal static void BeginAwaitingSceneChangeMergeOwner(string reason)
+        {
+            if (ParsekScenario.IsAutoMerge)
+                return;
+
+            if (AwaitingSceneChangeMergeOwner)
+            {
+                ParsekLog.Verbose("FlightResultsPatch",
+                    $"BeginAwaitingSceneChangeMergeOwner: already awaiting ({reason})");
+                return;
+            }
+
+            AwaitingSceneChangeMergeOwner = true;
+            ParsekLog.Info("FlightResultsPatch",
+                $"Awaiting scene-change merge owner ({reason})");
+        }
+
+        internal static void StopAwaitingSceneChangeMergeOwner(string reason)
+        {
+            if (!AwaitingSceneChangeMergeOwner)
+                return;
+
+            AwaitingSceneChangeMergeOwner = false;
+            ParsekLog.Info("FlightResultsPatch",
+                $"Stopped awaiting scene-change merge owner ({reason})");
+        }
+
+        internal static void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
+            bool mergeOwnerExists,
+            string reason)
+        {
+            if (!AwaitingSceneChangeMergeOwner)
+                return;
+
+            AwaitingSceneChangeMergeOwner = false;
+
+            if (mergeOwnerExists)
+                return;
+
+            ClearPending(reason);
+        }
+
+        internal static bool ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
+            bool awaitingSceneChangeMergeOwner,
+            GameScenes? pendingDestinationScene)
+        {
+            return awaitingSceneChangeMergeOwner
+                && pendingDestinationScene.HasValue
+                && pendingDestinationScene.Value != GameScenes.MAINMENU;
         }
 
         /// <summary>
@@ -170,6 +233,7 @@ namespace Parsek.Patches
             string msg = PendingOutcomeMsg;
             PendingOutcomeMsg = null;
             DeferredMergeArmed = false;
+            AwaitingSceneChangeMergeOwner = false;
 
             if (string.IsNullOrEmpty(msg))
             {
@@ -269,6 +333,7 @@ namespace Parsek.Patches
 
             PendingOutcomeMsg = null;
             DeferredMergeArmed = false;
+            AwaitingSceneChangeMergeOwner = false;
         }
     }
 }
