@@ -1243,13 +1243,19 @@ namespace Parsek
                 activeTree.Recordings,
                 activeTree.ActiveRecordingId,
                 activeDestroyed);
-            switch (ClassifyPostDestructionMergeResolution(activeDestroyed, allLeavesTerminal))
+            bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
+                activeTree.Recordings,
+                activeTree.ActiveRecordingId);
+            switch (ClassifyPostDestructionMergeResolution(
+                activeDestroyed,
+                allLeavesTerminal,
+                onlyDebrisBlockersRemain))
             {
                 case PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange:
                     treeDestructionDialogPending = false;
                     ParsekLog.Info("Flight",
-                        "ShowPostDestructionTreeMergeDialog: not all leaves terminal — " +
-                        "keeping deferred FlightResults for scene-change merge owner");
+                        "ShowPostDestructionTreeMergeDialog: only debris leaves still block " +
+                        "same-scene merge — keeping deferred FlightResults for scene-change merge owner");
                     yield break;
 
                 case PostDestructionMergeResolution.CancelDeferredMerge:
@@ -3061,12 +3067,13 @@ namespace Parsek
 
         internal static PostDestructionMergeResolution ClassifyPostDestructionMergeResolution(
             bool activeDestroyed,
-            bool allLeavesTerminal)
+            bool allLeavesTerminal,
+            bool onlyDebrisBlockersRemain)
         {
             if (allLeavesTerminal)
                 return PostDestructionMergeResolution.FinalizeNow;
 
-            return activeDestroyed
+            return activeDestroyed && onlyDebrisBlockersRemain
                 ? PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange
                 : PostDestructionMergeResolution.CancelDeferredMerge;
         }

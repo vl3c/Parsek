@@ -753,7 +753,8 @@ namespace Parsek.Tests
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: true,
-                allLeavesTerminal: true);
+                allLeavesTerminal: true,
+                onlyDebrisBlockersRemain: false);
 
             Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, result);
         }
@@ -763,7 +764,8 @@ namespace Parsek.Tests
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: true,
-                allLeavesTerminal: false);
+                allLeavesTerminal: false,
+                onlyDebrisBlockersRemain: true);
 
             Assert.Equal(
                 ParsekFlight.PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange,
@@ -771,11 +773,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyPostDestructionMergeResolution_CancelsWhenRealSurvivorStillExists()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: false,
+                onlyDebrisBlockersRemain: false);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
+        }
+
+        [Fact]
         public void ClassifyPostDestructionMergeResolution_CancelsWhenNotCrashAndNotTerminal()
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: false,
-                allLeavesTerminal: false);
+                allLeavesTerminal: false,
+                onlyDebrisBlockersRemain: true);
 
             Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
         }
