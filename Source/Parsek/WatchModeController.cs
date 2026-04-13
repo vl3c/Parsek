@@ -1756,6 +1756,8 @@ namespace Parsek
             watchEndHoldMaxRealTime = double.IsNaN(pendingActivationUT)
                 ? holdUntilRealTime
                 : RealtimeNow() + GhostPlaybackLogic.MaxPendingWatchHoldSeconds;
+            if (watchEndHoldMaxRealTime > 0f && watchEndHoldUntilRealTime > watchEndHoldMaxRealTime)
+                watchEndHoldUntilRealTime = watchEndHoldMaxRealTime;
             watchEndHoldPendingActivationUT = pendingActivationUT;
             ParsekLog.Info("CameraFollow",
                 $"Watch hold timer set: holdUntilRealTime={holdUntilRealTime:F1}" +
