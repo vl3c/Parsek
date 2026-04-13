@@ -1231,6 +1231,7 @@ namespace Parsek.Tests
             // Both recordings should have the tree ID
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(tree.Id, r.TreeId);
+            Assert.All(tree.Recordings.Values, r => Assert.True(r.TreeOrder >= 0));
 
             // Chain linkage: both should share a ChainId
             var all = new List<Recording>(tree.Recordings.Values);

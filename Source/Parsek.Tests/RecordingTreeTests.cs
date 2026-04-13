@@ -630,6 +630,204 @@ namespace Parsek.Tests
             Assert.Empty(tree.BackgroundMap);
         }
 
+        [Fact]
+        public void RecordingTree_RebuildBackgroundMap_PopulatesRecordedVesselPids()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_recorded",
+                TreeName = "Recorded PID Test",
+                RootRecordingId = "R1",
+                ActiveRecordingId = "R2"
+            };
+
+            tree.Recordings["R1"] = new Recording
+            {
+                RecordingId = "R1",
+                VesselPersistentId = 111,
+                TerminalStateValue = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0
+            };
+            tree.Recordings["R2"] = new Recording
+            {
+                RecordingId = "R2",
+                VesselPersistentId = 222,
+                TerminalStateValue = null,
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["R3"] = new Recording
+            {
+                RecordingId = "R3",
+                VesselPersistentId = 111,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 250.0
+            };
+
+            tree.RebuildBackgroundMap();
+
+            Assert.Contains((uint)111, tree.RecordedVesselPids);
+            Assert.Contains((uint)222, tree.RecordedVesselPids);
+            Assert.Equal(2, tree.RecordedVesselPids.Count);
+        }
+
+        [Fact]
+        public void FindDuplicateBackgroundMapPids_ReturnsEligibleDuplicatesOnly()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_dup_bg",
+                TreeName = "Duplicate Background PID Test",
+                RootRecordingId = "R1",
+                ActiveRecordingId = "R4"
+            };
+
+            tree.Recordings["R1"] = new Recording
+            {
+                RecordingId = "R1",
+                VesselPersistentId = 500,
+                TerminalStateValue = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0
+            };
+            tree.Recordings["R2"] = new Recording
+            {
+                RecordingId = "R2",
+                VesselPersistentId = 500,
+                TerminalStateValue = null,
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["R3"] = new Recording
+            {
+                RecordingId = "R3",
+                VesselPersistentId = 600,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 250.0
+            };
+            tree.Recordings["R4"] = new Recording
+            {
+                RecordingId = "R4",
+                VesselPersistentId = 700,
+                TerminalStateValue = null,
+                ExplicitStartUT = 250.0,
+                ExplicitEndUT = 300.0
+            };
+
+            var duplicates = tree.FindDuplicateBackgroundMapPids();
+
+            Assert.Single(duplicates);
+            Assert.Contains((uint)500, duplicates);
+            Assert.DoesNotContain((uint)600, duplicates);
+            Assert.DoesNotContain((uint)700, duplicates);
+        }
+
+        [Fact]
+        public void BackgroundMap_DuplicateEligiblePids_PreservesTreeOrderWinnerAcrossSaveLoad()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_overlap_bg",
+                TreeName = "Overlap BackgroundMap Test",
+                RootRecordingId = "R1",
+                ActiveRecordingId = null
+            };
+
+            tree.Recordings["R1"] = new Recording
+            {
+                RecordingId = "R1",
+                VesselPersistentId = 900,
+                TreeOrder = 10,
+                TerminalStateValue = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0
+            };
+            tree.Recordings["R2"] = new Recording
+            {
+                RecordingId = "R2",
+                VesselPersistentId = 900,
+                TreeOrder = 20,
+                TerminalStateValue = null,
+                ExplicitStartUT = 120.0,
+                ExplicitEndUT = 180.0
+            };
+            tree.Recordings["R3"] = new Recording
+            {
+                RecordingId = "R3",
+                VesselPersistentId = 999,
+                TreeOrder = 30,
+                TerminalStateValue = null,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 250.0
+            };
+
+            tree.RebuildBackgroundMap();
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            var restored = RecordingTree.Load(node);
+
+            Assert.Contains((uint)900, tree.RecordedVesselPids);
+            Assert.Equal("R2", tree.BackgroundMap[900]);
+            Assert.Equal("R3", tree.BackgroundMap[999]);
+            Assert.Equal("R2", restored.BackgroundMap[900]);
+            Assert.Equal("R3", restored.BackgroundMap[999]);
+        }
+
+        [Fact]
+        public void BackgroundMapEligibility_IgnoresOptimizerSplitIntermediateChainSegments()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_chain_bg",
+                TreeName = "Chain Segment BackgroundMap Test",
+                RootRecordingId = "R1",
+                ActiveRecordingId = "R3"
+            };
+
+            tree.Recordings["R1"] = new Recording
+            {
+                RecordingId = "R1",
+                VesselPersistentId = 500,
+                TerminalStateValue = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0,
+                ChainId = "chain-1",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+            tree.Recordings["R2"] = new Recording
+            {
+                RecordingId = "R2",
+                VesselPersistentId = 500,
+                TerminalStateValue = null,
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 200.0,
+                ChainId = "chain-1",
+                ChainIndex = 1,
+                ChainBranch = 0
+            };
+            tree.Recordings["R3"] = new Recording
+            {
+                RecordingId = "R3",
+                VesselPersistentId = 700,
+                TerminalStateValue = null,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 250.0
+            };
+
+            Assert.False(tree.IsBackgroundMapEligible(tree.Recordings["R1"]));
+            Assert.True(tree.IsBackgroundMapEligible(tree.Recordings["R2"]));
+
+            var duplicates = tree.FindDuplicateBackgroundMapPids();
+            tree.RebuildBackgroundMap();
+
+            Assert.Empty(duplicates);
+            Assert.Equal("R2", tree.BackgroundMap[500]);
+        }
+
         // --- Resource fields ---
 
         [Fact]

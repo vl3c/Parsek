@@ -1908,7 +1908,7 @@ namespace Parsek
                 Recording restoredRec = Recording.DeepClone(pendingRec);
                 RecordingStore.ClearSidecarLoadFailure(restoredRec);
                 restoredRec.MarkFilesDirty();
-                loadedTree.Recordings[recordingId] = restoredRec;
+                loadedTree.AddOrReplaceRecording(restoredRec);
                 restored++;
             }
 
