@@ -16,6 +16,13 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class ParsekFlight : MonoBehaviour, IGhostPositioner
     {
+        internal enum DeferredSplitCheckTrigger
+        {
+            None,
+            JointBreak,
+            DecoupleCreatedVessel
+        }
+
         internal static ParsekFlight Instance { get; private set; }
 
         internal const string MODID = "Parsek_NS";
@@ -300,11 +307,12 @@ namespace Parsek
         private HashSet<uint> lastBranchVesselPids = new HashSet<uint>();
         private bool pendingSplitInProgress;
         private FlightRecorder pendingSplitRecorder;
+        private DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         private HashSet<uint> preBreakVesselPids;
         // Vessels created by decouple during recording (caught via onPartDeCoupleNewVesselComplete
         // synchronously during Part.decouple(), before KSP's debris cleanup can destroy them).
-        // Subscribed for the entire recording session, consumed by DeferredJointBreakCheck.
+        // Subscribed for the entire recording session, consumed by the next deferred split check.
         private List<Vessel> decoupleCreatedVessels;
         // Controller status captured at creation time (vessel parts may be cleared before deferred check)
         private Dictionary<uint, bool> decoupleControllerStatus;
@@ -850,6 +858,7 @@ namespace Parsek
                 decoupleCreatedVessels = null;
                 decoupleControllerStatus = null;
             }
+            pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
 
             // Clean up background recorder if active
             if (backgroundRecorder != null)
@@ -2612,8 +2621,12 @@ namespace Parsek
                     }
                 }
 
-                // Also scan FlightGlobals.Vessels for any new vessels still alive
-                if (FlightGlobals.Vessels != null)
+                // Only joint-break-triggered checks have a meaningful pre-break vessel snapshot.
+                // For decouple-only fallback, the synchronously-captured decoupleCreatedVessels list
+                // is the authoritative source of new vessels. Scanning all live vessels here would
+                // misclassify unrelated or stale debris as part of the current split.
+                if (pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.JointBreak
+                    && FlightGlobals.Vessels != null)
                 {
                     for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                     {
@@ -2644,12 +2657,17 @@ namespace Parsek
                     }
                 }
 
-                // Classify the joint break result
+                string splitCheckSource =
+                    pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel
+                        ? "decouple-only"
+                        : "joint-break";
+
+                // Classify the split result
                 var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                     recordedPid, newVesselPids, anyNewVesselHasController);
 
                 ParsekLog.Info("Coalescer",
-                    $"Joint break classified: result={classification}, " +
+                    $"Deferred split classified: source={splitCheckSource}, result={classification}, " +
                     $"newVessels={newVesselPids.Count}, hasController={anyNewVesselHasController}, " +
                     $"recordedPid={recordedPid}");
 
@@ -2750,6 +2768,7 @@ namespace Parsek
             {
                 pendingSplitInProgress = false;
                 pendingSplitRecorder = null;
+                pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
                 preBreakVesselPids = null;
                 // Clear consumed decouple vessels (list stays alive for session, just emptied)
                 decoupleCreatedVessels?.Clear();
@@ -4860,19 +4879,56 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles joint break deferred check: stops recorder and starts deferred vessel-creation check
-        /// when FlightRecorder signals a joint break.
+        /// Handles deferred split checks: stops the recorder and starts a deferred vessel-creation
+        /// check when FlightRecorder signals a joint break or a decouple-created vessel indicates
+        /// a split without a matching joint-break callback.
         /// </summary>
+        internal static DeferredSplitCheckTrigger ResolveDeferredSplitCheckTrigger(
+            bool pendingSplitInProgress,
+            bool recorderIsRecording,
+            bool jointBreakPending,
+            bool decoupleCreatedVesselsPending)
+        {
+            if (pendingSplitInProgress || !recorderIsRecording)
+                return DeferredSplitCheckTrigger.None;
+
+            if (jointBreakPending)
+                return DeferredSplitCheckTrigger.JointBreak;
+
+            if (decoupleCreatedVesselsPending)
+                return DeferredSplitCheckTrigger.DecoupleCreatedVessel;
+
+            return DeferredSplitCheckTrigger.None;
+        }
+
         private void HandleJointBreakDeferredCheck()
         {
-            if (pendingSplitInProgress || recorder == null || !recorder.IsRecording
-                || !recorder.ConsumePendingJointBreakCheck())
+            if (pendingSplitInProgress || recorder == null || !recorder.IsRecording)
                 return;
 
-            // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels
-            preBreakVesselPids = new HashSet<uint>();
-            if (FlightGlobals.Vessels != null)
+            bool jointBreakPending = recorder.ConsumePendingJointBreakCheck();
+            bool decoupleCreatedVesselsPending =
+                pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel
+                && decoupleCreatedVessels != null
+                && decoupleCreatedVessels.Count > 0;
+
+            var trigger = ResolveDeferredSplitCheckTrigger(
+                pendingSplitInProgress,
+                recorderIsRecording: true,
+                jointBreakPending,
+                decoupleCreatedVesselsPending);
+
+            if (trigger == DeferredSplitCheckTrigger.None)
+                return;
+
+            pendingDeferredSplitCheckTrigger = trigger;
+
+            // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels.
+            // This only makes sense for true joint-break-triggered checks.
+            preBreakVesselPids = null;
+            if (trigger == DeferredSplitCheckTrigger.JointBreak && FlightGlobals.Vessels != null)
             {
+                preBreakVesselPids = new HashSet<uint>();
                 for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                 {
                     Vessel v = FlightGlobals.Vessels[i];
@@ -4884,7 +4940,10 @@ namespace Parsek
             recorder = null;
             pendingSplitInProgress = true;
 
-            Log("Joint break detected \u2014 starting deferred vessel split check");
+            if (trigger == DeferredSplitCheckTrigger.JointBreak)
+                Log("Joint break detected \u2014 starting deferred vessel split check");
+            else
+                Log("Decouple-created vessel detected without joint-break callback \u2014 starting deferred vessel split check");
             StartCoroutine(DeferredJointBreakCheck());
         }
 
@@ -4893,8 +4952,11 @@ namespace Parsek
         /// Captures vessels immediately at creation, before KSP's debris cleanup can destroy them.
         /// </summary>
         /// <summary>
-        /// Callback for GameEvents.onPartDeCoupleNewVesselComplete during the split check window.
+        /// Callback for GameEvents.onPartDeCoupleNewVesselComplete during active recording.
         /// Fires synchronously inside Part.decouple(), before KSP's debris cleanup can destroy the vessel.
+        /// If no structural onPartJointBreak callback reaches the recorder for this split,
+        /// arm a decouple-only deferred split check so these captured vessels are processed
+        /// promptly instead of lingering until a later unrelated joint break.
         /// </summary>
         private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel)
         {
@@ -4903,12 +4965,14 @@ namespace Parsek
             if (preBreakVesselPids != null && preBreakVesselPids.Contains(newVessel.persistentId))
                 return;
             decoupleCreatedVessels?.Add(newVessel);
+            if (!pendingSplitInProgress && preBreakVesselPids == null)
+                pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.DecoupleCreatedVessel;
             // Capture controller status NOW — vessel parts may be cleared by the deferred check
             bool hasController = IsTrackableVessel(newVessel);
             if (decoupleControllerStatus != null)
                 decoupleControllerStatus[newVessel.persistentId] = hasController;
             ParsekLog.Info("Flight",
-                $"Decouple created vessel during split check: pid={newVessel.persistentId} " +
+                $"Decouple created vessel during recording: pid={newVessel.persistentId} " +
                 $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
                 $"parts={newVessel.parts?.Count ?? 0} hasController={hasController}");
         }
@@ -5096,6 +5160,7 @@ namespace Parsek
             // window (Update) misses the initial decouple because FixedUpdate runs before Update.
             decoupleCreatedVessels = new List<Vessel>();
             decoupleControllerStatus = new Dictionary<uint, bool>();
+            pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
             GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
@@ -5209,6 +5274,7 @@ namespace Parsek
                 decoupleCreatedVessels = null;
                 decoupleControllerStatus = null;
             }
+            pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
             recorder?.StopRecording();
 
             // Tag the final segment with chain metadata if in a chain
