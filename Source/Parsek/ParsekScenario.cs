@@ -630,7 +630,6 @@ namespace Parsek
                     // pending slot is populated when it runs.
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
-                    RestoreMissingDebrisGroupHierarchy("OnLoad");
 
                     // Detect revert vs scene change. On a revert, the quicksave is older:
                     // its epoch is lower (after a prior revert bumped it) or it has fewer
@@ -1149,8 +1148,6 @@ namespace Parsek
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
 
-                RestoreMissingDebrisGroupHierarchy("OnLoad initial");
-
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
                 RecordingStore.CleanOrphanFiles();
 
@@ -1483,31 +1480,26 @@ namespace Parsek
         /// </summary>
         private static void LoadCrewAndGroupState(ConfigNode node)
         {
-            if (!RewindContext.IsRewinding)
+            if (RewindContext.IsRewinding)
+                return;
+
+            CrewReservationManager.LoadCrewReplacements(node);
+            LedgerOrchestrator.Kerbals?.LoadSlots(node);
+
+            if (!ShouldLoadGroupHierarchyFromSave(initialLoadDone, RewindContext.IsRewinding))
             {
-                CrewReservationManager.LoadCrewReplacements(node);
-                LedgerOrchestrator.Kerbals?.LoadSlots(node);
-                GroupHierarchyStore.LoadGroupHierarchy(node);
-                GroupHierarchyStore.LoadHiddenGroups(node);
+                ParsekLog.Verbose("Scenario",
+                    "OnLoad: preserving in-memory group hierarchy for in-session load");
+                return;
             }
+
+            GroupHierarchyStore.LoadGroupHierarchy(node);
+            GroupHierarchyStore.LoadHiddenGroups(node);
         }
 
-        private static void RestoreMissingDebrisGroupHierarchy(string context)
+        internal static bool ShouldLoadGroupHierarchyFromSave(bool initialLoadDone, bool isRewinding)
         {
-            int restored = GroupHierarchyStore.RestoreMissingDebrisParentGroups(
-                RecordingStore.CommittedRecordings);
-
-            if (RecordingStore.HasPendingTree)
-            {
-                restored += GroupHierarchyStore.RestoreMissingDebrisParentGroups(
-                    RecordingStore.PendingTree?.Recordings?.Values);
-            }
-
-            if (restored > 0)
-            {
-                ParsekLog.Info("Scenario",
-                    $"{context}: restored {restored} missing debris group parent mapping(s) from recording tags");
-            }
+            return !isRewinding && !initialLoadDone;
         }
 
         /// <summary>

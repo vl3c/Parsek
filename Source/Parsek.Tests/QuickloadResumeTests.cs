@@ -58,6 +58,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldLoadGroupHierarchyFromSave_InitialLoad_ReturnsTrue()
+        {
+            Assert.True(ParsekScenario.ShouldLoadGroupHierarchyFromSave(
+                initialLoadDone: false, isRewinding: false));
+        }
+
+        [Fact]
+        public void ShouldLoadGroupHierarchyFromSave_InSessionLoad_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.ShouldLoadGroupHierarchyFromSave(
+                initialLoadDone: true, isRewinding: false));
+        }
+
+        [Fact]
+        public void ShouldLoadGroupHierarchyFromSave_Rewind_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.ShouldLoadGroupHierarchyFromSave(
+                initialLoadDone: false, isRewinding: true));
+        }
+
+        [Fact]
         public void StashPendingTree_DefaultsToFinalized()
         {
             var tree = MakeTree("tree_a", "Launch", 2);

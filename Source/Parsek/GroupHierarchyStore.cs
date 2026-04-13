@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -70,61 +69,6 @@ namespace Parsek
         internal static bool HasGroupParent(string groupName)
         {
             return groupParents.ContainsKey(groupName);
-        }
-
-        internal static int RestoreMissingDebrisParentGroups(IEnumerable<Recording> recordings)
-        {
-            if (recordings == null)
-                return 0;
-
-            var nonDebrisGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var debrisGroups = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var rec in recordings)
-            {
-                if (rec == null || rec.RecordingGroups == null)
-                    continue;
-
-                for (int i = 0; i < rec.RecordingGroups.Count; i++)
-                {
-                    string groupName = rec.RecordingGroups[i];
-                    if (string.IsNullOrWhiteSpace(groupName))
-                        continue;
-
-                    if (rec.IsDebris)
-                    {
-                        string parentGroup = TryInferDebrisParentGroup(groupName);
-                        if (!string.IsNullOrEmpty(parentGroup) && !debrisGroups.ContainsKey(groupName))
-                            debrisGroups[groupName] = parentGroup;
-                    }
-                    else
-                    {
-                        nonDebrisGroups.Add(groupName);
-                    }
-                }
-            }
-
-            int restored = 0;
-            foreach (var kvp in debrisGroups)
-            {
-                if (groupParents.ContainsKey(kvp.Key))
-                    continue;
-                if (!nonDebrisGroups.Contains(kvp.Value))
-                    continue;
-                if (IsInAncestorChain(kvp.Value, kvp.Key))
-                {
-                    ParsekLog.Warn("GroupHierarchy",
-                        $"RestoreMissingDebrisParentGroups: skipped '{kvp.Key}' -> '{kvp.Value}' because it would create a cycle");
-                    continue;
-                }
-
-                groupParents[kvp.Key] = kvp.Value;
-                restored++;
-                ParsekLog.Info("GroupHierarchy",
-                    $"Restored missing debris hierarchy: '{kvp.Key}' -> '{kvp.Value}'");
-            }
-
-            return restored;
         }
 
         #region Hierarchy Operations
@@ -275,19 +219,6 @@ namespace Parsek
         }
 
         #endregion
-
-        private static string TryInferDebrisParentGroup(string groupName)
-        {
-            if (string.IsNullOrWhiteSpace(groupName))
-                return null;
-
-            const string debrisSuffix = " / Debris";
-            if (!groupName.EndsWith(debrisSuffix, StringComparison.OrdinalIgnoreCase))
-                return null;
-
-            string parentGroup = groupName.Substring(0, groupName.Length - debrisSuffix.Length);
-            return string.IsNullOrWhiteSpace(parentGroup) ? null : parentGroup;
-        }
 
         #region Serialization
 
