@@ -199,6 +199,108 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Two committed trees can both continue the same claimed vessel across an
+        /// overlapping rewind window. The later claim must still extend the chain.
+        /// Guards: overlapping continuations are not dropped as "ambiguous."
+        /// </summary>
+        [Fact]
+        public void CrossTree_OverlappingHistoricalReuse_StillExtendsChain()
+        {
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock1");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
+                parentBpId: "bp-dock1");
+            var dock1 = MakeBranchPoint("bp-dock1", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+            var tree1 = MakeTree("tree-1", new[] { r1, r1Leaf }, new[] { dock1 });
+
+            var r2 = MakeRecording("R2", 60, 1020, 1080, childBpId: "bp-dock2");
+            var r2Leaf = MakeRecording("R2-leaf", 100, 1080, 1160,
+                parentBpId: "bp-dock2");
+            var dock2 = MakeBranchPoint("bp-dock2", BranchPointType.Dock,
+                1080, 100, new[] { "R2" }, new[] { "R2-leaf" });
+            var tree2 = MakeTree("tree-2", new[] { r2, r2Leaf }, new[] { dock2 });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree1, tree2 }, 900);
+
+            Assert.Single(chains);
+            Assert.True(chains.ContainsKey(100));
+            var chain = chains[100];
+            Assert.Equal(2, chain.Links.Count);
+            Assert.Equal("R2-leaf", chain.TipRecordingId);
+            Assert.Equal(1160.0, chain.SpawnUT);
+        }
+
+        /// <summary>
+        /// Two rewind branches inside the same tree can both continue the same claimed
+        /// vessel PID. The later branch must still extend the chain.
+        /// Guards: branch-local overlap is not treated as self-owned history.
+        /// </summary>
+        [Fact]
+        public void SameTree_OverlappingHistoricalReuse_StillExtendsChain()
+        {
+            var root = MakeRecording("root", 50, 1000, 1020, childBpId: "bp-split");
+
+            var branchA = MakeRecording("branch-a", 60, 1020, 1060,
+                parentBpId: "bp-split", childBpId: "bp-dock-a");
+            var branchALeaf = MakeRecording("branch-a-leaf", 100, 1060, 1120,
+                parentBpId: "bp-dock-a");
+
+            var branchB = MakeRecording("branch-b", 70, 1020, 1080,
+                parentBpId: "bp-split", childBpId: "bp-dock-b");
+            var branchBLeaf = MakeRecording("branch-b-leaf", 100, 1080, 1160,
+                parentBpId: "bp-dock-b");
+
+            var splitBp = MakeBranchPoint("bp-split", BranchPointType.Breakup,
+                1020, 0, new[] { "root" }, new[] { "branch-a", "branch-b" });
+            var dockA = MakeBranchPoint("bp-dock-a", BranchPointType.Dock,
+                1060, 100, new[] { "branch-a" }, new[] { "branch-a-leaf" });
+            var dockB = MakeBranchPoint("bp-dock-b", BranchPointType.Dock,
+                1080, 100, new[] { "branch-b" }, new[] { "branch-b-leaf" });
+
+            var tree = MakeTree("tree-1",
+                new[] { root, branchA, branchALeaf, branchB, branchBLeaf },
+                new[] { splitBp, dockA, dockB });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Single(chains);
+            Assert.True(chains.ContainsKey(100));
+            var chain = chains[100];
+            Assert.Equal(2, chain.Links.Count);
+            Assert.Equal("branch-b-leaf", chain.TipRecordingId);
+            Assert.Equal(1160.0, chain.SpawnUT);
+        }
+
+        /// <summary>
+        /// Equal-time claims must still sort deterministically so later chain lookup does
+        /// not depend on unstable List.Sort tie handling.
+        /// Guards: same-UT links use a stable secondary key order.
+        /// </summary>
+        [Fact]
+        public void EqualTimeClaims_SortDeterministically()
+        {
+            var aRec = MakeRecording("A-rec", 50, 1000, 1060, childBpId: "bp-a");
+            var aLeaf = MakeRecording("A-leaf", 100, 1060, 1120, parentBpId: "bp-a");
+            var aTree = MakeTree("tree-a", new[] { aRec, aLeaf },
+                new[] { MakeBranchPoint("bp-a", BranchPointType.Dock, 1060, 100, new[] { "A-rec" }, new[] { "A-leaf" }) });
+
+            var bRec = MakeRecording("B-rec", 60, 1000, 1060, childBpId: "bp-b");
+            var bLeaf = MakeRecording("B-leaf", 100, 1060, 1140, parentBpId: "bp-b");
+            var bTree = MakeTree("tree-b", new[] { bRec, bLeaf },
+                new[] { MakeBranchPoint("bp-b", BranchPointType.Dock, 1060, 100, new[] { "B-rec" }, new[] { "B-leaf" }) });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { bTree, aTree }, 900);
+
+            var chain = chains[100];
+            Assert.Equal(2, chain.Links.Count);
+            Assert.Equal("tree-a", chain.Links[0].treeId);
+            Assert.Equal("tree-b", chain.Links[1].treeId);
+        }
+
+        /// <summary>
         /// R1 targets S1(100), R2 targets S2(200). Two independent chains.
         /// Guards: chains don't bleed.
         /// </summary>
@@ -299,6 +401,34 @@ namespace Parsek.Tests
             Assert.Single(chain.Links);
             Assert.Equal("BACKGROUND_EVENT", chain.Links[0].interactionType);
             Assert.Equal("BG-S", chain.Links[0].recordingId);
+        }
+
+        /// <summary>
+        /// A root-lineage recording can contain ghost-trigger events, but that does not
+        /// make the tree claim its own vessel via BACKGROUND_EVENT.
+        /// Guards: self/root recordings are never treated as background claims.
+        /// </summary>
+        [Fact]
+        public void RootLineageRecording_WithTriggerEvents_DoesNotCreateBackgroundClaim()
+        {
+            var root = MakeRecording("R1", 50, 1000, 1120);
+            root.PartEvents = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 1050,
+                    partPersistentId = 123,
+                    eventType = PartEventType.Destroyed,
+                    partName = "panel"
+                }
+            };
+
+            var tree = MakeTree("tree-1", new[] { root }, null);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Empty(chains);
         }
 
         /// <summary>

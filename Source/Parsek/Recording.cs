@@ -118,6 +118,7 @@ namespace Parsek
 
         // --- Tree linkage (null for legacy/standalone recordings) ---
         public string TreeId;                          // null = standalone (pre-tree recording)
+        public int TreeOrder = -1;                    // persisted insertion / creation order within the tree
         public uint VesselPersistentId;                // 0 = not set
 
         // --- Terminal state ---
@@ -149,6 +150,10 @@ namespace Parsek
         // Per-crew end state (inferred at commit time from terminal state + snapshot)
         // null = not yet populated (legacy recording or pre-commit).
         public Dictionary<string, KerbalEndState> CrewEndStates;
+        // True once PopulateCrewEndStates has reached a final answer for this
+        // recording. This remains false for legacy/unprocessed recordings, and
+        // becomes true even when the recording is confirmed to have no crew.
+        public bool CrewEndStatesResolved;
 
         // Resource manifests (Phase 11) — per-resource amount/capacity at recording start and end
         // null = no data (legacy recording or not yet captured)
@@ -431,6 +436,7 @@ namespace Parsek
             // boundaries. Start fields are captured fresh per segment in StartRecording.
             // Use CopyStartLocationFrom for explicit start-field propagation.
             TreeId = source.TreeId;
+            TreeOrder = source.TreeOrder;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
@@ -461,6 +467,7 @@ namespace Parsek
             StartCrew = source.StartCrew;
             EndCrew = source.EndCrew;
             DockTargetVesselPid = source.DockTargetVesselPid;
+            CrewEndStatesResolved = source.CrewEndStatesResolved;
 
             // Copy segment events and tracks if source has them
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
@@ -523,6 +530,7 @@ namespace Parsek
             clone.CrewEndStates = source.CrewEndStates != null
                 ? new Dictionary<string, KerbalEndState>(source.CrewEndStates)
                 : null;
+            clone.CrewEndStatesResolved = source.CrewEndStatesResolved;
             clone.StartResources = source.StartResources != null
                 ? new Dictionary<string, ResourceAmount>(source.StartResources)
                 : null;

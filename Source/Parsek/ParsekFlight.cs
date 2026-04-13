@@ -1988,8 +1988,8 @@ namespace Parsek
 
             // Add to tree
             activeTree.BranchPoints.Add(bp);
-            activeTree.Recordings[activeChild.RecordingId] = activeChild;
-            activeTree.Recordings[bgChild.RecordingId] = bgChild;
+            activeTree.AddOrReplaceRecording(activeChild);
+            activeTree.AddOrReplaceRecording(bgChild);
 
             // Set active recording
             activeTree.ActiveRecordingId = activeChild.RecordingId;
@@ -2158,7 +2158,7 @@ namespace Parsek
 
             // 8. Add to tree
             activeTree.BranchPoints.Add(bp);
-            activeTree.Recordings[mergedChild.RecordingId] = mergedChild;
+            activeTree.AddOrReplaceRecording(mergedChild);
 
             // 9. Set active recording
             activeTree.ActiveRecordingId = mergedChild.RecordingId;
@@ -2827,7 +2827,7 @@ namespace Parsek
                 childRec.ExplicitEndUT = breakupBp.UT;
             }
 
-            tree.Recordings[childRecId] = childRec;
+            tree.AddOrReplaceRecording(childRec);
             breakupBp.ChildRecordingIds.Add(childRecId);
 
             return childRec;
@@ -4907,7 +4907,7 @@ namespace Parsek
                         rootRec.GhostVisualSnapshot = startSnap;
                 }
 
-                activeTree.Recordings[rootRecId] = rootRec;
+                activeTree.AddOrReplaceRecording(rootRec);
 
                 backgroundRecorder = new BackgroundRecorder(activeTree);
                 backgroundRecorder.SubscribePartEvents();
@@ -6893,23 +6893,447 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Finds a committed recording that covers the given UT for a vessel PID.
-        /// Used to find background recording trajectory data for chain ghosts.
-        /// Returns null if no recording covers this UT for this vessel.
+        /// Finds the first committed recording that covers the given UT for a vessel PID.
+        /// This is a global PID-only lookup. Chain playback must use the chain-scoped
+        /// helper below to avoid selecting a different alternate-history tree that
+        /// happens to reuse the same PID.
         /// </summary>
         internal static Recording FindBackgroundRecordingForVessel(
-            IReadOnlyList<Recording> committedRecordings, uint vesselPid, double currentUT)
+            IReadOnlyList<Recording> committedRecordings,
+            uint vesselPid,
+            double currentUT,
+            ISet<string> excludedTreeIds = null)
         {
             if (committedRecordings == null) return null;
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var rec = committedRecordings[i];
+                if (excludedTreeIds != null
+                    && !string.IsNullOrEmpty(rec.TreeId)
+                    && excludedTreeIds.Contains(rec.TreeId))
+                    continue;
                 if (rec.VesselPersistentId == vesselPid &&
                     rec.Points != null && rec.Points.Count > 0 &&
                     currentUT >= rec.StartUT && currentUT <= rec.EndUT)
                     return rec;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Finds the first committed recording with non-point playback data that covers
+        /// the given UT for a vessel PID. Used by chain ghost fallback positioning.
+        /// </summary>
+        internal static Recording FindPlaybackFallbackRecordingForVessel(
+            IReadOnlyList<Recording> committedRecordings,
+            uint vesselPid,
+            double currentUT,
+            ISet<string> excludedTreeIds = null)
+        {
+            if (committedRecordings == null) return null;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (excludedTreeIds != null
+                    && !string.IsNullOrEmpty(rec.TreeId)
+                    && excludedTreeIds.Contains(rec.TreeId))
+                    continue;
+                if (rec.VesselPersistentId != vesselPid)
+                    continue;
+                if (!RecordingHasUsableNonPointPlaybackDataAtUT(rec, currentUT))
+                    continue;
+
+                return rec;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Finds a point-backed trajectory recording for a chain at the given UT.
+        /// Uses the exact chain path within committed trees when available, and only
+        /// falls back to global PID lookup before the first claim.
+        /// </summary>
+        internal static Recording FindBackgroundRecordingForChain(
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            GhostChain chain,
+            double currentUT)
+        {
+            if (committedRecordings == null || chain == null)
+                return null;
+
+            var chainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
+            if (chainRec != null)
+                return chainRec.Points != null && chainRec.Points.Count > 0 ? chainRec : null;
+
+            if (ChainHasStarted(chain, currentUT))
+                return null;
+
+            var preClaimRec = FindPreClaimChainRecordingAtUT(
+                committedTrees, chain, currentUT,
+                out bool hasPreClaimCoverage, out bool preClaimAmbiguous);
+            if (hasPreClaimCoverage && !preClaimAmbiguous)
+                return preClaimRec != null && preClaimRec.Points != null && preClaimRec.Points.Count > 0
+                    ? preClaimRec : null;
+
+            return FindBackgroundRecordingForVessel(
+                committedRecordings, chain.OriginalVesselPid, currentUT,
+                preClaimAmbiguous ? GetFirstClaimTreeIds(chain) : null);
+        }
+
+        internal static Recording FindPreClaimChainRecordingAtUT(
+            IReadOnlyList<RecordingTree> committedTrees,
+            GhostChain chain,
+            double currentUT,
+            out bool hasChainLocalCoverage,
+            out bool isAmbiguous)
+        {
+            hasChainLocalCoverage = false;
+            isAmbiguous = false;
+            if (committedTrees == null || chain == null || chain.Links == null || chain.Links.Count == 0)
+                return null;
+
+            var firstClaimTreeIds = GetFirstClaimTreeIds(chain);
+            if (firstClaimTreeIds.Count == 0)
+                return null;
+
+            Recording unique = null;
+            foreach (var treeId in firstClaimTreeIds)
+            {
+                RecordingTree firstClaimTree = FindCommittedTree(committedTrees, treeId);
+                if (firstClaimTree == null)
+                    continue;
+
+                foreach (var rec in firstClaimTree.Recordings.Values)
+                {
+                    if (rec.VesselPersistentId != chain.OriginalVesselPid)
+                        continue;
+                    if (currentUT < rec.StartUT || currentUT > rec.EndUT)
+                        continue;
+                    if (!RecordingHasUsablePlaybackDataAtUT(rec, currentUT))
+                        continue;
+
+                    if (unique != null)
+                    {
+                        isAmbiguous = true;
+                        hasChainLocalCoverage = true;
+                        return null;
+                    }
+
+                    unique = rec;
+                }
+            }
+
+            hasChainLocalCoverage = unique != null;
+            return unique;
+        }
+
+        internal static Recording FindExactChainRecordingAtUT(
+            IReadOnlyList<RecordingTree> committedTrees, GhostChain chain, double currentUT)
+        {
+            if (committedTrees == null || chain == null || chain.Links == null)
+                return null;
+
+            for (int i = chain.Links.Count - 1; i >= 0; i--)
+            {
+                var link = chain.Links[i];
+                if (link.ut > currentUT + 0.001)
+                    continue;
+
+                return FindChainPathRecordingAtUT(
+                    committedTrees, link, chain.OriginalVesselPid, currentUT);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Finds the best non-point playback source for positioning a chain ghost when
+        /// point-backed trajectory playback is unavailable.
+        /// </summary>
+        internal static Recording FindPositionFallbackRecordingForChain(
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            GhostChain chain,
+            double currentUT)
+        {
+            if (chain == null)
+                return null;
+
+            var chainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
+            if (RecordingHasUsableNonPointPlaybackDataAtUT(chainRec, currentUT))
+                return chainRec;
+
+            if (ChainHasStarted(chain, currentUT))
+                return null;
+
+            var preClaimRec = FindPreClaimChainRecordingAtUT(
+                committedTrees, chain, currentUT,
+                out bool hasPreClaimCoverage, out bool preClaimAmbiguous);
+            if (hasPreClaimCoverage && !preClaimAmbiguous)
+                return RecordingHasUsableNonPointPlaybackDataAtUT(preClaimRec, currentUT)
+                    ? preClaimRec
+                    : null;
+
+            return FindPlaybackFallbackRecordingForVessel(
+                committedRecordings, chain.OriginalVesselPid, currentUT,
+                preClaimAmbiguous ? GetFirstClaimTreeIds(chain) : null);
+        }
+
+        private static HashSet<string> GetFirstClaimTreeIds(GhostChain chain)
+        {
+            var firstClaimTreeIds = new HashSet<string>();
+            if (chain == null || chain.Links == null || chain.Links.Count == 0)
+                return firstClaimTreeIds;
+
+            double firstClaimUT = double.MaxValue;
+            for (int i = 0; i < chain.Links.Count; i++)
+            {
+                var link = chain.Links[i];
+                if (link.ut < firstClaimUT)
+                    firstClaimUT = link.ut;
+            }
+
+            if (firstClaimUT == double.MaxValue)
+                return firstClaimTreeIds;
+
+            for (int i = 0; i < chain.Links.Count; i++)
+            {
+                var link = chain.Links[i];
+                if (string.IsNullOrEmpty(link.treeId))
+                    continue;
+                if (Math.Abs(link.ut - firstClaimUT) > 0.001)
+                    continue;
+
+                firstClaimTreeIds.Add(link.treeId);
+            }
+
+            return firstClaimTreeIds;
+        }
+
+        private static Recording FindChainPathRecordingAtUT(
+            IReadOnlyList<RecordingTree> committedTrees,
+            ChainLink link,
+            uint vesselPid,
+            double currentUT)
+        {
+            if (committedTrees == null || string.IsNullOrEmpty(link.treeId))
+                return null;
+
+            RecordingTree tree = FindCommittedTree(committedTrees, link.treeId);
+            if (tree == null)
+                return null;
+
+            Recording startRec;
+            if (!tree.Recordings.TryGetValue(link.recordingId, out startRec))
+                return null;
+
+            return FindChainPathRecordingAtUT(tree, startRec, vesselPid, currentUT);
+        }
+
+        private static Recording FindChainPathRecordingAtUT(
+            RecordingTree tree,
+            Recording startRec,
+            uint vesselPid,
+            double currentUT)
+        {
+            if (tree == null || startRec == null)
+                return null;
+
+            var visited = new HashSet<string>();
+            var current = startRec;
+            while (current != null && !visited.Contains(current.RecordingId))
+            {
+                visited.Add(current.RecordingId);
+
+                if (current.VesselPersistentId == vesselPid
+                    && currentUT >= current.StartUT && currentUT <= current.EndUT)
+                {
+                    return current;
+                }
+
+                var nextChainRec = FindNextChainRecording(tree, current);
+                if (nextChainRec != null)
+                {
+                    current = nextChainRec;
+                    continue;
+                }
+
+                current = FindPreferredChildRecording(tree, current);
+            }
+
+            return null;
+        }
+
+        private static Recording FindNextChainRecording(RecordingTree tree, Recording rec)
+        {
+            if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChainId))
+                return null;
+
+            int nextIdx = rec.ChainIndex + 1;
+            foreach (var kvp in tree.Recordings)
+            {
+                if (kvp.Value.ChainId == rec.ChainId
+                    && kvp.Value.ChainIndex == nextIdx
+                    && kvp.Value.ChainBranch == rec.ChainBranch)
+                {
+                    return kvp.Value;
+                }
+            }
+
+            return null;
+        }
+
+        private static Recording FindPreferredChildRecording(RecordingTree tree, Recording rec)
+        {
+            if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return null;
+
+            BranchPoint bp = null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                if (tree.BranchPoints[i].Id == rec.ChildBranchPointId)
+                {
+                    bp = tree.BranchPoints[i];
+                    break;
+                }
+            }
+
+            if (bp == null || bp.ChildRecordingIds.Count == 0)
+                return null;
+
+            string bestChildId = bp.ChildRecordingIds[0];
+            if (rec.VesselPersistentId != 0)
+            {
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    Recording candidate;
+                    if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out candidate)
+                        && candidate.VesselPersistentId == rec.VesselPersistentId)
+                    {
+                        bestChildId = bp.ChildRecordingIds[c];
+                        break;
+                    }
+                }
+            }
+
+            Recording child;
+            return tree.Recordings.TryGetValue(bestChildId, out child) ? child : null;
+        }
+
+        private static RecordingTree FindCommittedTree(
+            IReadOnlyList<RecordingTree> committedTrees, string treeId)
+        {
+            if (committedTrees == null || string.IsNullOrEmpty(treeId))
+                return null;
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (committedTrees[i].Id == treeId)
+                    return committedTrees[i];
+            }
+
+            return null;
+        }
+
+        private static bool ChainHasStarted(GhostChain chain, double currentUT)
+        {
+            if (chain == null || chain.Links == null)
+                return false;
+
+            for (int i = 0; i < chain.Links.Count; i++)
+            {
+                if (chain.Links[i].ut <= currentUT + 0.001)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool TryPositionChainFallbackFromRecording(
+            GameObject ghostGO, GhostChain chain, Recording rec, double currentUT)
+        {
+            if (ghostGO == null || chain == null || rec == null)
+                return false;
+
+            if (rec.HasOrbitSegments)
+            {
+                if (!HasOrbitCoverageAtUT(rec, currentUT))
+                    return false;
+
+                PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
+                    (int)(chain.OriginalVesselPid * 10000));
+                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
+                ParsekLog.VerboseRateLimited("Flight",
+                    "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
+                        chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                return true;
+            }
+
+            if (HasSurfaceCoverageAtUT(rec, currentUT))
+            {
+                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
+                ParsekLog.VerboseRateLimited("Flight",
+                    "chain-ghost-surface-" + chain.OriginalVesselPid,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
+                        chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
+                        rec.SurfacePos.Value.body));
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool RecordingHasUsablePlaybackDataAtUT(Recording rec, double currentUT)
+        {
+            if (rec == null)
+                return false;
+
+            if (rec.Points != null && rec.Points.Count > 0)
+                return true;
+
+            if (HasOrbitCoverageAtUT(rec, currentUT))
+                return true;
+
+            return HasSurfaceCoverageAtUT(rec, currentUT);
+        }
+
+        private static bool RecordingHasUsableNonPointPlaybackDataAtUT(
+            Recording rec, double currentUT)
+        {
+            if (rec == null)
+                return false;
+
+            if (HasOrbitCoverageAtUT(rec, currentUT))
+                return true;
+
+            return HasSurfaceCoverageAtUT(rec, currentUT);
+        }
+
+        private static bool HasOrbitCoverageAtUT(Recording rec, double currentUT)
+        {
+            if (rec == null || !rec.HasOrbitSegments)
+                return false;
+
+            for (int s = 0; s < rec.OrbitSegments.Count; s++)
+            {
+                if (currentUT >= rec.OrbitSegments[s].startUT && currentUT <= rec.OrbitSegments[s].endUT)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasSurfaceCoverageAtUT(Recording rec, double currentUT)
+        {
+            return rec != null
+                && rec.SurfacePos.HasValue
+                && currentUT >= rec.StartUT
+                && currentUT <= rec.EndUT;
         }
 
         /// <summary>
@@ -6996,9 +7420,10 @@ namespace Parsek
                 var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
                 if (info == null || info.ghostGO == null) continue;
 
-                // Find background recording covering current UT
-                Recording bgRec = FindBackgroundRecordingForVessel(
-                    RecordingStore.CommittedRecordings, chain.OriginalVesselPid, currentUT);
+                // Find background recording covering current UT within the chain's
+                // own tree sequence, not by global PID-only lookup.
+                Recording bgRec = FindBackgroundRecordingForChain(
+                    RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, chain, currentUT);
 
                 if (bgRec != null && bgRec.Points.Count > 0)
                 {
@@ -7031,40 +7456,13 @@ namespace Parsek
         {
             bool positioned = false;
             var committed = RecordingStore.CommittedRecordings;
+            var committedTrees = RecordingStore.CommittedTrees;
             if (committed != null)
             {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    var rec = committed[i];
-                    if (rec.VesselPersistentId != chain.OriginalVesselPid) continue;
-
-                    if (rec.HasOrbitSegments)
-                    {
-                        PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
-                            (int)(chain.OriginalVesselPid * 10000));
-                        UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned from orbit: pid={0} rec={1} UT={2:F1}",
-                                chain.OriginalVesselPid, rec.RecordingId, currentUT));
-                        break;
-                    }
-
-                    if (rec.SurfacePos.HasValue)
-                    {
-                        PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-surface-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned at surface: pid={0} rec={1} body={2}",
-                                chain.OriginalVesselPid, rec.RecordingId,
-                                rec.SurfacePos.Value.body));
-                        break;
-                    }
-                }
+                var fallbackRec = FindPositionFallbackRecordingForChain(
+                    committed, committedTrees, chain, currentUT);
+                positioned = TryPositionChainFallbackFromRecording(
+                    ghostGO, chain, fallbackRec, currentUT);
             }
 
             if (!positioned)

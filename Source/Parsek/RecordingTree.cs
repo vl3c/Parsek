@@ -32,10 +32,21 @@ namespace Parsek
         public Dictionary<uint, string> BackgroundMap
             = new Dictionary<uint, string>();
 
-        // Set of all vessel PIDs that appear in this tree's recordings.
-        // Used to distinguish tree-owned vessels from external vessels in ghost skip logic.
+        // Set of all vessel PIDs that appear anywhere in this tree's recordings.
+        // This is archived-history membership, not a globally unique ownership claim.
+        // Used by ghost skip logic to answer the tree-local question
+        // "does this PID appear in this tree at all?".
         // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
-        public HashSet<uint> OwnedVesselPids = new HashSet<uint>();
+        public HashSet<uint> RecordedVesselPids = new HashSet<uint>();
+
+        internal void AddOrReplaceRecording(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return;
+
+            AssignTreeOrderIfMissing(rec);
+            Recordings[rec.RecordingId] = rec;
+        }
 
         /// <summary>
         /// Returns the maximum EndUT across all recordings in this tree.
@@ -78,7 +89,10 @@ namespace Parsek
             treeNode.AddValue("resourcesApplied", ResourcesApplied.ToString());
 
             // Serialize each recording
-            foreach (var rec in Recordings.Values)
+            EnsureRecordingTreeOrder();
+            var orderedRecordings = new List<Recording>(Recordings.Values);
+            orderedRecordings.Sort(CompareRecordingTreeOrder);
+            foreach (var rec in orderedRecordings)
             {
                 ConfigNode recNode = treeNode.AddNode("RECORDING");
                 SaveRecordingInto(recNode, rec);
@@ -132,7 +146,7 @@ namespace Parsek
             {
                 var rec = new Recording();
                 LoadRecordingFrom(recNodes[i], rec);
-                tree.Recordings[rec.RecordingId] = rec;
+                tree.AddOrReplaceRecording(rec);
             }
 
             // Load branch points
@@ -154,30 +168,160 @@ namespace Parsek
         public void RebuildBackgroundMap()
         {
             BackgroundMap.Clear();
-            OwnedVesselPids.Clear();
-            foreach (var kvp in Recordings)
+            RecordedVesselPids.Clear();
+            EnsureRecordingTreeOrder();
+            var duplicateEligiblePids = new HashSet<uint>();
+            var duplicateExamples = new List<string>();
+            var orderedRecordings = new List<Recording>(Recordings.Values);
+            orderedRecordings.Sort(CompareRecordingTreeOrder);
+            foreach (var rec in orderedRecordings)
             {
-                var rec = kvp.Value;
                 if (rec.VesselPersistentId != 0)
-                    OwnedVesselPids.Add(rec.VesselPersistentId);
+                    RecordedVesselPids.Add(rec.VesselPersistentId);
 
-                if (rec.VesselPersistentId != 0
-                    && rec.TerminalStateValue == null
-                    && rec.ChildBranchPointId == null  // has branched → no longer a live recording
-                    && rec.RecordingId != ActiveRecordingId)
+                if (IsBackgroundMapEligible(rec))
                 {
-                    if (BackgroundMap.ContainsKey(rec.VesselPersistentId))
-                        ParsekLog.Warn("RecordingTree",
-                            $"RebuildBackgroundMap: duplicate PID={rec.VesselPersistentId} " +
-                            $"(existing={BackgroundMap[rec.VesselPersistentId]}, replacing with={rec.RecordingId})");
+                    if (BackgroundMap.TryGetValue(rec.VesselPersistentId, out string existingId))
+                    {
+                        duplicateEligiblePids.Add(rec.VesselPersistentId);
+
+                        if (duplicateExamples.Count < 3)
+                        {
+                            duplicateExamples.Add(
+                                $"{rec.VesselPersistentId}:{existingId}->{rec.RecordingId}");
+                        }
+                    }
+
                     BackgroundMap[rec.VesselPersistentId] = rec.RecordingId;
                 }
             }
 
+            if (duplicateEligiblePids.Count > 0)
+            {
+                string treeId = !string.IsNullOrEmpty(Id) ? Id : (TreeName ?? "unknown");
+                string exampleSuffix = duplicateExamples.Count > 0
+                    ? $" examples=[{string.Join(", ", duplicateExamples)}]"
+                    : string.Empty;
+                ParsekLog.VerboseRateLimited(
+                    "RecordingTree",
+                    $"bgmap-duplicate-{treeId}",
+                    $"RebuildBackgroundMap: tree='{treeId}' has {duplicateEligiblePids.Count} " +
+                    $"duplicate eligible PID(s); BackgroundMap kept the latest tree-order winner." +
+                    exampleSuffix,
+                    60.0);
+            }
+
             ParsekLog.Verbose("RecordingTree",
-                $"RebuildBackgroundMap: entries={BackgroundMap.Count} ownedPids={OwnedVesselPids.Count} totalRecordings={Recordings.Count}");
+                $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count}");
         }
 
+        internal bool IsBackgroundMapEligible(Recording rec)
+        {
+            return rec != null
+                && rec.VesselPersistentId != 0
+                && rec.TerminalStateValue == null
+                && !HasNextChainSegment(rec)
+                && rec.ChildBranchPointId == null
+                && rec.RecordingId != ActiveRecordingId;
+        }
+
+        private bool HasNextChainSegment(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId))
+                return false;
+
+            int nextIdx = rec.ChainIndex + 1;
+            foreach (var other in Recordings.Values)
+            {
+                if (other.ChainId == rec.ChainId
+                    && other.ChainIndex == nextIdx
+                    && other.ChainBranch == rec.ChainBranch)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void EnsureRecordingTreeOrder()
+        {
+            int nextOrder = 0;
+            foreach (var rec in Recordings.Values)
+            {
+                if (rec != null && rec.TreeOrder >= nextOrder)
+                    nextOrder = rec.TreeOrder + 1;
+            }
+
+            foreach (var rec in Recordings.Values)
+            {
+                if (rec != null && rec.TreeOrder < 0)
+                    rec.TreeOrder = nextOrder++;
+            }
+        }
+
+        private void AssignTreeOrderIfMissing(Recording rec)
+        {
+            if (rec == null || rec.TreeOrder >= 0)
+                return;
+
+            int nextOrder = 0;
+            foreach (var existing in Recordings.Values)
+            {
+                if (existing != null && existing.TreeOrder >= nextOrder)
+                    nextOrder = existing.TreeOrder + 1;
+            }
+
+            rec.TreeOrder = nextOrder;
+        }
+
+        private static int CompareRecordingTreeOrder(Recording a, Recording b)
+        {
+            if (ReferenceEquals(a, b))
+                return 0;
+            if (a == null)
+                return -1;
+            if (b == null)
+                return 1;
+
+            int aOrder = a.TreeOrder >= 0 ? a.TreeOrder : int.MaxValue;
+            int bOrder = b.TreeOrder >= 0 ? b.TreeOrder : int.MaxValue;
+            int cmp = aOrder.CompareTo(bOrder);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = a.StartUT.CompareTo(b.StartUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = a.EndUT.CompareTo(b.EndUT);
+            if (cmp != 0)
+                return cmp;
+
+            return string.CompareOrdinal(a.RecordingId, b.RecordingId);
+        }
+
+        internal List<uint> FindDuplicateBackgroundMapPids()
+        {
+            var counts = new Dictionary<uint, int>();
+            var duplicates = new List<uint>();
+
+            foreach (var rec in Recordings.Values)
+            {
+                if (!IsBackgroundMapEligible(rec))
+                    continue;
+
+                int nextCount = 1;
+                if (counts.TryGetValue(rec.VesselPersistentId, out int existing))
+                    nextCount = existing + 1;
+
+                counts[rec.VesselPersistentId] = nextCount;
+                if (nextCount == 2)
+                    duplicates.Add(rec.VesselPersistentId);
+            }
+
+            return duplicates;
+        }
         // --- Recording serialization helpers ---
 
         internal static void SaveRecordingInto(ConfigNode recNode, Recording rec)
@@ -188,6 +332,8 @@ namespace Parsek
             recNode.AddValue("vesselName", rec.VesselName ?? "");
             if (rec.TreeId != null)
                 recNode.AddValue("treeId", rec.TreeId);
+            if (rec.TreeOrder >= 0)
+                recNode.AddValue("treeOrder", rec.TreeOrder.ToString(ic));
             recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(ic));
 
             if (!double.IsNaN(rec.ExplicitStartUT))
@@ -376,6 +522,8 @@ namespace Parsek
                 recNode.AddValue("generation", rec.Generation.ToString(ic));
 
             // Crew end states (kerbals module)
+            if (rec.CrewEndStatesResolved)
+                recNode.AddValue("crewEndStatesResolved", rec.CrewEndStatesResolved.ToString());
             RecordingStore.SerializeCrewEndStates(recNode, rec);
 
             // Resource manifests (Phase 11)
@@ -407,6 +555,9 @@ namespace Parsek
 
             rec.VesselName = Recording.ResolveLocalizedName(recNode.GetValue("vesselName") ?? "");
             rec.TreeId = recNode.GetValue("treeId");
+            int treeOrder;
+            if (int.TryParse(recNode.GetValue("treeOrder"), NumberStyles.Integer, ic, out treeOrder))
+                rec.TreeOrder = treeOrder;
 
             uint vesselPid;
             if (uint.TryParse(recNode.GetValue("vesselPersistentId"), NumberStyles.Integer, ic, out vesselPid))
@@ -743,7 +894,16 @@ namespace Parsek
             }
 
             // Crew end states (kerbals module)
+            string crewEndStatesResolvedStr = recNode.GetValue("crewEndStatesResolved");
+            if (crewEndStatesResolvedStr != null)
+            {
+                bool crewEndStatesResolved;
+                if (bool.TryParse(crewEndStatesResolvedStr, out crewEndStatesResolved))
+                    rec.CrewEndStatesResolved = crewEndStatesResolved;
+            }
             RecordingStore.DeserializeCrewEndStates(recNode, rec);
+            if (rec.CrewEndStates != null)
+                rec.CrewEndStatesResolved = true;
 
             // Resource manifests (Phase 11)
             RecordingStore.DeserializeResourceManifest(recNode, rec);

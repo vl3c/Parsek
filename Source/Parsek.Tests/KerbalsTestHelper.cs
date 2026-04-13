@@ -30,7 +30,7 @@ namespace Parsek.Tests
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                if (!rec.CrewEndStatesResolved && rec.CrewEndStates == null && rec.VesselSnapshot != null)
                     KerbalsModule.PopulateCrewEndStates(rec);
 
                 var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;

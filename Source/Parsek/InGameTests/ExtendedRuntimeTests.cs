@@ -619,7 +619,7 @@ namespace Parsek.InGameTests
 
     /// <summary>
     /// Validates recording tree structural invariants: parent/child links,
-    /// branch point references, PID uniqueness across trees.
+    /// branch point references, and BackgroundMap consistency.
     /// </summary>
     public class RecordingTreeIntegrityTests
     {
@@ -690,58 +690,52 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TreeIntegrity",
-            Description = "Unexpected OwnedVesselPids don't collide between different trees")]
-        public void NoPidCollisionAcrossTrees()
+            Description = "Every BackgroundMap entry points at an eligible recording in the same tree")]
+        public void BackgroundMapEntriesResolveToEligibleRecordings()
         {
             var trees = RecordingStore.CommittedTrees;
-            if (trees.Count < 2)
-                InGameAssert.Skip($"Only {trees.Count} tree(s) — need 2+ for cross-tree check");
-
-            var allowedSharedPids = new HashSet<uint>();
-            for (int i = 0; i < trees.Count; i++)
-            {
-                for (int j = 0; j < trees[i].BranchPoints.Count; j++)
-                {
-                    uint targetPid = trees[i].BranchPoints[j].TargetVesselPersistentId;
-                    if (targetPid != 0)
-                        allowedSharedPids.Add(targetPid);
-                }
-            }
-
-            var globalPids = new Dictionary<uint, int>(); // pid -> tree index
-            int collisions = 0;
-            int allowedCollisions = 0;
+            int entries = 0;
+            int dangling = 0;
+            int wrongPid = 0;
+            int ineligible = 0;
 
             for (int i = 0; i < trees.Count; i++)
             {
-                foreach (uint pid in trees[i].OwnedVesselPids)
+                foreach (var kvp in trees[i].BackgroundMap)
                 {
-                    if (globalPids.TryGetValue(pid, out int otherTree))
+                    entries++;
+
+                    if (!trees[i].Recordings.TryGetValue(kvp.Value, out var rec))
                     {
-                        if (allowedSharedPids.Contains(pid))
-                        {
-                            allowedCollisions++;
-                            ParsekLog.Verbose("TestRunner",
-                                $"Allowing shared PID {pid} across tree[{otherTree}] and tree[{i}] due to dock target handoff");
-                        }
-                        else
-                        {
-                            collisions++;
-                            ParsekLog.Warn("TestRunner",
-                                $"PID {pid} owned by both tree[{otherTree}] and tree[{i}]");
-                        }
+                        dangling++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Tree '{trees[i].Id}' BackgroundMap pid={kvp.Key} -> missing recording '{kvp.Value}'");
+                        continue;
                     }
-                    else
+
+                    if (rec.VesselPersistentId != kvp.Key)
                     {
-                        globalPids[pid] = i;
+                        wrongPid++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Tree '{trees[i].Id}' BackgroundMap pid={kvp.Key} points at recording '{rec.RecordingId}' with pid={rec.VesselPersistentId}");
+                    }
+
+                    if (!trees[i].IsBackgroundMapEligible(rec))
+                    {
+                        ineligible++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Tree '{trees[i].Id}' BackgroundMap pid={kvp.Key} points at ineligible recording '{rec.RecordingId}'");
                     }
                 }
             }
+
+            if (trees.Count == 0)
+                InGameAssert.Skip("No committed trees");
 
             ParsekLog.Verbose("TestRunner",
-                $"Cross-tree PID ownership: unexpected={collisions}, allowedDockTargets={allowedCollisions}");
-            InGameAssert.AreEqual(0, collisions,
-                $"{collisions} unexpected vessel PID(s) claimed by multiple trees");
+                $"BackgroundMap entries: total={entries} dangling={dangling} wrongPid={wrongPid} ineligible={ineligible}");
+            InGameAssert.AreEqual(0, dangling + wrongPid + ineligible,
+                $"{dangling + wrongPid + ineligible} BackgroundMap integrity issue(s) found");
         }
 
         [InGameTest(Category = "TreeIntegrity",
