@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~337. KerbalAssignment creation can reserve a stand-in instead of the original kerbal~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `PopulateCrewEndStates` already reverse-mapped stand-in names back to the original slot owner, but `LedgerOrchestrator.CreateKerbalAssignmentActions` re-extracted raw snapshot crew and emitted the stand-in name directly.
+
+**Root cause:** `ExtractCrewFromRecording` did not apply the same `CrewReplacements` reverse-map that `KerbalsModule.PopulateCrewEndStates` uses. When `CrewEndStates` was keyed by the original owner and the emitted action used the stand-in name, the end-state lookup missed and the ledger reserved the temporary stand-in as `Unknown`.
+
+**Fix:** `ExtractCrewFromRecording` now reverse-maps snapshot crew through `CrewReservationManager.CrewReplacements` before building `CrewInfo`, so `CreateKerbalAssignmentActions` and `CrewEndStates` use the same kerbal identity. Added regression coverage in `LedgerOrchestratorTests` for both extraction and action creation.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~314. Save/load can prune branched recordings even when sidecars still contain real data~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During a branched `Kerbal X` flight, the user saved, loaded, and then merged the tree. Two EVA/branch recordings had real sidecars on disk before the load:

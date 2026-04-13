@@ -548,6 +548,41 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        [Fact]
+        public void CreateKerbalAssignmentActions_ReverseMapsStandInNames()
+        {
+            CrewReservationManager.SetReplacement("Jebediah Kerman", "Leia Kerman");
+
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Leia Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-standin-action",
+                VesselName = "Crew Ship",
+                GhostVisualSnapshot = snapshot,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Recovered }
+                }
+            };
+
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions(
+                "rec-standin-action", 100.0, 500.0);
+
+            Assert.Single(actions);
+            Assert.Equal("Jebediah Kerman", actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Recovered, actions[0].KerbalEndStateField);
+
+            CrewReservationManager.ResetReplacementsForTesting();
+            RecordingStore.ResetForTesting();
+        }
+
         // ================================================================
         // Dynamic slot limits (GetContractSlots / GetStrategySlots)
         // ================================================================
@@ -701,6 +736,35 @@ namespace Parsek.Tests
             Assert.Equal(KerbalEndState.Dead, result[0].EndState);
             Assert.Equal("Bill Kerman", result[1].Name);
             Assert.Equal(KerbalEndState.Recovered, result[1].EndState);
+        }
+
+        [Fact]
+        public void ExtractCrewFromRecording_ReverseMapsStandInNames()
+        {
+            CrewReservationManager.SetReplacement("Jebediah Kerman", "Leia Kerman");
+
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Leia Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-extract-standin",
+                GhostVisualSnapshot = snapshot,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Aboard }
+                }
+            };
+
+            var result = LedgerOrchestrator.ExtractCrewFromRecording(rec);
+
+            Assert.Single(result);
+            Assert.Equal("Jebediah Kerman", result[0].Name);
+            Assert.Equal(KerbalEndState.Aboard, result[0].EndState);
+
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         // ================================================================

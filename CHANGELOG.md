@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#337` KerbalAssignment creation now reverse-maps stand-in names through `CrewReplacements` before looking up `CrewEndStates`, so later recordings reserve the original slot owner instead of emitting open-ended reservations for the temporary stand-in.
 - Recording timing bounds now combine actual trajectory coverage (points, orbit segments, playable track sections) with explicit outer bounds, so watch handoff and playback activation no longer get stuck when a section-authoritative continuation starts before its first flat point while still preserving live background and terminal end times.
 - Optimizer boring-tail trims now cut nested section-authoritative frame/checkpoint payloads as well as the flat mirrors, so trimmed tails no longer grow back after save/load, and relative-section splits now resync their flat playback caches the same way the storage format does.
 - Optimizer merges now carry the later segment's branch/end-state metadata and remove absorbed recordings from tree ownership cleanly, so merged chains keep branch continuation, terminal state, and tree/background bookkeeping consistent.

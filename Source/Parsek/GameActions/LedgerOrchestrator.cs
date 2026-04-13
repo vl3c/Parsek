@@ -347,6 +347,8 @@ namespace Parsek
         /// mirroring the crew extraction logic in KerbalsModule.ProcessAction.
         /// Uses GhostVisualSnapshot (recording-start state) as the primary source
         /// for crew names (same as PopulateCrewEndStates), falls back to VesselSnapshot.
+        /// Stand-in names are reverse-mapped back to original slot owners so
+        /// KerbalAssignment actions use the same identity as CrewEndStates.
         /// Roles come from KerbalsModule.FindTraitForKerbal (KSP roster lookup).
         /// End states come from rec.CrewEndStates if populated.
         /// </summary>
@@ -362,6 +364,13 @@ namespace Parsek
             if (names.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
                 names.Add(rec.EvaCrewName);
             if (names.Count == 0) return result;
+
+            // Match PopulateCrewEndStates: later recordings may already contain stand-in
+            // names after a prior commit swapped live vessel crew.
+            KerbalsModule.ReverseMapCrewNames(
+                names,
+                CrewReservationManager.CrewReplacements,
+                null);
 
             for (int i = 0; i < names.Count; i++)
             {
