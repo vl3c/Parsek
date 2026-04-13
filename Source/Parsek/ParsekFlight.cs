@@ -7550,8 +7550,11 @@ namespace Parsek
             StartCoroutine(DeferredActivateVessel(vesselPid));
 
         /// <summary>Called by policy to start the watch-mode hold timer at recording end.</summary>
-        internal void StartWatchHoldFromPolicy(float holdUntilRealTime) =>
-            watchMode.StartWatchHold(holdUntilRealTime);
+        internal void StartWatchHoldFromPolicy(
+            float holdUntilRealTime,
+            double pendingActivationUT = double.NaN,
+            float holdMaxRealTime = -1f) =>
+            watchMode.StartWatchHold(holdUntilRealTime, pendingActivationUT, holdMaxRealTime);
 
         private static float GetCurrentWarpRateSafe()
         {

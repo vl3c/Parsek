@@ -3278,6 +3278,202 @@ namespace Parsek
             return -1;
         }
 
+        /// <summary>
+        /// Returns the earliest UT at which a preferred watch continuation could become
+        /// ghost-active, even if it is not active yet. This is used to extend the
+        /// watch-end hold timer for quickload-resumed branches whose continuation data
+        /// starts later than the parent branch boundary.
+        /// </summary>
+        internal static bool TryGetPendingWatchActivationUT(
+            Recording currentRec,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isGhostActive,
+            out double activationUT,
+            int depth = 0)
+        {
+            activationUT = double.NaN;
+            const int MaxRecursionDepth = 10;
+            if (currentRec == null || committed == null || depth > MaxRecursionDepth)
+                return false;
+
+            // Case 1: Chain continuation.
+            if (!string.IsNullOrEmpty(currentRec.ChainId)
+                && currentRec.ChainIndex >= 0
+                && currentRec.ChainBranch == 0)
+            {
+                int nextChainIndex = currentRec.ChainIndex + 1;
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    var candidate = committed[j];
+                    if (candidate.ChainId != currentRec.ChainId
+                        || candidate.ChainBranch != 0
+                        || candidate.ChainIndex != nextChainIndex)
+                    {
+                        continue;
+                    }
+
+                    if (isGhostActive != null && isGhostActive(j))
+                        return false;
+
+                    return candidate.TryGetGhostActivationStartUT(out activationUT);
+                }
+            }
+
+            // Case 2: Tree branching via ChildBranchPointId. Mirror FindNextWatchTarget:
+            // prefer same-PID continuation, otherwise allow non-debris fallback on
+            // non-breakup branches.
+            if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
+                && currentRec.IsTreeRecording
+                && trees != null)
+            {
+                BranchPoint bp = null;
+                for (int t = 0; t < trees.Count; t++)
+                {
+                    var tree = trees[t];
+                    if (tree.Id != currentRec.TreeId)
+                        continue;
+
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == currentRec.ChildBranchPointId)
+                        {
+                            bp = tree.BranchPoints[b];
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                if (bp != null)
+                {
+                    double samePidActivationUT = double.NaN;
+                    double fallbackActivationUT = double.NaN;
+                    bool sawSamePidContinuation = false;
+                    bool sawActiveFallback = false;
+                    bool allowDifferentPidFallback = bp.Type != BranchPointType.Breakup;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        for (int j = 0; j < committed.Count; j++)
+                        {
+                            var candidate = committed[j];
+                            if (candidate.RecordingId != childId)
+                            {
+                                continue;
+                            }
+
+                            bool isPidMatch = candidate.VesselPersistentId == currentRec.VesselPersistentId;
+                            bool isAllowedFallback = allowDifferentPidFallback && !candidate.IsDebris;
+                            if (!isPidMatch && !isAllowedFallback)
+                                continue;
+
+                            if (isPidMatch)
+                            {
+                                sawSamePidContinuation = true;
+
+                                if (isGhostActive != null && isGhostActive(j))
+                                    return false;
+
+                                if (candidate.TryGetGhostActivationStartUT(out double candidateActivationUT))
+                                    samePidActivationUT = MinPendingActivationUT(samePidActivationUT, candidateActivationUT);
+
+                                if (TryGetPendingWatchActivationUT(
+                                        candidate, committed, trees, isGhostActive, out double deeperActivationUT, depth + 1))
+                                {
+                                    samePidActivationUT = MinPendingActivationUT(samePidActivationUT, deeperActivationUT);
+                                }
+                                continue;
+                            }
+
+                            if (isGhostActive != null && isGhostActive(j))
+                            {
+                                sawActiveFallback = true;
+                                continue;
+                            }
+
+                            if (candidate.TryGetGhostActivationStartUT(out double candidateActivationFallbackUT))
+                                fallbackActivationUT = MinPendingActivationUT(fallbackActivationUT, candidateActivationFallbackUT);
+                        }
+                    }
+
+                    if (sawSamePidContinuation && !double.IsNaN(samePidActivationUT))
+                    {
+                        activationUT = samePidActivationUT;
+                        return true;
+                    }
+                    if (sawSamePidContinuation)
+                        return false;
+                    if (sawActiveFallback)
+                        return false;
+                    if (!double.IsNaN(fallbackActivationUT))
+                    {
+                        activationUT = fallbackActivationUT;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        internal const float PendingWatchPostActivationGraceSeconds = 2f;
+        internal const float MaxPendingWatchHoldSeconds = 45f;
+
+        internal static float ComputePendingWatchHoldSeconds(
+            float baseHoldSeconds,
+            double currentUT,
+            double continuationActivationUT,
+            float warpRate)
+        {
+            if (baseHoldSeconds < 0f)
+                baseHoldSeconds = 0f;
+
+            if (double.IsNaN(continuationActivationUT) || continuationActivationUT <= currentUT)
+                return baseHoldSeconds;
+
+            float effectiveWarpRate = warpRate > 0.01f ? warpRate : 1f;
+            float requiredSeconds = Mathf.Ceil((float)((continuationActivationUT - currentUT) / effectiveWarpRate)
+                + PendingWatchPostActivationGraceSeconds);
+            return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, MaxPendingWatchHoldSeconds);
+        }
+
+        internal static void ComputePendingWatchHoldWindow(
+            float baseHoldSeconds,
+            float currentRealtime,
+            double currentUT,
+            double continuationActivationUT,
+            float warpRate,
+            out float holdUntilRealTime,
+            out float holdMaxRealTime)
+        {
+            float holdSeconds = ComputePendingWatchHoldSeconds(
+                baseHoldSeconds,
+                currentUT,
+                continuationActivationUT,
+                warpRate);
+
+            holdUntilRealTime = currentRealtime + holdSeconds;
+            if (!double.IsNaN(continuationActivationUT) && continuationActivationUT > currentUT)
+            {
+                holdMaxRealTime = currentRealtime + MaxPendingWatchHoldSeconds;
+                holdUntilRealTime = Mathf.Min(holdUntilRealTime, holdMaxRealTime);
+            }
+            else
+            {
+                holdMaxRealTime = holdUntilRealTime;
+            }
+        }
+
+        private static double MinPendingActivationUT(double currentBest, double candidate)
+        {
+            if (double.IsNaN(candidate))
+                return currentBest;
+            if (double.IsNaN(currentBest))
+                return candidate;
+            return Math.Min(currentBest, candidate);
+        }
+
         #endregion
 
         #region Auto Loop Range

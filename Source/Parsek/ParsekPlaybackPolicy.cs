@@ -339,10 +339,43 @@ namespace Parsek
                     }
 
                     // No continuation found — hold ghost for camera (3-5 real seconds).
-                    // Uses real time (Time.time), not UT, so the hold duration is warp-independent.
+                    // Pending-activation holds also gate expiry on game UT inside WatchModeController
+                    // so warp-rate changes do not expire the hold before the continuation can spawn.
                     float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
                         ? 5f : 3f;
-                    host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
+                    float holdStartedRealTime = Time.time;
+                    float holdUntilRealTime = holdStartedRealTime + holdSeconds;
+                    float holdMaxRealTime = holdUntilRealTime;
+                    string holdDetail = null;
+                    double pendingContinuationUT = double.NaN;
+                    if (evt.Index >= 0 && evt.Index < committed.Count
+                        && GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                            committed[evt.Index],
+                            committed,
+                            RecordingStore.CommittedTrees,
+                            engine.HasActiveGhost,
+                            out pendingContinuationUT))
+                    {
+                        GhostPlaybackLogic.ComputePendingWatchHoldWindow(
+                            holdSeconds,
+                            holdStartedRealTime,
+                            evt.CurrentUT,
+                            pendingContinuationUT,
+                            TimeWarp.CurrentRate,
+                            out holdUntilRealTime,
+                            out holdMaxRealTime);
+                        float extendedHold = holdUntilRealTime - holdStartedRealTime;
+                        if (extendedHold > holdSeconds)
+                        {
+                            holdSeconds = extendedHold;
+                            holdDetail = string.Format(
+                                CultureInfo.InvariantCulture,
+                                " pendingContinuationUT={0:F1} currentUT={1:F1}",
+                                pendingContinuationUT,
+                                evt.CurrentUT);
+                        }
+                    }
+                    host.StartWatchHoldFromPolicy(holdUntilRealTime, pendingContinuationUT, holdMaxRealTime);
 
                     // Trigger explosion if terminal was Destroyed
                     engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
@@ -350,7 +383,8 @@ namespace Parsek
 
                     ParsekLog.Info("Policy",
                         $"Watch hold started for #{evt.Index}: {holdSeconds:F0}s " +
-                        $"terminal={evt.Trajectory?.TerminalStateValue}");
+                        $"terminal={evt.Trajectory?.TerminalStateValue}" +
+                        (holdDetail ?? string.Empty));
                     // Ghost stays alive — ParsekFlight's watch hold timer will destroy it
                     return;
                 }

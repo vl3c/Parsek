@@ -259,6 +259,21 @@ namespace Parsek
             }
         }
 
+        internal bool TryGetGhostActivationStartUT(out double startUT)
+        {
+            if (TryGetActualTrajectoryBounds(out startUT, out _))
+                return true;
+
+            if (!double.IsNaN(ExplicitStartUT))
+            {
+                startUT = ExplicitStartUT;
+                return true;
+            }
+
+            startUT = 0.0;
+            return false;
+        }
+
         private bool TryGetActualTrajectoryBounds(out double startUT, out double endUT)
         {
             startUT = 0.0;
