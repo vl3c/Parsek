@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#350` Boarded-EVA playback now preserves post-board flat trajectory tails when merged `TrackSections` are only a stale prefix, and single-point boarded leaf recordings now count as renderable playback/spawn data, so the last kerbal can finish the visible re-entry path and the final capsule with the re-boarded kerbal now spawns at recording end.
 - `#349` Kerbal retirement tracking now preserves raw snapshot crew names alongside the repaired logical owner names, so historical stand-ins still retire/delete correctly after `KerbalAssignment` repair rewrites their ledger rows back to the slot owner.
 - `#348` The displaced-stand-in roster fix now preserves retired stand-ins as a special case, so missing retired roster entries are still recreated while truly unused displaced stand-ins stay deleted.
 - `#347` Historical stand-in repair now falls back to persisted `KERBAL_SLOTS` as well as the live `CREW_REPLACEMENTS` bridge, so old ledgers with stale stand-in names still heal after the current replacement map has already been cleared.
@@ -80,6 +81,7 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
+- Added regression coverage for boarded-EVA re-entry playback: board-merge stale-section tail preservation, single-point ghost renderability/state seeding, and direct stale-track fallback serialization for `#350`.
 - Documented the next kerbals hardening follow-ups in `todo-and-known-bugs.md`: a true cold-start slot-migration integration test, end-to-end `ApplyToRoster()` coverage for repaired historical stand-ins, and concise load-time diagnostics when kerbal reservation data is auto-repaired.
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
 - Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt/unsupported/oversized-envelope rejection, snapshot-hydration failure surfacing without misleading fallback logs, snapshot-only quickload salvage that preserves disk trajectory and alias invariants, transient sidecar-artifact cleanup, and staged-write rollback/heal behavior for both first-write and stale-ghost-delete branches.
