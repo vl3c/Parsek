@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~343. Persisted displaced stand-ins can be recreated on every later roster walk~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After bug `#339` started preserving displaced chain metadata, `ApplyToRoster()` still recreated any missing non-null chain entry before the delete/retire pass, so a stand-in that had already been deleted as displaced/unused would be re-hired and deleted again on every recalculation.
+
+**Root cause:** The roster-ensure pass only checked whether a chain entry name was missing from `KerbalRoster`. It did not distinguish active/reserved chain occupants from displaced metadata that intentionally no longer had a live roster entry.
+
+**Fix:** `ApplyToRoster()` now skips roster creation/recreation for displaced chain entries unless that stand-in is still actively reserved. The chain metadata remains persisted for deterministic rewinds, but deleted displaced stand-ins no longer churn back into the roster on later passes. Added a regression test that pins the helper decision for active vs displaced chain entries.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~342. Tourist passengers can leak into the managed kerbal reservation system~~
 
 **Observed in:** Kerbals/events-actions audit (2026-04-13). `CreateKerbalAssignmentActions()` emitted actions for every crew name in the recording snapshot, and `KerbalsModule.ProcessAction()` reserved every `KerbalAssignment` regardless of role, even though the design treats tourist passengers as contract-only temporary crew.

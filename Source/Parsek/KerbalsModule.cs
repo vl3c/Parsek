@@ -706,6 +706,9 @@ namespace Parsek
                     var slot = kvp.Value;
                     for (int i = 0; i < slot.Chain.Count; i++)
                     {
+                        if (!ShouldEnsureChainEntryInRoster(slot, i))
+                            continue;
+
                         if (slot.Chain[i] != null)
                         {
                             // Verify stand-in still exists in roster
@@ -834,6 +837,19 @@ namespace Parsek
 
         private const int ActiveOwnerIndex = -1;
         private const int NoActiveChainOccupant = -2;
+
+        private bool ShouldEnsureChainEntryInRoster(KerbalSlot slot, int chainIndex)
+        {
+            if (slot == null || chainIndex < 0 || chainIndex >= slot.Chain.Count)
+                return false;
+
+            string standIn = slot.Chain[chainIndex];
+            bool isReserved = !string.IsNullOrEmpty(standIn) && reservations.ContainsKey(standIn);
+
+            // Displaced, unreserved chain metadata stays persisted but should not force
+            // a roster entry back into existence on every recalculation walk.
+            return !IsDisplacedChainEntry(slot, chainIndex) || isReserved;
+        }
 
         private int GetActiveChainIndex(string slotOwnerName, KerbalSlot slot)
         {

@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#343` `ApplyToRoster()` no longer recreates displaced, unreserved stand-ins just because their chain metadata is still persisted, so deleted stand-ins stay deleted across later recalculation walks instead of churn-appearing and being deleted again every pass.
 - `#342` Tourist passengers are now excluded from new `KerbalAssignment` generation, and the kerbals module ignores any legacy tourist assignment actions that already exist in the ledger, keeping tourist contracts out of the managed reservation/stand-in system.
 - `#341` EVA-only recordings now populate crew end states during kerbal-action migration and the save-load safety net even when they only carry `EvaCrewName`, so legacy EVA recordings no longer degrade to `Unknown` reservations just because `VesselSnapshot` is null.
 - `#340` Permanent-loss slot state is now recomputed on every kerbals walk, and permanently gone owners no longer keep stale stand-ins as active occupants after a prior temporary chain or after rewinding away the death.
