@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#345` Save-load kerbal-action migration now rewrites stale per-recording `KerbalAssignment` rows instead of only filling missing ones, so legacy ledgers with old stand-in names or pre-fix `Unknown` end states are repaired in place on the next load.
 - `#344` Ghost-only chain segments now resolve fallback kerbal end states as finite handoffs instead of open-ended `Unknown` reservations, so mid-chain vessel/EVA commits still reserve crew but no longer poison the reservation graph with indefinite placeholders.
 - `#343` `ApplyToRoster()` no longer recreates displaced, unreserved stand-ins just because their chain metadata is still persisted, so deleted stand-ins stay deleted across later recalculation walks instead of churn-appearing and being deleted again every pass.
 - `#342` Tourist passengers are now excluded from new `KerbalAssignment` generation, and the kerbals module ignores any legacy tourist assignment actions that already exist in the ledger, keeping tourist contracts out of the managed reservation/stand-in system.

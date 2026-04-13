@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~345. Existing ledger kerbal rows are not repaired once bad `KerbalAssignment` data is already persisted~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The earlier audit fixes corrected new kerbal-action generation, but `MigrateKerbalAssignments()` still treated any recording with at least one existing `KerbalAssignment` row as already migrated. Old saves that had pre-fix stand-in names or ghost/EVA `Unknown` end states therefore kept replaying the stale ledger data forever.
+
+**Root cause:** The migration path only filled missing per-recording kerbal rows; it never compared stored rows against the current derived truth for that recording, so there was no repair path for already-persisted bad actions.
+
+**Fix:** `MigrateKerbalAssignments()` now builds the desired `KerbalAssignment` set for every committed recording, compares it to the stored rows, and rewrites just that recording's kerbal actions when they diverge. Added regression coverage for both repaired stand-in identity rows and repaired ghost-only `Unknown` rows so legacy ledgers heal on the next load.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~344. Ghost-only chain segments fall back to open-ended `Unknown` kerbal reservations~~
 
 **Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). Mid-chain vessel/EVA recordings are committed with `VesselSnapshot = null`, but `CreateKerbalAssignmentActions()` still extracted crew from `GhostVisualSnapshot`. Because the old end-state population guard only trusted `VesselSnapshot` or `EvaCrewName`, those segments emitted `KerbalAssignment` rows with `KerbalEndState.Unknown`, which the kerbals walk treated as infinite temporary reservations.

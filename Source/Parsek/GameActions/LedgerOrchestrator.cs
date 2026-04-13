@@ -563,39 +563,87 @@ namespace Parsek
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null || recordings.Count == 0) return;
 
-            // Build set of recording IDs that already have KerbalAssignment actions
-            var existingIds = new HashSet<string>();
+            var existingByRecording = new Dictionary<string, List<GameAction>>();
             var ledgerActions = Ledger.Actions;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
-                if (ledgerActions[i].Type == GameActionType.KerbalAssignment
-                    && !string.IsNullOrEmpty(ledgerActions[i].RecordingId))
-                    existingIds.Add(ledgerActions[i].RecordingId);
+                var action = ledgerActions[i];
+                if (action.Type != GameActionType.KerbalAssignment
+                    || string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+
+                List<GameAction> existing;
+                if (!existingByRecording.TryGetValue(action.RecordingId, out existing))
+                {
+                    existing = new List<GameAction>();
+                    existingByRecording[action.RecordingId] = existing;
+                }
+
+                existing.Add(action);
             }
 
-            int migrated = 0;
+            int repairedRecordings = 0;
+            int oldRows = 0;
+            int newRows = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (existingIds.Contains(rec.RecordingId)) continue;
-
-                // Populate end states first
-                if (NeedsCrewEndStatePopulation(rec))
-                    KerbalsModule.PopulateCrewEndStates(rec);
 
                 var kerbalActions = CreateKerbalAssignmentActions(
                     rec.RecordingId, rec.StartUT, rec.EndUT);
-                if (kerbalActions.Count > 0)
-                {
-                    Ledger.AddActions(kerbalActions);
-                    migrated += kerbalActions.Count;
-                }
+                List<GameAction> existing;
+                existingByRecording.TryGetValue(rec.RecordingId, out existing);
+                if (KerbalAssignmentActionsMatch(existing, kerbalActions))
+                    continue;
+
+                Ledger.ReplaceActionsForRecording(
+                    GameActionType.KerbalAssignment, rec.RecordingId, kerbalActions);
+                repairedRecordings++;
+                oldRows += existing != null ? existing.Count : 0;
+                newRows += kerbalActions.Count;
             }
 
-            if (migrated > 0)
+            if (repairedRecordings > 0)
                 ParsekLog.Info(Tag,
-                    $"MigrateKerbalAssignments: generated {migrated} KerbalAssignment actions " +
-                    $"for {recordings.Count} committed recordings");
+                    $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
+                    $"(oldRows={oldRows}, newRows={newRows})");
+        }
+
+        private static bool KerbalAssignmentActionsMatch(
+            List<GameAction> existing, List<GameAction> desired)
+        {
+            int existingCount = existing != null ? existing.Count : 0;
+            int desiredCount = desired != null ? desired.Count : 0;
+            if (existingCount != desiredCount)
+                return false;
+
+            for (int i = 0; i < existingCount; i++)
+            {
+                var a = existing[i];
+                var b = desired[i];
+                if (a == null || b == null)
+                    return false;
+                if (a.Type != b.Type)
+                    return false;
+                if (Math.Abs(a.UT - b.UT) > 0.1)
+                    return false;
+                if (!string.Equals(a.RecordingId, b.RecordingId, StringComparison.Ordinal))
+                    return false;
+                if (!string.Equals(a.KerbalName, b.KerbalName, StringComparison.Ordinal))
+                    return false;
+                if (!string.Equals(a.KerbalRole, b.KerbalRole, StringComparison.Ordinal))
+                    return false;
+                if (Math.Abs(a.StartUT - b.StartUT) > 0.1f)
+                    return false;
+                if (Math.Abs(a.EndUT - b.EndUT) > 0.1f)
+                    return false;
+                if (a.KerbalEndStateField != b.KerbalEndStateField)
+                    return false;
+                if (a.Sequence != b.Sequence)
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>
