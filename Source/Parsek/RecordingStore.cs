@@ -3198,14 +3198,61 @@ namespace Parsek
                 targetNode.AddValue(SectionAuthoritativeHeaderKey, value);
         }
 
+        internal static bool HasTrackSectionPayloadMatchingFlatTrajectory(
+            Recording rec,
+            bool allowRelativeSections = false)
+        {
+            return rec != null
+                && rec.TrackSections != null
+                && rec.TrackSections.Count > 0
+                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections)
+                && FlatTrajectoryExactlyMatchesTrackSectionPayload(rec);
+        }
+
+        internal static bool FlatTrajectoryExtendsTrackSectionPayload(
+            Recording rec,
+            List<TrackSection> tracks,
+            bool allowRelativeSections = false)
+        {
+            if (rec == null
+                || tracks == null
+                || tracks.Count == 0
+                || !HasCompleteTrackSectionPayloadForFlatSync(tracks, allowRelativeSections))
+            {
+                return false;
+            }
+
+            var rebuiltPoints = new List<TrajectoryPoint>();
+            RebuildPointsFromTrackSections(tracks, rebuiltPoints);
+            var flatPoints = rec.Points ?? new List<TrajectoryPoint>();
+            if (flatPoints.Count < rebuiltPoints.Count)
+                return false;
+            for (int i = 0; i < rebuiltPoints.Count; i++)
+            {
+                if (!TrajectoryPointEquals(rebuiltPoints[i], flatPoints[i]))
+                    return false;
+            }
+
+            var rebuiltOrbitSegments = new List<OrbitSegment>();
+            RebuildOrbitSegmentsFromTrackSections(tracks, rebuiltOrbitSegments);
+            var flatOrbitSegments = rec.OrbitSegments ?? new List<OrbitSegment>();
+            if (flatOrbitSegments.Count < rebuiltOrbitSegments.Count)
+                return false;
+            for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
+            {
+                if (!OrbitSegmentEquals(rebuiltOrbitSegments[i], flatOrbitSegments[i]))
+                    return false;
+            }
+
+            return flatPoints.Count > rebuiltPoints.Count
+                || flatOrbitSegments.Count > rebuiltOrbitSegments.Count;
+        }
+
         internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
         {
             return rec != null
                 && rec.RecordingFormatVersion >= 1
-                && rec.TrackSections != null
-                && rec.TrackSections.Count > 0
-                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections: true)
-                && FlatTrajectoryExactlyMatchesTrackSectionPayload(rec);
+                && HasTrackSectionPayloadMatchingFlatTrajectory(rec, allowRelativeSections: true);
         }
 
         private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode, int formatVersion)
