@@ -746,6 +746,42 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ClassifyPostDestructionMergeResolution
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_FinalizeWhenAllLeavesTerminal()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: true);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, result);
+        }
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_WaitsForActiveCrashFallback()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: false);
+
+            Assert.Equal(
+                ParsekFlight.PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange,
+                result);
+        }
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_CancelsWhenNotCrashAndNotTerminal()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: false,
+                allLeavesTerminal: false);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
+        }
+
+        #endregion
+
         #region IsTreePadFailure
 
         [Fact]

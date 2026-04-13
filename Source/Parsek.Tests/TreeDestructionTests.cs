@@ -28,15 +28,14 @@ namespace Parsek.Tests
 
         #region Helpers
 
-        static Recording MakeLeaf(string id, string name, TerminalState? terminal, bool isDebris = false)
+        static Recording MakeLeaf(string id, string name, TerminalState? terminal)
         {
             return new Recording
             {
                 RecordingId = id,
                 VesselName = name,
                 ChildBranchPointId = null,
-                TerminalStateValue = terminal,
-                IsDebris = isDebris
+                TerminalStateValue = terminal
             };
         }
 
@@ -258,62 +257,6 @@ namespace Parsek.Tests
             Assert.False(result);
             Assert.Contains(logLines, l =>
                 l.Contains("[TreeDestruction]") && l.Contains("active and alive"));
-        }
-
-        [Fact]
-        public void ActiveCrash_DebrisLeafWithNullTerminal_IsMergeReady()
-        {
-            var recs = MakeDict(
-                MakeLeaf("active", "Rocket Active", null),
-                MakeLeaf("debris", "Booster Debris", null, isDebris: true));
-
-            bool result = RecordingTree.AreAllLeavesMergeReadyAfterActiveCrash(recs, "active");
-
-            Assert.True(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("AreAllLeavesMergeReadyAfterActiveCrash")
-                && l.Contains("Booster Debris")
-                && l.Contains("merge-ready"));
-        }
-
-        [Fact]
-        public void ActiveCrash_NonDebrisLeafWithNullTerminal_IsNotMergeReady()
-        {
-            var recs = MakeDict(
-                MakeLeaf("active", "Rocket Active", null),
-                MakeLeaf("survivor", "Probe Core", null));
-
-            bool result = RecordingTree.AreAllLeavesMergeReadyAfterActiveCrash(recs, "active");
-
-            Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("AreAllLeavesMergeReadyAfterActiveCrash")
-                && l.Contains("Probe Core")
-                && l.Contains("NOT merge-ready"));
-        }
-
-        [Fact]
-        public void ActiveCrash_DebrisLeafWithSpawnableTerminal_IsMergeReady()
-        {
-            var recs = MakeDict(
-                MakeLeaf("active", "Rocket Active", null),
-                MakeLeaf("debris", "Fairing Debris", TerminalState.SubOrbital, isDebris: true));
-
-            bool result = RecordingTree.AreAllLeavesMergeReadyAfterActiveCrash(recs, "active");
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void ActiveCrash_NonDebrisLeafWithSpawnableTerminal_IsNotMergeReady()
-        {
-            var recs = MakeDict(
-                MakeLeaf("active", "Rocket Active", null),
-                MakeLeaf("survivor", "Recovery Capsule", TerminalState.Orbiting));
-
-            bool result = RecordingTree.AreAllLeavesMergeReadyAfterActiveCrash(recs, "active");
-
-            Assert.False(result);
         }
 
         #endregion

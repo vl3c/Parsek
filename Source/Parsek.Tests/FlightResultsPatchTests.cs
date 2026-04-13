@@ -235,14 +235,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady_WithOwner_DisarmsOnlyUncapturedState()
+        {
+            FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
+            FlightResultsPatch.DeferredMergeArmed = true;
+
+            FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
+                mergeOwnerExists: true,
+                reason: "unit test owner exists");
+
+            Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
+            Assert.False(FlightResultsPatch.DeferredMergeArmed);
+            Assert.False(FlightResultsPatch.HasPendingResults());
+        }
+
+        [Fact]
+        public void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady_WithoutOwner_ClearsCapturedState()
+        {
+            FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
+            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
+            FlightResultsPatch.DeferredMergeArmed = true;
+
+            FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
+                mergeOwnerExists: false,
+                reason: "unit test no owner");
+
+            Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
+            Assert.False(FlightResultsPatch.DeferredMergeArmed);
+            Assert.False(FlightResultsPatch.HasPendingResults());
+        }
+
+        [Fact]
         public void ClearPending_ClearsCapturedOutcomeAndArmedState()
         {
             FlightResultsPatch.DeferredMergeArmed = true;
             FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
+            FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
             FlightResultsPatch.Bypass = true;
 
             FlightResultsPatch.ClearPending("unit test clear");
 
+            Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
             Assert.False(FlightResultsPatch.DeferredMergeArmed);
             Assert.False(FlightResultsPatch.HasPendingResults());
             Assert.True(FlightResultsPatch.Bypass);
@@ -253,6 +286,7 @@ namespace Parsek.Tests
             FlightResultsPatch.Bypass = false;
             FlightResultsPatch.DeferredMergeArmed = false;
             FlightResultsPatch.PendingOutcomeMsg = null;
+            FlightResultsPatch.AwaitingSceneChangeMergeOwner = false;
         }
     }
 }
