@@ -2530,12 +2530,15 @@ namespace Parsek.InGameTests
             // Sentinel: use a static field on TestRunnerShortcut
             var preInstance = TestRunnerShortcut.Instance;
             InGameAssert.IsNotNull(preInstance, "TestRunnerShortcut.Instance must be non-null before quickload");
+            var preFlight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(preFlight, "ParsekFlight.Instance must be non-null before quickload");
 
             Helpers.QuickloadResumeHelpers.TriggerQuicksave();
             yield return new WaitForSeconds(0.5f);
 
             Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(15f);
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                preFlight.GetInstanceID(), 15f);
 
             // The same singleton must survive — DontDestroyOnLoad keeps it alive
             var postInstance = TestRunnerShortcut.Instance;
@@ -2564,6 +2567,7 @@ namespace Parsek.InGameTests
 
             string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
             InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
+            int preFlightInstanceId = flight.GetInstanceID();
 
             // F5
             Helpers.QuickloadResumeHelpers.TriggerQuicksave();
@@ -2571,7 +2575,8 @@ namespace Parsek.InGameTests
 
             // F9
             Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(15f);
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                preFlightInstanceId, 15f);
             yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
 
             // Re-query: old ParsekFlight instance is destroyed

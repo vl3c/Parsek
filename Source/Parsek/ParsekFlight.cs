@@ -435,6 +435,7 @@ namespace Parsek
         }
         public bool HasActiveChain => chainManager?.HasActiveChain ?? false;
         public bool HasActiveTree => activeTree != null;
+        internal bool HasDeferredWatchAfterFastForward => !string.IsNullOrEmpty(pendingWatchAfterFFId);
 
         // Camera follow (watch mode) — forwarded from WatchModeController
         internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
@@ -8067,11 +8068,7 @@ namespace Parsek
                 $"Normalizing FLIGHT runtime after {cleanupReason}");
 
             pendingWatchAfterFFId = null;
-
-            if (watchMode.IsWatchingGhost)
-                watchMode.ExitWatchMode();
-            else
-                InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId);
+            watchMode.ClearAfterSyntheticScenarioLoad();
 
             StopPlayback();
             DestroyAllTimelineGhosts("synthetic-scenario-load");

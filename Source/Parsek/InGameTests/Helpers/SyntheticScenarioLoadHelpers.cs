@@ -15,10 +15,16 @@ namespace Parsek.InGameTests.Helpers
             }
 
             var flight = ParsekFlight.Instance;
-            if (flight != null && (flight.IsRecording || flight.HasActiveTree))
+            if (flight != null
+                && (flight.IsRecording
+                    || flight.HasActiveTree
+                    || flight.IsPlaying
+                    || flight.IsWatchingGhost
+                    || flight.TimelineGhostCount > 0
+                    || flight.HasDeferredWatchAfterFastForward))
             {
                 InGameAssert.Skip(
-                    "Live active tree/recording is in progress; OnSave/OnLoad round-trip would mutate it");
+                    "Live FLIGHT playback/watch state is active; OnSave/OnLoad round-trip would mutate it");
             }
         }
 
