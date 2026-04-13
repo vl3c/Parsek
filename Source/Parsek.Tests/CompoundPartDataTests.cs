@@ -123,6 +123,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PARTDATA_TargetPersistentId_ParsesWhenPresent()
+        {
+            var partNode = new ConfigNode("PART");
+            var partData = partNode.AddNode("PARTDATA");
+            partData.AddValue("pos", "1,2,3");
+            partData.AddValue("tpersID", "2447691656");
+
+            CompoundPartData data;
+            bool result = GhostVisualBuilder.TryParseCompoundPartData(
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 12345, "strutConnector", out data);
+
+            Assert.True(result);
+            Assert.Equal(2447691656u, data.targetPersistentId);
+        }
+
+        [Fact]
+        public void PARTDATA_TargetPersistentId_MissingDefaultsToZero()
+        {
+            var partNode = new ConfigNode("PART");
+            var partData = partNode.AddNode("PARTDATA");
+            partData.AddValue("pos", "1,2,3");
+
+            CompoundPartData data;
+            bool result = GhostVisualBuilder.TryParseCompoundPartData(
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 12345, "strutConnector", out data);
+
+            Assert.True(result);
+            Assert.Equal(0u, data.targetPersistentId);
+        }
+
+        [Fact]
         public void PARTDATA_DefaultTransformNames_WhenNoOverrides()
         {
             var partNode = new ConfigNode("PART");

@@ -208,9 +208,17 @@ namespace Parsek
     {
         public Vector3 targetPos;
         public Quaternion targetRot;
+        public uint targetPersistentId;
         public string lineObjName;
         public string targetAnchorName;
         public string targetCapName;
+    }
+
+    internal class CompoundPartGhostInfo
+    {
+        public uint partPersistentId;
+        public uint targetPersistentId;
+        public Transform partTransform;
     }
 
     /// <summary>
@@ -231,6 +239,7 @@ namespace Parsek
         public List<RcsGhostInfo> rcsInfos;
         public List<RoboticGhostInfo> roboticInfos;
         public List<ColorChangerGhostInfo> colorChangerInfos;
+        public List<CompoundPartGhostInfo> compoundPartInfos;
         public List<AudioGhostInfo> audioInfos;
         public OneShotAudioInfo oneShotAudio;
     }

@@ -120,6 +120,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanAutoMerge_ContinuousEvaAtmoToSurface_ReturnsTrue()
+        {
+            var a = MakeChainSegment("chain1", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, phase: "surface", body: "Kerbin", startUT: 17029.5, endUT: 17060);
+            a.EvaCrewName = "Bill Kerman";
+            b.EvaCrewName = "Bill Kerman";
+            a.ParentRecordingId = "parent-1";
+            b.ParentRecordingId = "parent-1";
+            a.VesselPersistentId = 1001;
+            b.VesselPersistentId = 1001;
+
+            Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_GappedEvaAtmoToSurface_ReturnsFalse()
+        {
+            var a = MakeChainSegment("chain1", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, phase: "surface", body: "Kerbin", startUT: 17033.1, endUT: 17060);
+            a.EvaCrewName = "Bill Kerman";
+            b.EvaCrewName = "Bill Kerman";
+            a.ParentRecordingId = "parent-1";
+            b.ParentRecordingId = "parent-1";
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_NonEvaAtmoToSurface_ReturnsFalse()
+        {
+            var a = MakeChainSegment("chain1", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, phase: "surface", body: "Kerbin", startUT: 17029.5, endUT: 17060);
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_EvaAtmoToSurface_UnknownBody_ReturnsFalse()
+        {
+            var a = MakeChainSegment("chain1", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, phase: "surface", body: "Kerbin", startUT: 17029.5, endUT: 17060);
+            a.EvaCrewName = "Bill Kerman";
+            b.EvaCrewName = "Bill Kerman";
+            a.ParentRecordingId = "parent-1";
+            b.ParentRecordingId = "parent-1";
+            a.SegmentBodyName = null;
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
         public void CanAutoMerge_DifferentBody_ReturnsFalse()
         {
             var a = MakeChainSegment("chain1", 0, body: "Mun");
@@ -429,6 +480,18 @@ namespace Parsek.Tests
 
             var candidates = RecordingOptimizer.FindSplitCandidates(committed);
             Assert.Single(candidates);
+        }
+
+        [Fact]
+        public void FindSplitCandidates_SkipsContinuousEvaAtmosphereSurfaceBoundary()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.EvaCrewName = "Bill Kerman";
+            rec.ParentRecordingId = "parent-1";
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
         }
 
         #endregion
@@ -809,6 +872,105 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RunOptimizationPass_ContinuousEvaAtmosphereSurfaceRemainsSingleRecording()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "eva_continuous";
+            rec.VesselName = "Bill Kerman";
+            rec.VesselPersistentId = 1001;
+            rec.EvaCrewName = "Bill Kerman";
+            rec.ParentRecordingId = "parent-1";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Single(recordings);
+            Assert.Equal("eva_continuous", recordings[0].RecordingId);
+            Assert.True(string.IsNullOrEmpty(recordings[0].ChainId));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_HealsSplitEvaAtmosphereSurfacePairWithoutNonMonotonicPoints()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var first = MakeChainSegment("eva_chain", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17020);
+            first.RecordingId = "eva_first";
+            first.VesselName = "Bill Kerman";
+            first.VesselPersistentId = 1001;
+            first.EvaCrewName = "Bill Kerman";
+            first.ParentRecordingId = "parent-1";
+            first.StartBodyName = "Kerbin";
+            first.Points.Clear();
+            first.TrackSections.Clear();
+            var firstFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17010, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" },
+            };
+            first.Points.AddRange(firstFrames);
+            first.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17000,
+                endUT = 17020,
+                frames = new List<TrajectoryPoint>(firstFrames)
+            });
+
+            var second = MakeChainSegment("eva_chain", 1, phase: "surface", body: "Kerbin", startUT: 17019.5, endUT: 17040);
+            second.RecordingId = "eva_second";
+            second.VesselName = "Bill Kerman";
+            second.VesselPersistentId = 1001;
+            second.EvaCrewName = "Bill Kerman";
+            second.ParentRecordingId = "parent-1";
+            second.StartBodyName = "Kerbin";
+            second.Points.Clear();
+            second.TrackSections.Clear();
+            var secondFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17019.5, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17021, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17040, bodyName = "Kerbin" },
+            };
+            second.Points.AddRange(secondFrames);
+            second.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17019.5,
+                endUT = 17040,
+                frames = new List<TrajectoryPoint>(secondFrames)
+            });
+
+            var recordings = RecordingStore.CommittedRecordings;
+            RecordingStore.AddRecordingWithTreeForTesting(first);
+            RecordingStore.AddRecordingWithTreeForTesting(second);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Single(recordings);
+            Assert.Equal(0, recordings[0].ChainIndex);
+            Assert.Equal("Bill Kerman", recordings[0].EvaCrewName);
+            Assert.Equal(new[] { 17000.0, 17010.0, 17020.0, 17021.0, 17040.0 },
+                recordings[0].Points.Select(p => p.ut).ToArray());
+            for (int i = 1; i < recordings[0].Points.Count; i++)
+                Assert.True(recordings[0].Points[i - 1].ut <= recordings[0].Points[i].ut);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void RunOptimizationPass_MergesDifferentChainsSeparately()
         {
             RecordingStore.SuppressLogging = true;
@@ -919,6 +1081,44 @@ namespace Parsek.Tests
             // ExoPropulsive → ExoBallistic in same coarse class — no split even for optimizer
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoPropulsive, SegmentEnvironment.ExoBallistic);
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(committed));
+        }
+
+        [Fact]
+        public void FindSplitCandidatesForOptimizer_SkipsContinuousEvaAtmosphereSurfaceBoundary()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.EvaCrewName = "Bill Kerman";
+            rec.ParentRecordingId = "parent-1";
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(committed));
+        }
+
+        [Fact]
+        public void FindSplitCandidatesForOptimizer_NonEvaAtmosphereSurfaceStillSplits()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            var committed = new List<Recording> { rec };
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(committed);
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void FindSplitCandidatesForOptimizer_SkipsContinuousEvaSurfaceAtmoSurface()
+        {
+            var rec = MakeRecordingWith3Sections(
+                17000, 17020, 17040, 17060,
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary,
+                body1: "Kerbin", body2: "Kerbin", body3: "Kerbin");
+            rec.EvaCrewName = "Bill Kerman";
+            rec.ParentRecordingId = "parent-1";
             var committed = new List<Recording> { rec };
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(committed));

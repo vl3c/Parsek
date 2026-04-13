@@ -134,6 +134,7 @@ namespace Parsek
         // PruneStaleWatchTransitionEntries.
         private Dictionary<string, bool> lastCanWatchByRecId = new Dictionary<string, bool>();
         private Dictionary<string, bool> lastCanWatchByGroup = new Dictionary<string, bool>();
+        private Dictionary<string, string> lastResolvedWatchTargetByGroup = new Dictionary<string, string>();
 
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
@@ -354,7 +355,11 @@ namespace Parsek
         /// </summary>
         internal void PruneStaleWatchTransitionEntries(IReadOnlyList<Recording> committed)
         {
-            PruneStaleWatchEntries(lastCanWatchByRecId, lastCanWatchByGroup, committed);
+            PruneStaleWatchEntries(
+                lastCanWatchByRecId,
+                lastCanWatchByGroup,
+                lastResolvedWatchTargetByGroup,
+                committed);
         }
 
         /// <summary>
@@ -371,10 +376,24 @@ namespace Parsek
             Dictionary<string, bool> lastCanWatchByGroup,
             IReadOnlyList<Recording> committed)
         {
+            PruneStaleWatchEntries(
+                lastCanWatchByRecId,
+                lastCanWatchByGroup,
+                null,
+                committed);
+        }
+
+        internal static void PruneStaleWatchEntries(
+            Dictionary<string, bool> lastCanWatchByRecId,
+            Dictionary<string, bool> lastCanWatchByGroup,
+            Dictionary<string, string> lastResolvedWatchTargetByGroup,
+            IReadOnlyList<Recording> committed)
+        {
             if (committed == null || committed.Count == 0)
             {
                 lastCanWatchByRecId?.Clear();
                 lastCanWatchByGroup?.Clear();
+                lastResolvedWatchTargetByGroup?.Clear();
                 return;
             }
 
@@ -422,7 +441,10 @@ namespace Parsek
                 }
                 if (stale != null)
                     for (int i = 0; i < stale.Count; i++)
+                    {
                         lastCanWatchByGroup.Remove(stale[i]);
+                        lastResolvedWatchTargetByGroup?.Remove(stale[i]);
+                    }
             }
         }
 
@@ -456,6 +478,18 @@ namespace Parsek
             if (flight == null)
                 return "watchEval(unavailable=flight-null) watch=unavailable";
             return flight.DescribeWatchEligibilityForLogs(index) + " " + flight.DescribeWatchFocusForLogs();
+        }
+
+        private string BuildWatchObservabilitySuffix(ParsekFlight flight, int sourceIndex, int resolvedIndex)
+        {
+            if (flight == null)
+                return "watchEval(unavailable=flight-null) watch=unavailable";
+            if (resolvedIndex < 0 || resolvedIndex == sourceIndex)
+                return BuildWatchObservabilitySuffix(flight, sourceIndex);
+
+            return "source=" + flight.DescribeWatchEligibilityForLogs(sourceIndex)
+                + " resolved=" + flight.DescribeWatchEligibilityForLogs(resolvedIndex)
+                + " " + flight.DescribeWatchFocusForLogs();
         }
 
         private void HandleRecordingsDefocus(IReadOnlyList<Recording> committed)
@@ -1291,15 +1325,20 @@ namespace Parsek
             // Find the "main" (earliest non-debris) recording for group-level W and R/FF buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
 
-            // Watch button (flight only) — targets main recording's ghost
+            // Watch button (flight only) — follows the group's current live continuation
             if (parentUI.InFlightMode)
             {
                 if (mainIdx >= 0)
                 {
-                    bool hasGhost = flight.HasActiveGhost(mainIdx);
-                    bool sameBody = flight.IsGhostOnSameBody(mainIdx);
-                    bool inRange = flight.IsGhostWithinVisualRange(mainIdx);
-                    bool isWatching = flight.WatchedRecordingIndex == mainIdx;
+                    int resolvedWatchIdx = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                        mainIdx,
+                        committed,
+                        RecordingStore.CommittedTrees,
+                        flight.HasActiveGhost);
+                    bool hasGhost = resolvedWatchIdx >= 0 && flight.HasActiveGhost(resolvedWatchIdx);
+                    bool sameBody = hasGhost && flight.IsGhostOnSameBody(resolvedWatchIdx);
+                    bool inRange = hasGhost && flight.IsGhostWithinVisualRange(resolvedWatchIdx);
+                    bool isWatching = resolvedWatchIdx >= 0 && flight.WatchedRecordingIndex == resolvedWatchIdx;
                     // No IsDebris check needed: FindGroupMainRecordingIndex
                     // (RecordingsTableUI.cs:~2021) already excludes debris from
                     // the candidate set, so mainIdx is never a debris row.
@@ -1326,16 +1365,24 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(mainRecId))
                     {
                         string groupWatchKey = groupName + "/" + mainRecId;
+                        string resolvedTargetId = resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count
+                            ? committed[resolvedWatchIdx].RecordingId
+                            : null;
                         bool prevGroupCanWatch;
+                        string prevResolvedTargetId;
                         if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
-                            || prevGroupCanWatch != canWatch)
+                            || prevGroupCanWatch != canWatch
+                            || !lastResolvedWatchTargetByGroup.TryGetValue(groupWatchKey, out prevResolvedTargetId)
+                            || prevResolvedTargetId != resolvedTargetId)
                         {
                             lastCanWatchByGroup[groupWatchKey] = canWatch;
+                            lastResolvedWatchTargetByGroup[groupWatchKey] = resolvedTargetId;
                             string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, isDebris: false);
                             ParsekLog.Info("UI",
-                                $"Group Watch button '{groupName}' main=#{mainIdx} \"{committed[mainIdx].VesselName}\" {reason} " +
+                                $"Group Watch button '{groupName}' source=#{mainIdx} \"{committed[mainIdx].VesselName}\" " +
+                                $"resolved={(resolvedWatchIdx >= 0 ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} {reason} " +
                                 $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange}) " +
-                                $"{BuildWatchObservabilitySuffix(flight, mainIdx)}");
+                                $"{BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)}");
                         }
                     }
 
@@ -1345,13 +1392,14 @@ namespace Parsek
                     if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
                     {
                         string beforeFocus = flight.DescribeWatchFocusForLogs();
-                        string beforeEligibility = flight.DescribeWatchEligibilityForLogs(mainIdx);
+                        string beforeEligibility = BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx);
                         if (isWatching)
                             flight.ExitWatchMode();
                         else
-                            flight.EnterWatchMode(mainIdx);
+                            flight.EnterWatchMode(resolvedWatchIdx);
                         ParsekLog.Info("UI",
-                            $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on #{mainIdx} \"{committed[mainIdx].VesselName}\" " +
+                            $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on source #{mainIdx} " +
+                            $"resolved #{resolvedWatchIdx} \"{committed[resolvedWatchIdx].VesselName}\" " +
                             $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                     }
                     GUI.enabled = true;
@@ -2128,8 +2176,9 @@ namespace Parsek
                 if (string.IsNullOrEmpty(segBody))
                     segBody = rec.StartBodyName;
 
-                if (!string.IsNullOrEmpty(rec.SegmentPhase) && !string.IsNullOrEmpty(segBody))
-                    return segBody + " " + rec.SegmentPhase;
+                string segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+                if (!string.IsNullOrEmpty(segmentLabel))
+                    return segmentLabel;
                 if (!string.IsNullOrEmpty(segBody))
                     return segBody;
                 return "-";

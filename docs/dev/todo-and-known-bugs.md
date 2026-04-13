@@ -81,7 +81,7 @@ This closes the "spawned but never visible" playback path without loosening the 
 
 ---
 
-## 317. Horizon-locked watch camera can align retrograde instead of prograde during reentry playback
+## ~~317. Horizon-locked watch camera can align retrograde instead of prograde during reentry playback~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). While watching the `s4` reentry ghost, the user reported that horizon mode pointed the camera retrograde rather than prograde.
 
@@ -91,13 +91,18 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
   - `Watch camera auto-switched to HorizonLocked (alt=606m, body=Kerbin)`
   - `Watch camera auto-switched to Free (alt=70003m, body=Kerbin)`
   - repeated `Watch camera mode toggled to HorizonLocked (user override)` during the watched reentry path
-- Current logs do not emit the computed horizon forward vector, selected velocity direction, or a prograde/retrograde label, so the report cannot be proven or disproven from the collected logs alone.
+- The archived logs did not emit the computed horizon forward vector, selected velocity frame, or a prograde/retrograde label, so the original report could not be proven or disproven from the collected bundle alone.
 
-**Root cause / hypothesis:** `WatchModeController.ComputeHorizonForward` currently derives the forward vector from the projected playback velocity. A sign/convention issue during reentry, chain transfer, or negative-relative-velocity cases could flip the watch camera to the retrograde direction.
+**Root cause:** `WatchModeController.UpdateHorizonProxy` fed raw playback velocity straight into the horizon-lock basis. During atmospheric watch playback, that can disagree with the ghost's surface-relative prograde once body rotation dominates the remaining horizontal component, making the camera appear retrograde even though the vessel is descending prograde relative to the atmosphere/ground track.
 
-**Fix direction:** Add one-shot observability around the chosen horizon forward vector and build a focused playback test for descending/reentry trajectories so the prograde direction is asserted rather than inferred visually.
+**Fix:** Horizon-locked watch mode now uses a dedicated atmospheric heading basis: in atmosphere it derives heading from `playbackVelocity - body.getRFrmVel(position)` before projecting onto the horizon plane, while outside atmosphere and on airless bodies it preserves the previous playback/inertial heading behavior. The watch-camera logs now emit the chosen horizon basis (`velocityFrame`, source, raw alignment, vectors) when the basis changes and also emit a rate-limited verbose snapshot during long watches so same-body direction shifts remain observable. Regression coverage now pins:
 
-**Status:** Open
+- atmospheric rotation-dominated inversion (surface-relative prograde wins over raw playback direction)
+- above-atmosphere preservation of the old playback/inertial heading
+- airless-body non-conversion
+- zero-result fallback to `lastForward`
+
+**Status:** Fixed in PR `#245`
 
 ---
 
@@ -126,7 +131,7 @@ That combination was enough to produce contradictory summaries like `maxSpeed>0`
 
 ---
 
-## 319. Watch buttons can disable as "no ghost" after chain transfer even when the user expects an in-range watch target
+## ~~319. Watch buttons can disable as "no ghost" after chain transfer even when the user expects an in-range watch target~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The user reported disabled watch buttons while apparently within the ghost camera cutoff distance.
 
@@ -137,11 +142,11 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 - Later rows for descendant recordings `#12` and `#13` also logged `disabled (no ghost)`, not `disabled (out of range)`.
 - Debris rows were separately disabled as `debris`, which is expected and distinct from the reported symptom.
 
-**Root cause / hypothesis:** This does not currently look like a pure cutoff-distance bug. The watched chain can retarget to a descendant ghost while the table/group still evaluates watch eligibility against the group's main recording, whose own ghost is gone. The resulting `no ghost` state looks like a range/cutoff failure to the player even though the underlying reason is target selection/UI state.
+**Root cause:** This was not a pure cutoff-distance bug. Watch auto-follow could legitimately retarget to a descendant ghost while the recordings table still evaluated the group `W` button against the group's original main recording, whose own ghost had already been destroyed. That stale source-row evaluation produced a misleading `disabled (no ghost)` state even though watch had already transferred to a valid descendant.
 
-**Fix direction:** Decide whether group and row watch affordances should follow the currently watchable chain descendant, or at least surface a clearer reason when the main row is unwatched but an active descendant ghost exists.
+**Fix:** Added shared watch-target resolution in `GhostPlaybackLogic` so group watch affordances follow the same continuation lineage as watch auto-follow, including multi-hop same-PID handoffs through inactive intermediates. Group `W` now evaluates and enters watch on the resolved live target, while per-row `W` semantics stay exact-recording to avoid duplicate/stale `W*` states. Logging now includes both source and resolved watch-target context, and the fallback rules remain aligned with actual auto-follow semantics (no illegal descent through non-breakup fallback branches, no breakup fallback to different-PID children).
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 
@@ -173,17 +178,17 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 322. Detached one-ended struts should not remain visible after separation
+## ~~322. Detached one-ended struts should not remain visible after separation~~
 
 **Observed in:** breakup/separation playback follow-ups (2026-04-12), including the `s6` separation run. After separation, some struts whose opposite endpoint no longer exists remain visible even though they are only attached to a single surviving part.
 
 **Desired behavior:** A strut should not render once separation leaves it effectively connected to only one part.
 
-**Root cause / hypothesis:** The current ghost visual / part-event path hides decoupled parts, but strut rendering likely does not re-evaluate whether both endpoints still exist after a split. That leaves orphaned visual struts hanging off the surviving vessel.
+**Root cause:** Compound-part ghost build parsed the linked-mesh endpoint pose but did not carry the linked target part PID into playback state. After spawn, separation/destroy/inventory events hid direct part visuals, but compound-part replay never revalidated whether the other endpoint still existed logically, so orphaned strut visuals could remain attached to the surviving vessel.
 
-**Fix direction:** Inspect the ghost visual builder and separation event application for strut/link components. Add a post-separation validity check that hides or destroys struts whose second endpoint is gone, and pin it with a focused playback test.
+**Fix:** Ghost build now records compound-part target persistent IDs and logical part presence, then playback revalidates compound-part visibility both at spawn and after visibility-affecting part events. The runtime path now removes logically missing targets from the presence set on decouple/destroy/inventory removal, restores compound parts only when a later placement makes the link valid again, and includes focused regression coverage for target PID parsing plus compound visibility / subtree-removal decisions.
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 
@@ -282,7 +287,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 328. Continuous EVA chains can still remain split across `atmo` -> `surface` boundaries
+## ~~328. Continuous EVA chains can still remain split across `atmo` -> `surface` boundaries~~
 
 **Observed in:** `logs/2026-04-13_0315_s13-snapshot-storage-check/` (`s13`). User expectation was that a continuous EVA should merge if the motion is continuous, but the committed Bill Kerman chain remained split into atmospheric and surface segments.
 
@@ -294,23 +299,20 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - `persistent.sfs` preserves two real Bill recordings in the same tree:
   - chain index `0`, `segmentPhase = atmo`, `pointCount = 49`
   - chain index `1`, `segmentPhase = surface`, `pointCount = 2`
-- Current merge policy makes this behavior explicit. `RecordingOptimizer.CanAutoMerge(...)` requires both `SegmentPhase` and `SegmentBodyName` to match exactly before any automatic merge is allowed.
+- Pre-fix merge policy made this behavior explicit: `RecordingOptimizer.CanAutoMerge(...)` required both `SegmentPhase` and `SegmentBodyName` to match exactly before any automatic merge was allowed.
 
 **Impact:** On atmospheric bodies, a continuous EVA touchdown / near-surface sequence can still appear as two adjacent recordings even after the old bogus-atmospheric-stub bug (`#326`) was fixed. This is not the same defect as `#326`: both resulting segments contain real data.
 
-**Root cause:** Current optimizer policy treats phase changes as hard merge boundaries. For EVA chains, `atmo -> surface` is therefore never eligible for auto-merge, even when the sidecar timing is continuous and there is no ghosting-trigger event between the sections.
+**Root cause:** The optimizer treated all phase changes as meaningful split boundaries and all cross-phase neighbors as merge-ineligible. That was too strict for atmospheric-body EVA continuity: a real kerbal recording could be split into `atmo` + `surface` segments during optimization, but the later merge pass could never heal that pair because the phase tags differed. Older already-split saves also carried slight overlap at the boundary, so naïve append-only repair would risk rebuilding non-monotonic flat points from the section payload.
 
-**Fix direction:** Decide whether this should remain intentional or whether EVA-only merge rules should allow adjacent `atmo <-> surface` sections to merge when all of the following are true:
+**Fix:** PR `#248` now treats continuous same-body EVA `atmo <-> surface` boundaries as non-meaningful optimizer splits, allows already-split EVA neighbors to rejoin when EVA identity/body/timing match, trims overlapping loaded section frames before rebuilding flat points, and suppresses misleading mixed phase labels so the repaired recording no longer presents as only `atmo` or only `surface`. Regression coverage now pins:
 
-- same chain, consecutive indices, primary branch
-- same body
-- sidecar bounds are continuous / non-gapped
-- no branch point between them
-- no ghosting-trigger events that require separate snapshots
+- split suppression for continuous same-body EVA atmosphere/surface sections
+- rejection of non-EVA, unknown-body, or gapped boundaries
+- repair of already-split overlapping loaded EVA pairs through the section-authoritative rebuild path
+- UI/body-label formatting for repaired mixed-phase EVA recordings
 
-If the answer is yes, add focused regression coverage for a real continuous EVA touchdown/liftoff on an atmospheric body and keep non-continuous or event-bearing transitions split.
-
-**Status:** Open (policy / design decision needed)
+**Status:** ~~Fixed~~ (PR #248)
 
 ---
 

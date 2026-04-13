@@ -1010,10 +1010,51 @@ namespace Parsek
         /// </summary>
         internal static string GetSegmentPhaseLabel(Recording rec)
         {
+            if (ShouldSuppressEvaBoundaryPhaseLabel(rec))
+            {
+                string body = rec.SegmentBodyName;
+                if (string.IsNullOrEmpty(body) && rec.Points != null && rec.Points.Count > 0)
+                    body = rec.Points[rec.Points.Count - 1].bodyName;
+                if (string.IsNullOrEmpty(body))
+                    body = rec.StartBodyName;
+                return body ?? "";
+            }
+
             if (string.IsNullOrEmpty(rec.SegmentPhase)) return "";
             if (!string.IsNullOrEmpty(rec.SegmentBodyName))
                 return rec.SegmentBodyName + " " + rec.SegmentPhase;
             return rec.SegmentPhase;
+        }
+
+        internal static bool ShouldSuppressEvaBoundaryPhaseLabel(Recording rec)
+        {
+            if (rec == null
+                || string.IsNullOrEmpty(rec.EvaCrewName)
+                || rec.TrackSections == null
+                || rec.TrackSections.Count < 2)
+            {
+                return false;
+            }
+
+            bool sawAtmo = false;
+            bool sawSurface = false;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                int envClass = RecordingOptimizer.SplitEnvironmentClass(rec.TrackSections[i].environment);
+                switch (envClass)
+                {
+                    case 0:
+                        sawAtmo = true;
+                        break;
+                    case 2:
+                        sawSurface = true;
+                        break;
+                    default:
+                        return false;
+                }
+            }
+
+            return sawAtmo && sawSurface;
         }
 
         // ─── Recording optimization ─────────────────────────────────────────
