@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~352. Pending-tree merge dialogs can ghost-only the active vessel even when playback would spawn it~~
+
+**Observed in:** `wt-fix-mun-landing-persist` follow-up (2026-04-14). In the merge dialog for a pending tree, an active non-leaf vessel from a breakup-continuous Mun landing or splashdown could default to ghost-only even though the same recording would be spawnable once committed and played back.
+
+**Root cause:** `MergeDialog.CanPersistVessel()` reuses `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd()`, but that policy originally resolved effective-leaf and non-leaf safety-net checks only through `RecordingStore.CommittedTrees`. During the merge dialog the tree is still pending, so active non-leaf recordings had no resolvable tree context and lost the breakup/effective-leaf distinction.
+
+**Fix:** `ShouldSpawnAtRecordingEnd()` now accepts an optional `RecordingTree` context and resolves effective-leaf / non-leaf safety-net checks against either the pending tree or the committed tree. `MergeDialog.BuildDefaultVesselDecisions()` passes the pending tree through for both normal leaves and the active non-leaf fallback, and regression coverage now pins pending-tree effective-leaf, same-PID continuation, and null-`ChildBranchPointId` safety-net behavior.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~351. Long-range landed ghosts can clip into terrain on held final-pose paths~~
 
 **Observed in:** `logs/2026-04-13_2136` ghost-underground follow-up (2026-04-13). A landed watched ghost in the visual tier could still end a playback step with its mesh partially sunk into terrain even though the normal in-flight clamp path kept earlier frames above ground.

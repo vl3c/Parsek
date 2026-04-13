@@ -654,6 +654,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawn_NonLeafWithSamePidChildInPendingTreeContext_ReturnsFalse()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "TestTree",
+                RootRecordingId = "parent-rec"
+            };
+            var parentRec = new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-decouple"
+            };
+            var continuationRec = new Recording
+            {
+                RecordingId = "continuation-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100,
+                ParentBranchPointId = "bp-decouple"
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-decouple",
+                Type = BranchPointType.JointBreak,
+                UT = 50.0
+            };
+            bp.ParentRecordingIds.Add("parent-rec");
+            bp.ChildRecordingIds.Add("continuation-rec");
+            tree.Recordings["parent-rec"] = parentRec;
+            tree.Recordings["continuation-rec"] = continuationRec;
+            tree.BranchPoints.Add(bp);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false, tree);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("non-leaf tree recording", reason);
+        }
+
+        [Fact]
         public void ShouldSpawn_EffectiveLeaf_BreakupDebrisOnly_ReturnsTrue()
         {
             // Breakup-continuous: ChildBranchPointId set but no same-PID child.
@@ -696,6 +739,50 @@ namespace Parsek.Tests
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_EffectiveLeaf_BreakupDebrisOnlyInPendingTreeContext_ReturnsTrue()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "TestTree",
+                RootRecordingId = "parent-rec"
+            };
+            var parentRec = new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-crash",
+                TerminalStateValue = TerminalState.Splashed
+            };
+            var debrisRec = new Recording
+            {
+                RecordingId = "debris-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 999,
+                ParentBranchPointId = "bp-crash",
+                IsDebris = true
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-crash",
+                Type = BranchPointType.Breakup,
+                UT = 102.8
+            };
+            bp.ParentRecordingIds.Add("parent-rec");
+            bp.ChildRecordingIds.Add("debris-rec");
+            tree.Recordings["parent-rec"] = parentRec;
+            tree.Recordings["debris-rec"] = debrisRec;
+            tree.BranchPoints.Add(bp);
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false, tree);
 
             Assert.True(needsSpawn);
         }

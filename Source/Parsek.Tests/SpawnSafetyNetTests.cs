@@ -85,7 +85,7 @@ namespace Parsek.Tests
             Assert.True(result);
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") &&
-                l.Contains("IsNonLeafInCommittedTree") &&
+                l.Contains("IsNonLeafInTree") &&
                 l.Contains("root-rec") &&
                 l.Contains("safety net triggered"));
         }
@@ -418,7 +418,7 @@ namespace Parsek.Tests
                 rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
 
             Assert.False(needsSpawn);
-            Assert.Contains("non-leaf in committed tree", reason);
+            Assert.Contains("non-leaf in tree", reason);
         }
 
         [Fact]
@@ -459,7 +459,46 @@ namespace Parsek.Tests
                 rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
 
             Assert.False(needsSpawn);
-            Assert.Contains("non-leaf in committed tree", reason);
+            Assert.Contains("non-leaf in tree", reason);
+        }
+
+        [Fact]
+        public void ShouldSpawn_NonLeafInPendingTreeContext_NullChildBranchPointId_ReturnsFalse()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-pending",
+                TreeName = "PendingTree",
+                RootRecordingId = "root-rec"
+            };
+
+            var rootRec = new Recording
+            {
+                RecordingId = "root-rec",
+                TreeId = "tree-pending",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var bp = new BranchPoint
+            {
+                Id = "bp-pending",
+                Type = BranchPointType.Breakup,
+                UT = 78.0
+            };
+            bp.ParentRecordingIds.Add("root-rec");
+            bp.ChildRecordingIds.Add("child-rec");
+
+            tree.Recordings["root-rec"] = rootRec;
+            tree.BranchPoints.Add(bp);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false, tree);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("non-leaf in tree", reason);
         }
 
         #endregion
