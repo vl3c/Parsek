@@ -9301,25 +9301,77 @@ namespace Parsek
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
 
+        internal static bool TryResolvePlaybackDistanceReferencePosition(
+            bool mapViewEnabled,
+            Vector3d? cameraWorldPosition,
+            Vector3d? activeVesselWorldPosition,
+            out Vector3d referencePosition)
+        {
+            referencePosition = Vector3d.zero;
+
+            if (!mapViewEnabled
+                && cameraWorldPosition.HasValue
+                && IsFiniteVector3d(cameraWorldPosition.Value))
+            {
+                referencePosition = cameraWorldPosition.Value;
+                return true;
+            }
+
+            if (activeVesselWorldPosition.HasValue
+                && IsFiniteVector3d(activeVesselWorldPosition.Value))
+            {
+                referencePosition = activeVesselWorldPosition.Value;
+                return true;
+            }
+
+            if (cameraWorldPosition.HasValue
+                && IsFiniteVector3d(cameraWorldPosition.Value))
+            {
+                referencePosition = cameraWorldPosition.Value;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsFiniteVector3d(Vector3d value)
+        {
+            return !double.IsNaN(value.x) && !double.IsInfinity(value.x)
+                && !double.IsNaN(value.y) && !double.IsInfinity(value.y)
+                && !double.IsNaN(value.z) && !double.IsInfinity(value.z);
+        }
+
         double ResolvePlaybackDistanceForEngine(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
-            if (FlightGlobals.ActiveVessel == null)
+            Camera sceneCamera = FlightCamera.fetch?.mainCamera;
+            Vector3d? cameraWorldPosition = sceneCamera != null
+                ? (Vector3d?)sceneCamera.transform.position
+                : null;
+            Vector3d? activeVesselWorldPosition = FlightGlobals.ActiveVessel != null
+                ? (Vector3d?)FlightGlobals.ActiveVessel.transform.position
+                : null;
+            Vector3d referencePosition;
+            if (!TryResolvePlaybackDistanceReferencePosition(
+                    MapView.MapIsEnabled,
+                    cameraWorldPosition,
+                    activeVesselWorldPosition,
+                    out referencePosition))
+            {
                 return double.NaN;
+            }
 
             Vector3d worldPos;
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
-                return Vector3d.Distance(
-                    worldPos,
-                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+                return Vector3d.Distance(worldPos, referencePosition);
             }
 
             if (state != null && state.ghost != null)
             {
                 return Vector3d.Distance(
                     (Vector3d)state.ghost.transform.position,
-                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+                    referencePosition);
             }
 
             return double.NaN;
