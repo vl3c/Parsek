@@ -726,6 +726,40 @@ namespace Parsek.Tests
             Assert.False((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
         }
 
+        [Fact]
+        public void ApplyToRoster_DisplacedRetiredStandIn_IsStillRecreated()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-jeb";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            var allRecordingCrewField = typeof(KerbalsModule).GetField(
+                "allRecordingCrew", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(allRecordingCrewField);
+            allRecordingCrewField.SetValue(kerbals, new HashSet<string> { "Kirrim" });
+
+            MethodInfo method = typeof(KerbalsModule).GetMethod(
+                "ShouldEnsureChainEntryInRoster", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            Assert.True((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
+        }
+
         // ── Serialization ──
 
         [Fact]

@@ -902,10 +902,12 @@ namespace Parsek
 
             string standIn = slot.Chain[chainIndex];
             bool isReserved = !string.IsNullOrEmpty(standIn) && reservations.ContainsKey(standIn);
+            bool usedInRecording = !string.IsNullOrEmpty(standIn) && IsKerbalInAnyRecording(standIn);
 
-            // Displaced, unreserved chain metadata stays persisted but should not force
-            // a roster entry back into existence on every recalculation walk.
-            return !IsDisplacedChainEntry(slot, chainIndex) || isReserved;
+            // Displaced, unused chain metadata stays persisted but should not force a
+            // roster entry back into existence on every recalculation walk. Retired
+            // stand-ins still need a roster entry so they remain visible/managed.
+            return !IsDisplacedChainEntry(slot, chainIndex) || isReserved || usedInRecording;
         }
 
         private int GetActiveChainIndex(string slotOwnerName, KerbalSlot slot)
