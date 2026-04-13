@@ -87,7 +87,6 @@ namespace Parsek.Tests
                 LastPointUT = point.ut;
                 if (state?.ghost != null)
                     state.ghost.transform.position = PrimedPosition;
-                state?.SetInterpolated(new InterpolationResult(Vector3.zero, point.bodyName ?? "Kerbin", point.altitude));
             }
 
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
