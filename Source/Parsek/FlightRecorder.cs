@@ -4984,7 +4984,66 @@ namespace Parsek
             // Update RecordingVesselId in case the vessel PID changed (unlikely but defensive)
             RecordingVesselId = v.persistentId;
 
+            // StopRecordingForChainBoundary closes the active TrackSection before copying
+            // CaptureAtStop. If we resume the same recorder without reopening a continuation
+            // section, subsequent samples only extend the flat Recording list and the
+            // section-authoritative sidecar truncates playback at the false-alarm boundary.
+            RestoreTrackSectionAfterFalseAlarm(Planetarium.GetUniversalTime());
+
             ParsekLog.Info("Recorder", $"Recording resumed after false alarm ({Recording.Count} points preserved)");
+        }
+
+        /// <summary>
+        /// Reopens a continuation TrackSection after <see cref="StopRecordingForChainBoundary"/>
+        /// was later treated as a false alarm. Preserves the last section's environment /
+        /// reference-frame metadata and seeds the new section with the previous boundary point
+        /// so section-authoritative playback stays continuous across the stop/resume seam.
+        /// </summary>
+        internal void RestoreTrackSectionAfterFalseAlarm(double ut)
+        {
+            if (trackSectionActive)
+                return;
+
+            TrackSection? lastSection = null;
+            if (TrackSections != null && TrackSections.Count > 0)
+                lastSection = TrackSections[TrackSections.Count - 1];
+
+            SegmentEnvironment resumeEnv = lastSection.HasValue
+                ? lastSection.Value.environment
+                : (environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric);
+            ReferenceFrame resumeRef = lastSection.HasValue
+                ? lastSection.Value.referenceFrame
+                : (isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute);
+            TrackSectionSource resumeSource = lastSection.HasValue
+                ? lastSection.Value.source
+                : TrackSectionSource.Active;
+
+            uint resumeAnchor = 0;
+            if (resumeRef == ReferenceFrame.Relative)
+            {
+                resumeAnchor = lastSection.HasValue ? lastSection.Value.anchorVesselId : currentAnchorPid;
+                isRelativeMode = resumeAnchor != 0;
+                currentAnchorPid = resumeAnchor;
+            }
+            else
+            {
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+            }
+
+            TrajectoryPoint? boundaryPoint = GetLastClosedTrackSectionFrame();
+            if (!boundaryPoint.HasValue && Recording.Count > 0)
+                boundaryPoint = Recording[Recording.Count - 1];
+
+            StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
+
+            if (resumeRef == ReferenceFrame.Relative)
+                currentTrackSection.anchorVesselId = resumeAnchor;
+
+            if (resumeRef != ReferenceFrame.OrbitalCheckpoint)
+                SeedBoundaryPoint(boundaryPoint);
         }
 
         /// <summary>
@@ -5432,6 +5491,25 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null
                 && currentTrackSection.frames.Count > 0)
                 return currentTrackSection.frames[currentTrackSection.frames.Count - 1];
+            return null;
+        }
+
+        /// <summary>
+        /// Returns the last payload frame from the most recently closed TrackSection, or null
+        /// if no closed section carries sparse frames.
+        /// </summary>
+        private TrajectoryPoint? GetLastClosedTrackSectionFrame()
+        {
+            if (TrackSections == null || TrackSections.Count == 0)
+                return null;
+
+            for (int i = TrackSections.Count - 1; i >= 0; i--)
+            {
+                var section = TrackSections[i];
+                if (section.frames != null && section.frames.Count > 0)
+                    return section.frames[section.frames.Count - 1];
+            }
+
             return null;
         }
 

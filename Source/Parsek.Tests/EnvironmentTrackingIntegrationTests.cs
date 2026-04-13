@@ -211,6 +211,77 @@ namespace Parsek.Tests
             Assert.Equal(60.0, section.endUT - section.startUT, 5);
         }
 
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_ReopensContinuationSection_AndSeedsBoundaryPoint()
+        {
+            var lastPoint = new TrajectoryPoint
+            {
+                ut = 109.5,
+                altitude = 321.0,
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint> { lastPoint },
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(lastPoint);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(110.0);
+            recorder.CloseCurrentTrackSection(120.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            var reopened = recorder.TrackSections[1];
+            Assert.Equal(SegmentEnvironment.Atmospheric, reopened.environment);
+            Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame);
+            Assert.Equal(TrackSectionSource.Active, reopened.source);
+            Assert.Equal(110.0, reopened.startUT);
+            Assert.Equal(120.0, reopened.endUT);
+            Assert.Single(reopened.frames);
+            Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
+            Assert.Equal(lastPoint.altitude, reopened.frames[0].altitude);
+        }
+
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_PreservesRelativeAnchorMetadata()
+        {
+            var lastPoint = new TrajectoryPoint
+            {
+                ut = 209.5,
+                altitude = 42.0,
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                anchorVesselId = 123456789u,
+                startUT = 200.0,
+                endUT = 210.0,
+                frames = new List<TrajectoryPoint> { lastPoint },
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(lastPoint);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(210.0);
+            recorder.CloseCurrentTrackSection(220.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            var reopened = recorder.TrackSections[1];
+            Assert.Equal(ReferenceFrame.Relative, reopened.referenceFrame);
+            Assert.Equal(123456789u, reopened.anchorVesselId);
+            Assert.Single(reopened.frames);
+            Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
+        }
+
         #endregion
 
         #region Log assertions
