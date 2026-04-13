@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~338. Cold-start `OnLoad` can skip persisted `KERBAL_SLOTS` before the kerbals module exists~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `ParsekScenario.OnLoad` called `LoadCrewAndGroupState()` before `LoadExternalFilesAndRestoreEpoch()`, so `LedgerOrchestrator.Kerbals?.LoadSlots(node)` ran while `LedgerOrchestrator.OnLoad()` had not yet initialized the kerbals module.
+
+**Root cause:** Slot loading relied on an already-created `LedgerOrchestrator.Kerbals` instance, but the first-load ordering guaranteed that the module was still null on a true cold start.
+
+**Fix:** `LoadCrewAndGroupState()` now initializes `LedgerOrchestrator` before loading slots, preserving the intended "load crew replacements + slot graph from save" behavior even on the first load after launching KSP. Added a `QuickloadResumeTests` regression that invokes the private load helper and verifies slot state is populated from the scenario node.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~337. KerbalAssignment creation can reserve a stand-in instead of the original kerbal~~
 
 **Observed in:** Kerbals/events-actions audit (2026-04-13). `PopulateCrewEndStates` already reverse-mapped stand-in names back to the original slot owner, but `LedgerOrchestrator.CreateKerbalAssignmentActions` re-extracted raw snapshot crew and emitted the stand-in name directly.

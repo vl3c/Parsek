@@ -138,6 +138,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LoadCrewAndGroupState_InitialLoad_InitializesKerbalsBeforeLoadingSlots()
+        {
+            LedgerOrchestrator.ResetForTesting();
+
+            var scenarioNode = new ConfigNode("SCENARIO");
+            var slotsNode = scenarioNode.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jebediah Kerman");
+            slotNode.AddValue("trait", "Pilot");
+            slotNode.AddValue("permanentlyGone", "False");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley Kerman");
+
+            InvokeLoadCrewAndGroupState(scenarioNode, initialLoadDoneValue: false);
+
+            Assert.NotNull(LedgerOrchestrator.Kerbals);
+            Assert.True(LedgerOrchestrator.Kerbals.Slots.ContainsKey("Jebediah Kerman"));
+            Assert.Single(LedgerOrchestrator.Kerbals.Slots["Jebediah Kerman"].Chain);
+            Assert.Equal("Hanley Kerman", LedgerOrchestrator.Kerbals.Slots["Jebediah Kerman"].Chain[0]);
+
+            LedgerOrchestrator.ResetForTesting();
+        }
+
+        [Fact]
         public void StashPendingTree_DefaultsToFinalized()
         {
             var tree = MakeTree("tree_a", "Launch", 2);

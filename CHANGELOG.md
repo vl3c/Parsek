@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#338` Initial save load now initializes the kerbals module before reading `KERBAL_SLOTS`, so persisted replacement-chain state is restored on a cold start instead of being skipped until a later recalculation rebuilds partial slot data from reservations alone.
 - `#337` KerbalAssignment creation now reverse-maps stand-in names through `CrewReplacements` before looking up `CrewEndStates`, so later recordings reserve the original slot owner instead of emitting open-ended reservations for the temporary stand-in.
 - Recording timing bounds now combine actual trajectory coverage (points, orbit segments, playable track sections) with explicit outer bounds, so watch handoff and playback activation no longer get stuck when a section-authoritative continuation starts before its first flat point while still preserving live background and terminal end times.
 - Optimizer boring-tail trims now cut nested section-authoritative frame/checkpoint payloads as well as the flat mirrors, so trimmed tails no longer grow back after save/load, and relative-section splits now resync their flat playback caches the same way the storage format does.
