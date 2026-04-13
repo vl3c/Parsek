@@ -357,7 +357,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 **Root cause:** The `#320` debris-only crash-order fix restored same-scene finalization, but `ShowPostDestructionTreeMergeDialog()` still ignored `pendingSplitInProgress`. In false-alarm joint-break cases, the pending split recorder needs one more deferred frame to classify the break and, if it was not a real vessel split, append its captured data back into the active tree via `FallbackCommitSplitRecorder -> TryAppendCapturedToTree`. Finalizing the tree before that happened left the active leaf temporarily empty, and the later zero-point prune removed it before the dialog was shown. The older prune log text also misleadingly said "debris" even though the helper now removes any empty leaf/placeholder, not only debris.
 
-**Fix:** The post-destruction tree dialog now waits for deferred split resolution to finish before applying the terminal/debris-only finalization policy, then re-runs the normal guards and finalizes with the repaired tree state. Regression coverage now pins the new `WaitForPendingSplitResolution` policy branch, and the zero-point prune diagnostics were clarified to describe generic empty leaves/placeholders instead of only debris.
+**Fix:** The post-destruction tree dialog now waits for deferred split resolution and any pending crash-coalescer breakup emission to finish before applying the terminal/debris-only finalization policy, then re-runs the normal guards and finalizes with the repaired tree state. Regression coverage now pins the new pending-crash wait policy branch, and the zero-point prune diagnostics were clarified to describe generic empty leaves/placeholders instead of only debris.
 
 **Status:** ~~Fixed~~
 

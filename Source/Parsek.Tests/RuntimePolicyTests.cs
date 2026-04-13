@@ -749,13 +749,46 @@ namespace Parsek.Tests
         #region ClassifyPostDestructionMergeResolution
 
         [Fact]
+        public void HasPendingPostDestructionCrashResolution_ReturnsTrue_ForPendingSplit()
+        {
+            bool result = ParsekFlight.HasPendingPostDestructionCrashResolution(
+                activeDestroyed: true,
+                pendingSplitInProgress: true,
+                hasPendingBreakup: false);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void HasPendingPostDestructionCrashResolution_ReturnsTrue_ForPendingBreakup()
+        {
+            bool result = ParsekFlight.HasPendingPostDestructionCrashResolution(
+                activeDestroyed: true,
+                pendingSplitInProgress: false,
+                hasPendingBreakup: true);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void HasPendingPostDestructionCrashResolution_ReturnsFalse_WhenActiveNotDestroyed()
+        {
+            bool result = ParsekFlight.HasPendingPostDestructionCrashResolution(
+                activeDestroyed: false,
+                pendingSplitInProgress: true,
+                hasPendingBreakup: true);
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void ClassifyPostDestructionMergeResolution_FinalizeWhenAllLeavesTerminal()
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: true,
                 allLeavesTerminal: true,
                 onlyDebrisBlockersRemain: false,
-                pendingSplitResolution: false);
+                pendingCrashResolution: false);
 
             Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, result);
         }
@@ -767,33 +800,33 @@ namespace Parsek.Tests
                 activeDestroyed: true,
                 allLeavesTerminal: false,
                 onlyDebrisBlockersRemain: true,
-                pendingSplitResolution: false);
+                pendingCrashResolution: false);
 
             Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, result);
         }
 
         [Fact]
-        public void ClassifyPostDestructionMergeResolution_WaitsWhilePendingSplitResolves()
+        public void ClassifyPostDestructionMergeResolution_WaitsWhilePendingCrashResolutionFinishes()
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: true,
                 allLeavesTerminal: false,
                 onlyDebrisBlockersRemain: true,
-                pendingSplitResolution: true);
+                pendingCrashResolution: true);
 
-            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.WaitForPendingSplitResolution, result);
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.WaitForPendingCrashResolution, result);
         }
 
         [Fact]
-        public void ClassifyPostDestructionMergeResolution_PendingSplitWinsOverTerminalLeaves()
+        public void ClassifyPostDestructionMergeResolution_PendingCrashResolutionWinsOverTerminalLeaves()
         {
             var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
                 activeDestroyed: true,
                 allLeavesTerminal: true,
                 onlyDebrisBlockersRemain: false,
-                pendingSplitResolution: true);
+                pendingCrashResolution: true);
 
-            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.WaitForPendingSplitResolution, result);
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.WaitForPendingCrashResolution, result);
         }
 
         [Fact]
@@ -803,7 +836,7 @@ namespace Parsek.Tests
                 activeDestroyed: true,
                 allLeavesTerminal: false,
                 onlyDebrisBlockersRemain: false,
-                pendingSplitResolution: false);
+                pendingCrashResolution: false);
 
             Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
         }
@@ -815,7 +848,7 @@ namespace Parsek.Tests
                 activeDestroyed: false,
                 allLeavesTerminal: false,
                 onlyDebrisBlockersRemain: true,
-                pendingSplitResolution: false);
+                pendingCrashResolution: false);
 
             Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
         }

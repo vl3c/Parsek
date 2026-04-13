@@ -1187,8 +1187,8 @@ namespace Parsek
         /// <summary>
         /// Coroutine that checks whether all tree leaves are terminal after the active vessel
         /// is destroyed. If so, finalizes the tree and shows the tree merge dialog.
-        /// Waits for any deferred split classification still in progress so the pending
-        /// split recorder can append captured data back into the tree before finalize.
+        /// Waits for any deferred split/coalescer work still in progress so false-alarm
+        /// split data or real breakup children are attached to the tree before finalize.
         /// </summary>
         IEnumerator ShowPostDestructionTreeMergeDialog()
         {
@@ -1233,8 +1233,8 @@ namespace Parsek
                 yield break;
             }
 
-            bool ignorePendingSplitWait = false;
-            float pendingSplitWaitStart = 0f;
+            bool ignorePendingCrashWait = false;
+            float pendingCrashWaitStart = 0f;
             while (true)
             {
                 bool activeDestroyed = recorder == null || !recorder.IsRecording
@@ -1246,27 +1246,30 @@ namespace Parsek
                 bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
                     activeTree.Recordings,
                     activeTree.ActiveRecordingId);
-                bool pendingSplitResolution = !ignorePendingSplitWait && activeDestroyed
-                    && pendingSplitInProgress;
+                bool pendingCrashResolution = !ignorePendingCrashWait
+                    && HasPendingPostDestructionCrashResolution(
+                        activeDestroyed,
+                        pendingSplitInProgress,
+                        crashCoalescer != null && crashCoalescer.HasPendingBreakup);
 
                 switch (ClassifyPostDestructionMergeResolution(
                     activeDestroyed,
                     allLeavesTerminal,
                     onlyDebrisBlockersRemain,
-                    pendingSplitResolution))
+                    pendingCrashResolution))
                 {
-                    case PostDestructionMergeResolution.WaitForPendingSplitResolution:
-                        if (pendingSplitWaitStart <= 0f)
+                    case PostDestructionMergeResolution.WaitForPendingCrashResolution:
+                        if (pendingCrashWaitStart <= 0f)
                         {
-                            pendingSplitWaitStart = Time.unscaledTime;
+                            pendingCrashWaitStart = Time.unscaledTime;
                             ParsekLog.Info("Flight",
-                                "ShowPostDestructionTreeMergeDialog: waiting for pending split resolution before finalizing tree");
+                                "ShowPostDestructionTreeMergeDialog: waiting for pending split/coalescer resolution before finalizing tree");
                         }
-                        else if (Time.unscaledTime - pendingSplitWaitStart > 5f)
+                        else if (Time.unscaledTime - pendingCrashWaitStart > 5f)
                         {
                             ParsekLog.Warn("Flight",
-                                "ShowPostDestructionTreeMergeDialog: pending split wait timed out (5s real-time) — continuing with current tree state");
-                            ignorePendingSplitWait = true;
+                                "ShowPostDestructionTreeMergeDialog: pending split/coalescer wait timed out (5s real-time) — continuing with current tree state");
+                            ignorePendingCrashWait = true;
                             continue;
                         }
 
@@ -1294,7 +1297,7 @@ namespace Parsek
                         if (!treeDestructionDialogPending)
                         {
                             ParsekLog.Verbose("Flight",
-                                "ShowPostDestructionTreeMergeDialog: flag cleared while waiting for pending split — aborting");
+                                "ShowPostDestructionTreeMergeDialog: flag cleared while waiting for pending crash resolution — aborting");
                             yield break;
                         }
 
@@ -3120,18 +3123,26 @@ namespace Parsek
         internal enum PostDestructionMergeResolution
         {
             FinalizeNow,
-            WaitForPendingSplitResolution,
+            WaitForPendingCrashResolution,
             CancelDeferredMerge,
+        }
+
+        internal static bool HasPendingPostDestructionCrashResolution(
+            bool activeDestroyed,
+            bool pendingSplitInProgress,
+            bool hasPendingBreakup)
+        {
+            return activeDestroyed && (pendingSplitInProgress || hasPendingBreakup);
         }
 
         internal static PostDestructionMergeResolution ClassifyPostDestructionMergeResolution(
             bool activeDestroyed,
             bool allLeavesTerminal,
             bool onlyDebrisBlockersRemain,
-            bool pendingSplitResolution)
+            bool pendingCrashResolution)
         {
-            if (activeDestroyed && pendingSplitResolution)
-                return PostDestructionMergeResolution.WaitForPendingSplitResolution;
+            if (activeDestroyed && pendingCrashResolution)
+                return PostDestructionMergeResolution.WaitForPendingCrashResolution;
 
             if (allLeavesTerminal || (activeDestroyed && onlyDebrisBlockersRemain))
                 return PostDestructionMergeResolution.FinalizeNow;
