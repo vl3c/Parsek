@@ -84,8 +84,12 @@ namespace Parsek.Tests
             string precPath = Path.Combine(recordingsDir, recordingId + ".prec");
             string vesselPath = Path.Combine(recordingsDir, recordingId + "_vessel.craft");
             string ghostPath = Path.Combine(recordingsDir, recordingId + "_ghost.craft");
+            string readablePrecPath = Path.Combine(recordingsDir, recordingId + ".prec.txt");
+            string readableVesselPath = Path.Combine(recordingsDir, recordingId + "_vessel.craft.txt");
+            string readableGhostPath = Path.Combine(recordingsDir, recordingId + "_ghost.craft.txt");
 
             Assert.True(File.Exists(precPath), $"Expected trajectory sidecar for {fixture.Name}");
+            Assert.True(File.Exists(readablePrecPath), $"Expected readable trajectory mirror for {fixture.Name}");
 
             var original = RecordingStorageFixtures.MaterializeTrajectory(fixture.Builder);
             var loadedTrajectory = new Recording { RecordingId = recordingId };
@@ -140,6 +144,26 @@ namespace Parsek.Tests
                 Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(ghostPath, out loadedGhost));
                 Assert.NotNull(loadedGhost);
                 AssertConfigNodeEquivalent(expectedGhost, loadedGhost, "ghost");
+            }
+
+            var expectedReadablePrecNode = new ConfigNode("PARSEK_RECORDING");
+            expectedReadablePrecNode.AddValue("version",
+                fixture.Builder.GetFormatVersion().ToString(System.Globalization.CultureInfo.InvariantCulture));
+            expectedReadablePrecNode.AddValue("recordingId", recordingId);
+            expectedReadablePrecNode.AddValue("sidecarEpoch", "0");
+            RecordingStore.SerializeTrajectoryInto(expectedReadablePrecNode, original);
+            AssertConfigNodeEquivalent(expectedReadablePrecNode, ConfigNode.Load(readablePrecPath), "readablePrec");
+
+            ConfigNode expectedReadableVessel = fixture.Builder.GetVesselSnapshot();
+            Assert.Equal(expectedReadableVessel != null, File.Exists(readableVesselPath));
+            if (expectedReadableVessel != null)
+                AssertConfigNodeEquivalent(expectedReadableVessel, ConfigNode.Load(readableVesselPath), "readableVessel");
+
+            Assert.Equal(ghostSnapshotMode == GhostSnapshotMode.Separate, File.Exists(readableGhostPath));
+            if (ghostSnapshotMode == GhostSnapshotMode.Separate)
+            {
+                ConfigNode expectedReadableGhost = original.GhostVisualSnapshot;
+                AssertConfigNodeEquivalent(expectedReadableGhost, ConfigNode.Load(readableGhostPath), "readableGhost");
             }
         }
 
@@ -820,6 +844,188 @@ namespace Parsek.Tests
             Assert.False(File.Exists(precPath));
             Assert.False(File.Exists(ghostPath));
             Assert.True(Directory.Exists(vesselPath));
+            AssertNoTransientSidecarArtifacts(dir);
+        }
+
+        [Fact]
+        public void SaveRecordingFiles_ReadableMirrorsDisabled_DeletesExistingMirrorFiles()
+        {
+            string dir = Path.Combine(tempDir, "readable-mirrors-disabled");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "readable-mirrors-disabled.prec");
+            string vesselPath = Path.Combine(dir, "readable-mirrors-disabled_vessel.craft");
+            string ghostPath = Path.Combine(dir, "readable-mirrors-disabled_ghost.craft");
+            string readablePrecPath = precPath + ".txt";
+            string readableVesselPath = vesselPath + ".txt";
+            string readableGhostPath = ghostPath + ".txt";
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "readable-mirrors-disabled",
+                sidecarEpoch: 0,
+                vesselName: "Readable Vessel",
+                ghostName: "Readable Ghost",
+                pidBase: 5400,
+                pointUt: 100);
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
+            Assert.True(File.Exists(readablePrecPath));
+            Assert.True(File.Exists(readableVesselPath));
+            Assert.True(File.Exists(readableGhostPath));
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+            Assert.True(File.Exists(precPath));
+            Assert.True(File.Exists(vesselPath));
+            Assert.True(File.Exists(ghostPath));
+            Assert.False(File.Exists(readablePrecPath));
+            Assert.False(File.Exists(readableVesselPath));
+            Assert.False(File.Exists(readableGhostPath));
+        }
+
+        [Fact]
+        public void ReconcileReadableMirrorsToPaths_DisabledDeletesExistingMirrors_WithoutRewritingAuthoritativeSidecars()
+        {
+            string dir = Path.Combine(tempDir, "readable-mirrors-reconcile-only");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "readable-mirrors-reconcile-only.prec");
+            string vesselPath = Path.Combine(dir, "readable-mirrors-reconcile-only_vessel.craft");
+            string ghostPath = Path.Combine(dir, "readable-mirrors-reconcile-only_ghost.craft");
+            string readablePrecPath = precPath + ".txt";
+            string readableVesselPath = vesselPath + ".txt";
+            string readableGhostPath = ghostPath + ".txt";
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "readable-mirrors-reconcile-only",
+                sidecarEpoch: 0,
+                vesselName: "Reconcile Vessel",
+                ghostName: "Reconcile Ghost",
+                pidBase: 5450,
+                pointUt: 150);
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+            DateTime authoritativePrecWriteUtc = File.GetLastWriteTimeUtc(precPath);
+            DateTime authoritativeVesselWriteUtc = File.GetLastWriteTimeUtc(vesselPath);
+            DateTime authoritativeGhostWriteUtc = File.GetLastWriteTimeUtc(ghostPath);
+
+            Assert.True(File.Exists(readablePrecPath));
+            Assert.True(File.Exists(readableVesselPath));
+            Assert.True(File.Exists(readableGhostPath));
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            Assert.True(RecordingStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath));
+
+            Assert.True(File.Exists(precPath));
+            Assert.True(File.Exists(vesselPath));
+            Assert.True(File.Exists(ghostPath));
+            Assert.False(File.Exists(readablePrecPath));
+            Assert.False(File.Exists(readableVesselPath));
+            Assert.False(File.Exists(readableGhostPath));
+            Assert.Equal(authoritativePrecWriteUtc, File.GetLastWriteTimeUtc(precPath));
+            Assert.Equal(authoritativeVesselWriteUtc, File.GetLastWriteTimeUtc(vesselPath));
+            Assert.Equal(authoritativeGhostWriteUtc, File.GetLastWriteTimeUtc(ghostPath));
+            Assert.Equal(0, rec.SidecarEpoch);
+        }
+
+        [Fact]
+        public void ReconcileReadableMirrorsToPaths_UsesPreservedAuthoritativeVesselSnapshot_WhenInMemorySnapshotIsNull()
+        {
+            string dir = Path.Combine(tempDir, "readable-mirrors-preserved-vessel");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "readable-mirrors-preserved-vessel.prec");
+            string vesselPath = Path.Combine(dir, "readable-mirrors-preserved-vessel_vessel.craft");
+            string ghostPath = Path.Combine(dir, "readable-mirrors-preserved-vessel_ghost.craft");
+            string readableVesselPath = vesselPath + ".txt";
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "readable-mirrors-preserved-vessel",
+                sidecarEpoch: 0,
+                vesselName: "Preserved Vessel",
+                ghostName: "Preserved Ghost",
+                pidBase: 5475,
+                pointUt: 175);
+            ConfigNode expectedVessel = rec.VesselSnapshot;
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
+            Assert.True(File.Exists(vesselPath));
+            Assert.False(File.Exists(readableVesselPath));
+
+            rec.VesselSnapshot = null;
+            rec.GhostVisualSnapshot = null;
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            Assert.True(RecordingStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath));
+
+            Assert.True(File.Exists(readableVesselPath));
+            AssertConfigNodeEquivalent(expectedVessel, ConfigNode.Load(readableVesselPath), "preservedReadableVessel");
+        }
+
+        [Fact]
+        public void SaveRecordingFiles_ReadableMirrorFailure_DoesNotRollBackAuthoritativeSidecars()
+        {
+            string dir = Path.Combine(tempDir, "readable-mirror-best-effort");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "readable-mirror-best-effort.prec");
+            string vesselPath = Path.Combine(dir, "readable-mirror-best-effort_vessel.craft");
+            string ghostPath = Path.Combine(dir, "readable-mirror-best-effort_ghost.craft");
+            string readablePrecPath = precPath + ".txt";
+
+            var original = BuildRecordingWithSnapshots(
+                "readable-mirror-best-effort",
+                sidecarEpoch: 0,
+                vesselName: "Readable Old Vessel",
+                ghostName: "Readable Old Ghost",
+                pidBase: 5500,
+                pointUt: 123);
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                original, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+            File.Delete(readablePrecPath);
+            Directory.CreateDirectory(readablePrecPath);
+
+            var rewritten = BuildRecordingWithSnapshots(
+                "readable-mirror-best-effort",
+                sidecarEpoch: original.SidecarEpoch,
+                vesselName: "Readable New Vessel",
+                ghostName: "Readable New Ghost",
+                pidBase: 5510,
+                pointUt: 456);
+
+            logLines.Clear();
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rewritten, precPath, vesselPath, ghostPath, incrementEpoch: false));
+            Assert.False(rewritten.FilesDirty);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("readable sidecar mirror reconcile failed"));
+
+            var restored = new Recording
+            {
+                RecordingId = rewritten.RecordingId,
+                SidecarEpoch = rewritten.SidecarEpoch,
+                GhostSnapshotMode = GhostSnapshotMode.Separate
+            };
+            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                restored, precPath, vesselPath, ghostPath));
+            Assert.Single(restored.Points);
+            Assert.Equal(456, restored.Points[0].ut);
+            Assert.True(Directory.Exists(readablePrecPath));
             AssertNoTransientSidecarArtifacts(dir);
         }
 

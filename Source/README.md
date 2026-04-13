@@ -220,7 +220,7 @@ The script exits non-zero if required log contracts fail.
 
 ### External Recording Files (v5)
 
-Bulk data (trajectory points, orbit segments, part events, snapshots) is stored in external sidecar files under `saves/<save>/Parsek/Recordings/`, keeping the `.sfs` save file lightweight. File types: `.prec` (trajectory), `_vessel.craft` / `_ghost.craft` (vessel snapshots). Safe-write via `.tmp` + rename.
+Bulk data (trajectory points, orbit segments, part events, snapshots) is stored in external sidecar files under `saves/<save>/Parsek/Recordings/`, keeping the `.sfs` save file lightweight. Authoritative file types: `.prec` (trajectory), `_vessel.craft` / `_ghost.craft` (vessel snapshots). A default-on diagnostics flag also writes readable `.prec.txt`, `_vessel.craft.txt`, and `_ghost.craft.txt` mirror files for debugging/comparison without changing the authoritative load path. Safe-write via `.tmp` + rename, and readable mirrors are reconciled separately so mirror failures do not roll back the real sidecars.
 
 ### Vessel Persistence
 
