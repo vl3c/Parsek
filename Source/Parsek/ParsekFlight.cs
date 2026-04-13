@@ -8444,14 +8444,27 @@ namespace Parsek
             WatchModeController.ComputeWatchIndexAfterDelete(watchedIndex, watchedId, deletedIndex, recordings);
         internal static bool ShouldAutoHorizonLock(bool hasAtmosphere, double atmosphereDepth, double altitude) =>
             WatchModeController.ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude);
+        internal static bool ShouldUseSurfaceRelativeWatchHeading(
+            bool hasAtmosphere, double atmosphereDepth, double altitude) =>
+            WatchModeController.ShouldUseSurfaceRelativeWatchHeading(
+                hasAtmosphere, atmosphereDepth, altitude);
         internal static Vector3 ComputeSurfaceRelativeVelocity(
             Vector3 playbackVelocity, Vector3 rotatingFrameVelocity) =>
             WatchModeController.ComputeSurfaceRelativeVelocity(playbackVelocity, rotatingFrameVelocity);
-        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 surfaceVelocity,
+        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
             HorizonForwardSource source) ComputeWatchHorizonForward(
                 Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
                 Vector3 lastForward) =>
             WatchModeController.ComputeWatchHorizonForward(
+                up, playbackVelocity, rotatingFrameVelocity, lastForward);
+        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
+            Vector3 appliedFrameVelocity, HorizonForwardSource source)
+            ComputeWatchHorizonBasis(
+                bool hasAtmosphere, double atmosphereDepth, double altitude,
+                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
+                Vector3 lastForward) =>
+            WatchModeController.ComputeWatchHorizonBasis(
+                hasAtmosphere, atmosphereDepth, altitude,
                 up, playbackVelocity, rotatingFrameVelocity, lastForward);
         internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward) =>
             WatchModeController.ComputeHorizonForward(up, velocity, lastForward);
