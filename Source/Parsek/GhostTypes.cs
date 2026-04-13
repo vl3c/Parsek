@@ -172,6 +172,7 @@ namespace Parsek
     {
         public uint partPersistentId;
         public GameObject fairingMeshObject;
+        public GameObject trussStructureObject;
     }
 
     internal struct FireShellMesh

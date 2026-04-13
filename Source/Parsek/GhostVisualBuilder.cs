@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Parsek
 {
@@ -2572,6 +2573,60 @@ namespace Parsek
             return names;
         }
 
+        internal static bool GetFairingShowMesh(ConfigNode partNode)
+        {
+            if (partNode == null) return true;
+
+            ConfigNode toggleModule = FindModuleNode(partNode, "ModuleStructuralNodeToggle");
+            if (toggleModule == null) return true;
+
+            string showMeshValue = toggleModule.GetValue("showMesh");
+            if (string.IsNullOrEmpty(showMeshValue)) return true;
+
+            bool parsed;
+            if (bool.TryParse(showMeshValue, out parsed))
+                return parsed;
+            return true;
+        }
+
+        internal static (bool isDeployed, bool showMesh) ResolveFairingVisualState(ConfigNode partNode)
+        {
+            bool isDeployed = false;
+            ConfigNode fairingModule = FindModuleNode(partNode, "ModuleProceduralFairing");
+            if (fairingModule != null)
+                isDeployed = fairingModule.GetValue("fsm") == "st_flight_deployed";
+
+            return (isDeployed, GetFairingShowMesh(partNode));
+        }
+
+        internal static int GetFairingStructureSegmentCount(ConfigNode partConfig)
+        {
+            if (partConfig == null) return 6;
+
+            int capCount = 0;
+            int trussCount = 0;
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return 6;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "ModuleStructuralNode")
+                    continue;
+
+                string rootObject = modules[i].GetValue("rootObject");
+                if (string.IsNullOrEmpty(rootObject))
+                    continue;
+
+                if (rootObject.StartsWith("Cap"))
+                    capCount++;
+                else if (rootObject.StartsWith("Truss"))
+                    trussCount++;
+            }
+
+            int count = capCount > 0 ? capCount : trussCount;
+            return count >= 3 ? count : 6;
+        }
+
         /// <summary>
         /// Finds already-cloned transforms in the ghost model hierarchy that match
         /// fairing internal structure names (truss/cap objects from ModuleStructuralNode)
@@ -2601,6 +2656,23 @@ namespace Parsek
 
         }
 
+        internal static (bool shellVisible, bool trussVisible) ComputeFairingVisualActivation(bool deployed)
+        {
+            return (!deployed, deployed);
+        }
+
+        internal static void ApplyFairingVisualState(FairingGhostInfo fairingInfo, bool deployed)
+        {
+            if (fairingInfo == null) return;
+            var visibility = ComputeFairingVisualActivation(deployed);
+
+            if (fairingInfo.fairingMeshObject != null)
+                fairingInfo.fairingMeshObject.SetActive(visibility.shellVisible);
+
+            if (fairingInfo.trussStructureObject != null)
+                fairingInfo.trussStructureObject.SetActive(visibility.trussVisible);
+        }
+
         /// <summary>
         /// Recursively walks a transform hierarchy collecting GameObjects whose name
         /// matches one of the given names.
@@ -2612,6 +2684,35 @@ namespace Parsek
                 results.Add(root.gameObject);
             for (int i = 0; i < root.childCount; i++)
                 CollectMatchingTransforms(root.GetChild(i), names, results);
+        }
+
+        private static Vector3 NormalizeVector(Vector3 value, Vector3 fallback)
+        {
+            float magnitude = Mathf.Sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
+            if (magnitude < 1e-6f)
+                return fallback;
+
+            return new Vector3(value.x / magnitude, value.y / magnitude, value.z / magnitude);
+        }
+
+        private static Vector3 CrossProduct(Vector3 a, Vector3 b)
+        {
+            return new Vector3(
+                a.y * b.z - a.z * b.y,
+                a.z * b.x - a.x * b.z,
+                a.x * b.y - a.y * b.x);
+        }
+
+        private static Vector3 TransformAlongAxis(Vector3 localPoint, Vector3 axis, Vector3 pivot)
+        {
+            Vector3 up = NormalizeVector(axis, Vector3.up);
+            Vector3 tangent = CrossProduct(Vector3.right, up);
+            if (tangent.x == 0f && tangent.y == 0f && tangent.z == 0f)
+                tangent = CrossProduct(Vector3.forward, up);
+            tangent = NormalizeVector(tangent, Vector3.right);
+            Vector3 bitangent = NormalizeVector(CrossProduct(up, tangent), Vector3.forward);
+
+            return tangent * localPoint.x + up * localPoint.y + bitangent * localPoint.z + pivot;
         }
 
         /// <summary>
@@ -3423,8 +3524,6 @@ namespace Parsek
             nSides = Mathf.Min(nSides, 24);
             if (nSides < 3) nSides = 3;
 
-            Quaternion axisRot = Quaternion.FromToRotation(Vector3.up, axis.normalized);
-
             // Build vertices and UVs: (nSides+1) verts per ring (duplicated seam), plus apex if last r ≈ 0
             int ringCount = sections.Count;
             bool hasApex = sections[ringCount - 1].r < 0.01f;
@@ -3446,7 +3545,7 @@ namespace Parsek
                     float z = Mathf.Sin(angle) * r;
 
                     Vector3 localPos = new Vector3(x, h, z);
-                    Vector3 rotatedPos = axisRot * localPos + pivot;
+                    Vector3 rotatedPos = TransformAlongAxis(localPos, axis, pivot);
                     vertices.Add(rotatedPos);
 
                     float uCoord = (float)s / nSides;
@@ -3460,7 +3559,7 @@ namespace Parsek
             {
                 float apexH = sections[ringCount - 1].h;
                 Vector3 apexLocal = new Vector3(0f, apexH, 0f);
-                Vector3 apexPos = axisRot * apexLocal + pivot;
+                Vector3 apexPos = TransformAlongAxis(apexLocal, axis, pivot);
                 apexIndex = vertices.Count;
                 vertices.Add(apexPos);
                 uvs.Add(new Vector2(0.5f, 1f));
@@ -3517,7 +3616,7 @@ namespace Parsek
                 float capH = sections[ringCount - 1].h;
                 float capR = sections[ringCount - 1].r;
                 float coneApexH = capH + capR * 1.5f;
-                Vector3 coneApex = axisRot * new Vector3(0f, coneApexH, 0f) + pivot;
+                Vector3 coneApex = TransformAlongAxis(new Vector3(0f, coneApexH, 0f), axis, pivot);
                 int coneApexIdx = vertices.Count;
                 vertices.Add(coneApex);
                 uvs.Add(new Vector2(0.5f, 1f));
@@ -3543,16 +3642,168 @@ namespace Parsek
             return mesh;
         }
 
+        private static void AddDoubleSidedQuad(
+            List<Vector3> vertices, List<Vector2> uvs, List<int> triangles,
+            Vector3 bottomLeft, Vector3 bottomRight, Vector3 topLeft, Vector3 topRight)
+        {
+            int baseIndex = vertices.Count;
+            vertices.Add(bottomLeft);
+            vertices.Add(bottomRight);
+            vertices.Add(topLeft);
+            vertices.Add(topRight);
+
+            uvs.Add(new Vector2(0f, 0f));
+            uvs.Add(new Vector2(1f, 0f));
+            uvs.Add(new Vector2(0f, 1f));
+            uvs.Add(new Vector2(1f, 1f));
+
+            triangles.Add(baseIndex);
+            triangles.Add(baseIndex + 2);
+            triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 2);
+            triangles.Add(baseIndex + 3);
+
+            triangles.Add(baseIndex);
+            triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 2);
+            triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 3);
+            triangles.Add(baseIndex + 2);
+        }
+
+        /// <summary>
+        /// Generates a simplified post-jettison fairing structure that matches the stock six-segment
+        /// layout more closely than the old full-disc approach: vertical inset struts plus top cap wedges.
+        /// </summary>
+        internal static (List<Vector3> vertices, List<Vector2> uvs, List<int> triangles) GenerateFairingTrussGeometry(
+            List<(float h, float r)> sections, int segmentCount, Vector3 pivot, Vector3 axis)
+        {
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var triangles = new List<int>();
+            if (sections == null || sections.Count < 2)
+                return (vertices, uvs, triangles);
+
+            sections.Sort((a, b) => a.h.CompareTo(b.h));
+            segmentCount = Mathf.Clamp(segmentCount, 3, 24);
+
+            const float minRadius = 0.01f;
+            const float insetScale = 0.88f;
+            const float strutWidthScale = 0.08f;
+
+            float segmentAngle = Mathf.PI * 2f / segmentCount;
+            int topCapIndex = -1;
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                if (sections[i].r > minRadius)
+                {
+                    topCapIndex = i;
+                    break;
+                }
+            }
+
+            for (int seg = 0; seg < segmentCount; seg++)
+            {
+                float angleCenter = (seg + 0.5f) * segmentAngle;
+                float cos = Mathf.Cos(angleCenter);
+                float sin = Mathf.Sin(angleCenter);
+                float perpCos = Mathf.Cos(angleCenter + Mathf.PI * 0.5f);
+                float perpSin = Mathf.Sin(angleCenter + Mathf.PI * 0.5f);
+
+                for (int i = 0; i < sections.Count - 1; i++)
+                {
+                    float r0 = sections[i].r;
+                    float r1 = sections[i + 1].r;
+                    if (r0 < minRadius || r1 < minRadius)
+                        continue;
+
+                    float h0 = sections[i].h;
+                    float h1 = sections[i + 1].h;
+                    float outer0 = r0 * insetScale;
+                    float outer1 = r1 * insetScale;
+                    float width0 = Mathf.Max(0.02f, r0 * strutWidthScale);
+                    float width1 = Mathf.Max(0.02f, r1 * strutWidthScale);
+
+                    Vector3 bl = TransformAlongAxis(new Vector3(
+                        cos * outer0 - perpCos * width0, h0, sin * outer0 - perpSin * width0), axis, pivot);
+                    Vector3 br = TransformAlongAxis(new Vector3(
+                        cos * outer0 + perpCos * width0, h0, sin * outer0 + perpSin * width0), axis, pivot);
+                    Vector3 tl = TransformAlongAxis(new Vector3(
+                        cos * outer1 - perpCos * width1, h1, sin * outer1 - perpSin * width1), axis, pivot);
+                    Vector3 tr = TransformAlongAxis(new Vector3(
+                        cos * outer1 + perpCos * width1, h1, sin * outer1 + perpSin * width1), axis, pivot);
+
+                    AddDoubleSidedQuad(vertices, uvs, triangles, bl, br, tl, tr);
+                }
+
+                if (topCapIndex >= 0)
+                {
+                    float h = sections[topCapIndex].h;
+                    float outerRadius = sections[topCapIndex].r * insetScale;
+                    if (outerRadius > minRadius)
+                    {
+                        float bandThickness = Mathf.Max(outerRadius * 0.12f, 0.04f);
+                        float innerRadius = Mathf.Max(0.02f, outerRadius - bandThickness);
+                        if (innerRadius < outerRadius - 0.005f)
+                        {
+                            float startAngle = seg * segmentAngle + segmentAngle * 0.12f;
+                            float endAngle = (seg + 1) * segmentAngle - segmentAngle * 0.12f;
+
+                            Vector3 innerStart = TransformAlongAxis(new Vector3(
+                                Mathf.Cos(startAngle) * innerRadius, h, Mathf.Sin(startAngle) * innerRadius), axis, pivot);
+                            Vector3 innerEnd = TransformAlongAxis(new Vector3(
+                                Mathf.Cos(endAngle) * innerRadius, h, Mathf.Sin(endAngle) * innerRadius), axis, pivot);
+                            Vector3 outerStart = TransformAlongAxis(new Vector3(
+                                Mathf.Cos(startAngle) * outerRadius, h, Mathf.Sin(startAngle) * outerRadius), axis, pivot);
+                            Vector3 outerEnd = TransformAlongAxis(new Vector3(
+                                Mathf.Cos(endAngle) * outerRadius, h, Mathf.Sin(endAngle) * outerRadius), axis, pivot);
+
+                            AddDoubleSidedQuad(vertices, uvs, triangles, innerStart, innerEnd, outerStart, outerEnd);
+                        }
+                    }
+                }
+            }
+
+            return (vertices, uvs, triangles);
+        }
+
+        internal static Mesh GenerateFairingTrussMesh(
+            List<(float h, float r)> sections, int segmentCount, Vector3 pivot, Vector3 axis)
+        {
+            var geometry = GenerateFairingTrussGeometry(sections, segmentCount, pivot, axis);
+            if (geometry.vertices.Count == 0) return null;
+
+            Mesh mesh = new Mesh
+            {
+                name = "fairing_truss"
+            };
+            mesh.SetVertices(geometry.vertices);
+            mesh.SetUVs(0, geometry.uvs);
+            mesh.SetTriangles(geometry.triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        private static Material ResolveFairingSharedMaterial(Transform modelNode)
+        {
+            var baseRenderer = modelNode != null ? modelNode.GetComponentInChildren<MeshRenderer>() : null;
+            if (baseRenderer != null && baseRenderer.sharedMaterial != null)
+                return baseRenderer.sharedMaterial;
+
+            return new Material(Shader.Find("KSP/Diffuse"))
+            {
+                color = new Color(0.85f, 0.85f, 0.85f)
+            };
+        }
+
         private static FairingGhostInfo BuildFairingVisual(
             ConfigNode partNode, Part prefab, Transform modelNode,
             uint persistentId, string partName)
         {
             ConfigNode fairingModule = FindModuleNode(partNode, "ModuleProceduralFairing");
             if (fairingModule == null) return null;
-
-            // Skip mesh for already-deployed fairings
-            string fsmState = fairingModule.GetValue("fsm");
-            if (fsmState == "st_flight_deployed") return null;
 
             var xNodes = fairingModule.GetNodes("XSECTION");
             if (xNodes == null || xNodes.Length < 2)
@@ -3576,35 +3827,49 @@ namespace Parsek
             int nSides = fairingPrefab != null ? Mathf.Min(fairingPrefab.nSides, 24) : 24;
             Vector3 pivot = fairingPrefab != null ? fairingPrefab.pivot : Vector3.zero;
             Vector3 axis = fairingPrefab != null ? fairingPrefab.axis : Vector3.up;
+            var visualState = ResolveFairingVisualState(partNode);
+            Material sharedMaterial = ResolveFairingSharedMaterial(modelNode);
 
             Mesh mesh = GenerateFairingConeMesh(sections, nSides, pivot, axis);
 
             GameObject go = new GameObject("fairing_panels");
             go.transform.SetParent(modelNode, false);
             go.AddComponent<MeshFilter>().mesh = mesh;
-
-            // Use the base adapter's material (includes variant textures) instead of hardcoded gray.
-            // The first active MeshRenderer on the ghost model node is the base adapter mesh
-            // (Cap/Truss are further down in the hierarchy).
             var mr = go.AddComponent<MeshRenderer>();
-            var baseMr = modelNode.GetComponentInChildren<MeshRenderer>();
-            if (baseMr != null && baseMr.sharedMaterial != null)
+            mr.sharedMaterial = sharedMaterial;
+
+            GameObject trussGo = null;
+            if (visualState.showMesh)
             {
-                mr.sharedMaterial = baseMr.sharedMaterial;
-            }
-            else
-            {
-                mr.material = new Material(Shader.Find("KSP/Diffuse"))
+                int segmentCount = GetFairingStructureSegmentCount(prefab.partInfo?.partConfig);
+                Mesh trussMesh = GenerateFairingTrussMesh(sections, segmentCount, pivot, axis);
+                if (trussMesh != null)
                 {
-                    color = new Color(0.85f, 0.85f, 0.85f)
-                };
+                    trussGo = new GameObject("fairing_truss");
+                    trussGo.transform.SetParent(modelNode, false);
+                    trussGo.AddComponent<MeshFilter>().mesh = trussMesh;
+                    var trussRenderer = trussGo.AddComponent<MeshRenderer>();
+                    trussRenderer.sharedMaterial = sharedMaterial;
+                    trussRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                    trussRenderer.receiveShadows = false;
+                }
             }
 
-            return new FairingGhostInfo
+            var fairingInfo = new FairingGhostInfo
             {
                 partPersistentId = persistentId,
-                fairingMeshObject = go
+                fairingMeshObject = go,
+                trussStructureObject = trussGo
             };
+
+            ApplyFairingVisualState(fairingInfo, visualState.isDeployed);
+
+            ParsekLog.Verbose("GhostVisual", $"    Fairing detected: '{partName}' pid={persistentId}, " +
+                $"cone mesh generated ({sections.Count} sections, {nSides} sides), " +
+                $"deployed={visualState.isDeployed}, showMesh={visualState.showMesh}, " +
+                $"truss={(trussGo != null ? "generated" : "skipped")}");
+
+            return fairingInfo;
         }
 
         private static bool HasRoboticModules(Part prefab)
