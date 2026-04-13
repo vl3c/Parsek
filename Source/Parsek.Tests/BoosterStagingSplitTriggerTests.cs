@@ -52,5 +52,35 @@ namespace Parsek.Tests
 
             Assert.Equal(ParsekFlight.DeferredSplitCheckTrigger.None, trigger);
         }
+
+        [Fact]
+        public void ShouldCaptureDecoupleCreatedVessel_MatchesRecordedVessel()
+        {
+            bool capture = ParsekFlight.ShouldCaptureDecoupleCreatedVessel(
+                recordedVesselPid: 2708531065u,
+                originalVesselPid: 2708531065u);
+
+            Assert.True(capture);
+        }
+
+        [Fact]
+        public void ShouldCaptureDecoupleCreatedVessel_IgnoresUnrelatedVessel()
+        {
+            bool capture = ParsekFlight.ShouldCaptureDecoupleCreatedVessel(
+                recordedVesselPid: 2708531065u,
+                originalVesselPid: 3819315892u);
+
+            Assert.False(capture);
+        }
+
+        [Fact]
+        public void ShouldCaptureDecoupleCreatedVessel_IgnoresMissingRecordedPid()
+        {
+            bool capture = ParsekFlight.ShouldCaptureDecoupleCreatedVessel(
+                recordedVesselPid: 0u,
+                originalVesselPid: 2708531065u);
+
+            Assert.False(capture);
+        }
     }
 }

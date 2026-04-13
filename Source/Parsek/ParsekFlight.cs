@@ -4901,6 +4901,13 @@ namespace Parsek
             return DeferredSplitCheckTrigger.None;
         }
 
+        internal static bool ShouldCaptureDecoupleCreatedVessel(
+            uint recordedVesselPid,
+            uint originalVesselPid)
+        {
+            return recordedVesselPid != 0 && originalVesselPid == recordedVesselPid;
+        }
+
         private void HandleJointBreakDeferredCheck()
         {
             if (pendingSplitInProgress || recorder == null || !recorder.IsRecording)
@@ -4961,6 +4968,18 @@ namespace Parsek
         private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel)
         {
             if (newVessel == null) return;
+            uint recordedVesselPid = recorder?.RecordingVesselId
+                ?? pendingSplitRecorder?.RecordingVesselId
+                ?? 0;
+            uint originalVesselPid = originalVessel?.persistentId ?? 0;
+            if (!ShouldCaptureDecoupleCreatedVessel(recordedVesselPid, originalVesselPid))
+            {
+                ParsekLog.VerboseRateLimited("Flight",
+                    $"decouple-created-foreign-{originalVesselPid}-{newVessel.persistentId}",
+                    $"Ignoring decouple-created vessel pid={newVessel.persistentId}: " +
+                    $"originalPid={originalVesselPid}, recordedPid={recordedVesselPid}");
+                return;
+            }
             // Only capture vessels that didn't exist before the break
             if (preBreakVesselPids != null && preBreakVesselPids.Contains(newVessel.persistentId))
                 return;
