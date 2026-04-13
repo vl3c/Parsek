@@ -190,26 +190,31 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 323. Main-stage and debris group hierarchy can appear wrong after commit/playback
+## ~~323. Main-stage and debris group hierarchy can appear wrong after commit/playback~~
 
 **Observed in:** `logs/2026-04-12_2128_kerbalx-booster-throttle-regression/` (`s7`). User report: a recording did not correctly group the main-stage recordings group together with the debris group.
 
-**What the current logs show:** raw auto-grouping did run at commit time:
+**What the logs showed:** raw auto-grouping did run at commit time:
 
 - `Group 'Kerbal X / Debris' assigned to parent group 'Kerbal X'`
 - `Auto-grouped 1 stage(s) under 'Kerbal X', 10 debris under 'Kerbal X / Debris'`
 
-That means the bundle does not currently prove a bad `GroupHierarchyStore.SetGroupParent(...)` call during commit. If the UI/grouping was still wrong in-game, the bug is more likely in a later path such as orphan adoption, duplicate-name group selection, hierarchy persistence/load, or UI tree construction.
+That means the bundle did not prove a bad `GroupHierarchyStore.SetGroupParent(...)` call during commit. The failure was later: during an in-session `ParsekScenario.OnLoad`, Parsek preserved the live committed recordings from memory but still reloaded `GROUP_HIERARCHY` from the save file. If the save's hierarchy snapshot was stale, root-level or otherwise corrected debris groups could be overwritten by older parent mappings even though the committed recordings themselves were current.
 
-**Fix direction:** Reproduce with a focused breakup tree that creates both a main stage and multiple debris recordings, then inspect:
+Concrete evidence from the collected bundle:
 
-- the final `RecordingGroups` on committed recordings
-- saved hierarchy serialization in `persistent.sfs`
-- UI group tree building for duplicate base names / debris subgroups
+- `KSP.log` reported `18 committed recordings`, `2 committed tree(s)`, but only `Saved group hierarchy: 1 entries`
+- the same save still serialized recordings under both `Kerbal X` and `Kerbal X / Debris`
+- `persistent.sfs` no longer contained the expected `Kerbal X / Debris -> Kerbal X` hierarchy entry
 
-Add an in-game or unit-level regression that asserts the main stage group remains the parent of the debris subgroup after save/load.
+So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy load clobbers the live session view."
 
-**Status:** Open
+**Fix:** `LoadCrewAndGroupState` now only reloads group hierarchy from the save on true initial load. In-session loads and rewinds keep the in-memory hierarchy as the source of truth, matching the already-preserved in-memory committed recordings. This avoids reconstructing or guessing hierarchy from group names and prevents stale `.sfs` `GROUP_HIERARCHY` data from re-parenting root-level debris groups. Coverage now includes:
+
+- unit tests for `ShouldLoadGroupHierarchyFromSave(...)`
+- a live in-game `ParsekScenario.OnLoad` regression that seeds a root-level debris group, feeds `OnLoad` a stale saved parent mapping, and proves the in-memory root-level group remains unparented while existing valid mappings survive
+
+**Status:** ~~Fixed~~
 
 ---
 
