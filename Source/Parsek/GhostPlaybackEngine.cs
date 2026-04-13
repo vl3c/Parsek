@@ -98,10 +98,17 @@ namespace Parsek
         internal System.Func<int, GhostPlaybackState, bool> IsWatchedGhostStateResolver;
 
         /// <summary>
-        /// Optional host-supplied logical distance resolver. Lets the engine classify hidden
+        /// Optional host-supplied render-distance resolver. Lets the engine classify hidden
         /// or inactive ghosts against their current playback position rather than a stale transform.
         /// </summary>
         internal System.Func<int, IPlaybackTrajectory, GhostPlaybackState, double, double> ResolvePlaybackDistanceOverride;
+
+        /// <summary>
+        /// Optional host-supplied active-vessel-distance resolver. Watch cutoff, watch UI,
+        /// and other safety policies stay anchored to the active vessel even when render
+        /// LOD follows the live scene camera.
+        /// </summary>
+        internal System.Func<int, IPlaybackTrajectory, GhostPlaybackState, double, double> ResolvePlaybackActiveVesselDistanceOverride;
 
         // Camera events (engine detects cycle changes, host handles FlightCamera).
         internal event Action<CameraActionEvent> OnLoopCameraAction;
@@ -485,8 +492,11 @@ namespace Parsek
             if (state == null) return false;
 
             // Zone-based rendering
-            double ghostDist = ResolvePlaybackDistance(i, traj, state, ctx.currentUT, ctx.activeVesselPos);
-            var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
+            double renderDistance = ResolvePlaybackDistance(i, traj, state, ctx.currentUT, ctx.activeVesselPos);
+            double activeVesselDistance = ResolvePlaybackActiveVesselDistance(
+                i, traj, state, ctx.currentUT, ctx.activeVesselPos);
+            CachePlaybackDistances(state, activeVesselDistance, renderDistance);
+            var zoneResult = positioner.ApplyZoneRendering(i, state, traj, renderDistance, ctx.protectedIndex);
 
             // Flag events spawn permanent world vessels — apply regardless of zone distance (#249).
             // Unlike visual part events (mesh toggles), flags are independent entities that must
@@ -496,8 +506,8 @@ namespace Parsek
             if (zoneResult.hiddenByZone)
             {
                 ghostActive = HandleHiddenGhostVisualState(
-                    i, traj, state, ctx.currentUT, ctx.warpRate, ghostDist, overlapGhost: false,
-                    hiddenReason: $"hidden by distance LOD at {ghostDist:F0}m");
+                    i, traj, state, ctx.currentUT, ctx.warpRate, renderDistance, overlapGhost: false,
+                    hiddenReason: $"hidden by distance LOD at {renderDistance:F0}m");
                 return true;
             }
 
@@ -807,6 +817,9 @@ namespace Parsek
             // Zone-based rendering
             double loopZoneDistance = ResolvePlaybackDistance(
                 index, traj, state, loopUT, ctx.activeVesselPos);
+            double loopActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
+                index, traj, state, loopUT, ctx.activeVesselPos);
+            CachePlaybackDistances(state, loopActiveVesselDistance, loopZoneDistance);
             var zoneResult = positioner.ApplyZoneRendering(index, state, traj, loopZoneDistance, ctx.protectedIndex);
             if (zoneResult.hiddenByZone)
             {
@@ -932,6 +945,9 @@ namespace Parsek
                 bool primaryReady = true;
                 double primaryDistance = ResolvePlaybackDistance(
                     index, traj, primaryState, primaryLoopUT, ctx.activeVesselPos);
+                double primaryActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
+                    index, traj, primaryState, primaryLoopUT, ctx.activeVesselPos);
+                CachePlaybackDistances(primaryState, primaryActiveVesselDistance, primaryDistance);
                 var zoneResult = positioner.ApplyZoneRendering(
                     index, primaryState, traj, primaryDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
@@ -1025,6 +1041,9 @@ namespace Parsek
                 double loopUT = loopStartUT + phase;
                 double overlapDistance = ResolvePlaybackDistance(
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
+                double overlapActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
+                    index, traj, ovState, loopUT, ctx.activeVesselPos);
+                CachePlaybackDistances(ovState, overlapActiveVesselDistance, overlapDistance);
                 var zoneResult = positioner.ApplyZoneRendering(
                     index, ovState, traj, overlapDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
@@ -1293,6 +1312,34 @@ namespace Parsek
                 return Vector3d.Distance((Vector3d)state.ghost.transform.position, activeVesselPos);
 
             return double.MaxValue;
+        }
+
+        private double ResolvePlaybackActiveVesselDistance(
+            int recordingIndex, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, Vector3d activeVesselPos)
+        {
+            if (ResolvePlaybackActiveVesselDistanceOverride != null)
+            {
+                double resolved = ResolvePlaybackActiveVesselDistanceOverride(
+                    recordingIndex, traj, state, playbackUT);
+                if (!double.IsNaN(resolved) && !double.IsInfinity(resolved) && resolved >= 0)
+                    return resolved;
+            }
+
+            if (state != null && state.ghost != null)
+                return Vector3d.Distance((Vector3d)state.ghost.transform.position, activeVesselPos);
+
+            return double.MaxValue;
+        }
+
+        internal static void CachePlaybackDistances(
+            GhostPlaybackState state, double activeVesselDistance, double renderDistance)
+        {
+            if (state == null)
+                return;
+
+            state.lastDistance = activeVesselDistance;
+            state.lastRenderDistance = renderDistance;
         }
 
         /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>

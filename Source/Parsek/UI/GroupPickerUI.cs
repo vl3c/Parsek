@@ -15,6 +15,7 @@ namespace Parsek
         // Group picker popup state
         private bool groupPopupOpen;
         private int groupPopupRecIdx = -1;
+        private List<int> groupPopupRecIndices;
         private string groupPopupChainId;
         private string groupPopupGroup;
         private Vector2 groupPopupPosition;
@@ -46,6 +47,7 @@ namespace Parsek
             var rec = RecordingStore.CommittedRecordings[ri];
             groupPopupOpen = true;
             groupPopupRecIdx = ri;
+            groupPopupRecIndices = null;
             groupPopupChainId = null;
             groupPopupGroup = null;
             groupPopupChecked = rec.RecordingGroups != null
@@ -60,24 +62,38 @@ namespace Parsek
         {
             groupPopupOpen = true;
             groupPopupRecIdx = -1;
+            groupPopupRecIndices = null;
             groupPopupChainId = chainId;
             groupPopupGroup = null;
-            // Checked = groups that ALL chain members are in (single pass to find members, then check)
+            groupPopupChecked = GetCommonGroups(RecordingStore.GetChainMemberIndices(chainId));
+            groupPopupOriginal = new HashSet<string>(groupPopupChecked);
+            groupPopupNewName = "";
+            groupPopupPosition = mousePos;
+            InitGroupPopupExpansion();
+        }
+
+        public void OpenForRecordings(List<int> recordingIndices, Vector2 mousePos)
+        {
+            groupPopupOpen = true;
+            groupPopupRecIdx = -1;
+            groupPopupChainId = null;
+            groupPopupGroup = null;
+            groupPopupRecIndices = new List<int>();
+
+            var seen = new HashSet<int>();
             var committed = RecordingStore.CommittedRecordings;
-            var memberIndices = RecordingStore.GetChainMemberIndices(chainId);
-            var allGroups = RecordingStore.GetGroupNames();
-            groupPopupChecked = new HashSet<string>();
-            for (int g = 0; g < allGroups.Count; g++)
+            if (recordingIndices != null)
             {
-                bool allIn = true;
-                for (int m = 0; m < memberIndices.Count; m++)
+                for (int i = 0; i < recordingIndices.Count; i++)
                 {
-                    var rec = committed[memberIndices[m]];
-                    if (rec.RecordingGroups == null || !rec.RecordingGroups.Contains(allGroups[g]))
-                    { allIn = false; break; }
+                    int ri = recordingIndices[i];
+                    if (ri < 0 || ri >= committed.Count || !seen.Add(ri))
+                        continue;
+                    groupPopupRecIndices.Add(ri);
                 }
-                if (allIn && memberIndices.Count > 0) groupPopupChecked.Add(allGroups[g]);
             }
+
+            groupPopupChecked = GetCommonGroups(groupPopupRecIndices);
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
             groupPopupPosition = mousePos;
@@ -88,6 +104,7 @@ namespace Parsek
         {
             groupPopupOpen = true;
             groupPopupRecIdx = -1;
+            groupPopupRecIndices = null;
             groupPopupChainId = null;
             groupPopupGroup = groupName;
             // For group-in-group: checked = current parent (if any)
@@ -119,6 +136,41 @@ namespace Parsek
             for (int i = 0; i < knownEmptyGroups.Count; i++)
                 groupPopupExpanded.Add(knownEmptyGroups[i]);
             groupPopupScrollPos = Vector2.zero;
+        }
+
+        private static HashSet<string> GetCommonGroups(List<int> memberIndices)
+        {
+            var commonGroups = new HashSet<string>();
+            if (memberIndices == null || memberIndices.Count == 0)
+                return commonGroups;
+
+            var committed = RecordingStore.CommittedRecordings;
+            var allGroups = RecordingStore.GetGroupNames();
+            for (int g = 0; g < allGroups.Count; g++)
+            {
+                bool allIn = true;
+                for (int m = 0; m < memberIndices.Count; m++)
+                {
+                    int ri = memberIndices[m];
+                    if (ri < 0 || ri >= committed.Count)
+                    {
+                        allIn = false;
+                        break;
+                    }
+
+                    var rec = committed[ri];
+                    if (rec.RecordingGroups == null || !rec.RecordingGroups.Contains(allGroups[g]))
+                    {
+                        allIn = false;
+                        break;
+                    }
+                }
+
+                if (allIn)
+                    commonGroups.Add(allGroups[g]);
+            }
+
+            return commonGroups;
         }
 
         /// <summary>
@@ -353,6 +405,25 @@ namespace Parsek
                 foreach (var g in removed)
                     RecordingStore.RemoveChainFromGroup(groupPopupChainId, g);
                 ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
+            }
+            else if (groupPopupRecIndices != null && groupPopupRecIndices.Count > 0)
+            {
+                var added = new HashSet<string>(groupPopupChecked);
+                added.ExceptWith(groupPopupOriginal);
+                var removed = new HashSet<string>(groupPopupOriginal);
+                removed.ExceptWith(groupPopupChecked);
+
+                for (int i = 0; i < groupPopupRecIndices.Count; i++)
+                {
+                    int ri = groupPopupRecIndices[i];
+                    foreach (var g in added)
+                        RecordingStore.AddRecordingToGroup(ri, g);
+                    foreach (var g in removed)
+                        RecordingStore.RemoveRecordingFromGroup(ri, g);
+                }
+
+                ParsekLog.Info("UI",
+                    $"Recording selection [{string.Join(", ", groupPopupRecIndices)}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
             }
             else if (groupPopupRecIdx >= 0 && groupPopupRecIdx < committed.Count)
             {

@@ -7,6 +7,162 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~349. Repaired stand-in rows can hide historical stand-in usage from retirement logic~~
+
+**Observed in:** final GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After the repair path started rewriting old stand-in `KerbalAssignment` rows back to the slot owner, the kerbals walk only recorded that logical owner name in `allRecordingCrew`. Retirement and roster-healing logic still asked whether the displaced stand-in's own name had ever appeared in recordings, so a historical stand-in like `Kirrim` could be treated as unused and deleted instead of retired once the owner reclaimed the slot.
+
+**Root cause:** The recalculation walk conflated two different identities: the logical kerbal identity used for reservations and the raw snapshot crew names needed to know which stand-in bodies were historically flown.
+
+**Fix:** `KerbalsModule.PrePass()` now caches each recording's raw snapshot crew names, and `ProcessAction()` feeds both the repaired logical owner name and the raw snapshot names into `allRecordingCrew`. That preserves correct retirement/deletion behavior after ledger repair. Added a regression that drives the real `CreateKerbalAssignmentActions()` path for a repaired stand-in recording and verifies the historical stand-in still retires correctly.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~348. The displaced-stand-in recreation guard can also suppress retired stand-ins~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The first roster-churn fix stopped recreating any displaced, unreserved chain entry. That also covered retired stand-ins, even though the design expects retired kerbals to remain present in the roster and simply be filtered/managed.
+
+**Root cause:** The recreation guard distinguished only "reserved" vs "not reserved". It ignored the separate retired-stand-in case where a displaced kerbal still appears in historical recordings and therefore must remain as a managed roster entry even when no longer actively reserved.
+
+**Fix:** `ShouldEnsureChainEntryInRoster()` now keeps recreating displaced stand-ins that still appear in committed recordings, while continuing to skip genuinely unused displaced metadata. Added a regression that pins the retired stand-in branch separately from the unused branch.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~347. Historical stand-in repairs can fail once the live replacement bridge has been cleared~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The new persisted-row repair compared old ledger rows against freshly regenerated rows, but regeneration still reverse-mapped stand-ins only through the live `CREW_REPLACEMENTS` bridge. If a slot owner had already reclaimed their place and the current replacement map was empty, an old stand-in row like `Hanley` still regenerated as `Hanley` even though `KERBAL_SLOTS` still knew that stand-in belonged to `Jeb`.
+
+**Root cause:** Reverse-mapping logic ignored persisted slot-chain metadata. `CREW_REPLACEMENTS` is transient bridge state rebuilt from the current derived roster, not a complete historical identity source.
+
+**Fix:** Stand-in reverse-mapping now falls back to persisted `KERBAL_SLOTS` when the live replacement bridge has no match, so migration/repair can still recover the original slot owner from saved chain metadata. Added regression coverage for an empty `CREW_REPLACEMENTS` map plus populated `KERBAL_SLOTS`.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~346. Ghost-only handoff fallback can misclassify stable snapshot-less chain tips as finite `Recovered`~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The first handoff fix treated every ghost-only chain recording as an internal handoff. Auto-committed tree recordings can also become ghost-only by having `VesselSnapshot` nulled before ledger notification, including stable tips whose terminal state is still `Orbiting`, `Landed`, `Splashed`, or `Docked`.
+
+**Root cause:** `ShouldUseGhostOnlyChainHandoffEndState()` keyed only on `ChainId + no VesselSnapshot + crew source`, so it could not distinguish unresolved handoff segments from stable ghost-only chain tips that still need their normal `Aboard`/`Unknown` semantics.
+
+**Fix:** The ghost-only handoff fallback now applies only when the recording is still unresolved (`TerminalStateValue == null`) or has a genuinely finite terminal (`Recovered`, `Destroyed`, or `Boarded`). Stable ghost-only chain tips with intact terminals stay on the normal unresolved path. Added a regression that pins an `Orbiting` ghost-only chain tip to `Unknown` instead of forced `Recovered`.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~345. Existing ledger kerbal rows are not repaired once bad `KerbalAssignment` data is already persisted~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The earlier audit fixes corrected new kerbal-action generation, but `MigrateKerbalAssignments()` still treated any recording with at least one existing `KerbalAssignment` row as already migrated. Old saves that had pre-fix stand-in names or ghost/EVA `Unknown` end states therefore kept replaying the stale ledger data forever.
+
+**Root cause:** The migration path only filled missing per-recording kerbal rows; it never compared stored rows against the current derived truth for that recording, so there was no repair path for already-persisted bad actions.
+
+**Fix:** `MigrateKerbalAssignments()` now builds the desired `KerbalAssignment` set for every committed recording, compares it to the stored rows, and rewrites just that recording's kerbal actions when they diverge. Added regression coverage for both repaired stand-in identity rows and repaired ghost-only `Unknown` rows so legacy ledgers heal on the next load.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~344. Ghost-only chain segments fall back to open-ended `Unknown` kerbal reservations~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). Mid-chain vessel/EVA recordings are committed with `VesselSnapshot = null`, but `CreateKerbalAssignmentActions()` still extracted crew from `GhostVisualSnapshot`. Because the old end-state population guard only trusted `VesselSnapshot` or `EvaCrewName`, those segments emitted `KerbalAssignment` rows with `KerbalEndState.Unknown`, which the kerbals walk treated as infinite temporary reservations.
+
+**Root cause:** Ghost-only chain handoff segments had no dedicated fallback end-state rule. The end-state population path assumed "no end snapshot" meant "can't resolve", even though these recordings are a known internal handoff case where the reservation should stay finite until later chain segments extend it.
+
+**Fix:** Ghost-only chain recordings now participate in crew end-state population, and their fallback state is treated as a finite chain handoff (`Recovered`, or `Dead` when the segment truly ended destroyed). `CreateKerbalAssignmentActions()` now forces that shared population path before emitting actions, so commit-time, migration, and load-repair all converge on the same non-`Unknown` result. Added regression coverage for both direct action creation and the load-time safety net.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~343. Persisted displaced stand-ins can be recreated on every later roster walk~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After bug `#339` started preserving displaced chain metadata, `ApplyToRoster()` still recreated any missing non-null chain entry before the delete/retire pass, so a stand-in that had already been deleted as displaced/unused would be re-hired and deleted again on every recalculation.
+
+**Root cause:** The roster-ensure pass only checked whether a chain entry name was missing from `KerbalRoster`. It did not distinguish active/reserved chain occupants from displaced metadata that intentionally no longer had a live roster entry.
+
+**Fix:** `ApplyToRoster()` now skips roster creation/recreation for displaced chain entries unless that stand-in is still actively reserved. The chain metadata remains persisted for deterministic rewinds, but deleted displaced stand-ins no longer churn back into the roster on later passes. Added a regression test that pins the helper decision for active vs displaced chain entries.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~342. Tourist passengers can leak into the managed kerbal reservation system~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `CreateKerbalAssignmentActions()` emitted actions for every crew name in the recording snapshot, and `KerbalsModule.ProcessAction()` reserved every `KerbalAssignment` regardless of role, even though the design treats tourist passengers as contract-only temporary crew.
+
+**Root cause:** The kerbal action pipeline had no tourist-role exclusion. Action creation depended on `FindTraitForKerbal`, but there was no defense once a `KerbalAssignment` existed, and the non-runtime fallback could not identify tourists from saved roster history.
+
+**Fix:** `FindTraitForKerbal()` now falls back to the latest saved game-state baseline crew traits when a live KSP roster is unavailable, `LedgerOrchestrator` skips crew whose resolved role is `Tourist`, and `KerbalsModule.ProcessAction()` ignores any tourist assignments already present in the ledger as defense in depth. Added regression coverage for baseline trait fallback, tourist action suppression, and tourist action creation filtering.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~341. EVA-only recordings can skip crew end-state population during migration/load repair~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). Commit-time kerbal action creation already treated `EvaCrewName` as a valid crew source, but the legacy migration path and the "populate missing end states on load" safety net only ran when `VesselSnapshot != null`.
+
+**Root cause:** `MigrateKerbalAssignments()` and `PopulateUnpopulatedCrewEndStates()` duplicated an older, narrower guard instead of reusing the commit-time "has crew source" predicate. EVA recordings that stored only `EvaCrewName` therefore skipped end-state inference on those later paths.
+
+**Fix:** The migration and safety-net paths now share a single `NeedsCrewEndStatePopulation()` predicate that accepts either `VesselSnapshot` or `EvaCrewName`. Added `LedgerOrchestratorTests` regressions for both private paths to pin EVA-only recordings to a resolved `Dead`/`Recovered`/etc. end state instead of `Unknown`.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~340. Permanent-loss slots can keep stale stand-in occupancy or stay permanently gone after the death is rewound away~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). Slots with an old temporary chain could still present a stand-in as the active occupant after the owner later died permanently, and a saved `permanentlyGone=True` flag could persist even after the death-causing recording was removed from the timeline.
+
+**Root cause:** `OwnerPermanentlyGone` lived in persisted slot state but was not recomputed from scratch each recalculation pass. Once set, it stayed sticky until a full slot reset, and older chain entries could still influence occupant selection unless the active-occupant logic explicitly rejected permanently gone owners.
+
+**Fix:** `PostWalk()` now clears and rebuilds `OwnerPermanentlyGone` from the current reservations on every pass, and regression coverage now pins both sides of the behavior: permanent owners with an existing chain have no active replacement occupant, and rewinding away the permanent loss restores the slot to a normal owner-active state.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~339. Chain reclaim can keep the deepest free stand-in active after an earlier occupant should have reclaimed~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `KerbalsModule.GetActiveOccupant()` walked chains from deepest to shallowest, so if `Jeb -> [Hanley, Kirrim]` and only Jeb remained reserved, Parsek still preferred Kirrim instead of letting Hanley reclaim.
+
+**Root cause:** The active-occupant and retirement logic treated "deepest free stand-in" as the winner even after an earlier chain member became free again. That contradicted the design rule that reclaim stops at the first free occupant after the reserved prefix and all deeper entries become displaced.
+
+**Fix:** Kerbal-chain evaluation now follows the reserved prefix and picks the first free occupant as active. Deeper free stand-ins are treated as displaced for retirement/deletion, and `ApplyToRoster()` keeps the chain metadata instead of clearing it wholesale so the derived state stays consistent across later recalculations. Added regression coverage in `KerbalReservationTests` for reclaim ordering and displaced deeper stand-ins.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~338. Cold-start `OnLoad` can skip persisted `KERBAL_SLOTS` before the kerbals module exists~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `ParsekScenario.OnLoad` called `LoadCrewAndGroupState()` before `LoadExternalFilesAndRestoreEpoch()`, so `LedgerOrchestrator.Kerbals?.LoadSlots(node)` ran while `LedgerOrchestrator.OnLoad()` had not yet initialized the kerbals module.
+
+**Root cause:** Slot loading relied on an already-created `LedgerOrchestrator.Kerbals` instance, but the first-load ordering guaranteed that the module was still null on a true cold start.
+
+**Fix:** `LoadCrewAndGroupState()` now initializes `LedgerOrchestrator` before loading slots, preserving the intended "load crew replacements + slot graph from save" behavior even on the first load after launching KSP. Added a `QuickloadResumeTests` regression that invokes the private load helper and verifies slot state is populated from the scenario node.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~337. KerbalAssignment creation can reserve a stand-in instead of the original kerbal~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `PopulateCrewEndStates` already reverse-mapped stand-in names back to the original slot owner, but `LedgerOrchestrator.CreateKerbalAssignmentActions` re-extracted raw snapshot crew and emitted the stand-in name directly.
+
+**Root cause:** `ExtractCrewFromRecording` did not apply the same `CrewReplacements` reverse-map that `KerbalsModule.PopulateCrewEndStates` uses. When `CrewEndStates` was keyed by the original owner and the emitted action used the stand-in name, the end-state lookup missed and the ledger reserved the temporary stand-in as `Unknown`.
+
+**Fix:** `ExtractCrewFromRecording` now reverse-maps snapshot crew through `CrewReservationManager.CrewReplacements` before building `CrewInfo`, so `CreateKerbalAssignmentActions` and `CrewEndStates` use the same kerbal identity. Added regression coverage in `LedgerOrchestratorTests` for both extraction and action creation.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~314. Save/load can prune branched recordings even when sidecars still contain real data~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During a branched `Kerbal X` flight, the user saved, loaded, and then merged the tree. Two EVA/branch recordings had real sidecars on disk before the load:
@@ -475,6 +631,136 @@ That confirms PR `#258` removed the original "ghost is visible before its first 
 **Implemented fix:** Seed breakup/background child recordings with split-time trajectory data only when that pose is actually captured at the split moment, and otherwise fall back to the first honest post-split sample instead of backdating a later pose to the earlier branch UT. Packed/on-rails background starts still persist that seed immediately into the recording, and loaded starts still use it as the recorder's first-sample baseline.
 
 **Status:** Fix implemented in PR `#264`; `gpt-5.4` `xhigh` review found no remaining substantive issues. Runtime validation is still pending from a fresh replay/save bundle.
+
+---
+
+## 337. Same-tree EVA branches and parachute-bearing secondaries can still be distance-LOD culled while watching a related ghost
+
+**Observed in:** `logs/2026-04-13_2136/` during the late `Kerbal X` watch session. User report: while watch mode was focused on a `Kerbal X` ghost, the same mission's EVA kerbals and their parachute-bearing secondary visuals were still being reduced/culled as if they were far away, even though the actual watch camera was already sitting near the ghost scene.
+
+**Collected evidence:**
+
+- `Player.log:87208` entered watch on ghost `#19 "Kerbal X"` with `camDist=50.0`.
+- `Player.log:87217` immediately afterward still evaluated that watched ghost at `dist=18.6km ... activeVessel="#autoLOC_501232"`, which shows the runtime distance number was still coming from the active vessel context rather than the actual flight camera now parked near the ghost.
+- `Player.log:87223` then logged `ReduceFidelity: disabled 36/49 renderers` during that watch session.
+- The same save proves the EVA recordings are part of the same tree, not unrelated standalone recordings:
+  - `persistent.sfs:1073-1097` recording `a1b840609b1c4c3da4db77fa427b6639` / `Bob Kerman` has `treeId = 62395ab8dcd5426ea2ada17811bacd2c`, `evaCrewName = Bob Kerman`, and `parentRecordingId = 9b3cc91fe9a6407baa49e9036eb0ac44`.
+  - `persistent.sfs:1196-1220` recording `58303cf3f681418a8e1854e1659acd25` / `Bill Kerman` has the same tree and EVA metadata.
+  - `persistent.sfs:1495-1524` shows both EVA children hanging off the same `Kerbal X` branch lineage.
+- The current watch-protection code only protects same-tree debris. `GhostPlaybackLogic.IsWatchProtectedRecording(...)` returns early unless `current.IsDebris`.
+- The current distance resolver still measures against `FlightGlobals.ActiveVessel.transform.position` (`ParsekFlight.ResolvePlaybackDistanceForEngine(...)`), not against the actual flight camera position.
+
+**Impact:** During watch mode, same-tree EVA branches and other non-debris secondaries can still enter reduced-fidelity or hidden tiers based on pad/active-vessel distance rather than the camera the player is actually using. That means renderer disabling and part-event suppression can hit exactly the tiny visuals the player is looking at most closely: EVA kerbals, EVA packs/parachutes, and related child-branch scene elements.
+
+**Root cause:** The decisive runtime bug was the distance reference, not the branch ancestry. Flight ghost LOD was still keyed off `FlightGlobals.ActiveVessel.transform.position`, so a watched scene that was only ~50 m from the real camera could still be treated like an 18 km-away visual-tier ghost if the active vessel stayed on the pad. Once that happens, unwatched same-tree EVA ghosts naturally fall into reduced-fidelity tiers even though they are physically near the watched scene.
+
+The debris-only watch-protection lineage introduced for `#316` remains separate. It is still needed for far, late debris visibility retention, but it was not the primary cause of this EVA/parachute repro.
+
+**Desired policy:** Distance LOD for flight ghosts should use the real active flight camera position in flight view. If the camera is sitting next to the watched ghost scene, nearby EVA/debris secondaries should naturally stay in the full-fidelity tier; only content that is actually far from the real camera should be reduced or culled.
+
+**Fix:** `ParsekFlight.ResolvePlaybackDistanceForEngine(...)` now resolves playback LOD distance from the live flight camera position in flight view, falls back to the active vessel when no usable scene camera exists or when map view is active, and has focused regression coverage in `PlaybackDistancePolicyTests`.
+
+**Status:** Fixed in branch `investigate/watch-eva-lod` — pending fresh runtime validation
+
+---
+
+## ~~338. Atmospheric-body EVA touchdown follow-ups can still misreport phase and split after packed landing~~
+
+**Observed in:** `logs/2026-04-13_2136` while validating the latest EVA optimizer follow-up. The user reported two symptoms in the Recordings list:
+
+- Bill and Bob showed purple `Kerbin` phase cells even though their EVA recordings had real landed/surface endings.
+- Jeb still committed as two separate recordings at the end (`Kerbin atmo` and `Kerbin surface`) even though this was expected to be one continuous touchdown sequence.
+
+**Collected evidence:**
+
+- Bill and Bob were already a single mixed EVA recording each. Their `.prec` payloads contained continuous atmospheric -> surface sections on Kerbin, but the table was suppressing the mixed phase text down to body-only `Kerbin` while still styling the cell from raw `SegmentPhase`.
+- Jeb's committed payload was genuinely discontinuous at touchdown:
+  - the atmospheric payload ended at `UT 213.72`
+  - the later surface payload did not begin until `UT 274.98`
+- The logs showed the missing bridge at the loaded -> on-rails handoff:
+  - parachute cut / atmospheric section close at touchdown
+  - vessel packed into landed on-rails state
+  - no playable surface boundary section persisted at the handoff UT
+  - later promotion reopened as a new surface section
+- Review follow-up found a second storage-side risk in the same area: ordinary loaded-flight -> packed-orbit fallback shapes still depended on top-level flat `Points` / `OrbitSegments`, but section-authoritative write eligibility was only checking for non-empty `TrackSections`, not whether those sections could exactly rebuild the flat payload.
+
+**Impact:**
+
+- Mixed atmospheric-body EVA rows could still look like exo/orbit recordings in the UI even when they were already a single repaired touchdown recording.
+- Atmospheric-body EVA touchdowns could still split into separate `atmo` and `surface` recordings when the kerbal packed into a landed no-payload on-rails state before the surface boundary was persisted.
+- The same loaded->on-rails area also risked silently truncating ordinary packed-orbit continuation on save/load if section-authoritative serialization dropped flat fallback orbit segments too aggressively.
+
+**Root cause:** This turned out to be three related follow-up defects around the same boundary:
+
+- `RecordingsTableUI` styled the phase cell from raw `rec.SegmentPhase` even when `RecordingStore.ShouldSuppressEvaBoundaryPhaseLabel(rec)` intentionally hid the mixed EVA `atmo`/`surface` wording and displayed only the body name.
+- `BackgroundRecorder.OnBackgroundVesselGoOnRails` preserved only a flat boundary point when a loaded EVA packed into a landed no-payload on-rails state after an environment-class change. That left no playable surface bridge section at the landing UT, so the optimizer still saw a real gap and split the recording.
+- `RecordingStore.ShouldWriteSectionAuthoritativeTrajectory` only checked whether `TrackSections` had payload, not whether they could losslessly reproduce the flat `Points` / `OrbitSegments` trajectory actually stored on the recording.
+
+**Fix:** PR `#266` now:
+
+- derives mixed-EVA phase styling from the displayed label semantics instead of the stale raw phase tag, so body-only mixed rows color as surface when their last playable section is surface
+- persists a one-point absolute boundary `TrackSection` when a loaded vessel crosses an environment-class boundary and then packs into a no-payload on-rails state, so atmospheric-body EVA touchdown keeps a playable surface bridge at the handoff UT
+- hardens section-authoritative sidecar writes so they only activate when `TrackSections` can exactly rebuild the recording's flat `Points` and `OrbitSegments`; otherwise text/binary `.prec` output stays on the conservative flat fallback path
+- adds regression coverage for mixed-EVA phase styling, the no-payload touchdown boundary path, and text/binary sidecar round-trips for the recorder loaded->on-rails fallback shape
+
+**Status:** Fixed in PR `#266`
+
+---
+
+## ~~339. Same-mission tree recordings can split between the mission root and partial vessel subgroups~~
+
+**Observed in:** `logs/2026-04-13_2136/` during the late `Kerbal X` validation pass. User report: inside the `Kerbal X` main group, one visible `Kerbal X` subgroup correctly held two recordings, but four other `Kerbal X` recordings from the same mission still sat directly under the main group instead of joining that subgroup. The same pass also called out a missing feature: EVA crew recordings should be grouped under per-mission `Crew` subgroups instead of staying at the mission root.
+
+**Collected evidence:**
+
+- The tree/branch commit itself already knew about the EVA children. `KSP.log` logged the EVA branch creation for the same mission tree, and the saved recordings kept both `parentRecordingId` and `evaCrewName`.
+- The persisted committed recordings in `persistent.sfs` still assigned those EVA rows directly to `recordingGroup = Kerbal X`; the only auto-created subgroup under that mission was `Kerbal X / Debris`.
+- The visible split inside the Recordings table was not purely a save/grouping bug. In the affected mission, only the later two `Kerbal X` rows carried a `ChainId`, so the UI nested those two together while leaving the earlier same-vessel tree siblings flat at the mission root even though they belonged to the same vessel lineage.
+
+**Impact:** The mission tree looked internally inconsistent in the UI. Same-vessel segments from one `Kerbal X` mission could be split between a partially nested subgroup and flat root-level rows, and EVA branches were harder to scan because crew recordings were mixed into the mission root instead of being collected under a dedicated per-mission crew branch.
+
+**Root cause:** This turned out to be two separate defects:
+
+- commit-time tree grouping only knew how to synthesize the debris subgroup; it never created `Mission / Crew` subgroups for EVA recordings, so committed EVA rows stayed assigned to the mission root group even though their tree metadata clearly identified them as EVA children
+- the Recordings table only built nested vessel blocks from `ChainId`, so same-vessel tree recordings without a chain marker stayed flat while later chain-linked siblings nested, producing the partial `Kerbal X` subgroup seen in the repro
+
+**Fix:** PR `#265` now:
+
+- creates `Mission / Crew` subgroups for EVA tree recordings during commit
+- re-homes orphaned same-tree EVA recordings into the correct crew subgroup only when their prior standalone group was auto-assigned by Parsek, avoiding accidental adoption of same-named manual groups
+- persists and clears that auto-assigned standalone-group marker through save/load and manual group edits so the adoption rule stays explicit
+- nests grouped mission rows in the Recordings table by `TreeId + VesselPersistentId` lineage instead of only `ChainId`, while preserving correct chain-member ordering inside the grouped block
+
+**Status:** Fixed in PR `#265`
+
+---
+
+## ~~340. Manual W watch switches reset the camera to the default ghost-entry angle~~
+
+**Observed in:** `logs/2026-04-13_2136/` during the Kerbal X / EVA watch-switch repro in flight mode. User report: switching between active `W` watch targets (vessel, EVA kerbal, later continuation) reset the ghost camera to a default under/overhead angle instead of keeping the previous relative watch angle around the new ghost.
+
+**Collected evidence from the bundle:**
+
+- Automatic watch handoff already preserved the current watch camera state:
+  - `TransferWatch re-target: ghost #10 "Kerbal X" ... target='horizonProxy' ... camDist=75.0`
+  - `TransferWatch re-target: ghost #13 "Kerbal X" ... target='horizonProxy' ... camDist=82.9`
+- Manual row/group `W` retargets did not. Every manual switch logged a fresh `EnterWatchMode` on `cameraPivot` at the hard-coded entry distance:
+  - `Switching watch from #16 to #14 "Bill Kerman"`
+  - `EnterWatchMode: ghost #14 "Bill Kerman" target='cameraPivot' ... camDist=50.0`
+  - `Watch camera auto-switched to HorizonLocked (alt=289m, body=Kerbin)`
+  - the same pattern repeated for `#14 -> #11`, `#11 -> #16`, and later `#11 -> #19`
+- The reset happened even when the source watch was already horizon-locked and already using a non-default distance, which ruled out button-eligibility or same-body checks as the primary cause.
+
+**Impact:** Manual ghost-to-ghost retargeting visibly snapped the camera to the default entry framing before the new target's mode settled, making watch mode feel inconsistent with its own automatic continuation handoff. The problem was especially obvious when switching between vessel and EVA ghosts because their `cameraPivot` / `horizonProxy` rotations differ.
+
+**Root cause:** `EnterWatchMode()` treated every manual `W` retarget as a brand-new watch entry. On switch it called `ExitWatchMode(skipCameraRestore: true)`, then started a fresh watch session that reset the mode state to `Free`, rebound to the raw `cameraPivot`, and forced `FlightCamera.SetDistance(50f)`. Unlike `TransferWatchToNextSegment()`, it did **not** preserve the current watch orbit, and it did not compensate pitch/heading when the old and new target transforms had different rotations.
+
+**Fix:** Manual watch retarget now snapshots the live watch-camera orbit before tearing down the old target, preserves the original player-camera restore state across repeated ghost-to-ghost switches, resolves the new ghost's effective watch mode, and reapplies the previous orbit to the new target instead of using the default watch-entry framing. The transferred pitch/heading now run through the same target-rotation compensation logic used by watch auto-follow, so `cameraPivot`/`horizonProxy` changes preserve world-facing direction instead of snapping when the target basis changes. Added coverage for:
+
+- watch-switch mode resolution with and without explicit `V`-toggle override
+- transferred watch-angle compensation preserving world direction across target-rotation changes
+
+**Status:** Fixed in PR `#267`
 
 ---
 
@@ -1032,6 +1318,71 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 ---
 
 ## TODO — Recording Data Integrity
+
+### T62. Add a cold-start kerbal slot migration integration test
+
+The kerbals review fixed several issues that only show up on a true game restart path rather than during an already-initialized session: `KERBAL_SLOTS` loading before the kerbals module exists, persisted stand-in rows that need repair, and end-state population for EVA-only assignments.
+
+What still deserves dedicated coverage is the real cold-start sequence:
+
+- load a save with persisted `KERBAL_SLOTS`, `CREW_REPLACEMENTS`, and ledger rows from an older or partially broken format
+- run the actual `ParsekScenario.OnLoad` / `LedgerOrchestrator.OnLoad` / `OnKspLoad` ordering instead of unit-level helpers
+- verify slot chains, repaired assignment rows, stand-in reverse-mapping, and recalculated reservations all converge to the same final state after a restart
+
+Game scenario worth locking down:
+
+- Jeb has a persisted stand-in chain
+- an EVA-only recording exists for another kerbal
+- one or more saved assignment rows still point at a stand-in name from a pre-fix save
+- after a full reload, the same kerbals stay reserved, the same stand-ins stay attached to the same slots, and no extra replacement cascade appears
+
+**Priority:** Medium — current fixes are covered, but the exact cold-start ordering is still more integration-heavy than the focused unit suites
+
+**Status:** Open
+
+---
+
+### T63. Add end-to-end `ApplyToRoster()` coverage for repaired historical stand-ins
+
+The recent kerbals fixes restored several edge cases around displaced stand-ins, retired stand-in recreation, ghost-only chains, and historical retirement tracking. The logic now looks correct, but most of that confidence still comes from targeted tests around recomputation rather than a full roster-application pass.
+
+Add scenario tests that drive the final roster mutation step and verify:
+
+- a repaired historical stand-in that should remain retired is recreated in the roster as retired/unavailable
+- a displaced stand-in that no longer belongs to any active or historical chain is deleted instead of lingering as assignable crew
+- permanent owner loss shrinks the active slot correctly even if that slot previously had stand-ins
+- later reload/recompute cycles preserve the same historical-retirement outcome instead of oscillating between deleted/available/retired
+
+Game scenarios worth locking down:
+
+- remove an owner reservation while a deeper stand-in is still historically significant
+- load a save where the roster entry is missing but the slot graph proves the stand-in must still exist as retired history
+- kill the owner after a temporary chain existed and confirm no stale stand-in keeps auto-filling the dead kerbal's slot
+
+**Priority:** Medium — this is the main remaining integration risk in the kerbals reservation system after the audit fixes
+
+**Status:** Open
+
+---
+
+### T64. Add explicit diagnostics for kerbal slot/assignment repair on load
+
+The loader now repairs several historical data problems on purpose: stand-in names stored in assignment rows, missing reverse-maps from persisted slots, ghost-only chain tips, and cold-start slot initialization order. When those repairs happen silently, later bug reports become hard to root-cause because the save the player loads is no longer the save shape we debug against.
+
+Add focused diagnostics that emit once per load when Parsek repairs kerbal reservation data, including:
+
+- which assignment rows were remapped from stand-in name to owner name
+- whether persisted slot chains were repaired, trimmed, or ignored
+- whether historical stand-ins were recreated as retired roster entries
+- whether any tourist assignments were skipped during migration
+
+These should stay concise and summary-oriented rather than spamming per-frame logs.
+
+**Priority:** Low — not a correctness blocker, but it will reduce future debugging cost for save migration/regression reports
+
+**Status:** Open
+
+---
 
 ### ~~T60. Add regression coverage and diagnostics for R/FF enablement reasons~~
 

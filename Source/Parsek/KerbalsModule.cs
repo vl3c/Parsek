@@ -26,6 +26,8 @@ namespace Parsek
         /// and IsKerbalInAnyRecording. Excludes loop and disabled-chain recordings.
         /// </summary>
         private HashSet<string> allRecordingCrew = new HashSet<string>();
+        private Dictionary<string, HashSet<string>> rawRecordingCrew
+            = new Dictionary<string, HashSet<string>>();
 
         // ── Recording metadata cache (built in PrePass) ──
         private Dictionary<string, RecordingMeta> recordingMeta
@@ -100,6 +102,7 @@ namespace Parsek
             reservations.Clear();
             retiredKerbals.Clear();
             allRecordingCrew.Clear();
+            rawRecordingCrew.Clear();
             recordingMeta.Clear();
             loopingChainIds.Clear();
         }
@@ -133,6 +136,10 @@ namespace Parsek
                     EndUT = rec.EndUT
                 };
 
+                var rawCrew = ExtractRawCrewFromRecording(rec);
+                if (rawCrew.Count > 0)
+                    rawRecordingCrew[rec.RecordingId] = new HashSet<string>(rawCrew);
+
                 // Identify chains that contain a looping segment
                 if (isLoop && isChain && !string.IsNullOrEmpty(chainId))
                     loopingChainIds.Add(chainId);
@@ -150,6 +157,9 @@ namespace Parsek
         public void ProcessAction(GameAction action)
         {
             if (action == null || action.Type != GameActionType.KerbalAssignment)
+                return;
+
+            if (string.Equals(action.KerbalRole, "Tourist", System.StringComparison.OrdinalIgnoreCase))
                 return;
 
             string recordingId = action.RecordingId;
@@ -171,6 +181,12 @@ namespace Parsek
 
             // Build the all-crew set for O(1) lookup in ComputeRetiredSet
             allRecordingCrew.Add(name);
+            HashSet<string> rawCrew;
+            if (rawRecordingCrew.TryGetValue(recordingId, out rawCrew))
+            {
+                foreach (var rawName in rawCrew)
+                    allRecordingCrew.Add(rawName);
+            }
 
             KerbalEndState endState = action.KerbalEndStateField;
 
@@ -220,6 +236,11 @@ namespace Parsek
         /// </summary>
         public void PostWalk()
         {
+            // Permanent-loss state is derived from the current reservation walk, not
+            // sticky historical state. Rebuild it each pass from the current timeline.
+            foreach (var slot in slots.Values)
+                slot.OwnerPermanentlyGone = false;
+
             // 1. Build/update chains for temporary reservations
             foreach (var kvp in reservations)
             {
@@ -287,21 +308,53 @@ namespace Parsek
         {
             for (int i = 0; i < crew.Count; i++)
             {
+                string originalName = null;
                 foreach (var kvp in replacements)
                 {
                     if (kvp.Value == crew[i])
                     {
-                        if (vesselNameForLog != null)
-                        {
-                            ParsekLog.Info(Tag,
-                                $"PopulateCrewEndStates: reverse-mapped stand-in '{crew[i]}' " +
-                                $"back to original '{kvp.Key}' in recording '{vesselNameForLog}'");
-                        }
-                        crew[i] = kvp.Key;
+                        originalName = kvp.Key;
                         break;
                     }
                 }
+
+                if (originalName == null)
+                    originalName = TryReverseMapCrewNameFromSlots(crew[i]);
+
+                if (originalName == null)
+                    continue;
+
+                if (vesselNameForLog != null)
+                {
+                    ParsekLog.Info(Tag,
+                        $"PopulateCrewEndStates: reverse-mapped stand-in '{crew[i]}' " +
+                        $"back to original '{originalName}' in recording '{vesselNameForLog}'");
+                }
+
+                crew[i] = originalName;
             }
+        }
+
+        private static string TryReverseMapCrewNameFromSlots(string crewName)
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            var slotsMap = kerbals != null ? kerbals.Slots : null;
+            if (slotsMap == null || string.IsNullOrEmpty(crewName))
+                return null;
+
+            foreach (var slot in slotsMap.Values)
+            {
+                if (slot == null || string.IsNullOrEmpty(slot.OwnerName) || slot.Chain == null)
+                    continue;
+
+                for (int i = 0; i < slot.Chain.Count; i++)
+                {
+                    if (string.Equals(slot.Chain[i], crewName, System.StringComparison.Ordinal))
+                        return slot.OwnerName;
+                }
+            }
+
+            return null;
         }
 
         internal static KerbalEndState InferCrewEndState(
@@ -357,6 +410,23 @@ namespace Parsek
             }
         }
 
+        private static List<string> ExtractRawCrewFromRecording(Recording rec)
+        {
+            var result = new List<string>();
+            if (rec == null)
+                return result;
+
+            var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            for (int i = 0; i < crew.Count; i++)
+                result.Add(crew[i]);
+
+            if (result.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
+                result.Add(rec.EvaCrewName);
+
+            return result;
+        }
+
         /// <summary>
         /// Populates CrewEndStates on a recording by extracting crew from the
         /// ghost visual snapshot (start-of-recording crew roster) and inferring
@@ -409,6 +479,7 @@ namespace Parsek
             var endCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.VesselSnapshot);
             ReverseMapCrewNames(endCrew, replacements, null);
             var endCrewSet = new HashSet<string>(endCrew);
+            bool useGhostOnlyChainHandoffFallback = ShouldUseGhostOnlyChainHandoffEndState(rec);
 
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
             int aboardCount = 0, deadCount = 0, recoveredCount = 0, unknownCount = 0;
@@ -416,7 +487,9 @@ namespace Parsek
             for (int i = 0; i < startingCrew.Count; i++)
             {
                 string name = startingCrew[i];
-                var state = InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
+                var state = useGhostOnlyChainHandoffFallback
+                    ? InferGhostOnlyChainHandoffEndState(rec.TerminalStateValue)
+                    : InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
                 rec.CrewEndStates[name] = state;
 
                 switch (state)
@@ -510,7 +583,6 @@ namespace Parsek
             foreach (var kvp in slots)
             {
                 var slot = kvp.Value;
-                bool predecessorFree = !reservations.ContainsKey(slot.OwnerName) && !slot.OwnerPermanentlyGone;
 
                 for (int i = 0; i < slot.Chain.Count; i++)
                 {
@@ -520,7 +592,7 @@ namespace Parsek
                     bool isReserved = reservations.ContainsKey(standIn);
                     bool usedInRecording = IsKerbalInAnyRecording(standIn);
 
-                    if (predecessorFree && usedInRecording && !isReserved)
+                    if (IsDisplacedChainEntry(slot, i) && usedInRecording && !isReserved)
                     {
                         retiredKerbals.Add(standIn);
                         retiredCount++;
@@ -528,12 +600,6 @@ namespace Parsek
                             $"Retired: '{standIn}' in slot '{slot.OwnerName}' depth={i} " +
                             "(used in recording, displaced by predecessor)");
                     }
-
-                    // For the next entry: predecessor is free if BOTH the current
-                    // predecessor was free AND this entry is also free.
-                    // Once we hit a reserved entry, nothing deeper is displaced.
-                    if (!predecessorFree || isReserved)
-                        predecessorFree = false;
                 }
             }
 
@@ -578,6 +644,24 @@ namespace Parsek
             {
                 // HighLogic not available (unit test environment)
             }
+
+            var baselines = GameStateStore.Baselines;
+            if (baselines != null)
+            {
+                for (int i = baselines.Count - 1; i >= 0; i--)
+                {
+                    var baseline = baselines[i];
+                    if (baseline?.crewEntries == null) continue;
+
+                    for (int j = 0; j < baseline.crewEntries.Count; j++)
+                    {
+                        var crew = baseline.crewEntries[j];
+                        if (crew.name == kerbalName && !string.IsNullOrEmpty(crew.trait))
+                            return crew.trait;
+                    }
+                }
+            }
+
             return "Pilot";
         }
 
@@ -628,28 +712,23 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Get the active occupant for a slot (the deepest non-reserved chain member,
-        /// or the owner if free).
+        /// Get the active occupant for a slot: the owner if free, otherwise the first
+        /// free stand-in after the reserved prefix. Deeper free stand-ins are displaced
+        /// metadata once an earlier occupant reclaims the slot.
         /// </summary>
         internal string GetActiveOccupant(string slotOwnerName)
         {
-            if (!reservations.ContainsKey(slotOwnerName))
-                return slotOwnerName; // owner is free
-
             KerbalSlot slot;
-            if (!slots.TryGetValue(slotOwnerName, out slot))
-                return null; // no slot -- shouldn't happen
+            slots.TryGetValue(slotOwnerName, out slot);
 
-            // Walk chain from deepest to shallowest
-            for (int i = slot.Chain.Count - 1; i >= 0; i--)
-            {
-                string standIn = slot.Chain[i];
-                if (standIn != null && !reservations.ContainsKey(standIn))
-                    return standIn;
-            }
+            int activeIndex = GetActiveChainIndex(slotOwnerName, slot);
+            if (activeIndex == ActiveOwnerIndex)
+                return slotOwnerName;
+            if (activeIndex >= 0 && slot != null && activeIndex < slot.Chain.Count)
+                return slot.Chain[activeIndex];
 
-            // All reserved -- the deepest pending (null) entry is the active occupant
-            // (will be generated by ApplyToRoster)
+            // All occupants in the reserved prefix are still reserved, or the slot
+            // exited the chain system entirely.
             return null;
         }
 
@@ -692,6 +771,9 @@ namespace Parsek
                     var slot = kvp.Value;
                     for (int i = 0; i < slot.Chain.Count; i++)
                     {
+                        if (!ShouldEnsureChainEntryInRoster(slot, i))
+                            continue;
+
                         if (slot.Chain[i] != null)
                         {
                             // Verify stand-in still exists in roster
@@ -737,16 +819,18 @@ namespace Parsek
                 foreach (var kvp in slots)
                 {
                     var slot = kvp.Value;
-                    bool ownerFree = !reservations.ContainsKey(slot.OwnerName)
-                        && !slot.OwnerPermanentlyGone;
 
-                    if (!ownerFree) continue; // owner still reserved — chain still needed
-
-                    // Owner is free. Displace all chain entries.
+                    // Delete unused displaced stand-ins, but keep chain metadata so
+                    // later rewinds/recalculations can deterministically reuse names
+                    // and derive retirement from the remaining timeline.
                     for (int i = slot.Chain.Count - 1; i >= 0; i--)
                     {
                         string standIn = slot.Chain[i];
                         if (standIn == null) continue;
+
+                        bool isReserved = reservations.ContainsKey(standIn);
+                        if (!IsDisplacedChainEntry(slot, i) || isReserved)
+                            continue;
 
                         bool usedInRecording = IsKerbalInAnyRecording(standIn);
                         if (usedInRecording)
@@ -769,9 +853,6 @@ namespace Parsek
                             }
                         }
                     }
-
-                    // Clear the chain — owner has reclaimed
-                    slot.Chain.Clear();
                 }
 
                 // Step 3: Populate crewReplacements bridge (no rosterStatus changes —
@@ -817,6 +898,96 @@ namespace Parsek
                 KerbalRoster.SetExperienceTrait(pcm, trait);
             }
             return pcm;
+        }
+
+        internal static bool ShouldUseGhostOnlyChainHandoffEndState(Recording rec)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.ChainId)
+                && rec.VesselSnapshot == null
+                && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName))
+                && (!rec.TerminalStateValue.HasValue
+                    || rec.TerminalStateValue == TerminalState.Boarded
+                    || rec.TerminalStateValue == TerminalState.Destroyed
+                    || rec.TerminalStateValue == TerminalState.Recovered);
+        }
+
+        internal static KerbalEndState InferGhostOnlyChainHandoffEndState(TerminalState? terminalState)
+        {
+            // Ghost-only chain segments end at an internal handoff, not at a final
+            // spawn/resolution point. Keep their reservation finite so later committed
+            // segments extend the chain instead of inheriting an indefinite Unknown.
+            return terminalState == TerminalState.Destroyed
+                ? KerbalEndState.Dead
+                : KerbalEndState.Recovered;
+        }
+
+        private const int ActiveOwnerIndex = -1;
+        private const int NoActiveChainOccupant = -2;
+
+        private bool ShouldEnsureChainEntryInRoster(KerbalSlot slot, int chainIndex)
+        {
+            if (slot == null || chainIndex < 0 || chainIndex >= slot.Chain.Count)
+                return false;
+
+            string standIn = slot.Chain[chainIndex];
+            bool isReserved = !string.IsNullOrEmpty(standIn) && reservations.ContainsKey(standIn);
+            bool usedInRecording = !string.IsNullOrEmpty(standIn) && IsKerbalInAnyRecording(standIn);
+
+            // Displaced, unused chain metadata stays persisted but should not force a
+            // roster entry back into existence on every recalculation walk. Retired
+            // stand-ins still need a roster entry so they remain visible/managed.
+            return !IsDisplacedChainEntry(slot, chainIndex) || isReserved || usedInRecording;
+        }
+
+        private int GetActiveChainIndex(string slotOwnerName, KerbalSlot slot)
+        {
+            if (slot != null && slot.OwnerPermanentlyGone)
+                return NoActiveChainOccupant;
+
+            if (!reservations.ContainsKey(slotOwnerName))
+                return ActiveOwnerIndex;
+
+            if (slot == null)
+                return NoActiveChainOccupant;
+
+            // Follow the reserved prefix. The first free stand-in reclaims; any deeper
+            // entries are displaced metadata until the earlier occupant becomes reserved again.
+            for (int i = 0; i < slot.Chain.Count; i++)
+            {
+                string standIn = slot.Chain[i];
+                if (standIn == null || !reservations.ContainsKey(standIn))
+                    return i;
+            }
+
+            return slot.Chain.Count;
+        }
+
+        private int GetActiveChainIndex(KerbalSlot slot)
+        {
+            if (slot == null)
+                return NoActiveChainOccupant;
+
+            return GetActiveChainIndex(slot.OwnerName, slot);
+        }
+
+        private bool IsDisplacedChainEntry(KerbalSlot slot, int chainIndex)
+        {
+            if (slot == null || chainIndex < 0 || chainIndex >= slot.Chain.Count)
+                return false;
+
+            if (slot.OwnerPermanentlyGone)
+                return true;
+
+            int activeIndex = GetActiveChainIndex(slot);
+            if (activeIndex == NoActiveChainOccupant)
+                return false;
+            if (activeIndex == ActiveOwnerIndex)
+                return true;
+            if (activeIndex >= slot.Chain.Count)
+                return false;
+
+            return chainIndex > activeIndex;
         }
 
         // ────────────────────────────────────────────────────────

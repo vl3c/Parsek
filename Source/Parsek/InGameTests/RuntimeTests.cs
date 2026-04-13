@@ -554,6 +554,43 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(dot > 0.99f,
                 $"World direction should be preserved, got dot={dot}");
         }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Manual watch transfer compensation preserves world direction across target change")]
+        public void ManualWatchTransferCompensationPreservesDirection()
+        {
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = 15f,
+                Heading = 30f,
+                HasTargetRotation = true,
+                TargetRotation = Quaternion.identity
+            };
+            Quaternion newRot = Quaternion.Euler(0, 90, 0);
+
+            float pRad = state.Pitch * Mathf.Deg2Rad;
+            float hRad = state.Heading * Mathf.Deg2Rad;
+            Vector3 localDir = new Vector3(
+                Mathf.Sin(hRad) * Mathf.Cos(pRad),
+                Mathf.Sin(pRad),
+                Mathf.Cos(hRad) * Mathf.Cos(pRad));
+            Vector3 oldWorldDir = state.TargetRotation * localDir;
+
+            var (newPitch, newHdg) = WatchModeController.CompensateTransferredWatchAngles(
+                state, newRot);
+
+            float npRad = newPitch * Mathf.Deg2Rad;
+            float nhRad = newHdg * Mathf.Deg2Rad;
+            Vector3 newLocalDir = new Vector3(
+                Mathf.Sin(nhRad) * Mathf.Cos(npRad),
+                Mathf.Sin(npRad),
+                Mathf.Cos(nhRad) * Mathf.Cos(npRad));
+            Vector3 newWorldDir = newRot * newLocalDir;
+
+            float dot = Vector3.Dot(oldWorldDir.normalized, newWorldDir.normalized);
+            InGameAssert.IsTrue(dot > 0.99f,
+                $"Transferred watch direction should be preserved, got dot={dot}");
+        }
     }
 
     /// <summary>

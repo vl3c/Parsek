@@ -507,6 +507,7 @@ namespace Parsek
                 string chainGroupName = RecordingStore.GenerateUniqueGroupName(
                     rec.VesselName ?? "Chain");
                 rec.RecordingGroups = new List<string> { chainGroupName };
+                RecordingStore.MarkAutoAssignedStandaloneGroup(rec, chainGroupName);
                 ParsekLog.Verbose("Chain", $"CommitSegmentCore: started new chain (id={ActiveChainId}, group='{chainGroupName}')");
             }
 

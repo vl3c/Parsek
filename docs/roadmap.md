@@ -150,9 +150,21 @@ Unified chronological view of all committed career events, replacing the Game Ac
 
 **Location context:** Recordings become location-aware — body, biome, situation, and stock launch site name captured at recording start and end. Timeline shows location-enriched entries ("Launch: Vessel from Launch Pad on Kerbin", "Spawn: Vessel (Landed at Midlands on Mun)"). Sortable Site column in Recordings Manager with UT tiebreak. Prerequisite for logistics routes and async multiplayer.
 
----
+### v0.8 — Resource Snapshots & Recording Optimization
 
-## Phase 11: Resource Snapshots
+The logistics-prerequisite release line. Phase 11 and Phase 11.5 shipped across `v0.8.x`, adding
+resource/inventory/crew manifests to recordings and the observability/optimization work needed
+before long-lived looped transport routes.
+
+**Phase 11 — Resource snapshots:** recordings now capture start/end resource manifests, inventory
+manifests, crew manifests, and dock-target identity at the boundaries needed for future route
+endpoint and delivery logic.
+
+**Phase 11.5 — recording optimization & observability:** storage/perf diagnostics are now exposed
+in-game, Flight ghost LOD is live, and compact trajectory/snapshot sidecars plus readable mirrors
+cut comparable recording payload size by `85.17%`.
+
+#### Phase 11: Resource Snapshots
 
 Recordings capture physical resource manifests at recording start and end.
 
@@ -162,17 +174,16 @@ Recordings capture physical resource manifests at recording start and end.
 
 **Crew manifests (implemented):** Crew composition by trait (Pilot/Scientist/Engineer/Tourist). Route delivery uses generic kerbals (separate from crew reservation system). Same capture pattern.
 
----
-
-## Phase 11.5: Recording Optimization & Observability
+#### Phase 11.5: Recording Optimization & Observability
 
 Optimization pass before logistics routes add many long-lived looped recordings. A long career with
 dozens of missions will accumulate significant disk, memory, and playback pressure. Phase 11.5 now
-has two shipped halves and one explicit follow-up:
+has three shipped threads and one explicit follow-up:
 
 1. observability and diagnostics so storage/perf pressure is measurable during playtests
-2. trajectory-side and playback-side optimizations that were justified by those measurements
-3. snapshot-size reduction as the next follow-up PR after the current storage branch merges
+2. playback-side optimization via the current Flight ghost LOD policy
+3. recording-side optimization across both trajectory and snapshot sidecars
+4. remaining follow-up: synthetic stress benchmarking/tuning for the shipped policy and formats
 
 ### Observability (shipped)
 
@@ -199,7 +210,7 @@ playtests:
 - hidden-tier shells keep logical playback alive while unloading built mesh/resources
 - live diagnostics reporting for `full / reduced / hidden / watched override`
 
-### Recording Storage (shipped on the current branch)
+### Recording Storage (shipped)
 
 The storage-focused half of Phase 11.5 removed the biggest measured trajectory-side waste without
 changing visible playback contracts:
@@ -211,20 +222,28 @@ changing visible playback contracts:
 - **Compact binary trajectory sidecars** — current-format `.prec` files now use header-dispatched
   binary `v3` with exact scalar payloads, a file-level string table, and conservative sparse
   defaults for stable body/career point fields.
+- **Compact lossless snapshot sidecars** — `_vessel.craft` / `_ghost.craft` now write as
+  lossless `Deflate` envelopes at the highest built-in .NET compression level while still loading
+  legacy text snapshot files.
+- **Readable mirror sidecars** — default-on `.prec.txt`, `_vessel.craft.txt`, and
+  `_ghost.craft.txt` mirrors keep the compact binary/lossless files authoritative while preserving
+  a human-readable debugging path and diagnostics byte accounting.
 - **Storage regression harness** — representative fixtures, mixed-format round-trips, sidecar log
   assertions, and scenario-writer coverage protect the new format path.
 
-Measured outcome so far: trajectory sidecars stopped being the dominant on-disk bucket. In the
-latest live `v3` playtest corpus, `.prec` files are down to about `15.6%` of total sidecar bytes,
-and the remaining bulk is snapshot-side (`_ghost.craft` / `_vessel.craft`).
+Measured outcome so far: recording sidecars are no longer dominated by text storage. In the April
+13, 2026 comparable log-bundle corpus, authoritative `.prec`, `_vessel.craft`, and `_ghost.craft`
+files totaled `1.34 MB` versus `9.03 MB` for readable text mirrors (`7.69 MB` saved, `85.17%`
+smaller), and the latest bundle alone dropped from `745,079 B` to `102,845 B` (`86.20%` smaller).
 
 ### Remaining Follow-Up
 
-The next PR after this branch should stay focused on snapshot-side shrink work rather than more
-aggressive trajectory changes:
+With trajectory-side and snapshot-side storage optimization now shipped, the remaining Phase 11.5
+follow-up is validation/tuning work against larger corpora rather than another planned format pass:
 
-- reduce `_ghost.craft` / `_vessel.craft` size while preserving exact reconstruction
-- keep current alias semantics and sidecar diagnostics intact
+- run synthetic stress benchmarking against the shipped ghost LOD/storage stack
+- tune thresholds or hot spots only if diagnostics show real pressure at scale
+- keep future storage changes measurement-driven instead of pre-committing to another rewrite
 - defer trajectory thinning, compression, or lazy loading until the snapshot bucket is re-measured
   and still justifies more work
 
@@ -329,8 +348,8 @@ Phase 11: Resource Snapshots (done)
     │
     ▼
 Phase 11.5: Recording Optimization & Observability (v0.8.x)
-    │  Observability + ghost LOD + trajectory-side shrink shipped;
-    │  snapshot-side shrink remains as the next follow-up
+    │  Observability + ghost LOD + trajectory/snapshot shrink shipped;
+    │  remaining follow-up is synthetic stress benchmarking/tuning
     │
     ▼
 Phase 12: Looped Transport Logistics
@@ -383,14 +402,8 @@ Commit crash window closed (sidecar files flushed immediately). Remaining gap: s
 - Two-phase engine startup (spool-up animations on some engines)
 - Engine plate covers / interstage fairings (partially fixed — mesh cloned but positioning may be wrong)
 
-### Snapshot-side recording size optimization
-The trajectory-side half of Phase 11.5 is now shipped: section-authoritative `.prec`, alias-mode
-ghost snapshot dedupe, and binary/sparse `v3` trajectory sidecars. The remaining storage work is
-snapshot-side shrink (`_ghost.craft` / `_vessel.craft`), to be handled in the next PR after the
-current branch merges.
-
 ### Ghost LOD follow-up
-Distance-based ghost LOD shipped in `0.8.1`, including the hidden-tier ghost unload/rebuild follow-up. Particle pooling for engine/RCS FX is not scheduled; the Phase 11.5 outcome there was observability/measurement only. Remaining follow-up: synthetic stress benchmarking/tuning.
+Distance-based ghost LOD shipped in `0.8.1`, including the hidden-tier ghost unload/rebuild follow-up. Particle pooling for engine/RCS FX is not scheduled; the Phase 11.5 outcome there was observability/measurement only. Storage-side optimization is also now shipped, so the remaining Phase 11.5 follow-up is synthetic stress benchmarking/tuning.
 
 ### Kerbal reservation refactor (T44)
 Replace `rosterStatus = Assigned` workaround with Parsek-internal state + Harmony crew dialog filtering. Would eliminate 2 workaround patches and ~27 KSP warnings per session. Low priority — current workaround is functional.

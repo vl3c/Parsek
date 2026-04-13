@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -558,6 +559,62 @@ namespace Parsek.Tests
             Assert.Equal(2, rec.Points.Count);
             Assert.Equal(2000.0, rec.Points[0].ut);
             Assert.Equal(2010.0, rec.Points[1].ut);
+        }
+
+        [Fact]
+        public void FlushLoadedStateForOnRailsTransitionForTesting_NoPayloadEnvChange_PersistsBoundarySection()
+        {
+            uint pid = 7033;
+            string recId = "rec_onrails_boundary";
+            var tree = MakeTree(pid, recId);
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 500.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 10, 0)
+            });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2005.0,
+                latitude = 1.1,
+                longitude = 2.1,
+                altitude = 300.0,
+                rotation = new UnityEngine.Quaternion(0, 0.1f, 0, 0.99f),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 8, 0)
+            });
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.SurfaceStationary,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: new TrajectoryPoint
+                {
+                    ut = 2010.0,
+                    latitude = 1.2,
+                    longitude = 2.2,
+                    altitude = 0.0,
+                    rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                    bodyName = "Kerbin",
+                    velocity = UnityEngine.Vector3.zero
+                },
+                ut: 2010.0);
+
+            var rec = tree.Recordings[recId];
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.Equal(SegmentEnvironment.Atmospheric, rec.TrackSections[0].environment);
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, rec.TrackSections[1].environment);
+            Assert.Single(rec.TrackSections[1].frames);
+            Assert.Equal(2010.0, rec.TrackSections[1].frames[0].ut);
+            Assert.Equal(new[] { 2000.0, 2005.0, 2010.0 }, rec.Points.Select(p => p.ut).ToArray());
         }
 
         [Fact]

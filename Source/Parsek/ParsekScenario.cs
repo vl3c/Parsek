@@ -1490,6 +1490,7 @@ namespace Parsek
                 return;
 
             CrewReservationManager.LoadCrewReplacements(node);
+            LedgerOrchestrator.Initialize();
             LedgerOrchestrator.Kerbals?.LoadSlots(node);
 
             if (!ShouldLoadGroupHierarchyFromSave(initialLoadDone, RewindContext.IsRewinding))

@@ -57,6 +57,54 @@ namespace Parsek
             ParsekLog.Verbose("Ledger", $"AddActions batch: added={added}, total={actions.Count}");
         }
 
+        /// <summary>
+        /// Replaces all actions of the given type for a specific recording with the supplied set.
+        /// Non-matching actions keep their existing relative order.
+        /// </summary>
+        internal static void ReplaceActionsForRecording(
+            GameActionType type, string recordingId, IEnumerable<GameAction> replacementActions)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                ParsekLog.Warn("Ledger", "ReplaceActionsForRecording called with null/empty recordingId");
+                return;
+            }
+
+            var replacements = replacementActions != null
+                ? replacementActions.Where(a => a != null).ToList()
+                : new List<GameAction>();
+
+            var updated = new List<GameAction>(actions.Count + replacements.Count);
+            bool inserted = false;
+            int removed = 0;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action.Type == type && string.Equals(action.RecordingId, recordingId, StringComparison.Ordinal))
+                {
+                    if (!inserted)
+                    {
+                        updated.AddRange(replacements);
+                        inserted = true;
+                    }
+
+                    removed++;
+                    continue;
+                }
+
+                updated.Add(action);
+            }
+
+            if (!inserted && replacements.Count > 0)
+                updated.AddRange(replacements);
+
+            actions = updated;
+            ParsekLog.Verbose("Ledger",
+                $"ReplaceActionsForRecording: type={type}, recordingId='{recordingId}', " +
+                $"removed={removed}, inserted={replacements.Count}, total={actions.Count}");
+        }
+
         /// <summary>Clears all actions from the in-memory ledger.</summary>
         internal static void Clear()
         {
