@@ -20,6 +20,8 @@ namespace Parsek
         public float Heading;
         public WatchCameraMode Mode;
         public bool UserModeOverride;
+        public bool HasTargetRotation;
+        public Quaternion TargetRotation;
     }
 
     /// <summary>
@@ -573,23 +575,41 @@ namespace Parsek
             cameraState.Heading = flightCamera.camHdg;
             cameraState.Mode = currentCameraMode;
             cameraState.UserModeOverride = userModeOverride;
+            if (flightCamera.Target != null)
+            {
+                cameraState.HasTargetRotation = true;
+                cameraState.TargetRotation = flightCamera.Target.rotation;
+            }
             return true;
         }
 
-        internal static WatchCameraTransitionState ResolveSwitchCameraState(
-            WatchCameraTransitionState currentState,
+        internal static WatchCameraMode ResolveSwitchCameraMode(
+            WatchCameraMode currentMode,
+            bool userModeOverride,
             bool hasAtmosphere,
             double atmosphereDepth,
             double altitude)
         {
-            if (!currentState.UserModeOverride)
-            {
-                currentState.Mode = ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude)
-                    ? WatchCameraMode.HorizonLocked
-                    : WatchCameraMode.Free;
-            }
+            if (userModeOverride)
+                return currentMode;
 
-            return currentState;
+            return ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude)
+                ? WatchCameraMode.HorizonLocked
+                : WatchCameraMode.Free;
+        }
+
+        internal static (float pitch, float heading) CompensateTransferredWatchAngles(
+            WatchCameraTransitionState currentState,
+            Quaternion newTargetRotation)
+        {
+            if (!currentState.HasTargetRotation)
+                return (currentState.Pitch, currentState.Heading);
+
+            return CompensateCameraAngles(
+                currentState.TargetRotation,
+                newTargetRotation,
+                currentState.Pitch,
+                currentState.Heading);
         }
 
         private WatchCameraTransitionState ResolveSwitchCameraStateForGhost(
@@ -600,11 +620,13 @@ namespace Parsek
             bool hasAtmosphere = body != null && body.atmosphere;
             double atmosphereDepth = body != null ? body.atmosphereDepth : 0.0;
             double altitude = state != null ? state.lastInterpolatedAltitude : 0.0;
-            return ResolveSwitchCameraState(
-                currentState,
+            currentState.Mode = ResolveSwitchCameraMode(
+                currentState.Mode,
+                currentState.UserModeOverride,
                 hasAtmosphere,
                 atmosphereDepth,
                 altitude);
+            return currentState;
         }
 
         private bool TryApplySwitchedWatchCameraState(
@@ -621,12 +643,15 @@ namespace Parsek
             PrimeWatchTargetOrientation(state);
 
             Transform watchTarget = GetWatchTarget(state.cameraPivot) ?? state.ghost?.transform;
+            var (pitch, heading) = watchTarget != null
+                ? CompensateTransferredWatchAngles(cameraState, watchTarget.rotation)
+                : (cameraState.Pitch, cameraState.Heading);
             if (watchTarget != null)
                 flightCamera.SetTargetTransform(watchTarget);
 
             flightCamera.SetDistance(cameraState.Distance);
-            flightCamera.camPitch = cameraState.Pitch;
-            flightCamera.camHdg = cameraState.Heading;
+            flightCamera.camPitch = pitch;
+            flightCamera.camHdg = heading;
 
             if (flightCamera.transform?.parent != null && state.cameraPivot != null)
                 flightCamera.transform.parent.position = state.cameraPivot.position;
@@ -732,6 +757,8 @@ namespace Parsek
             {
                 // Keep Backspace restore pointed at the original player vessel/camera state
                 // even after hopping between multiple ghosts in one watch session.
+                // Manual W->W retargeting is still the same watch session, so an explicit
+                // V-toggle override should stay in force until the user exits watch mode.
                 savedCameraVessel = preservedCameraVessel;
                 savedCameraDistance = preservedCameraDistance;
                 savedCameraPitch = preservedCameraPitch;

@@ -334,78 +334,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveSwitchCameraState_AutoMode_PreservesOrbitAndChoosesHorizonLock()
+        public void ResolveSwitchCameraMode_AutoMode_ChoosesHorizonLock()
         {
-            var state = new WatchCameraTransitionState
-            {
-                Distance = 82.9f,
-                Pitch = 17.5f,
-                Heading = -42.0f,
-                Mode = WatchCameraMode.Free,
-                UserModeOverride = false
-            };
-
-            WatchCameraTransitionState result = WatchModeController.ResolveSwitchCameraState(
-                state,
+            WatchCameraMode result = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.Free,
+                userModeOverride: false,
                 hasAtmosphere: true,
                 atmosphereDepth: 70000,
                 altitude: 289);
 
-            Assert.Equal(82.9f, result.Distance);
-            Assert.Equal(17.5f, result.Pitch);
-            Assert.Equal(-42.0f, result.Heading);
-            Assert.Equal(WatchCameraMode.HorizonLocked, result.Mode);
-            Assert.False(result.UserModeOverride);
+            Assert.Equal(WatchCameraMode.HorizonLocked, result);
         }
 
         [Fact]
-        public void ResolveSwitchCameraState_AutoMode_PreservesOrbitAndChoosesFreeAboveAtmosphere()
+        public void ResolveSwitchCameraMode_AutoMode_ChoosesFreeAboveAtmosphere()
         {
-            var state = new WatchCameraTransitionState
-            {
-                Distance = 121.0f,
-                Pitch = -9.25f,
-                Heading = 133.0f,
-                Mode = WatchCameraMode.HorizonLocked,
-                UserModeOverride = false
-            };
-
-            WatchCameraTransitionState result = WatchModeController.ResolveSwitchCameraState(
-                state,
+            WatchCameraMode result = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.HorizonLocked,
+                userModeOverride: false,
                 hasAtmosphere: true,
                 atmosphereDepth: 70000,
                 altitude: 71000);
 
-            Assert.Equal(121.0f, result.Distance);
-            Assert.Equal(-9.25f, result.Pitch);
-            Assert.Equal(133.0f, result.Heading);
-            Assert.Equal(WatchCameraMode.Free, result.Mode);
-            Assert.False(result.UserModeOverride);
+            Assert.Equal(WatchCameraMode.Free, result);
         }
 
         [Fact]
-        public void ResolveSwitchCameraState_UserOverride_KeepsExplicitMode()
+        public void ResolveSwitchCameraMode_UserOverride_KeepsExplicitMode()
         {
-            var state = new WatchCameraTransitionState
-            {
-                Distance = 64.0f,
-                Pitch = 22.0f,
-                Heading = 88.0f,
-                Mode = WatchCameraMode.Free,
-                UserModeOverride = true
-            };
-
-            WatchCameraTransitionState result = WatchModeController.ResolveSwitchCameraState(
-                state,
+            WatchCameraMode result = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.Free,
+                userModeOverride: true,
                 hasAtmosphere: true,
                 atmosphereDepth: 70000,
                 altitude: 150);
 
-            Assert.Equal(64.0f, result.Distance);
-            Assert.Equal(22.0f, result.Pitch);
-            Assert.Equal(88.0f, result.Heading);
-            Assert.Equal(WatchCameraMode.Free, result.Mode);
-            Assert.True(result.UserModeOverride);
+            Assert.Equal(WatchCameraMode.Free, result);
         }
 
     }
