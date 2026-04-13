@@ -342,6 +342,27 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
+## ~~335. Crash merge dialog can open from an empty tree with the wrong message/duration while deferred split resolution is still running~~
+
+**Observed in:** 2026-04-13 crash follow-up playtests after `#320`. User report: three in-flight crash repros showed different merge-dialog text, and on one run the mission duration looked wrong.
+
+**Collected evidence from:** `logs/2026-04-13_1933_crash-merge-message-diff/`
+
+- `GDLV3` behaved correctly: the tree finalized in `FLIGHT`, all leaves were non-persistable, and the dialog opened with `recordings=6, spawnable=0`.
+- The first `Jumping Flea` run was wrong. The recorder had just stopped with `58 points ... over 31.2s`, but `FinalizeTreeRecordings` immediately logged the only recording as having no playback data, `PruneZeroPointLeaves` removed it, and Parsek stashed a pending tree with `0 recordings` before opening the merge dialog with `recordings=0, spawnable=0`.
+- Immediately after that empty-tree dialog, `DeferredJointBreakCheck` classified the same break as `WithinSegment` and resumed/committed the pending split recorder. That proves the dialog finalized before the deferred split classification finished.
+- A later `Jumping Flea` run opened with `recordings=1, spawnable=0`, which explains why the player saw different dialog wording across otherwise similar crash flows.
+
+**Impact:** The merge dialog could be built from an already-emptied tree, which changes the dialog body, can force the displayed duration to `0s`, and risks discarding the just-recorded trajectory that the pending split recorder was still trying to append back into the tree.
+
+**Root cause:** The `#320` debris-only crash-order fix restored same-scene finalization, but `ShowPostDestructionTreeMergeDialog()` still ignored `pendingSplitInProgress`. In false-alarm joint-break cases, the pending split recorder needs one more deferred frame to classify the break and, if it was not a real vessel split, append its captured data back into the active tree via `FallbackCommitSplitRecorder -> TryAppendCapturedToTree`. Finalizing the tree before that happened left the active leaf temporarily empty, and the later zero-point prune removed it before the dialog was shown. The older prune log text also misleadingly said "debris" even though the helper now removes any empty leaf/placeholder, not only debris.
+
+**Fix:** The post-destruction tree dialog now waits for deferred split resolution to finish before applying the terminal/debris-only finalization policy, then re-runs the normal guards and finalizes with the repaired tree state. Regression coverage now pins the new `WaitForPendingSplitResolution` policy branch, and the zero-point prune diagnostics were clarified to describe generic empty leaves/placeholders instead of only debris.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~329. Debris explosion FX can fire noticeably after visible ground contact~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: there was a visible delay between debris hitting the ground and the explosion effect.
