@@ -156,6 +156,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsIdleOnPad_DownhillSlideBeyondPadAltitudeThreshold_ReturnsFalse()
+        {
+            var rec = new Recording { MaxDistanceFromLaunch = 100.0 };
+            rec.Points.Add(Pt(100.0, 0.0, 0.0, 100.0));
+            rec.Points.Add(Pt(105.0, MetersToLatDegrees(5.0), 0.0, 0.0));
+
+            Assert.False(ParsekFlight.IsIdleOnPad(rec));
+            Assert.False(ParsekFlight.IsPadFailure(rec));
+        }
+
+        [Fact]
         public void IsTreeIdleOnPad_AllIdleRecordings_ReturnsTrue()
         {
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };

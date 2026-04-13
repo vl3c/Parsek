@@ -7740,7 +7740,7 @@ namespace Parsek
 
         private const double PadFailureDurationThresholdSeconds = 10.0;
         private const double PadLocalizedDistanceThresholdMeters = 30.0;
-        private const double PadLocalizedAltitudeThresholdMeters = 30.0;
+        private const double PadLocalizedAltitudeDisplacementThresholdMeters = 30.0;
 
         // Stock KSP body radii for runtime-free distance estimates in unit tests.
         // Unknown/modded bodies conservatively fall back to Kerbin's radius.
@@ -7779,7 +7779,7 @@ namespace Parsek
         /// <summary>
         /// Recording-aware pad failure check. Keeps the legacy 3D distance rule, but
         /// also treats topple/drop launches as pad failures when their surface range
-        /// and climb above launch both stayed within pad-local thresholds.
+        /// and vertical displacement from launch both stayed within pad-local thresholds.
         /// </summary>
         internal static bool IsPadFailure(Recording rec)
         {
@@ -7803,7 +7803,7 @@ namespace Parsek
 
         /// <summary>
         /// Recording-aware idle-on-pad check. Extends the legacy 3D max-distance rule
-        /// with a pad-drop override so vertical collapse or topple noise does not
+        /// with a pad-drop override so local collapse or topple noise does not
         /// promote a pad-local failure into merge UI.
         /// </summary>
         internal static bool IsIdleOnPad(Recording rec)
@@ -7828,20 +7828,20 @@ namespace Parsek
             if (!TryGetPadLocalizedMotionMetrics(
                 rec,
                 out double maxSurfaceRangeFromLaunch,
-                out double maxAltitudeAboveLaunch))
+                out double maxAbsoluteAltitudeDeltaFromLaunch))
             {
                 return false;
             }
 
             bool localized =
                 maxSurfaceRangeFromLaunch < PadLocalizedDistanceThresholdMeters &&
-                maxAltitudeAboveLaunch < PadLocalizedAltitudeThresholdMeters;
+                maxAbsoluteAltitudeDeltaFromLaunch < PadLocalizedAltitudeDisplacementThresholdMeters;
             if (localized)
             {
                 ParsekLog.Verbose("Flight",
                     $"Pad-localized motion override: rec='{rec.RecordingId ?? "(unknown)"}' " +
                     $"surfaceRange={maxSurfaceRangeFromLaunch:F1}m " +
-                    $"maxAltAboveLaunch={maxAltitudeAboveLaunch:F1}m " +
+                    $"maxAbsAltDelta={maxAbsoluteAltitudeDeltaFromLaunch:F1}m " +
                     $"maxDist3D={rec.MaxDistanceFromLaunch:F1}m");
             }
             return localized;
@@ -7850,10 +7850,10 @@ namespace Parsek
         private static bool TryGetPadLocalizedMotionMetrics(
             Recording rec,
             out double maxSurfaceRangeFromLaunch,
-            out double maxAltitudeAboveLaunch)
+            out double maxAbsoluteAltitudeDeltaFromLaunch)
         {
             maxSurfaceRangeFromLaunch = 0.0;
-            maxAltitudeAboveLaunch = 0.0;
+            maxAbsoluteAltitudeDeltaFromLaunch = 0.0;
 
             if (rec == null || rec.Points == null || rec.Points.Count < 2)
                 return false;
@@ -7879,7 +7879,7 @@ namespace Parsek
                 if (!string.Equals(pointBody, launchBody, StringComparison.Ordinal))
                 {
                     maxSurfaceRangeFromLaunch = double.PositiveInfinity;
-                    maxAltitudeAboveLaunch = double.PositiveInfinity;
+                    maxAbsoluteAltitudeDeltaFromLaunch = double.PositiveInfinity;
                     return true;
                 }
 
@@ -7893,9 +7893,9 @@ namespace Parsek
                 if (surfaceRange > maxSurfaceRangeFromLaunch)
                     maxSurfaceRangeFromLaunch = surfaceRange;
 
-                double altitudeAboveLaunch = pt.altitude - launchAltitude;
-                if (altitudeAboveLaunch > maxAltitudeAboveLaunch)
-                    maxAltitudeAboveLaunch = altitudeAboveLaunch;
+                double absoluteAltitudeDeltaFromLaunch = Math.Abs(pt.altitude - launchAltitude);
+                if (absoluteAltitudeDeltaFromLaunch > maxAbsoluteAltitudeDeltaFromLaunch)
+                    maxAbsoluteAltitudeDeltaFromLaunch = absoluteAltitudeDeltaFromLaunch;
             }
 
             return true;

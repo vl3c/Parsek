@@ -221,7 +221,7 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 
 **Root cause / hypothesis:** The current failure-discard heuristic likely keys too heavily on generic recording existence or total motion while missing the specific "never really left the pad" case when there is some vertical or physics noise but no meaningful horizontal travel. This is probably adjacent to `IsTreeIdleOnPad`, launch-failure classification, and any max-distance / distance-from-launch thresholds used before showing merge UI.
 
-**Fix:** Pad-failure / idle-on-pad classification now keeps the existing `duration < 10 s` / `distance < 30 m` 3D rule, but adds a recording-aware pad-drop override: if a recording's surface range from launch and climb above launch both stay within the same 30 m pad-local threshold, it is still treated as pad-local even when raw 3D max distance was inflated by a topple or downward fall. Tree merge auto-discard and destroyed-split fallback now both use the recording-aware checks. Added unit coverage for toppled pad drops versus a real vertical ascent.
+**Fix:** Pad-failure / idle-on-pad classification now keeps the existing `duration < 10 s` / `distance < 30 m` 3D rule, but adds a recording-aware pad-drop override: if a recording's surface range from launch and absolute altitude displacement from launch both stay within the same 30 m pad-local threshold, it is still treated as pad-local even when raw 3D max distance was inflated by a topple or short fall. Tree merge auto-discard and destroyed-split fallback now both use the recording-aware checks. Added unit coverage for toppled pad drops, real vertical ascent, and downhill false positives.
 
 **Status:** Fixed
 
