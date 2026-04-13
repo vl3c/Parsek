@@ -158,7 +158,7 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 **Root cause:** Deferred stock crash suppression was inferred from transient recorder / pending-tree timing instead of explicit merge ownership. The tree-destruction path had a real handoff gap before the pending tree existed, and stale pending-tree cleanup could preserve or later replay crash dialogs from abandoned futures.
 
-**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine. Tree-destruction flow arms suppression before the coroutine gap, merge/discard/auto-discard paths resolve or cancel it explicitly, scene-change / `OnFlightReady()` only treat finalized pending trees as replay owners, and quickload/revert/stale-save cleanup clears deferred crash results when the pending-tree owner is abandoned. Regression coverage now pins `Prefix` capture/duplicate/bypass behavior, finalized-vs-Limbo ownership, and quickload discard cleanup.
+**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine, but the active-crash fallback only stays armed when the remaining same-scene blockers are debris-only. That lets real surviving vessels cancel the deferred crash flow immediately, while debris-only crash paths preserve deferred stock results across the revert/scene-reload handoff until a real merge owner appears. `OnFlightReady()` now resolves that owner only after pending-tree fallback dispatch has had a chance to create the merge dialog, and abandoned quickload / vessel-switch / main-menu paths clear the deferred crash state instead of replaying or leaking it. Regression coverage now pins capture/bypass/clear transitions plus the debris-only-vs-real-survivor crash split.
 
 **Status:** ~~Fixed~~
 
