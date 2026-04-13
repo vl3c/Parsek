@@ -28,6 +28,19 @@ namespace Parsek.InGameTests
         /// Use for disruptive scenarios that mutate or reload live game state.
         /// </summary>
         public bool RunLast { get; set; }
+
+        /// <summary>
+        /// Whether this test is safe to run from batch entry points such as
+        /// Run All / Run category. Set false for destructive scene-transition
+        /// tests that should only be run individually.
+        /// </summary>
+        public bool AllowBatchExecution { get; set; } = true;
+
+        /// <summary>
+        /// Optional reason shown when a single-run-only test is skipped from
+        /// batch execution.
+        /// </summary>
+        public string BatchSkipReason { get; set; }
     }
 
     /// <summary>

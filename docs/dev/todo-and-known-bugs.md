@@ -316,9 +316,9 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## ~~332. In-game FLIGHT save/load tests can leave the diagnostics window transparent and watch/camera state stale~~
+## ~~332. In-game FLIGHT test batches can poison the live session (transparent diagnostics window, broken camera/watch context, null active vessel after quickload canary)~~
 
-**Observed in:** 2026-04-13 local FLIGHT batch run after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/`. User report: after the in-game save/load test, the diagnostics window became transparent and the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad.
+**Observed in:** 2026-04-13 local FLIGHT batch runs after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/` and the follow-up `logs/2026-04-13_1739_332-followup-unsolved/`. User report: after running the in-game FLIGHT tests, the diagnostics window became transparent, the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad, and later the whole session was left broken.
 
 **Collected evidence:**
 
@@ -326,14 +326,17 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - The failing code rendered the tooltip row conditionally: tooltip present emitted `GUILayout.Space(...)` + `GUILayout.Label(...)`, tooltip absent emitted a zero-height label only. That is the same IMGUI layout/repaint mismatch already avoided in `TestRunnerShortcut`.
 - The FLIGHT round-trip tests (`SaveLoadTests.ScenarioRoundTripPreservesCount`, `SceneAndPatchTests.ScenarioRoundTripPreservesTreeStructure`, `SceneAndPatchTests.CrewReplacementsRoundTrip`) call live `ParsekScenario.OnSave`/`OnLoad` mid-batch, which re-subscribes scenario/runtime state without a real scene transition.
 - `ParsekFlight` already had the right cleanup primitives (`ExitWatchMode`, `StopPlayback`, `DestroyAllTimelineGhosts`), but the destructive tests were not using them, so stale watch/ghost state could survive after the synthetic `OnLoad`.
-- The same bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+- The first bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+- The follow-up bundle proved the live-session break was still happening after that detection fix: `RuntimeTests.BridgeSurvivesSceneTransition` triggered a real `TriggerQuickload`, stock `FlightDriver.Start()` immediately threw `NullReferenceException`, and the session stayed in `scene=FLIGHT, flightReady=False, activeVessel=null` while `FlightCamera`, autopilot UI, and related systems kept throwing.
+- `parsek-test-results.txt` in the follow-up bundle was stale from an earlier run, which means the broken quickload path never reached clean result export; the reliable evidence was the fresh `KSP.log`.
 
-**Root cause:** Two separate harness issues were compounding:
+**Root cause:** The final diagnosis was two different harness faults, only one of which the first patch fully addressed:
 
 - the settings/diagnostics window had a real IMGUI control-count bug in its tooltip row
-- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward, while the quickload canary helper was too weak to expose broken restore paths honestly
+- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward
+- the real F5/F9 quickload scene-transition canaries were still being batched into normal FLIGHT runs, so once quickload wait helpers started failing honestly, the test harness could finally reveal that stock quickload itself was sometimes leaving the live session half-dead; hardening the wait helper did not stop the destructive scene transition from running
 
-**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The live scenario round-trip tests now run last, skip active-tree / pending-merge sessions, and tear down FLIGHT runtime state after a synthetic load by restoring camera/watch state, stopping preview playback, clearing deferred watch retarget, and destroying timeline ghosts so playback caches rebuild cleanly. Quickload wait helpers now fail with explicit scene/readiness context instead of letting timed-out restores pass silently.
+**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The live scenario round-trip tests now run last, skip active-tree / pending-merge sessions, and tear down FLIGHT runtime state after a synthetic load by restoring camera/watch state, stopping preview playback, clearing deferred watch retarget, and destroying timeline ghosts so playback caches rebuild cleanly. Quickload wait helpers still fail with explicit scene/readiness context, but the destructive quickload canaries are now marked single-run-only and are excluded from `Run All` / `Run category` batches, with explicit skip reasons in the runner UI and exported results. They remain available from the row play button when intentionally run in a disposable session.
 
 **Status:** ~~Fixed~~
 
