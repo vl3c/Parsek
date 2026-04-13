@@ -470,11 +470,11 @@ That confirms PR `#258` removed the original "ghost is visible before its first 
 
 **Impact:** After the PR `#258` fix, the main-stage debris no longer flashes early and slides into place, but it can still appear noticeably displaced from the exact split moment because playback has no visible payload before the first background-sampled frame. On a large, fast-moving stack-separated stage that remaining branch-to-first-sample gap is much easier to notice than on the smaller radial boosters.
 
-**Root cause hypothesis:** This looks like a different gap from `#336`. Ghost visibility is now correctly keyed off the first playable payload frame, but the stack-separated debris recording still has no playable absolute sample until the new child vessel is backgrounded and sampled ~0.5 s after the split. The player expectation is anchored to the separation event, while the current playback path can only show the first recorded background sample.
+**Root cause:** This was a different failure mode from `#336`. Ghost activation was already keyed to the first playable payload frame, but stack-decoupled breakup/background children still often had no real split-time payload at all until the first later background sample. The final fix had two parts: capture and persist an honest split-time seed only when that pose is actually known, without backdating later samples to the earlier branch UT, and stop treating that one seeded point as the true terminal pose when the recording continues farther on orbit. Spawn, loop-end, overlap-expiry, chain-tip, and deferred-spawn endpoint logic now resolve the real endpoint from orbit data when seeded-orbit recordings outlive their single split-time point.
 
 **Implemented fix:** Seed breakup/background child recordings with split-time trajectory data only when that pose is actually captured at the split moment, and otherwise fall back to the first honest post-split sample instead of backdating a later pose to the earlier branch UT. Packed/on-rails background starts still persist that seed immediately into the recording, and loaded starts still use it as the recorder's first-sample baseline.
 
-**Status:** Fix implemented on `fix/337-main-stage-debris-start-offset`; pending runtime validation from a fresh replay/save bundle
+**Status:** Fix implemented in PR `#264`; `gpt-5.4` `xhigh` review found no remaining substantive issues. Runtime validation is still pending from a fresh replay/save bundle.
 
 ---
 
