@@ -460,7 +460,7 @@ namespace Parsek
         {
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0) return;
+            bool hasCommittedRecordings = committed != null && committed.Count > 0;
 
             // --- Phase 1: refresh existing segment-based ghosts or remove exhausted ones ---
             if (vesselsByRecordingIndex.Count > 0)
@@ -469,6 +469,13 @@ namespace Parsek
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
                     int idx = kvp.Key;
+                    if (!hasCommittedRecordings)
+                    {
+                        if (toRemove == null) toRemove = new List<int>();
+                        toRemove.Add(idx);
+                        continue;
+                    }
+
                     uint pid = kvp.Value.persistentId;
                     if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
 
@@ -504,6 +511,12 @@ namespace Parsek
                                 idx, currentUT));
                     }
                 }
+            }
+
+            if (!hasCommittedRecordings)
+            {
+                CachedSupersededIds = new HashSet<string>();
+                return;
             }
 
             // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---

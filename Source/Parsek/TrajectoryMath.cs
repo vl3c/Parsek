@@ -130,6 +130,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: returns true when two orbit segments represent the same underlying orbit
+        /// for map-display continuity purposes. Epoch and mean anomaly are intentionally
+        /// ignored because the same orbit can be serialized at different times.
+        /// </summary>
+        internal static bool AreOrbitSegmentsEquivalentForMapDisplay(OrbitSegment a, OrbitSegment b)
+        {
+            if (string.IsNullOrEmpty(a.bodyName)
+                || !string.Equals(a.bodyName, b.bodyName, System.StringComparison.Ordinal))
+                return false;
+
+            double smaTolerance = System.Math.Max(10.0, System.Math.Abs(a.semiMajorAxis) * 1e-6);
+            const double EccTolerance = 1e-5;
+            const double AngleToleranceDeg = 0.01;
+
+            return System.Math.Abs(a.semiMajorAxis - b.semiMajorAxis) <= smaTolerance
+                && System.Math.Abs(a.eccentricity - b.eccentricity) <= EccTolerance
+                && AngularDeltaDegrees(a.inclination, b.inclination) <= AngleToleranceDeg
+                && AngularDeltaDegrees(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode) <= AngleToleranceDeg
+                && AngularDeltaDegrees(a.argumentOfPeriapsis, b.argumentOfPeriapsis) <= AngleToleranceDeg;
+        }
+
+        private static double AngularDeltaDegrees(double a, double b)
+        {
+            double delta = System.Math.Abs(a - b) % 360.0;
+            return delta > 180.0 ? 360.0 - delta : delta;
+        }
+
+        /// <summary>
         /// Map-view policy helper: return the active orbit segment for the given UT plus
         /// the visible time bounds to use for map-line/icon continuity. During a same-body
         /// gap, the previous segment remains the active orbit and visibility extends until
@@ -168,8 +196,7 @@ namespace Parsek
                 if (!previous.HasValue || candidate.startUT <= ut)
                     return false;
 
-                if (string.IsNullOrEmpty(previous.Value.bodyName)
-                    || !string.Equals(previous.Value.bodyName, candidate.bodyName, System.StringComparison.Ordinal))
+                if (!AreOrbitSegmentsEquivalentForMapDisplay(previous.Value, candidate))
                     return false;
 
                 segment = previous.Value;

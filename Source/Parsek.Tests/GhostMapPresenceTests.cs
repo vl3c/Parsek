@@ -1113,7 +1113,7 @@ namespace Parsek.Tests
                 OrbitSegments = new List<OrbitSegment>
                 {
                     new OrbitSegment { startUT = 100, endUT = 200, bodyName = "Kerbin", semiMajorAxis = 700000 },
-                    new OrbitSegment { startUT = 240, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 710000 }
+                    new OrbitSegment { startUT = 240, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000, meanAnomalyAtEpoch = 2.5, epoch = 240 }
                 }
             };
 
@@ -1121,6 +1121,28 @@ namespace Parsek.Tests
 
             Assert.True(should);
             Assert.Null(reason);
+        }
+
+        /// <summary>
+        /// Same-body gap with a real orbit change should not be carried across.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithSameBodyOrbitChangeGap_Skipped()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = null,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 200, bodyName = "Kerbin", semiMajorAxis = 700000 },
+                    new OrbitSegment { startUT = 240, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 710000 }
+                }
+            };
+
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 220);
+
+            Assert.False(should);
+            Assert.Equal("no-current-segment", reason);
         }
 
         /// <summary>
