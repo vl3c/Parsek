@@ -67,6 +67,10 @@ namespace Parsek
         // DestroyAllGhosts (via ParsekFlight cleanup path), so completedEventFired
         // is guaranteed to be empty when playback restarts after a rewind.
         private readonly HashSet<int> completedEventFired = new HashSet<int>();
+        // Destroyed debris can complete before EndUT when the recording captured a clear
+        // destructive part event. Keep those indices suppressed until a rewind/reset so
+        // they do not respawn while the original recording window is still in range.
+        private readonly HashSet<int> earlyDestroyedDebrisCompleted = new HashSet<int>();
 
         #endregion
 
@@ -253,6 +257,12 @@ namespace Parsek
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
                 if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
 
+                if (ctx.currentUT < traj.StartUT)
+                {
+                    completedEventFired.Remove(i);
+                    earlyDestroyedDebrisCompleted.Remove(i);
+                }
+
                 bool inRange = ctx.currentUT >= traj.StartUT && ctx.currentUT <= traj.EndUT;
                 bool pastEnd = ctx.currentUT > traj.EndUT;
                 bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
@@ -336,7 +346,9 @@ namespace Parsek
                             var syncCtx = ctx;
                             syncCtx.currentUT = parentLoopUT;
                             if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
-                                    hasPoints, hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                                    hasPoints, hasSurfaceData, hasOrbitData,
+                                    allowEarlyDestroyedDebrisCompletion: false,
+                                    ref state, ref ghostActive))
                             {
                                 if (state != null)
                                     state.loopCycleIndex = parentCycle;
@@ -363,12 +375,16 @@ namespace Parsek
                 if (inRange)
                 {
                     if (RenderInRangeGhost(i, traj, f, ctx, suppressVisualFx,
-                            hasPoints, hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                            hasPoints, hasSurfaceData, hasOrbitData,
+                            allowEarlyDestroyedDebrisCompletion: true,
+                            ref state, ref ghostActive))
                         continue;
                 }
 
                 // === Past end: fire completed event, optionally destroy ===
-                if ((pastEnd || pastEffectiveEnd) && !completedEventFired.Contains(i))
+                if ((pastEnd || pastEffectiveEnd)
+                    && !completedEventFired.Contains(i)
+                    && !earlyDestroyedDebrisCompleted.Contains(i))
                     HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPoints);
 
                 // === Stale past-end ghost cleanup ===
@@ -429,8 +445,12 @@ namespace Parsek
         private bool RenderInRangeGhost(int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f,
             FrameContext ctx, bool suppressVisualFx,
             bool hasPoints, bool hasSurfaceData, bool hasOrbitData,
+            bool allowEarlyDestroyedDebrisCompletion,
             ref GhostPlaybackState state, ref bool ghostActive)
         {
+            if (allowEarlyDestroyedDebrisCompletion && earlyDestroyedDebrisCompleted.Contains(i))
+                return true;
+
             if (state == null)
             {
                 SpawnGhost(i, traj);
@@ -515,6 +535,50 @@ namespace Parsek
             ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
                 zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
 
+            if (allowEarlyDestroyedDebrisCompletion
+                && TryHandleEarlyDestroyedDebrisCompletion(
+                    i, traj, f, ctx, state, ghostActive, hasPoints))
+            {
+                return true;
+            }
+
+            return true;
+        }
+
+        private bool TryHandleEarlyDestroyedDebrisCompletion(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPoints)
+        {
+            if (completedEventFired.Contains(index))
+                return true;
+
+            if (!GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(traj, out double explosionUT))
+                return false;
+
+            if (ctx.currentUT + 1e-6 < explosionUT)
+                return false;
+
+            completedEventFired.Add(index);
+            earlyDestroyedDebrisCompleted.Add(index);
+
+            if (ghostActive)
+                TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+
+            deferredCompletedEvents.Add(new PlaybackCompletedEvent
+            {
+                Index = index,
+                Trajectory = traj,
+                State = state,
+                Flags = flags,
+                GhostWasActive = ghostActive,
+                PastEffectiveEnd = ctx.currentUT > flags.chainEndUT,
+                LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
+                CurrentUT = ctx.currentUT
+            });
+
+            ParsekLog.Info("Engine",
+                $"Early debris completion: ghost #{index} \"{traj.VesselName}\" " +
+                $"explosionUT={explosionUT:F2} currentUT={ctx.currentUT:F2} endUT={traj.EndUT:F2}");
             return true;
         }
 
@@ -2244,6 +2308,7 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedReshow.Clear();
             completedEventFired.Clear();
+            earlyDestroyedDebrisCompleted.Clear();
 
             CleanupActiveExplosions();
         }
@@ -2260,6 +2325,7 @@ namespace Parsek
             ReindexSet(loggedGhostEnter, removedIndex);
             ReindexSet(loggedReshow, removedIndex);
             ReindexSet(completedEventFired, removedIndex);
+            ReindexSet(earlyDestroyedDebrisCompleted, removedIndex);
         }
 
         private static void ReindexDict<T>(Dictionary<int, T> dict, int removedIndex)
