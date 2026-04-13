@@ -294,6 +294,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recalculate_PermanentReservation_WithExistingChain_HasNoActiveStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.True(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            Assert.Null(kerbals.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
+        public void Recalculate_RemovedPermanentReservation_ClearsOwnerPermanentlyGone()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            slotNode.AddValue("permanentlyGone", "True");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.False(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            Assert.Equal("Jeb", kerbals.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
         public void Recalculate_ExistingChainEntry_Reused()
         {
             // Pre-populate a slot with an existing stand-in name

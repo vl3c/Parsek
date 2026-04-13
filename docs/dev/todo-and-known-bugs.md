@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~340. Permanent-loss slots can keep stale stand-in occupancy or stay permanently gone after the death is rewound away~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). Slots with an old temporary chain could still present a stand-in as the active occupant after the owner later died permanently, and a saved `permanentlyGone=True` flag could persist even after the death-causing recording was removed from the timeline.
+
+**Root cause:** `OwnerPermanentlyGone` lived in persisted slot state but was not recomputed from scratch each recalculation pass. Once set, it stayed sticky until a full slot reset, and older chain entries could still influence occupant selection unless the active-occupant logic explicitly rejected permanently gone owners.
+
+**Fix:** `PostWalk()` now clears and rebuilds `OwnerPermanentlyGone` from the current reservations on every pass, and regression coverage now pins both sides of the behavior: permanent owners with an existing chain have no active replacement occupant, and rewinding away the permanent loss restores the slot to a normal owner-active state.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~339. Chain reclaim can keep the deepest free stand-in active after an earlier occupant should have reclaimed~~
 
 **Observed in:** Kerbals/events-actions audit (2026-04-13). `KerbalsModule.GetActiveOccupant()` walked chains from deepest to shallowest, so if `Jeb -> [Hanley, Kirrim]` and only Jeb remained reserved, Parsek still preferred Kirrim instead of letting Hanley reclaim.

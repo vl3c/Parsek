@@ -220,6 +220,11 @@ namespace Parsek
         /// </summary>
         public void PostWalk()
         {
+            // Permanent-loss state is derived from the current reservation walk, not
+            // sticky historical state. Rebuild it each pass from the current timeline.
+            foreach (var slot in slots.Values)
+                slot.OwnerPermanentlyGone = false;
+
             // 1. Build/update chains for temporary reservations
             foreach (var kvp in reservations)
             {

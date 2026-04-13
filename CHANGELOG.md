@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#340` Permanent-loss slot state is now recomputed on every kerbals walk, and permanently gone owners no longer keep stale stand-ins as active occupants after a prior temporary chain or after rewinding away the death.
 - `#339` Replacement-chain reclaim now stops at the first free occupant after the reserved prefix, so deeper free stand-ins are treated as displaced metadata and retire/delete correctly instead of continuing to masquerade as the active slot occupant.
 - `#338` Initial save load now initializes the kerbals module before reading `KERBAL_SLOTS`, so persisted replacement-chain state is restored on a cold start instead of being skipped until a later recalculation rebuilds partial slot data from reservations alone.
 - `#337` KerbalAssignment creation now reverse-maps stand-in names through `CrewReplacements` before looking up `CrewEndStates`, so later recordings reserve the original slot owner instead of emitting open-ended reservations for the temporary stand-in.
