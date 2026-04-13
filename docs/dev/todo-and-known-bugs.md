@@ -1157,6 +1157,71 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
+### T62. Add a cold-start kerbal slot migration integration test
+
+The kerbals review fixed several issues that only show up on a true game restart path rather than during an already-initialized session: `KERBAL_SLOTS` loading before the kerbals module exists, persisted stand-in rows that need repair, and end-state population for EVA-only assignments.
+
+What still deserves dedicated coverage is the real cold-start sequence:
+
+- load a save with persisted `KERBAL_SLOTS`, `CREW_REPLACEMENTS`, and ledger rows from an older or partially broken format
+- run the actual `ParsekScenario.OnLoad` / `LedgerOrchestrator.OnLoad` / `OnKspLoad` ordering instead of unit-level helpers
+- verify slot chains, repaired assignment rows, stand-in reverse-mapping, and recalculated reservations all converge to the same final state after a restart
+
+Game scenario worth locking down:
+
+- Jeb has a persisted stand-in chain
+- an EVA-only recording exists for another kerbal
+- one or more saved assignment rows still point at a stand-in name from a pre-fix save
+- after a full reload, the same kerbals stay reserved, the same stand-ins stay attached to the same slots, and no extra replacement cascade appears
+
+**Priority:** Medium — current fixes are covered, but the exact cold-start ordering is still more integration-heavy than the focused unit suites
+
+**Status:** Open
+
+---
+
+### T63. Add end-to-end `ApplyToRoster()` coverage for repaired historical stand-ins
+
+The recent kerbals fixes restored several edge cases around displaced stand-ins, retired stand-in recreation, ghost-only chains, and historical retirement tracking. The logic now looks correct, but most of that confidence still comes from targeted tests around recomputation rather than a full roster-application pass.
+
+Add scenario tests that drive the final roster mutation step and verify:
+
+- a repaired historical stand-in that should remain retired is recreated in the roster as retired/unavailable
+- a displaced stand-in that no longer belongs to any active or historical chain is deleted instead of lingering as assignable crew
+- permanent owner loss shrinks the active slot correctly even if that slot previously had stand-ins
+- later reload/recompute cycles preserve the same historical-retirement outcome instead of oscillating between deleted/available/retired
+
+Game scenarios worth locking down:
+
+- remove an owner reservation while a deeper stand-in is still historically significant
+- load a save where the roster entry is missing but the slot graph proves the stand-in must still exist as retired history
+- kill the owner after a temporary chain existed and confirm no stale stand-in keeps auto-filling the dead kerbal's slot
+
+**Priority:** Medium — this is the main remaining integration risk in the kerbals reservation system after the audit fixes
+
+**Status:** Open
+
+---
+
+### T64. Add explicit diagnostics for kerbal slot/assignment repair on load
+
+The loader now repairs several historical data problems on purpose: stand-in names stored in assignment rows, missing reverse-maps from persisted slots, ghost-only chain tips, and cold-start slot initialization order. When those repairs happen silently, later bug reports become hard to root-cause because the save the player loads is no longer the save shape we debug against.
+
+Add focused diagnostics that emit once per load when Parsek repairs kerbal reservation data, including:
+
+- which assignment rows were remapped from stand-in name to owner name
+- whether persisted slot chains were repaired, trimmed, or ignored
+- whether historical stand-ins were recreated as retired roster entries
+- whether any tourist assignments were skipped during migration
+
+These should stay concise and summary-oriented rather than spamming per-frame logs.
+
+**Priority:** Low — not a correctness blocker, but it will reduce future debugging cost for save migration/regression reports
+
+**Status:** Open
+
+---
+
 ### ~~T60. Add regression coverage and diagnostics for R/FF enablement reasons~~
 
 **Evidence bundle:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/`

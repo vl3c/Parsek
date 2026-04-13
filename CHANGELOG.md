@@ -72,6 +72,7 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
+- Documented the next kerbals hardening follow-ups in `todo-and-known-bugs.md`: a true cold-start slot-migration integration test, end-to-end `ApplyToRoster()` coverage for repaired historical stand-ins, and concise load-time diagnostics when kerbal reservation data is auto-repaired.
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
 - Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt/unsupported/oversized-envelope rejection, snapshot-hydration failure surfacing without misleading fallback logs, snapshot-only quickload salvage that preserves disk trajectory and alias invariants, transient sidecar-artifact cleanup, and staged-write rollback/heal behavior for both first-write and stale-ghost-delete branches.
 - Added regression coverage for readable sidecar mirrors: default-on mirror generation, mirror cleanup when the flag is disabled, orphan/transient mirror cleanup, diagnostics byte accounting, scenario fixture generation, and non-fatal mirror reconcile failures that must not roll back authoritative sidecars.
