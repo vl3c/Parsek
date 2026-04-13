@@ -6,6 +6,12 @@ using UnityEngine;
 namespace Parsek
 {
     internal enum WatchCameraMode { Free, HorizonLocked }
+    internal enum HorizonForwardSource
+    {
+        ProjectedSurfaceVelocity,
+        LastForwardFallback,
+        ArbitraryPerpendicularFallback
+    }
 
     /// <summary>
     /// Owns camera-follow (watch mode) state and methods.
@@ -56,6 +62,7 @@ namespace Parsek
         private GUIStyle watchOverlayHintStyle;
         private string lastLoggedWatchTargetMismatch;
         private string lastLoggedWatchFocusKey;
+        private string lastLoggedHorizonVectorKey;
 
         internal WatchModeController(ParsekFlight host)
         {
@@ -240,6 +247,12 @@ namespace Parsek
             return distanceMeters < 1000.0
                 ? distanceMeters.ToString("F0", CultureInfo.InvariantCulture) + "m"
                 : (distanceMeters / 1000.0).ToString("F1", CultureInfo.InvariantCulture) + "km";
+        }
+
+        internal static string FormatVector3ForLogs(Vector3 value)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
         private string ResolveWatchStateSource(GhostPlaybackState state)
@@ -717,6 +730,7 @@ namespace Parsek
             // Reset camera mode state for new watch session
             userModeOverride = false;
             currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
+            lastLoggedHorizonVectorKey = null;
             return true;
         }
 
@@ -752,6 +766,7 @@ namespace Parsek
             userModeOverride = false;
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
+            lastLoggedHorizonVectorKey = null;
         }
 
         private void RestoreCameraAfterWatchExit(bool skipCameraRestore)
@@ -902,14 +917,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes the horizon-plane forward direction from velocity and up vector.
-        /// Projects velocity onto the horizon plane (perpendicular to up). Falls back
-        /// to lastForward when velocity is near zero, then to an arbitrary perpendicular.
-        /// Pure vector math — testable outside Unity runtime.
+        /// Converts playback velocity to a body-relative velocity suitable for
+        /// horizon-lock heading decisions. Playback samples are recorded in KSP's
+        /// world/orbital frame, so surface-relative consumers must subtract the
+        /// body's rotating-frame velocity at the ghost position.
         /// </summary>
-        internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward)
+        internal static Vector3 ComputeSurfaceRelativeVelocity(
+            Vector3 playbackVelocity, Vector3 rotatingFrameVelocity)
         {
-            Vector3 forward = Vector3.ProjectOnPlane(velocity, up);
+            return playbackVelocity - rotatingFrameVelocity;
+        }
+
+        /// <summary>
+        /// Computes the forward vector used by horizon-locked watch mode after
+        /// converting playback velocity to the rotating body's surface frame.
+        /// Returns the converted velocity and the fallback source for diagnostics/tests.
+        /// </summary>
+        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 surfaceVelocity,
+            HorizonForwardSource source) ComputeWatchHorizonForward(
+                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
+                Vector3 lastForward)
+        {
+            Vector3 surfaceVelocity = ComputeSurfaceRelativeVelocity(
+                playbackVelocity, rotatingFrameVelocity);
+            Vector3 horizonVelocity = Vector3.ProjectOnPlane(surfaceVelocity, up);
+            Vector3 forward = horizonVelocity;
+            HorizonForwardSource source = HorizonForwardSource.ProjectedSurfaceVelocity;
             if (forward.sqrMagnitude < 0.01f)
             {
                 forward = Vector3.ProjectOnPlane(lastForward, up);
@@ -918,9 +951,27 @@ namespace Parsek
                     forward = Vector3.Cross(up, Vector3.right);
                     if (forward.sqrMagnitude < 0.0001f)
                         forward = Vector3.Cross(up, Vector3.forward);
+                    source = HorizonForwardSource.ArbitraryPerpendicularFallback;
+                }
+                else
+                {
+                    source = HorizonForwardSource.LastForwardFallback;
                 }
             }
             forward.Normalize();
+            return (forward, horizonVelocity, surfaceVelocity, source);
+        }
+
+        /// <summary>
+        /// Computes the horizon-plane forward direction from velocity and up vector.
+        /// Projects velocity onto the horizon plane (perpendicular to up). Falls back
+        /// to lastForward when velocity is near zero, then to an arbitrary perpendicular.
+        /// Pure vector math — testable outside Unity runtime.
+        /// </summary>
+        internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward)
+        {
+            var (forward, _, _, _) = ComputeWatchHorizonForward(
+                up, velocity, Vector3.zero, lastForward);
             return forward;
         }
 
@@ -1042,6 +1093,7 @@ namespace Parsek
             currentCameraMode = currentCameraMode == WatchCameraMode.Free
                 ? WatchCameraMode.HorizonLocked
                 : WatchCameraMode.Free;
+            lastLoggedHorizonVectorKey = null;
 
             ApplyCameraTarget(state);
 
@@ -1073,6 +1125,7 @@ namespace Parsek
                 if (autoMode != currentCameraMode)
                 {
                     currentCameraMode = autoMode;
+                    lastLoggedHorizonVectorKey = null;
                     ApplyCameraTarget(state);
                     ParsekLog.Info("CameraFollow",
                         string.Format(CultureInfo.InvariantCulture,
@@ -1087,11 +1140,15 @@ namespace Parsek
             {
                 Vector3 ghostPos = state.cameraPivot.position;
                 Vector3 up = (ghostPos - body.position).normalized;
-
-                var (rotation, forward) = ComputeHorizonRotation(
-                    up, state.lastInterpolatedVelocity, state.lastValidHorizonForward);
-                state.horizonProxy.rotation = rotation;
+                Vector3 rotatingFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
+                var (forward, horizonVelocity, surfaceVelocity, source) =
+                    ComputeWatchHorizonForward(
+                        up, state.lastInterpolatedVelocity, rotatingFrameVelocity,
+                        state.lastValidHorizonForward);
+                state.horizonProxy.rotation = Quaternion.LookRotation(forward, up);
                 state.lastValidHorizonForward = forward;
+                LogHorizonForwardState(state, up, forward, horizonVelocity,
+                    surfaceVelocity, rotatingFrameVelocity, source);
             }
         }
 
@@ -1564,6 +1621,56 @@ namespace Parsek
                 $"Watch target mismatch: rec=#{watchedRecordingIndex} id={watchedRecordingId ?? "null"} " +
                 $"expected='{expectedTarget.name}' actual='{actualName}' cycle={watchedOverlapCycleIndex} " +
                 $"mode={currentCameraMode} pivotPos=({state.cameraPivot.position.x:F1},{state.cameraPivot.position.y:F1},{state.cameraPivot.position.z:F1})");
+        }
+
+        private void LogHorizonForwardState(GhostPlaybackState state, Vector3 up, Vector3 forward,
+            Vector3 horizonVelocity, Vector3 surfaceVelocity, Vector3 rotatingFrameVelocity,
+            HorizonForwardSource source)
+        {
+            if (state == null || currentCameraMode != WatchCameraMode.HorizonLocked)
+                return;
+
+            Vector3 rawHorizonVelocity = Vector3.ProjectOnPlane(
+                state.lastInterpolatedVelocity, up);
+
+            string rawAlignment = DescribeHorizonAlignment(forward, rawHorizonVelocity);
+            string key = string.Format(CultureInfo.InvariantCulture,
+                "{0}|{1}|{2}|{3}|{4}|{5}",
+                watchedRecordingId ?? "null",
+                watchedOverlapCycleIndex,
+                state.lastInterpolatedBodyName ?? "null",
+                currentCameraMode,
+                source,
+                rawAlignment);
+            if (key == lastLoggedHorizonVectorKey)
+                return;
+
+            lastLoggedHorizonVectorKey = key;
+            ParsekLog.Info("CameraFollow",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Watch horizon basis: rec=#{0} id={1} cycle={2} mode={3} body={4} alt={5:F0}m " +
+                    "source={6} rawAlignment={7} playbackVel={8} bodyVel={9} surfaceVel={10} " +
+                    "horizonVel={11} forward={12}",
+                    watchedRecordingIndex,
+                    watchedRecordingId ?? "null",
+                    watchedOverlapCycleIndex,
+                    currentCameraMode,
+                    state.lastInterpolatedBodyName ?? "null",
+                    state.lastInterpolatedAltitude,
+                    source,
+                    rawAlignment,
+                    FormatVector3ForLogs(state.lastInterpolatedVelocity),
+                    FormatVector3ForLogs(rotatingFrameVelocity),
+                    FormatVector3ForLogs(surfaceVelocity),
+                    FormatVector3ForLogs(horizonVelocity),
+                    FormatVector3ForLogs(forward)));
+        }
+
+        private static string DescribeHorizonAlignment(Vector3 forward, Vector3 velocity)
+        {
+            if (velocity.sqrMagnitude < 0.01f)
+                return "fallback";
+            return Vector3.Dot(forward, velocity) >= 0f ? "prograde" : "retrograde";
         }
 
         private void LogWatchFocusStateChanged(GhostPlaybackState state, bool force = false, string context = null)

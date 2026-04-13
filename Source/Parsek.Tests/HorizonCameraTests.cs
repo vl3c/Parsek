@@ -182,6 +182,60 @@ namespace Parsek.Tests
                 $"Forward should be perpendicular to up, got dot={Vector3.Dot(forward, up)}");
         }
 
+        [Fact]
+        public void ComputeSurfaceRelativeVelocity_SubtractsBodyRotation()
+        {
+            Vector3 playbackVelocity = new Vector3(120f, 0f, 0f);
+            Vector3 rotatingFrameVelocity = new Vector3(200f, 0f, 0f);
+
+            Vector3 surfaceVelocity = ParsekFlight.ComputeSurfaceRelativeVelocity(
+                playbackVelocity, rotatingFrameVelocity);
+
+            Assert.True(Vector3.Dot(surfaceVelocity, Vector3.left) > 79.9f,
+                $"Surface-relative velocity should point west, got {surfaceVelocity}");
+        }
+
+        [Fact]
+        public void ComputeWatchHorizonForward_BodyRotationDominates_FollowsSurfaceRelativePrograde()
+        {
+            Vector3 up = Vector3.up;
+            Vector3 playbackVelocity = new Vector3(120f, 0f, 0f);       // inertial east
+            Vector3 rotatingFrameVelocity = new Vector3(200f, 0f, 0f);  // body rotates east faster
+
+            var (forward, horizonVelocity, surfaceVelocity, source) =
+                ParsekFlight.ComputeWatchHorizonForward(
+                    up, playbackVelocity, rotatingFrameVelocity, Vector3.forward);
+
+            Assert.Equal(HorizonForwardSource.ProjectedSurfaceVelocity, source);
+            Assert.True(Vector3.Dot(surfaceVelocity.normalized, Vector3.left) > 0.99f,
+                $"Surface-relative velocity should point west, got {surfaceVelocity}");
+            Assert.True(Vector3.Dot(horizonVelocity.normalized, Vector3.left) > 0.99f,
+                $"Projected horizon velocity should point west, got {horizonVelocity}");
+            Assert.True(Vector3.Dot(forward, Vector3.left) > 0.99f,
+                $"Forward should follow surface-relative prograde, got {forward}");
+        }
+
+        [Fact]
+        public void ComputeWatchHorizonForward_SurfaceVelocityCancels_FallsBackToLastForward()
+        {
+            Vector3 up = Vector3.up;
+            Vector3 playbackVelocity = new Vector3(175f, 0f, 0f);
+            Vector3 rotatingFrameVelocity = new Vector3(175f, 0f, 0f);
+            Vector3 lastForward = Vector3.forward;
+
+            var (forward, horizonVelocity, surfaceVelocity, source) =
+                ParsekFlight.ComputeWatchHorizonForward(
+                    up, playbackVelocity, rotatingFrameVelocity, lastForward);
+
+            Assert.Equal(HorizonForwardSource.LastForwardFallback, source);
+            Assert.True(surfaceVelocity.sqrMagnitude < 0.0001f,
+                $"Surface-relative velocity should cancel out, got {surfaceVelocity}");
+            Assert.True(horizonVelocity.sqrMagnitude < 0.0001f,
+                $"Projected horizon velocity should be near zero, got {horizonVelocity}");
+            Assert.True(Vector3.Dot(forward, Vector3.forward) > 0.99f,
+                $"Forward should fall back to lastForward, got {forward}");
+        }
+
         #endregion
 
         // Note: ComputeHorizonRotation and CompensateCameraAngles depend on

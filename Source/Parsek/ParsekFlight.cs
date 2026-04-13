@@ -8444,6 +8444,15 @@ namespace Parsek
             WatchModeController.ComputeWatchIndexAfterDelete(watchedIndex, watchedId, deletedIndex, recordings);
         internal static bool ShouldAutoHorizonLock(bool hasAtmosphere, double atmosphereDepth, double altitude) =>
             WatchModeController.ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude);
+        internal static Vector3 ComputeSurfaceRelativeVelocity(
+            Vector3 playbackVelocity, Vector3 rotatingFrameVelocity) =>
+            WatchModeController.ComputeSurfaceRelativeVelocity(playbackVelocity, rotatingFrameVelocity);
+        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 surfaceVelocity,
+            HorizonForwardSource source) ComputeWatchHorizonForward(
+                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
+                Vector3 lastForward) =>
+            WatchModeController.ComputeWatchHorizonForward(
+                up, playbackVelocity, rotatingFrameVelocity, lastForward);
         internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward) =>
             WatchModeController.ComputeHorizonForward(up, velocity, lastForward);
         internal static (Quaternion rotation, Vector3 forward) ComputeHorizonRotation(
