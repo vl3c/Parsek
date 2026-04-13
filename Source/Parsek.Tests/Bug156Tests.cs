@@ -10,6 +10,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class Bug156_PadFailureThresholdTests : IDisposable
     {
+        private const double KerbinRadius = 600000.0;
+
         public Bug156_PadFailureThresholdTests()
         {
             ParsekLog.ResetTestOverrides();
@@ -20,6 +22,23 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        private static double MetersToLatDegrees(double meters)
+        {
+            return meters / KerbinRadius * 180.0 / Math.PI;
+        }
+
+        private static TrajectoryPoint Pt(double ut, double lat, double lon, double alt)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = "Kerbin"
+            };
         }
 
         // ────────────────────────────────────────────────────────────
@@ -100,6 +119,40 @@ namespace Parsek.Tests
         public void IsIdleOnPad_AboveThreshold_ReturnsFalse()
         {
             Assert.False(ParsekFlight.IsIdleOnPad(50.0));
+        }
+
+        [Fact]
+        public void IsIdleOnPad_ToppledPadDropOverride_ReturnsTrue()
+        {
+            // Bug #324: 3D max distance can exceed 30 m when a vessel topples/drops
+            // on the pad, even though horizontal travel never meaningfully leaves it.
+            var rec = new Recording { MaxDistanceFromLaunch = 35.0 };
+            rec.Points.Add(Pt(100.0, 0.0, 0.0, 10.0));
+            rec.Points.Add(Pt(105.0, MetersToLatDegrees(5.0), 0.0, 0.0));
+
+            Assert.True(ParsekFlight.IsIdleOnPad(rec));
+        }
+
+        [Fact]
+        public void IsPadFailure_ToppledPadDropOverride_ReturnsTrue()
+        {
+            var rec = new Recording { MaxDistanceFromLaunch = 35.0 };
+            rec.Points.Add(Pt(100.0, 0.0, 0.0, 10.0));
+            rec.Points.Add(Pt(105.0, MetersToLatDegrees(5.0), 0.0, 0.0));
+
+            Assert.True(ParsekFlight.IsPadFailure(rec));
+        }
+
+        [Fact]
+        public void IsIdleOnPad_VerticalLaunchBeyondPadAltitudeThreshold_ReturnsFalse()
+        {
+            var rec = new Recording { MaxDistanceFromLaunch = 60.0 };
+            rec.Points.Add(Pt(100.0, 0.0, 0.0, 0.0));
+            rec.Points.Add(Pt(102.0, 0.0, 0.0, 60.0));
+            rec.Points.Add(Pt(105.0, 0.0, 0.0, 0.0));
+
+            Assert.False(ParsekFlight.IsIdleOnPad(rec));
+            Assert.False(ParsekFlight.IsPadFailure(rec));
         }
 
         [Fact]
@@ -188,6 +241,19 @@ namespace Parsek.Tests
 
             // Should NOT be idle on pad — the rocket flew 5km
             Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_ToppledPadDropOverride_ReturnsTrue()
+        {
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            var rec = new Recording { MaxDistanceFromLaunch = 35.0 };
+            rec.Points.Add(Pt(100.0, 0.0, 0.0, 10.0));
+            rec.Points.Add(Pt(105.0, MetersToLatDegrees(5.0), 0.0, 0.0));
+            tree.Recordings["pad-drop"] = rec;
+
+            Assert.True(ParsekFlight.IsTreePadFailure(tree));
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
         }
 
         // ────────────────────────────────────────────────────────────

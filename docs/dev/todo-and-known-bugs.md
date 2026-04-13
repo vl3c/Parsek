@@ -213,7 +213,7 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 
 ---
 
-## 324. Pad-drop launch failures can surface a merge dialog instead of auto-discarding
+## ~~324. Pad-drop launch failures can surface a merge dialog instead of auto-discarding~~
 
 **Observed in:** 2026-04-12 follow-up playtests. User report: a vessel launched, engines were never activated, and it simply fell over / down on the pad. Despite essentially zero horizontal travel, Parsek still surfaced a merge dialog instead of treating the run as an auto-discardable launch failure.
 
@@ -221,9 +221,9 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 
 **Root cause / hypothesis:** The current failure-discard heuristic likely keys too heavily on generic recording existence or total motion while missing the specific "never really left the pad" case when there is some vertical or physics noise but no meaningful horizontal travel. This is probably adjacent to `IsTreeIdleOnPad`, launch-failure classification, and any max-distance / distance-from-launch thresholds used before showing merge UI.
 
-**Fix direction:** Reproduce with a focused launch-failure scenario, then tighten the discard heuristic so a toppled-on-pad vessel with negligible horizontal displacement does not count as a meaningful recording. Add either a unit test around the idle-on-pad / pad-failure classifier or an in-game test that asserts no merge dialog is shown for the no-engine pad-drop case.
+**Fix:** Pad-failure / idle-on-pad classification now keeps the existing `duration < 10 s` / `distance < 30 m` 3D rule, but adds a recording-aware pad-drop override: if a recording's surface range from launch and climb above launch both stay within the same 30 m pad-local threshold, it is still treated as pad-local even when raw 3D max distance was inflated by a topple or downward fall. Tree merge auto-discard and destroyed-split fallback now both use the recording-aware checks. Added unit coverage for toppled pad drops versus a real vertical ascent.
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 

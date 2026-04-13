@@ -2246,13 +2246,13 @@ namespace Parsek
             {
                 double dur = rec.EndUT - rec.StartUT;
                 double maxDist = rec.MaxDistanceFromLaunch;
-                if (IsPadFailure(dur, maxDist))
+                if (IsPadFailure(rec))
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
                     return;
                 }
-                if (IsIdleOnPad(maxDist))
+                if (IsIdleOnPad(rec))
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
@@ -7738,13 +7738,57 @@ namespace Parsek
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }
 
+        private const double PadFailureDurationThresholdSeconds = 10.0;
+        private const double PadLocalizedDistanceThresholdMeters = 30.0;
+        private const double PadLocalizedAltitudeThresholdMeters = 30.0;
+
+        // Stock KSP body radii for runtime-free distance estimates in unit tests.
+        // Unknown/modded bodies conservatively fall back to Kerbin's radius.
+        private static readonly Dictionary<string, double> PadHeuristicBodyRadii =
+            new Dictionary<string, double>
+            {
+                { "Kerbol", 261600000 },
+                { "Moho", 250000 },
+                { "Eve", 700000 },
+                { "Gilly", 13000 },
+                { "Kerbin", 600000 },
+                { "Mun", 200000 },
+                { "Minmus", 60000 },
+                { "Duna", 320000 },
+                { "Ike", 130000 },
+                { "Dres", 138000 },
+                { "Jool", 6000000 },
+                { "Laythe", 500000 },
+                { "Vall", 300000 },
+                { "Tylo", 600000 },
+                { "Bop", 65000 },
+                { "Pol", 44000 },
+                { "Eeloo", 210000 }
+            };
+
         /// <summary>
         /// Returns true if the recording should be discarded as a pad failure:
         /// duration &lt; 10s AND max distance from launch &lt; 30m.
         /// </summary>
         internal static bool IsPadFailure(double duration, double maxDistanceFromLaunch)
         {
-            return duration < 10.0 && maxDistanceFromLaunch < 30.0;
+            return duration < PadFailureDurationThresholdSeconds
+                && maxDistanceFromLaunch < PadLocalizedDistanceThresholdMeters;
+        }
+
+        /// <summary>
+        /// Recording-aware pad failure check. Keeps the legacy 3D distance rule, but
+        /// also treats topple/drop launches as pad failures when their surface range
+        /// and climb above launch both stayed within pad-local thresholds.
+        /// </summary>
+        internal static bool IsPadFailure(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            double duration = rec.EndUT - rec.StartUT;
+            return IsPadFailure(duration, rec.MaxDistanceFromLaunch)
+                || (duration < PadFailureDurationThresholdSeconds && HasPadLocalizedMotionOverride(rec));
         }
 
         /// <summary>
@@ -7754,7 +7798,129 @@ namespace Parsek
         /// </summary>
         internal static bool IsIdleOnPad(double maxDistanceFromLaunch)
         {
-            return maxDistanceFromLaunch < 30.0;
+            return maxDistanceFromLaunch < PadLocalizedDistanceThresholdMeters;
+        }
+
+        /// <summary>
+        /// Recording-aware idle-on-pad check. Extends the legacy 3D max-distance rule
+        /// with a pad-drop override so vertical collapse or topple noise does not
+        /// promote a pad-local failure into merge UI.
+        /// </summary>
+        internal static bool IsIdleOnPad(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            return IsIdleOnPad(rec.MaxDistanceFromLaunch)
+                || HasPadLocalizedMotionOverride(rec);
+        }
+
+        private static bool HasPadLocalizedMotionOverride(Recording rec)
+        {
+            if (rec == null
+                || rec.Points == null
+                || rec.Points.Count < 2
+                || rec.MaxDistanceFromLaunch < PadLocalizedDistanceThresholdMeters)
+            {
+                return false;
+            }
+
+            if (!TryGetPadLocalizedMotionMetrics(
+                rec,
+                out double maxSurfaceRangeFromLaunch,
+                out double maxAltitudeAboveLaunch))
+            {
+                return false;
+            }
+
+            bool localized =
+                maxSurfaceRangeFromLaunch < PadLocalizedDistanceThresholdMeters &&
+                maxAltitudeAboveLaunch < PadLocalizedAltitudeThresholdMeters;
+            if (localized)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Pad-localized motion override: rec='{rec.RecordingId ?? "(unknown)"}' " +
+                    $"surfaceRange={maxSurfaceRangeFromLaunch:F1}m " +
+                    $"maxAltAboveLaunch={maxAltitudeAboveLaunch:F1}m " +
+                    $"maxDist3D={rec.MaxDistanceFromLaunch:F1}m");
+            }
+            return localized;
+        }
+
+        private static bool TryGetPadLocalizedMotionMetrics(
+            Recording rec,
+            out double maxSurfaceRangeFromLaunch,
+            out double maxAltitudeAboveLaunch)
+        {
+            maxSurfaceRangeFromLaunch = 0.0;
+            maxAltitudeAboveLaunch = 0.0;
+
+            if (rec == null || rec.Points == null || rec.Points.Count < 2)
+                return false;
+
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    if (rec.TrackSections[i].referenceFrame != ReferenceFrame.Absolute)
+                        return false;
+                }
+            }
+
+            var launchPoint = rec.Points[0];
+            string launchBody = launchPoint.bodyName ?? "Kerbin";
+            double bodyRadius = GetPadHeuristicBodyRadius(launchBody);
+            double launchAltitude = launchPoint.altitude;
+
+            for (int i = 1; i < rec.Points.Count; i++)
+            {
+                var pt = rec.Points[i];
+                string pointBody = pt.bodyName ?? launchBody;
+                if (!string.Equals(pointBody, launchBody, StringComparison.Ordinal))
+                {
+                    maxSurfaceRangeFromLaunch = double.PositiveInfinity;
+                    maxAltitudeAboveLaunch = double.PositiveInfinity;
+                    return true;
+                }
+
+                double effectiveRadius = bodyRadius + Math.Max(0.0, (launchAltitude + pt.altitude) * 0.5);
+                double surfaceRange = SpawnCollisionDetector.SurfaceDistance(
+                    launchPoint.latitude,
+                    launchPoint.longitude,
+                    pt.latitude,
+                    pt.longitude,
+                    effectiveRadius);
+                if (surfaceRange > maxSurfaceRangeFromLaunch)
+                    maxSurfaceRangeFromLaunch = surfaceRange;
+
+                double altitudeAboveLaunch = pt.altitude - launchAltitude;
+                if (altitudeAboveLaunch > maxAltitudeAboveLaunch)
+                    maxAltitudeAboveLaunch = altitudeAboveLaunch;
+            }
+
+            return true;
+        }
+
+        private static double GetPadHeuristicBodyRadius(string bodyName)
+        {
+            try
+            {
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (body != null)
+                    return body.Radius;
+            }
+            catch
+            {
+                // FlightGlobals is unavailable in unit tests; fall back to stock radii.
+            }
+
+            if (!string.IsNullOrEmpty(bodyName)
+                && PadHeuristicBodyRadii.TryGetValue(bodyName, out double radius))
+            {
+                return radius;
+            }
+
+            return 600000.0;
         }
 
         /// <summary>
@@ -7779,8 +7945,7 @@ namespace Parsek
 
             foreach (var rec in tree.Recordings.Values)
             {
-                double duration = rec.EndUT - rec.StartUT;
-                if (!IsPadFailure(duration, rec.MaxDistanceFromLaunch))
+                if (!IsPadFailure(rec))
                     return false;
             }
             return true;
@@ -7800,7 +7965,7 @@ namespace Parsek
             {
                 if (rec.Points != null && rec.Points.Count > 0)
                     anyHasPoints = true;
-                if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
+                if (!IsIdleOnPad(rec))
                 {
                     ParsekLog.Verbose("Flight",
                         string.Format(CultureInfo.InvariantCulture,
