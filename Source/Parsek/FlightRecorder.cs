@@ -4988,7 +4988,16 @@ namespace Parsek
             // CaptureAtStop. If we resume the same recorder without reopening a continuation
             // section, subsequent samples only extend the flat Recording list and the
             // section-authoritative sidecar truncates playback at the false-alarm boundary.
-            RestoreTrackSectionAfterFalseAlarm(Planetarium.GetUniversalTime());
+            double resumeUT = Planetarium.GetUniversalTime();
+            OrbitSegment? resumeOrbitSegment = null;
+            if (TryGetFalseAlarmResumeTrackSection(out var resumeSection)
+                && resumeSection.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                && v.packed)
+            {
+                resumeOrbitSegment = CreateOrbitSegmentWithRotation(v, resumeUT);
+            }
+
+            RestoreTrackSectionAfterFalseAlarm(resumeUT, resumeOrbitSegment);
 
             ParsekLog.Info("Recorder", $"Recording resumed after false alarm ({Recording.Count} points preserved)");
         }
@@ -5001,29 +5010,34 @@ namespace Parsek
         /// </summary>
         internal void RestoreTrackSectionAfterFalseAlarm(double ut)
         {
+            RestoreTrackSectionAfterFalseAlarm(ut, null);
+        }
+
+        internal void RestoreTrackSectionAfterFalseAlarm(double ut, OrbitSegment? resumeOrbitSegment)
+        {
             if (trackSectionActive)
                 return;
 
-            TrackSection? lastSection = null;
-            if (TrackSections != null && TrackSections.Count > 0)
-                lastSection = TrackSections[TrackSections.Count - 1];
+            TrackSection? resumeSection = null;
+            if (TryGetFalseAlarmResumeTrackSection(out var restoredSection))
+                resumeSection = restoredSection;
 
-            SegmentEnvironment resumeEnv = lastSection.HasValue
-                ? lastSection.Value.environment
+            SegmentEnvironment resumeEnv = resumeSection.HasValue
+                ? resumeSection.Value.environment
                 : (environmentHysteresis != null
                     ? environmentHysteresis.CurrentEnvironment
                     : SegmentEnvironment.Atmospheric);
-            ReferenceFrame resumeRef = lastSection.HasValue
-                ? lastSection.Value.referenceFrame
+            ReferenceFrame resumeRef = resumeSection.HasValue
+                ? resumeSection.Value.referenceFrame
                 : (isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute);
-            TrackSectionSource resumeSource = lastSection.HasValue
-                ? lastSection.Value.source
+            TrackSectionSource resumeSource = resumeSection.HasValue
+                ? resumeSection.Value.source
                 : TrackSectionSource.Active;
 
             uint resumeAnchor = 0;
             if (resumeRef == ReferenceFrame.Relative)
             {
-                resumeAnchor = lastSection.HasValue ? lastSection.Value.anchorVesselId : currentAnchorPid;
+                resumeAnchor = resumeSection.HasValue ? resumeSection.Value.anchorVesselId : currentAnchorPid;
                 isRelativeMode = resumeAnchor != 0;
                 currentAnchorPid = resumeAnchor;
             }
@@ -5033,17 +5047,52 @@ namespace Parsek
                 currentAnchorPid = 0;
             }
 
-            TrajectoryPoint? boundaryPoint = GetLastClosedTrackSectionFrame();
-            if (!boundaryPoint.HasValue && Recording.Count > 0)
-                boundaryPoint = Recording[Recording.Count - 1];
+            TrajectoryPoint? boundaryPoint = resumeSection.HasValue
+                ? GetLastFrameFromTrackSection(resumeSection.Value)
+                : (TrajectoryPoint?)null;
 
             StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
 
             if (resumeRef == ReferenceFrame.Relative)
                 currentTrackSection.anchorVesselId = resumeAnchor;
 
+            isOnRails = false;
+            if (resumeRef == ReferenceFrame.OrbitalCheckpoint)
+            {
+                if (resumeOrbitSegment.HasValue)
+                {
+                    currentOrbitSegment = resumeOrbitSegment.Value;
+                    isOnRails = true;
+                }
+                else
+                {
+                    ParsekLog.Warn("Recorder",
+                        $"ResumeAfterFalseAlarm: reopened OrbitalCheckpoint TrackSection without restoring on-rails state at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                }
+            }
+
             if (resumeRef != ReferenceFrame.OrbitalCheckpoint)
                 SeedBoundaryPoint(boundaryPoint);
+        }
+
+        private bool TryGetFalseAlarmResumeTrackSection(out TrackSection section)
+        {
+            // Prefer the recorder's most recently closed section snapshot even when it was
+            // discarded instead of persisted (e.g. a <1s zero-frame RELATIVE flicker).
+            if (currentTrackSection.frames != null || currentTrackSection.checkpoints != null)
+            {
+                section = currentTrackSection;
+                return true;
+            }
+
+            if (TrackSections.Count > 0)
+            {
+                section = TrackSections[TrackSections.Count - 1];
+                return true;
+            }
+
+            section = default;
+            return false;
         }
 
         /// <summary>
@@ -5498,18 +5547,10 @@ namespace Parsek
         /// Returns the last payload frame from the most recently closed TrackSection, or null
         /// if no closed section carries sparse frames.
         /// </summary>
-        private TrajectoryPoint? GetLastClosedTrackSectionFrame()
+        private static TrajectoryPoint? GetLastFrameFromTrackSection(TrackSection section)
         {
-            if (TrackSections == null || TrackSections.Count == 0)
-                return null;
-
-            for (int i = TrackSections.Count - 1; i >= 0; i--)
-            {
-                var section = TrackSections[i];
-                if (section.frames != null && section.frames.Count > 0)
-                    return section.frames[section.frames.Count - 1];
-            }
-
+            if (section.frames != null && section.frames.Count > 0)
+                return section.frames[section.frames.Count - 1];
             return null;
         }
 
@@ -5537,18 +5578,11 @@ namespace Parsek
         /// </summary>
         private void InitializeOnRailsOrbitSegment(Vessel v, SegmentEnvironment initialEnv)
         {
-            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
-
-            // Capture orbital-frame rotation (vessel is packed, so rb is null — no angular velocity)
-            Vector3d orbVel = v.obt_velocity;
-            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
-            currentOrbitSegment.orbitalFrameRotation =
-                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
-
+            double packedUT = Planetarium.GetUniversalTime();
+            currentOrbitSegment = CreateOrbitSegmentWithRotation(v, packedUT);
             isOnRails = true;
 
             // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
-            double packedUT = Planetarium.GetUniversalTime();
             CloseCurrentTrackSection(packedUT);
             StartNewTrackSection(initialEnv, ReferenceFrame.OrbitalCheckpoint, packedUT,
                 TrackSectionSource.Checkpoint);
@@ -5648,12 +5682,17 @@ namespace Parsek
         /// </summary>
         private void CaptureOrbitSegmentWithRotation(Vessel v)
         {
-            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
+            currentOrbitSegment = CreateOrbitSegmentWithRotation(v, Planetarium.GetUniversalTime());
+        }
+
+        private OrbitSegment CreateOrbitSegmentWithRotation(Vessel v, double startUT)
+        {
+            var segment = CreateOrbitSegmentFromVessel(v, startUT);
 
             // Capture orbital-frame-relative rotation
             Vector3d orbVel = v.obt_velocity;
             Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
-            currentOrbitSegment.orbitalFrameRotation =
+            segment.orbitalFrameRotation =
                 TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
 
             // Capture angular velocity if PersistentRotation is active and vessel is spinning
@@ -5662,12 +5701,14 @@ namespace Parsek
                 Vector3 worldAngVel = v.angularVelocity;
                 if (worldAngVel.magnitude > TrajectoryMath.SpinThreshold)
                 {
-                    currentOrbitSegment.angularVelocity =
+                    segment.angularVelocity =
                         Quaternion.Inverse(v.transform.rotation) * worldAngVel;
                     ParsekLog.Verbose("Recorder",
                         $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
                 }
             }
+
+            return segment;
         }
 
         /// <summary>

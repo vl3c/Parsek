@@ -51,6 +51,7 @@ All notable changes to Parsek are documented here.
 - `#220` Crew end-state inference now persists a separate resolved-no-crew state, so 0-point intermediate/probe recordings do not rerun `PopulateCrewEndStates` on every recalculation pass while genuinely missing start-snapshot cases still stay unresolved for later recovery.
 - Destroyed debris playback now triggers whole-vessel explosion FX from the earliest eligible recorded destroy event instead of waiting for `EndUT`, so debris that visibly hits the ground no longer hangs before the final blast in either Flight or KSC playback (`#329`).
 - Mid-flight active-tree saves now checkpoint the recorder's currently-open `TrackSection` before serializing and immediately reopen a continuation section afterward, so quickload no longer drops the live sparse trajectory chunk and post-separation main-stage playback does not freeze or drift across the missing save/load interval (`#327`).
+- `#331` Debris-only breakup false alarms now reopen the active recorder's continuation `TrackSection` from the latest closed-or-discarded section context, restore packed `OrbitalCheckpoint` on-rails state, and seed the boundary frame when appropriate so section-authoritative main-stage playback no longer truncates or drift-resume at the first false-alarm separation boundary.
 - The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.
 
 ### Developer Tools
@@ -71,6 +72,7 @@ All notable changes to Parsek are documented here.
 - Added regression coverage for continuous EVA `atmo`/`surface` optimizer behavior, including split suppression for live same-body EVA sections, repair of already-split overlapping loaded pairs, and mixed-label UI formatting (`#328`).
 - Added regression coverage for resolved-no-crew end-state bookkeeping, including missing-start-snapshot behavior and save/load persistence of `crewEndStatesResolved` (`#220`).
 - Added regression coverage for save-time `TrackSection` checkpointing across active, relative, and orbital-checkpoint sections, and saved a reusable `tools/inspect-recording-sidecar.ps1` inspector for decoding `.prec` sparse trajectory payloads while debugging storage/playback issues like `#327`.
+- Added regression coverage for false-alarm recorder resume restoring absolute, relative, and orbital-checkpoint `TrackSection` continuity, including discarded-section metadata recovery and on-rails resume state for `#331`.
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
 - `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 

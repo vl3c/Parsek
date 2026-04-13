@@ -340,6 +340,35 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
+## ~~331. Debris-only breakup false alarms can truncate the active main-stage sparse trajectory after resume~~
+
+**Observed in:** `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). User report: during playback, the main/controller stage froze mid-flight or drifted onto the wrong path while debris recordings continued normally.
+
+**Collected evidence:**
+
+- The active recorder started one atmospheric active `TrackSection` at `UT=42.24` and closed it at the first breakup boundary (`UT=53.82`).
+- The same session then logged repeated false-alarm resumes on the root recorder with growing preserved flat-point counts:
+  - `Recording resumed after false alarm (43 points preserved)`
+  - `Recording resumed after false alarm (82 points preserved)`
+  - `Recording resumed after false alarm (84 points preserved)`
+- But the logs never showed a new active `TrackSection started` after those resumes, and later sidecar writes for the root recording still serialized only `trackSections=1 ... sparsePoints=43`.
+- The saved tree metadata and the saved sidecar disagreed badly on the root/main-stage recording:
+  - `persistent.sfs` still recorded root `e1767d3aa36142c1a314092aad62a9bb` with `explicitEndUT = 77.58`, `pointCount = 95`, and `childBranchPointId = 6dabc8...`
+  - `tools/inspect-recording-sidecar.ps1` showed the persisted `.prec` for that same recording had only one playable section ending at `UT=53.82` with `43` points
+- Playback then treated the root as finished at that first saved sparse boundary and transferred watch to debris:
+  - `PlaybackCompleted index=0 vessel=GDLV3 ... watched=True`
+  - `TransferWatch re-target: ghost #6 "GDLV3 Debris"`
+
+**Impact:** The active/main-stage recording could look frozen or off-trajectory after the first debris-only breakup even though the flat recording data kept advancing in memory and the debris children continued to replay correctly. Because playback is section-authoritative, the missing resumed sparse section was enough to end the watched root early and hand control to debris.
+
+**Root cause:** `StopRecordingForChainBoundary()` correctly closed the active `TrackSection` before building `CaptureAtStop`, but when the split later resolved as a false alarm, `ResumeAfterFalseAlarm()` only restored the flat recorder state. It did **not** reopen a replacement `TrackSection`. After that, new samples kept appending to `Recording.Points` in memory, while section-authoritative sidecar writes continued to persist only the pre-resume sparse section set. That left playback truncated at the first breakup boundary.
+
+**Fix:** PR `#251` now reopens a continuation `TrackSection` whenever a recorder resumes after a false alarm, but it no longer trusts only the last persisted section. Resume now prefers the recorder's latest closed-or-discarded section snapshot, so brief zero-frame relative/environment flickers do not reopen stale metadata, restores the relative anchor when needed, and rehydrates packed `OrbitalCheckpoint` on-rails state by reopening the live orbit segment before the next off-rails transition. Absolute/relative resumes still seed the boundary frame for continuity, and regression coverage now pins absolute, relative, discarded-section, and orbital-checkpoint false-alarm resumes.
+
+**Status:** Fixed in PR `#251`
+
+---
+
 ## ~~326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits~~
 
 **Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.
