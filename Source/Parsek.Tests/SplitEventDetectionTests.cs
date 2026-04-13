@@ -61,6 +61,70 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region GetEvaBackgroundInitialEnvironmentOverride
+
+        [Fact]
+        public void GetEvaBackgroundInitialEnvironmentOverride_LandedStationaryShip_ReturnsSurfaceStationary()
+        {
+            var result = ParsekFlight.GetEvaBackgroundInitialEnvironmentOverride(
+                BranchPointType.EVA,
+                backgroundChildIsEva: true,
+                activeSituation: (int)Vessel.Situations.LANDED,
+                backgroundSrfSpeed: 0.0);
+
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
+        }
+
+        [Fact]
+        public void GetEvaBackgroundInitialEnvironmentOverride_LandedMovingShip_ReturnsSurfaceMobile()
+        {
+            var result = ParsekFlight.GetEvaBackgroundInitialEnvironmentOverride(
+                BranchPointType.EVA,
+                backgroundChildIsEva: true,
+                activeSituation: (int)Vessel.Situations.LANDED,
+                backgroundSrfSpeed: 2.0);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
+        [Fact]
+        public void GetEvaBackgroundInitialEnvironmentOverride_UsesBackgroundEvaSpeed()
+        {
+            var result = ParsekFlight.GetEvaBackgroundInitialEnvironmentOverride(
+                BranchPointType.EVA,
+                backgroundChildIsEva: true,
+                activeSituation: (int)Vessel.Situations.LANDED,
+                backgroundSrfSpeed: 0.0);
+
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
+        }
+
+        [Fact]
+        public void GetEvaBackgroundInitialEnvironmentOverride_NonSurfaceShip_ReturnsNull()
+        {
+            var result = ParsekFlight.GetEvaBackgroundInitialEnvironmentOverride(
+                BranchPointType.EVA,
+                backgroundChildIsEva: true,
+                activeSituation: (int)Vessel.Situations.FLYING,
+                backgroundSrfSpeed: 50.0);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void GetEvaBackgroundInitialEnvironmentOverride_NonEvaBackgroundChild_ReturnsNull()
+        {
+            var result = ParsekFlight.GetEvaBackgroundInitialEnvironmentOverride(
+                BranchPointType.EVA,
+                backgroundChildIsEva: false,
+                activeSituation: (int)Vessel.Situations.LANDED,
+                backgroundSrfSpeed: 0.0);
+
+            Assert.Null(result);
+        }
+
+        #endregion
+
         #region BuildSplitBranchData — Undock
 
         [Fact]

@@ -461,6 +461,128 @@ namespace Parsek.Tests
             Assert.Null(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailureReason);
         }
 
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_SnapshotFailure_KeepsDiskTrajectory()
+        {
+            var pendingTree = MakeTree("tree_snapshot_salvage", "Pending", 2);
+            var pendingRec = pendingTree.Recordings["child_tree_snapshot_salvage_1"];
+            pendingRec.VesselSnapshot = BuildSnapshot("Pending Vessel", 7001);
+            pendingRec.GhostVisualSnapshot = BuildSnapshot("Pending Ghost", 7002);
+            pendingRec.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            pendingRec.Points.Clear();
+            pendingRec.Points.Add(new TrajectoryPoint { ut = 999 });
+            pendingRec.Points.Add(new TrajectoryPoint { ut = 1009 });
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_snapshot_salvage", "Disk", 2);
+            var loadedRec = loadedTree.Recordings["child_tree_snapshot_salvage_1"];
+            loadedRec.VesselSnapshot = BuildSnapshot("Disk Vessel", 7101);
+            loadedRec.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            loadedRec.SidecarLoadFailed = true;
+            loadedRec.SidecarLoadFailureReason = "snapshot-ghost-invalid";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+
+            Assert.Equal(1, restored);
+            Assert.Equal(2, loadedRec.Points.Count);
+            Assert.Equal(110, loadedRec.Points[0].ut);
+            Assert.Equal(120, loadedRec.Points[1].ut);
+            Assert.Equal("Disk Vessel", loadedRec.VesselSnapshot.GetValue("name"));
+            Assert.Equal("Pending Ghost", loadedRec.GhostVisualSnapshot.GetValue("name"));
+            Assert.True(loadedRec.FilesDirty);
+            Assert.False(loadedRec.SidecarLoadFailed);
+            Assert.Null(loadedRec.SidecarLoadFailureReason);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_AliasSnapshotFailure_RestoresCoherentAliasState()
+        {
+            var pendingTree = MakeTree("tree_snapshot_alias", "Pending", 2);
+            var pendingRec = pendingTree.Recordings["child_tree_snapshot_alias_1"];
+            pendingRec.VesselSnapshot = BuildSnapshot("Pending Alias Vessel", 7201);
+            pendingRec.GhostVisualSnapshot = BuildSnapshot("Pending Alias Ghost", 7202);
+            pendingRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_snapshot_alias", "Disk", 2);
+            var loadedRec = loadedTree.Recordings["child_tree_snapshot_alias_1"];
+            loadedRec.VesselSnapshot = null;
+            loadedRec.GhostVisualSnapshot = null;
+            loadedRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
+            loadedRec.SidecarLoadFailed = true;
+            loadedRec.SidecarLoadFailureReason = "snapshot-vessel-invalid";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+
+            Assert.Equal(1, restored);
+            Assert.Equal(GhostSnapshotMode.AliasVessel, loadedRec.GhostSnapshotMode);
+            Assert.NotNull(loadedRec.VesselSnapshot);
+            Assert.NotNull(loadedRec.GhostVisualSnapshot);
+            Assert.Equal("Pending Alias Vessel", loadedRec.VesselSnapshot.GetValue("name"));
+            Assert.Equal("Pending Alias Vessel", loadedRec.GhostVisualSnapshot.GetValue("name"));
+            Assert.False(loadedRec.SidecarLoadFailed);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_MultiSideSnapshotFailure_RestoresMissingSnapshotSet()
+        {
+            var pendingTree = MakeTree("tree_snapshot_multi", "Pending", 2);
+            var pendingRec = pendingTree.Recordings["child_tree_snapshot_multi_1"];
+            pendingRec.VesselSnapshot = BuildSnapshot("Pending Multi Vessel", 7301);
+            pendingRec.GhostVisualSnapshot = BuildSnapshot("Pending Multi Ghost", 7302);
+            pendingRec.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_snapshot_multi", "Disk", 2);
+            var loadedRec = loadedTree.Recordings["child_tree_snapshot_multi_1"];
+            loadedRec.VesselSnapshot = null;
+            loadedRec.GhostVisualSnapshot = null;
+            loadedRec.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            loadedRec.SidecarLoadFailed = true;
+            loadedRec.SidecarLoadFailureReason = "snapshot-vessel-invalid";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+
+            Assert.Equal(1, restored);
+            Assert.NotNull(loadedRec.VesselSnapshot);
+            Assert.NotNull(loadedRec.GhostVisualSnapshot);
+            Assert.Equal("Pending Multi Vessel", loadedRec.VesselSnapshot.GetValue("name"));
+            Assert.Equal("Pending Multi Ghost", loadedRec.GhostVisualSnapshot.GetValue("name"));
+            Assert.False(loadedRec.SidecarLoadFailed);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_UnrecoverableSnapshotFailure_DoesNotReplaceDiskTrajectory()
+        {
+            var pendingTree = MakeTree("tree_snapshot_unrecoverable", "Pending", 2);
+            var pendingRec = pendingTree.Recordings["child_tree_snapshot_unrecoverable_1"];
+            pendingRec.VesselSnapshot = null;
+            pendingRec.GhostVisualSnapshot = null;
+            pendingRec.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            pendingRec.Points.Clear();
+            pendingRec.Points.Add(new TrajectoryPoint { ut = 999 });
+            pendingRec.Points.Add(new TrajectoryPoint { ut = 1009 });
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_snapshot_unrecoverable", "Disk", 2);
+            var loadedRec = loadedTree.Recordings["child_tree_snapshot_unrecoverable_1"];
+            loadedRec.VesselSnapshot = null;
+            loadedRec.GhostVisualSnapshot = null;
+            loadedRec.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            loadedRec.SidecarLoadFailed = true;
+            loadedRec.SidecarLoadFailureReason = "snapshot-ghost-invalid";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+
+            Assert.Equal(0, restored);
+            Assert.Equal(2, loadedRec.Points.Count);
+            Assert.Equal(110, loadedRec.Points[0].ut);
+            Assert.Equal(120, loadedRec.Points[1].ut);
+            Assert.True(loadedRec.SidecarLoadFailed);
+            Assert.Equal("snapshot-ghost-invalid", loadedRec.SidecarLoadFailureReason);
+            Assert.False(loadedRec.FilesDirty);
+        }
+
         // ============================================================
         // isRevert logic: removal of || isFlightToFlight clause
         // ============================================================
@@ -941,6 +1063,14 @@ namespace Parsek.Tests
                 tree.Recordings[recId] = rec;
             }
             return tree;
+        }
+
+        private static ConfigNode BuildSnapshot(string vesselName, uint pid)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", vesselName);
+            snapshot.AddValue("persistentId", pid.ToString());
+            return snapshot;
         }
     }
 }

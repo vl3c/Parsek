@@ -2992,6 +2992,38 @@ namespace Parsek
             return IsDebrisDescendedFromWatchedLineage(watched, current, tree);
         }
 
+        internal static double ComputeWatchLineageProtectionUntilUT(
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> committedTrees,
+            int watchedRecordingIndex,
+            double currentUT)
+        {
+            if (committed == null
+                || watchedRecordingIndex < 0
+                || watchedRecordingIndex >= committed.Count)
+            {
+                return double.NaN;
+            }
+
+            bool hasCurrentUT = !double.IsNaN(currentUT) && !double.IsInfinity(currentUT);
+            double protectionUntilUT = double.NaN;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate == null || !candidate.IsDebris)
+                    continue;
+                if (hasCurrentUT && candidate.EndUT < currentUT)
+                    continue;
+                if (!IsWatchProtectedRecording(committed, committedTrees, watchedRecordingIndex, i))
+                    continue;
+
+                if (double.IsNaN(protectionUntilUT) || candidate.EndUT > protectionUntilUT)
+                    protectionUntilUT = candidate.EndUT;
+            }
+
+            return protectionUntilUT;
+        }
+
         private static bool IsLoopSyncedDebrisOfWatchedLineage(
             IReadOnlyList<Recording> committed, Recording watched, Recording current)
         {
@@ -3181,6 +3213,8 @@ namespace Parsek
                 {
                     int fallbackIdx = -1;
                     bool pidMatchFound = false;
+                    bool allowDifferentPidFallback = bp.Type != BranchPointType.Breakup;
+                    bool blockedDifferentPidActiveChildFound = false;
                     for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                     {
                         string childId = bp.ChildRecordingIds[c];
@@ -3196,8 +3230,20 @@ namespace Parsek
                                 if (isPidMatch)
                                     return j;
 
-                                if (fallbackIdx < 0)
+                                // Bug #321: breakup/crash watch recovery should stay with
+                                // the preserved live vessel context unless the same vessel
+                                // actually continues. Non-breakup branches may still fall
+                                // back to the first active non-debris child.
+                                if (allowDifferentPidFallback
+                                    && !committed[j].IsDebris
+                                    && fallbackIdx < 0)
+                                {
                                     fallbackIdx = j;
+                                }
+                                else if (!allowDifferentPidFallback)
+                                {
+                                    blockedDifferentPidActiveChildFound = true;
+                                }
                             }
                             else if (isPidMatch)
                             {
@@ -3217,6 +3263,13 @@ namespace Parsek
                     // no good target. The watch hold timer will expire naturally.
                     if (pidMatchFound)
                         return -1;
+                    if (!allowDifferentPidFallback && blockedDifferentPidActiveChildFound)
+                    {
+                        ParsekLog.VerboseRateLimited("Watch",
+                            $"breakup-watch-no-fallback-{currentRec.RecordingId}",
+                            $"FindNextWatchTarget: breakup branch {bp.Id} for rec '{currentRec.VesselName}' " +
+                            "has no same-PID continuation — preserving live vessel context");
+                    }
                     if (fallbackIdx >= 0)
                         return fallbackIdx;
                 }

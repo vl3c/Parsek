@@ -23,6 +23,7 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
+        internal static Func<float> RealtimeNow = GetRealtimeSafe;
 
         // Camera follow state — transient, never serialized
         private int watchedRecordingIndex = -1;       // -1 = not watching
@@ -36,6 +37,9 @@ namespace Parsek
         private float savedCameraPitch;
         private float savedCameraHeading;
         private float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer (real time, warp-independent)
+        private int lineageProtectionRecordingIndex = -1; // post-watch debris visibility root
+        private string lineageProtectionRecordingId;
+        private double lineageProtectionUntilUT = double.NaN;
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
 
@@ -58,8 +62,140 @@ namespace Parsek
 
         internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
         internal int WatchedRecordingIndex => watchedRecordingIndex;
+        internal int WatchProtectionRecordingIndex => ResolveWatchProtectionRecordingIndex();
         internal long WatchedLoopCycleIndex => watchedOverlapCycleIndex;
         internal WatchCameraMode CurrentCameraMode => currentCameraMode;
+        internal void ExitWatchModePreservingLineage(bool skipCameraRestore = false) =>
+            ExitWatchMode(skipCameraRestore, preserveLineageProtection: true);
+
+        private int ResolveWatchProtectionRecordingIndex()
+        {
+            if (watchedRecordingIndex >= 0)
+                return watchedRecordingIndex;
+
+            RefreshLineageProtection();
+            return lineageProtectionRecordingIndex;
+        }
+
+        private void RefreshLineageProtection()
+        {
+            if (lineageProtectionRecordingIndex < 0)
+                return;
+
+            if (Planetarium.fetch != null
+                && !double.IsNaN(lineageProtectionUntilUT)
+                && Planetarium.GetUniversalTime() > lineageProtectionUntilUT)
+            {
+                ClearLineageProtection(
+                    $"Lineage protection expired for recording #{lineageProtectionRecordingIndex} at UT {lineageProtectionUntilUT:F1}");
+            }
+        }
+
+        private void ClearLineageProtection(string logMessage = null)
+        {
+            if (!string.IsNullOrEmpty(logMessage))
+                ParsekLog.Info("CameraFollow", logMessage);
+
+            lineageProtectionRecordingIndex = -1;
+            lineageProtectionRecordingId = null;
+            lineageProtectionUntilUT = double.NaN;
+        }
+
+        private void PreserveLineageProtectionOnExit()
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (watchedRecordingIndex < 0 || watchedRecordingIndex >= committed.Count)
+            {
+                ClearLineageProtection();
+                return;
+            }
+
+            double currentUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : committed[watchedRecordingIndex].EndUT;
+            double protectionUntilUT = GhostPlaybackLogic.ComputeWatchLineageProtectionUntilUT(
+                committed,
+                RecordingStore.CommittedTrees,
+                watchedRecordingIndex,
+                currentUT);
+
+            if (double.IsNaN(protectionUntilUT) || protectionUntilUT < currentUT)
+            {
+                ClearLineageProtection();
+                return;
+            }
+
+            lineageProtectionRecordingIndex = watchedRecordingIndex;
+            lineageProtectionRecordingId = committed[watchedRecordingIndex].RecordingId;
+            lineageProtectionUntilUT = protectionUntilUT;
+            ParsekLog.Info("CameraFollow",
+                $"Retaining watched-lineage debris protection for #{watchedRecordingIndex} " +
+                $"\"{committed[watchedRecordingIndex].VesselName}\" until UT {protectionUntilUT:F1}");
+        }
+
+        private static void RemoveWatchModeControlLockSafe()
+        {
+            try
+            {
+                InputLockManager.RemoveControlLock(WatchModeLockId);
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Unit-test host does not provide the real KSP input manager.
+            }
+            catch (MethodAccessException)
+            {
+                // Same fallback for non-Unity unit-test environments.
+            }
+        }
+
+        private static Vessel GetActiveVesselSafe()
+        {
+            try
+            {
+                return FlightGlobals.ActiveVessel;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return null;
+            }
+            catch (MethodAccessException)
+            {
+                return null;
+            }
+        }
+
+        private static float GetRealtimeSafe()
+        {
+            try
+            {
+                return Time.time;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return 0f;
+            }
+            catch (MethodAccessException)
+            {
+                return 0f;
+            }
+        }
+
+        private static FlightCamera GetFlightCameraSafe()
+        {
+            try
+            {
+                return FlightCamera.fetch;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return null;
+            }
+            catch (MethodAccessException)
+            {
+                return null;
+            }
+        }
 
         internal static string FormatWatchDistanceForLogs(double distanceMeters)
         {
@@ -182,7 +318,7 @@ namespace Parsek
             switch (evt.Action)
             {
                 case CameraActionType.ExitWatch:
-                    ExitWatchMode();
+                    ExitWatchModePreservingLineage();
                     break;
 
                 case CameraActionType.ExplosionHoldStart:
@@ -438,38 +574,7 @@ namespace Parsek
                 ExitWatchMode(skipCameraRestore: true);
             }
 
-            watchedRecordingIndex = index;
-            watchedRecordingId = committed[index].RecordingId;
-            watchStartTime = Time.time;
-
-            // Reset camera mode state for new watch session
-            userModeOverride = false;
-            currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
-
-            // If the ghost is currently beyond visual range and the recording loops,
-            // reset the loop phase so the ghost starts from the beginning of the recording
-            // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
-            double watchLoadUT = Planetarium.GetUniversalTime();
-            double loopIntervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
-            bool usesOverlapLooping = loopIntervalSeconds < 0;
-            bool resetLoopPhaseForWatch = gs.currentZone == RenderingZone.Beyond
-                && host.ShouldLoopPlaybackForWatch(rec)
-                && !usesOverlapLooping;
-            if (resetLoopPhaseForWatch)
-            {
-                ResetLoopPhaseForWatch(index, gs, rec);
-                watchLoadUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-            }
-            else
-            {
-                watchLoadUT = ResolveWatchPlaybackUT(rec, gs, watchLoadUT);
-            }
-
-            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
-                forceRebuildLoadedVisuals: resetLoopPhaseForWatch))
-                return;
-            ghostStates.TryGetValue(index, out gs);
-            if (gs == null)
+            if (!TryStartWatchSession(index, rec, gs, out gs))
                 return;
 
             // Save camera state only when entering fresh (not switching between ghosts)
@@ -520,6 +625,132 @@ namespace Parsek
             ParsekLog.Info("CameraFollow",
                 $"Entering watch mode for recording #{index} \"{committed[index].VesselName}\" \u2014 ghost at alt {altStr}m on {body}");
             LogWatchFocusStateChanged(gs, force: true, context: "enter");
+        }
+
+        internal bool TryStartWatchSession(int index, Recording rec, GhostPlaybackState currentState,
+            out GhostPlaybackState loadedState)
+        {
+            loadedState = null;
+            if (rec == null || currentState == null)
+                return false;
+
+            // If the ghost is currently beyond visual range and the recording loops,
+            // reset the loop phase so the ghost starts from the beginning of the recording
+            // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
+            double watchLoadUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : rec.EndUT;
+            bool shouldLoopPlayback = host.ShouldLoopPlaybackForWatch(rec);
+            double loopIntervalSeconds = shouldLoopPlayback
+                ? host.GetLoopIntervalSecondsForWatch(rec)
+                : 0.0;
+            bool usesOverlapLooping = shouldLoopPlayback && loopIntervalSeconds < 0;
+            bool resetLoopPhaseForWatch = currentState.currentZone == RenderingZone.Beyond
+                && shouldLoopPlayback
+                && !usesOverlapLooping;
+            if (resetLoopPhaseForWatch)
+            {
+                ResetLoopPhaseForWatch(index, currentState, rec);
+                watchLoadUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            }
+            else
+            {
+                watchLoadUT = ResolveWatchPlaybackUT(rec, currentState, watchLoadUT);
+            }
+
+            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
+                forceRebuildLoadedVisuals: resetLoopPhaseForWatch))
+                return false;
+
+            host.Engine.ghostStates.TryGetValue(index, out loadedState);
+            return TryCommitWatchSessionStart(index, rec, loadedState);
+        }
+
+        internal bool TryCommitWatchSessionStart(int index, Recording rec, GhostPlaybackState loadedState)
+        {
+            if (rec == null || loadedState == null)
+                return false;
+
+            ClearLineageProtection();
+            watchedRecordingIndex = index;
+            watchedRecordingId = rec.RecordingId;
+            watchStartTime = RealtimeNow();
+
+            // Reset camera mode state for new watch session
+            userModeOverride = false;
+            currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
+            return true;
+        }
+
+        internal void FinalizeAutomaticExitForTesting() =>
+            ResetWatchState(preserveLineageProtection: true, destroyOverlapAnchor: false);
+
+        private void ResetWatchState(bool preserveLineageProtection, bool destroyOverlapAnchor)
+        {
+            if (preserveLineageProtection)
+                PreserveLineageProtectionOnExit();
+            else
+                ClearLineageProtection();
+
+            watchedRecordingIndex = -1;
+            watchedRecordingId = null;
+            watchedOverlapCycleIndex = -1;
+            overlapRetargetAfterUT = -1;
+            if (destroyOverlapAnchor)
+            {
+                if (overlapCameraAnchor != null)
+                    UnityEngine.Object.Destroy(overlapCameraAnchor);
+            }
+            overlapCameraAnchor = null;
+            savedCameraVessel = null;
+            savedCameraDistance = 0f;
+            savedCameraPitch = 0f;
+            savedCameraHeading = 0f;
+            watchEndHoldUntilRealTime = -1;
+            watchNoTargetFrames = 0;
+            currentCameraMode = WatchCameraMode.Free;
+            userModeOverride = false;
+            lastLoggedWatchTargetMismatch = null;
+            lastLoggedWatchFocusKey = null;
+        }
+
+        private void RestoreCameraAfterWatchExit(bool skipCameraRestore)
+        {
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            if (flightCamera != null)
+                flightCamera.pivotTranslateSharpness = savedPivotSharpness;
+
+            if (skipCameraRestore)
+                return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            Vessel activeVessel = GetActiveVesselSafe();
+            string recVesselName = watchedRecordingIndex < committed.Count
+                ? committed[watchedRecordingIndex].VesselName : "?";
+            string targetName = savedCameraVessel != null
+                ? savedCameraVessel.vesselName
+                : (activeVessel?.vesselName ?? "unknown");
+            ParsekLog.Info("CameraFollow",
+                $"Exiting watch mode for recording #{watchedRecordingIndex} \"{recVesselName}\" \u2014 returning to {targetName}");
+
+            if (flightCamera == null)
+                return;
+
+            if (savedCameraVessel != null && savedCameraVessel.gameObject != null)
+            {
+                flightCamera.SetTargetVessel(savedCameraVessel);
+                flightCamera.SetDistance(savedCameraDistance);
+                flightCamera.camPitch = savedCameraPitch;
+                flightCamera.camHdg = savedCameraHeading;
+                ParsekLog.Verbose("CameraFollow",
+                    $"FlightCamera.SetTargetVessel restored to {savedCameraVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
+            else if (activeVessel != null)
+            {
+                flightCamera.SetTargetVessel(activeVessel);
+                ParsekLog.Verbose("CameraFollow",
+                    $"FlightCamera.SetTargetVessel restored to {activeVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
         }
 
         /// <summary>
@@ -579,63 +810,16 @@ namespace Parsek
         /// Exit watch mode: return camera to the active vessel.
         /// When skipCameraRestore is true (switching between ghosts), the camera is not restored.
         /// </summary>
-        internal void ExitWatchMode(bool skipCameraRestore = false)
+        internal void ExitWatchMode(bool skipCameraRestore = false, bool preserveLineageProtection = false)
         {
             if (watchedRecordingIndex < 0) return;
-            if (FlightCamera.fetch != null)
-                FlightCamera.fetch.pivotTranslateSharpness = savedPivotSharpness;
-
-            // Restore camera to the active vessel (unless switching between ghosts)
-            if (!skipCameraRestore)
-            {
-                var committed = RecordingStore.CommittedRecordings;
-                string recVesselName = watchedRecordingIndex < committed.Count
-                    ? committed[watchedRecordingIndex].VesselName : "?";
-                string targetName = savedCameraVessel != null
-                    ? savedCameraVessel.vesselName
-                    : (FlightGlobals.ActiveVessel?.vesselName ?? "unknown");
-                ParsekLog.Info("CameraFollow",
-                    $"Exiting watch mode for recording #{watchedRecordingIndex} \"{recVesselName}\" \u2014 returning to {targetName}");
-
-                if (FlightCamera.fetch != null)
-                {
-                    if (savedCameraVessel != null && savedCameraVessel.gameObject != null)
-                    {
-                        FlightCamera.fetch.SetTargetVessel(savedCameraVessel);
-                        FlightCamera.fetch.SetDistance(savedCameraDistance);
-                        FlightCamera.fetch.camPitch = savedCameraPitch;
-                        FlightCamera.fetch.camHdg = savedCameraHeading;
-                        ParsekLog.Verbose("CameraFollow",
-                            $"FlightCamera.SetTargetVessel restored to {savedCameraVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
-                    }
-                    else if (FlightGlobals.ActiveVessel != null)
-                    {
-                        FlightCamera.fetch.SetTargetVessel(FlightGlobals.ActiveVessel);
-                        ParsekLog.Verbose("CameraFollow",
-                            $"FlightCamera.SetTargetVessel restored to {FlightGlobals.ActiveVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
-                    }
-                }
-            }
+            RestoreCameraAfterWatchExit(skipCameraRestore);
 
             // Remove input locks
-            InputLockManager.RemoveControlLock(WatchModeLockId);
+            RemoveWatchModeControlLockSafe();
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" removed");
 
-            watchedRecordingIndex = -1;
-            watchedRecordingId = null;
-            watchedOverlapCycleIndex = -1;
-            overlapRetargetAfterUT = -1;
-            if (overlapCameraAnchor != null) { UnityEngine.Object.Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
-            savedCameraVessel = null;
-            savedCameraDistance = 0f;
-            savedCameraPitch = 0f;
-            savedCameraHeading = 0f;
-            watchEndHoldUntilRealTime = -1;
-            watchNoTargetFrames = 0;
-            currentCameraMode = WatchCameraMode.Free;
-            userModeOverride = false;
-            lastLoggedWatchTargetMismatch = null;
-            lastLoggedWatchFocusKey = null;
+            ResetWatchState(preserveLineageProtection, destroyOverlapAnchor: true);
         }
 
         /// <summary>
@@ -994,7 +1178,7 @@ namespace Parsek
 
             // Reset watch start time so the zone-exemption logging starts fresh
             // for the new segment (no stale elapsed time from the previous segment)
-            watchStartTime = Time.time;
+            watchStartTime = RealtimeNow();
 
             ParsekLog.Info("CameraFollow",
                 $"TransferWatch re-target: ghost #{nextIndex} \"{newName}\"" +
@@ -1034,7 +1218,7 @@ namespace Parsek
             {
                 ParsekLog.Info("CameraFollow",
                     $"Watched ghost #{watchedRecordingIndex} no longer active \u2014 exiting watch mode");
-                ExitWatchMode();
+                ExitWatchModePreservingLineage();
             }
         }
 
@@ -1084,7 +1268,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn("CameraFollow",
                         $"No valid camera target for {watchNoTargetFrames} frames \u2014 exiting watch mode");
-                    ExitWatchMode();
+                    ExitWatchModePreservingLineage();
                 }
                 return;
             }
@@ -1141,7 +1325,7 @@ namespace Parsek
             }
 
             // Hold expired -- no continuation found, destroy and exit
-            if (Time.time >= watchEndHoldUntilRealTime)
+            if (RealtimeNow() >= watchEndHoldUntilRealTime)
             {
                 ParsekLog.Info("CameraFollow",
                     $"Watch hold expired for #{idx} at t={watchEndHoldUntilRealTime:F1} \u2014 destroying ghost and exiting watch");
@@ -1155,7 +1339,7 @@ namespace Parsek
                         host.Engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
                     }
                 }
-                ExitWatchMode();
+                ExitWatchModePreservingLineage();
                 return true;
             }
 
@@ -1410,25 +1594,43 @@ namespace Parsek
         /// </summary>
         internal void OnRecordingDeleted(int index)
         {
-            if (watchedRecordingIndex < 0) return;
-
-            var result = ComputeWatchIndexAfterDelete(
-                watchedRecordingIndex, watchedRecordingId, index,
-                RecordingStore.CommittedRecordings);
-            if (result.newIndex < 0)
+            if (watchedRecordingIndex >= 0)
             {
-                ParsekLog.Warn("CameraFollow",
-                    $"Watched recording \"{watchedRecordingId}\" deleted \u2014 auto-exiting watch mode");
-                ExitWatchMode();
+                var result = ComputeWatchIndexAfterDelete(
+                    watchedRecordingIndex, watchedRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (result.newIndex < 0)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watched recording \"{watchedRecordingId}\" deleted \u2014 auto-exiting watch mode");
+                    ExitWatchMode();
+                }
+                else
+                {
+                    int oldIdx = watchedRecordingIndex;
+                    watchedRecordingIndex = result.newIndex;
+                    watchedRecordingId = result.newId;
+                    if (oldIdx != result.newIndex)
+                        ParsekLog.Info("CameraFollow",
+                            $"Recording deleted at #{index} \u2014 watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
+                }
             }
-            else
+
+            if (lineageProtectionRecordingIndex >= 0)
             {
-                int oldIdx = watchedRecordingIndex;
-                watchedRecordingIndex = result.newIndex;
-                watchedRecordingId = result.newId;
-                if (oldIdx != result.newIndex)
-                    ParsekLog.Info("CameraFollow",
-                        $"Recording deleted at #{index} \u2014 watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
+                var protectionResult = ComputeWatchIndexAfterDelete(
+                    lineageProtectionRecordingIndex, lineageProtectionRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (protectionResult.newIndex < 0)
+                {
+                    ClearLineageProtection(
+                        $"Protected watch-lineage root \"{lineageProtectionRecordingId}\" deleted \u2014 clearing retained debris protection");
+                }
+                else
+                {
+                    lineageProtectionRecordingIndex = protectionResult.newIndex;
+                    lineageProtectionRecordingId = protectionResult.newId;
+                }
             }
         }
 

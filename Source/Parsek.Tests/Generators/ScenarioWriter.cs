@@ -276,12 +276,16 @@ namespace Parsek.Tests.Generators
                     sidecarEpoch: recording.SidecarEpoch);
 
                 if (recording.VesselSnapshot != null)
-                    recording.VesselSnapshot.Save(Path.Combine(recordingsDir, $"{id}_vessel.craft"));
+                {
+                    string vesselPath = Path.Combine(recordingsDir, $"{id}_vessel.craft");
+                    RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, recording.VesselSnapshot);
+                }
 
                 if (RecordingStore.DetermineGhostSnapshotMode(recording) == GhostSnapshotMode.Separate &&
                     recording.GhostVisualSnapshot != null)
                 {
-                    recording.GhostVisualSnapshot.Save(Path.Combine(recordingsDir, $"{id}_ghost.craft"));
+                    string ghostPath = Path.Combine(recordingsDir, $"{id}_ghost.craft");
+                    RecordingStore.WriteSnapshotSidecarForTesting(ghostPath, recording.GhostVisualSnapshot);
                 }
             }
         }

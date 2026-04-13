@@ -37,11 +37,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called from button callbacks to replay KSP's flight results dialog
-        /// that was intercepted by the Harmony patch. Only replays if there's
-        /// a pending message (i.e., we intercepted a Display call).
+        /// Called from button callbacks to resolve deferred stock flight results.
+        /// Replays the intercepted stock dialog if one was captured; otherwise
+        /// just clears any pre-capture suppression latch.
         /// </summary>
-        internal static void ReplayFlightResultsIfPending()
+        internal static void ResolveDeferredFlightResults()
         {
             Patches.FlightResultsPatch.ReplayFlightResults();
         }
@@ -92,7 +92,7 @@ namespace Parsek
                     CrewReservationManager.SwapReservedCrewInFlight();
 
                     ClearPendingFlag();
-                    ReplayFlightResultsIfPending();
+                    ResolveDeferredFlightResults();
                     OnTreeCommitted?.Invoke();
                     if (spawnCount > 0)
                         ParsekLog.ScreenMessage(
@@ -113,7 +113,7 @@ namespace Parsek
                     }
                     RecordingStore.DiscardPendingTree();
                     ClearPendingFlag();
-                    ReplayFlightResultsIfPending();
+                    ResolveDeferredFlightResults();
                     ParsekLog.ScreenMessage("Recording discarded", 2f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Discard (tree='{tree.TreeName}', " +

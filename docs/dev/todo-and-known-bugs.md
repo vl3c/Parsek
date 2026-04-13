@@ -53,7 +53,7 @@ Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: thre
 
 ---
 
-## 316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback
+## ~~316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During the `s4` reentry/breakup session, some `Kerbal X Debris` recordings did render normally, but later debris recordings spawned so far from the active watch context that they immediately transitioned into the hidden `Beyond` zone and never became visible to the player.
 
@@ -64,11 +64,20 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 - The same pattern repeated for ghost `#11`, which spawned and immediately transitioned `Physics->Beyond dist=952154m` before being hidden.
 - The recordings themselves were present and merged correctly; the issue is playback visibility, not missing recording data.
 
-**Root cause / hypothesis:** Breakup debris recordings that resume later in the chain can spawn from valid snapshots while the active vessel/watch context is nearly 1,000 km away, so the normal distance LOD policy hides them instantly. That makes boosters appear absent even though their ghosts were created and advanced logically.
+**Root cause:** The archived failure was two bugs folded together. Early watched-lineage debris could miss protection because the archived build only protected the exact watched row, not same-tree breakup ancestry. Later debris could still fail even on newer ancestry-aware builds because automatic watch exit cleared the only visibility-protection source before those descendant debris recordings began playback.
 
-**Fix direction:** Decide whether breakup/debris ghosts need a watched-chain visibility exemption, a different spawn/watch anchoring rule, or a stricter policy for when distant debris ghosts should be considered meaningful enough to render.
+**Fix:** Same-tree watched-debris protection now survives missing `LoopSyncParentIdx` by following branch ancestry, and playback-driven automatic watch exits now retain a bounded watched-lineage debris protection window through the last pending descendant debris `EndUT`. Failed replacement watch starts no longer clear that retained protection unless a new watch session is actually committed. The camera still exits normally; only the debris visibility exemption is retained. Added archived-topology regression coverage for:
 
-**Status:** Open
+- late debris with `LoopSyncParentIdx == -1` after final chain splitting
+- same-tree ancestry fallback from watched segment to root-parented debris
+- retained watched-lineage protection through the last late-debris playback window without repeated retention logs
+- zone-rendering watch-protection resolution consuming the retained root for late debris
+- null-loaded watch-start commits preserving the prior retained protection window
+- the existing watch-target rule that still refuses to retarget camera to non-child same-tree debris
+
+This closes the "spawned but never visible" playback path without loosening the camera handoff rule introduced for `#158`.
+
+**Status:** ~~Fixed~~
 
 ---
 
@@ -136,31 +145,31 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 320. Merge confirmation should appear before the stock crash report on vessel destruction
+## ~~320. Merge confirmation should appear before the stock crash report on vessel destruction~~
 
 **Observed in:** Phase 11.5 storage/watch follow-up playtests (2026-04-12). On vessel destruction, the old/good behavior was: Parsek's merge confirmation appeared before KSP's stock crash/flight-results report. The current ordering regressed, making the crash report take focus first.
 
 **Desired behavior:** When a recording session ends via vessel destruction and Parsek needs merge/commit input, surface the merge confirmation before the stock crash report so the Parsek flow is not hidden behind the stock dialog.
 
-**Root cause / hypothesis:** Likely an event-ordering regression between Parsek's destruction/finalize dialog path and the stock flight-results/crash-report dialog timing. This needs a focused pass on dialog scheduling rather than more storage work.
+**Root cause:** Deferred stock crash suppression was inferred from transient recorder / pending-tree timing instead of explicit merge ownership. The tree-destruction path had a real handoff gap before the pending tree existed, and stale pending-tree cleanup could preserve or later replay crash dialogs from abandoned futures.
 
-**Fix direction:** Audit the vessel-destruction finalize path and restore the earlier ordering contract, ideally with an in-game test or log assertion that pins which dialog is raised first.
+**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine. Tree-destruction flow arms suppression before the coroutine gap, merge/discard/auto-discard paths resolve or cancel it explicitly, scene-change / `OnFlightReady()` only treat finalized pending trees as replay owners, and quickload/revert/stale-save cleanup clears deferred crash results when the pending-tree owner is abandoned. Regression coverage now pins `Prefix` capture/duplicate/bypass behavior, finalized-vs-Limbo ownership, and quickload discard cleanup.
 
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
-## 321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris
+## ~~321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris~~
 
 **Observed in:** breakup/watch regression follow-up from `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). After the main controlling vessel crashed, the player expectation was to return camera focus to the anchor vessel rather than letting it drift to debris-focused behavior.
 
 **Desired behavior:** When the main controller vessel is lost, the camera should recover to the anchor vessel / stable owning vessel context, not to a debris fragment.
 
-**Root cause / hypothesis:** Camera recovery and watch/active-vessel fallback logic currently treat the next available post-breakup target too loosely. The anchor-vessel preference is not explicitly encoded, so debris can win the handoff/recovery path.
+**Root cause:** `GhostPlaybackLogic.FindNextWatchTarget` treated the first active tree child as a generic watch handoff fallback when no same-PID continuation existed. On breakup/crash trees, that let debris win the handoff path.
 
-**Fix direction:** Review watch exit, vessel-destruction camera restore, and any anchor-resolution path used during breakup-continuous playback. Add an explicit anchor-vessel preference rule and cover it with an in-game regression.
+**Fix:** Breakup/crash watch recovery no longer auto-follows any different-PID breakup child as a generic fallback. Same-PID continuation and `#158` recursive hold/retry behavior are unchanged, but breakup branches without same-PID continuation now return `-1` and let the existing watch hold/exit path restore the preserved live vessel context instead of transferring to debris or another fragment. Added regression coverage for non-breakup fallback, breakup no-fallback, debris-only `-1`, and hold-path behavior.
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 
@@ -247,7 +256,7 @@ Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and w
 
 ---
 
-## 326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits
+## ~~326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits~~
 
 **Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.
 
@@ -269,16 +278,14 @@ Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and w
 
 **Impact:** A surface EVA can be recorded as if it briefly started in atmosphere, which pollutes the final tree with a tiny non-leaf stub and causes later optimizer output to classify EVA chain segments as `atmo`. That matches the user-visible symptom of "gaps" / badly stitched EVA recordings even though watch transfer on the main vessel path works.
 
-**Root cause / hypothesis:** During EVA split creation, the child kerbal is first background-initialized from a transient pre-stable loaded state. The environment classifier appears to trust `inAtmo/altitude` too early, before landed/grounded state is stable, so it seeds `Atmospheric` for a loaded surface EVA. Once the switch completes, the active recorder correctly sees `SurfaceStationary`, but the one-frame atmospheric background section has already been persisted into the recording.
+**Root cause:** This turned out to be two related defects:
 
-**Fix direction:** In the EVA branch path, either:
+- when KSP left the source vessel active for one more frame, `CreateSplitBranch -> OnVesselBackgrounded -> InitializeLoadedState` could background-seed the new EVA child from a transient pre-stable loaded state, producing the 1-point `Atmospheric` stub
+- later, atmospheric-body EVA classification still trusted transient `FLYING` / `SUB_ORBITAL` state too much for ground-adjacent and splashed kerbals, so near-surface or sea-level bobbing EVAs could still flip into `Atmospheric` and create bogus optimizer splits
 
-- seed surface EVAs conservatively as `SurfaceStationary` / `SurfaceMobile` when the source situation is landed/splashed or the EVA is known to be ground-adjacent, or
-- delay background loaded-state initialization for the new EVA vessel until its landed/ground-contact state stabilizes
+**Fix:** EVA branch creation now queues a PID-keyed one-shot initial environment override when the background child is an EVA spawned from a landed / splashed / prelaunch source, and `BackgroundRecorder.InitializeLoadedState` consumes that override on the first real loaded init, including delayed go-off-rails initialization. `EnvironmentDetector`, `FlightRecorder`, and `BackgroundRecorder` now also keep atmospheric-body EVAs in surface segments when they are validly near terrain or bobbing at sea level on an ocean world. Added regression coverage for the branch override helper, pending override bookkeeping, and landed/splashed atmospheric-body EVA classification.
 
-Then add coverage that a landed EVA split does not create a 1-point atmospheric stub and that optimizer output for the resulting EVA chain is surface-classified unless the kerbal actually goes airborne.
-
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
@@ -589,7 +596,7 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 
 ---
 
-## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
+## ~~189b. Ghost escape orbit line stops short of Kerbin SOI edge~~
 
 For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the geometric hyperbola from `-acos(-1/e)` to `+acos(-1/e)` using circular trig (cos/sin), which clips at a finite distance (~12,000 km for e=1.342). The active vessel shows the full escape trajectory to the SOI boundary because it uses `PatchedConicSolver` + `PatchRendering`. Ghost ProtoVessels don't get a `PatchedConicSolver`.
 
@@ -599,6 +606,8 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability) — cosmetic, same tier as T25 fairing truss
+
+**Status:** ~~Closed as expected behavior.~~
 
 ---
 
@@ -700,17 +709,22 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 
 The first five storage slices are in place: representative fixture coverage, `v1`
 section-authoritative `.prec` sidecars, alias-mode ghost snapshot dedupe, header-dispatched binary
-`v2` `.prec` sidecars, and exact sparse `v3` defaults for stable per-point body/career fields.
+`v2` `.prec` sidecars, exact sparse `v3` defaults for stable per-point body/career fields, and
+lossless header-dispatched `Deflate` compression for `_vessel.craft` / `_ghost.craft` snapshot
+sidecars with legacy-text fallback.
 Remaining high-value work should stay measurement-gated and follow
 `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
-- next PR after merging this branch should target snapshot-side size reduction first
-- snapshot work should focus on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk now lives
+- snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
+- only pursue intra-save snapshot dedupe or any custom binary snapshot schema if the post-compression rebaseline still shows a meaningful measured win
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
-- any further snapshot-side work should preserve current alias semantics and stay covered by
-  sidecar/load diagnostics
+- snapshot-only hydration salvage must keep the loaded disk trajectory authoritative; if pending-tree data is used to heal bad snapshot sidecars, it should restore only snapshot state, not overwrite trajectory/timing with future in-memory data
+- out-of-band `incrementEpoch=false` sidecar writes still rely on the existing `.sfs` epoch and staged per-file replacement; if we ever need crash-proof mixed-generation detection there, add a sidecar-set commit marker/manifest instead of pretending the current epoch gate can prove it
+- any further snapshot-side work should preserve current alias semantics, keep the
+  missing-only ghost fallback contract, keep partial-write rollback safety intact, and stay
+  covered by sidecar/load diagnostics
 - add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
   and clears `FilesDirty`
 - add a mixed-case salvage test where several recordings fail hydration but only a subset can be

@@ -1109,12 +1109,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TreeBranch_DifferentPid_FallsBackToFirstActive()
+        public void TreeBranch_DifferentPid_PrefersFirstActiveNonDebris()
         {
             var bp = new BranchPoint
             {
                 Id = "bp1",
-                ChildRecordingIds = new List<string> { "child-a", "child-b" }
+                Type = BranchPointType.Undock,
+                ChildRecordingIds = new List<string> { "child-debris", "child-main" }
             };
             var tree = new RecordingTree
             {
@@ -1126,13 +1127,71 @@ namespace Parsek.Tests
             var recs = new List<Recording>
             {
                 MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
-                MakeRec("child-a", vesselPid: 200, treeId: "t1"),
-                MakeRec("child-b", vesselPid: 300, treeId: "t1"),
+                MakeRec("child-debris", vesselName: "Debris", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-main", vesselName: "Ship", vesselPid: 300, treeId: "t1"),
+            };
+            recs[1].IsDebris = true;
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => true);
+            Assert.Equal(2, result); // debris skipped, first active non-debris child wins
+        }
+
+        [Fact]
+        public void TreeBranch_BreakupDifferentPid_DoesNotFallbackToActiveChild()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                Type = BranchPointType.Breakup,
+                ChildRecordingIds = new List<string> { "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselName: "Ship", vesselPid: 300, treeId: "t1"),
             };
 
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
-            Assert.Equal(1, result); // first active child as fallback
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void TreeBranch_DebrisOnlyChildren_ReturnsMinusOne()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                Type = BranchPointType.Breakup,
+                ChildRecordingIds = new List<string> { "child-debris-a", "child-debris-b" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-debris-a", vesselName: "Debris A", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-debris-b", vesselName: "Debris B", vesselPid: 300, treeId: "t1"),
+            };
+            recs[1].IsDebris = true;
+            recs[2].IsDebris = true;
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => true);
+            Assert.Equal(-1, result);
         }
 
         [Fact]
@@ -1350,6 +1409,45 @@ namespace Parsek.Tests
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
             Assert.Equal(2, result);
+        }
+
+        [Fact]
+        public void Issue316_ArchivedSameTreeDebrisOutsideWatchedBranch_IsNotAutoFollowTarget()
+        {
+            var watchBranch = new BranchPoint
+            {
+                Id = "bp-watch-end",
+                ChildRecordingIds = new List<string> { "future-main-a", "future-main-b" }
+            };
+            var earlierBreakup = new BranchPoint
+            {
+                Id = "bp-earlier-breakup",
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "active-debris" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Issue316",
+                BranchPoints = new List<BranchPoint> { watchBranch, earlierBreakup }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", chainId: "c1", chainIndex: 0),
+                MakeRec("mid", vesselPid: 100, treeId: "t1", chainId: "c1", chainIndex: 1),
+                MakeRec("watched", vesselPid: 100, treeId: "t1", chainId: "c1", chainIndex: 2, childBpId: "bp-watch-end"),
+                MakeRec("future-main-a", vesselPid: 100, treeId: "t1"),
+                MakeRec("future-main-b", vesselPid: 100, treeId: "t1"),
+                MakeRec("active-debris", vesselPid: 200, treeId: "t1"),
+            };
+            recs[5].IsDebris = true;
+            recs[5].ParentBranchPointId = "bp-earlier-breakup";
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[2], recs, new List<RecordingTree> { tree }, idx => idx == 5);
+
+            Assert.Equal(-1, result);
         }
     }
 

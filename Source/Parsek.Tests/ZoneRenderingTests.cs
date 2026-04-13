@@ -411,6 +411,216 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Issue316_IsWatchProtectedRecording_ArchivedSplitLineageFallsBackToBranchAncestry()
+        {
+            var root = new Recording
+            {
+                RecordingId = "8582d3de9ee74681856352edc49563c3",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 0
+            };
+            var middle = new Recording
+            {
+                RecordingId = "06efb0cf37ac493ca3e3fa72c8c2d0d0",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 1
+            };
+            var watched = new Recording
+            {
+                RecordingId = "707490bbcabe495895eecadabed34c2b",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 2
+            };
+            var debrisDuringHold = new Recording
+            {
+                RecordingId = "aea21e7f06914584be43bebc00ce52f2",
+                TreeId = "tree-316",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                LoopSyncParentIdx = -1,
+                ParentBranchPointId = "bp-10"
+            };
+            var debrisAfterHold = new Recording
+            {
+                RecordingId = "62e4c90147454cc8aec091d2950e6056",
+                TreeId = "tree-316",
+                VesselPersistentId = 201,
+                IsDebris = true,
+                LoopSyncParentIdx = -1,
+                ParentBranchPointId = "bp-11"
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-316",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    ["8582d3de9ee74681856352edc49563c3"] = root,
+                    ["06efb0cf37ac493ca3e3fa72c8c2d0d0"] = middle,
+                    ["707490bbcabe495895eecadabed34c2b"] = watched,
+                    ["aea21e7f06914584be43bebc00ce52f2"] = debrisDuringHold,
+                    ["62e4c90147454cc8aec091d2950e6056"] = debrisAfterHold
+                },
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = "bp-10",
+                        ParentRecordingIds = new List<string> { "8582d3de9ee74681856352edc49563c3" }
+                    },
+                    new BranchPoint
+                    {
+                        Id = "bp-11",
+                        ParentRecordingIds = new List<string> { "8582d3de9ee74681856352edc49563c3" }
+                    }
+                }
+            };
+
+            var committed = new List<Recording> { root, middle, watched, debrisDuringHold, debrisAfterHold };
+
+            Assert.True(GhostPlaybackLogic.IsWatchProtectedRecording(
+                committed, new List<RecordingTree> { tree }, watchedRecordingIndex: 2, currentIndex: 3));
+            Assert.True(GhostPlaybackLogic.IsWatchProtectedRecording(
+                committed, new List<RecordingTree> { tree }, watchedRecordingIndex: 2, currentIndex: 4));
+        }
+
+        [Fact]
+        public void Issue316_ComputeWatchLineageProtectionUntilUT_ExtendsThroughLateDebris()
+        {
+            var root = new Recording
+            {
+                RecordingId = "8582d3de9ee74681856352edc49563c3",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 0
+            };
+            var middle = new Recording
+            {
+                RecordingId = "06efb0cf37ac493ca3e3fa72c8c2d0d0",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 1
+            };
+            var watched = new Recording
+            {
+                RecordingId = "707490bbcabe495895eecadabed34c2b",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 2
+            };
+            var debrisDuringHold = new Recording
+            {
+                RecordingId = "aea21e7f06914584be43bebc00ce52f2",
+                TreeId = "tree-316",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                LoopSyncParentIdx = -1,
+                ParentBranchPointId = "bp-10",
+                ExplicitStartUT = 817.66795427392969,
+                ExplicitEndUT = 850.44795427389988
+            };
+            var debrisAfterHold = new Recording
+            {
+                RecordingId = "62e4c90147454cc8aec091d2950e6056",
+                TreeId = "tree-316",
+                VesselPersistentId = 201,
+                IsDebris = true,
+                LoopSyncParentIdx = -1,
+                ParentBranchPointId = "bp-11",
+                ExplicitStartUT = 921.89877580711743,
+                ExplicitEndUT = 932.71452898094788
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-316",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    ["8582d3de9ee74681856352edc49563c3"] = root,
+                    ["06efb0cf37ac493ca3e3fa72c8c2d0d0"] = middle,
+                    ["707490bbcabe495895eecadabed34c2b"] = watched,
+                    ["aea21e7f06914584be43bebc00ce52f2"] = debrisDuringHold,
+                    ["62e4c90147454cc8aec091d2950e6056"] = debrisAfterHold
+                },
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = "bp-10",
+                        ParentRecordingIds = new List<string> { "8582d3de9ee74681856352edc49563c3" }
+                    },
+                    new BranchPoint
+                    {
+                        Id = "bp-11",
+                        ParentRecordingIds = new List<string> { "8582d3de9ee74681856352edc49563c3" }
+                    }
+                }
+            };
+
+            var committed = new List<Recording> { root, middle, watched, debrisDuringHold, debrisAfterHold };
+
+            double protectionUntilUT = GhostPlaybackLogic.ComputeWatchLineageProtectionUntilUT(
+                committed, new List<RecordingTree> { tree }, watchedRecordingIndex: 2, currentUT: 820.0);
+
+            Assert.Equal(932.71452898094788, protectionUntilUT, 12);
+        }
+
+        [Fact]
+        public void Issue316_ComputeWatchLineageProtectionUntilUT_AfterLateDebrisEnds_ReturnsNaN()
+        {
+            var watched = new Recording
+            {
+                RecordingId = "watched",
+                TreeId = "tree1",
+                VesselPersistentId = 100
+            };
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = "tree1",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                ParentBranchPointId = "bp1",
+                ExplicitStartUT = 10,
+                ExplicitEndUT = 20
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree1",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    ["watched"] = watched,
+                    ["debris"] = debris
+                },
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = "bp1",
+                        ParentRecordingIds = new List<string> { "watched" }
+                    }
+                }
+            };
+
+            double protectionUntilUT = GhostPlaybackLogic.ComputeWatchLineageProtectionUntilUT(
+                new List<Recording> { watched, debris },
+                new List<RecordingTree> { tree },
+                watchedRecordingIndex: 0,
+                currentUT: 25.0);
+
+            Assert.True(double.IsNaN(protectionUntilUT));
+        }
+
+        [Fact]
         public void ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue()
         {
             Assert.True(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(

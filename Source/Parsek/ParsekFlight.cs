@@ -1142,6 +1142,8 @@ namespace Parsek
                     break;
                 }
                 case DestructionMode.TreeAllLeavesCheck:
+                    Patches.FlightResultsPatch.ArmForDeferredMerge(
+                        "active vessel destroyed in tree mode");
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());
@@ -1189,7 +1191,19 @@ namespace Parsek
             // Guard: tree cleaned up during wait (scene change, etc.)
             if (activeTree == null)
             {
-                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                if (sceneChangeInProgress)
+                {
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionTreeMergeDialog: activeTree is null during scene change — " +
+                        "leaving deferred FlightResults to transition owner");
+                }
+                else
+                {
+                    Patches.FlightResultsPatch.CancelDeferredMerge(
+                        "tree destruction dialog aborted: activeTree null");
+                    ParsekLog.Verbose("Flight",
+                        "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                }
                 treeDestructionDialogPending = false;
                 yield break;
             }
@@ -1204,6 +1218,8 @@ namespace Parsek
             // Guard: active vessel still alive
             if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
             {
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    "tree destruction dialog aborted: active vessel survived");
                 ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
                 treeDestructionDialogPending = false;
                 yield break;
@@ -1214,6 +1230,8 @@ namespace Parsek
             if (!RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
                 activeTree.ActiveRecordingId, activeDestroyed))
             {
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    "tree destruction dialog aborted: not all leaves terminal");
                 ParsekLog.Info("Flight",
                     "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
                 treeDestructionDialogPending = false;
@@ -1244,6 +1262,8 @@ namespace Parsek
                     $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
                 ScreenMessage($"Recording discarded — {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    $"tree destruction auto-discarded ({reason})");
                 // Clean up flight state
                 recorder = null;
                 if (backgroundRecorder != null)
@@ -1275,7 +1295,7 @@ namespace Parsek
                 var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
                 LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                MergeDialog.ReplayFlightResultsIfPending();
+                MergeDialog.ResolveDeferredFlightResults();
             }
             else
             {
@@ -1818,6 +1838,27 @@ namespace Parsek
             return (bp, activeChild, backgroundChild);
         }
 
+        internal static SegmentEnvironment? GetEvaBackgroundInitialEnvironmentOverride(
+            BranchPointType branchType,
+            bool backgroundChildIsEva,
+            int activeSituation,
+            double backgroundSrfSpeed)
+        {
+            if (branchType != BranchPointType.EVA || !backgroundChildIsEva)
+                return null;
+
+            if (activeSituation == (int)Vessel.Situations.LANDED ||
+                activeSituation == (int)Vessel.Situations.SPLASHED ||
+                activeSituation == (int)Vessel.Situations.PRELAUNCH)
+            {
+                return backgroundSrfSpeed > 0.1
+                    ? SegmentEnvironment.SurfaceMobile
+                    : SegmentEnvironment.SurfaceStationary;
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Pure data-model method: creates the BranchPoint and one child Recording object
         /// for a vessel merge (dock or board). Testable without Unity.
@@ -1956,8 +1997,23 @@ namespace Parsek
             // Add background child to BackgroundMap FIRST, then notify BackgroundRecorder
             if (backgroundVessel != null && backgroundVessel.persistentId != 0)
             {
+                var initialBackgroundEnvOverride = GetEvaBackgroundInitialEnvironmentOverride(
+                    branchType,
+                    backgroundVessel.isEVA,
+                    activeVessel != null ? (int)activeVessel.situation : 0,
+                    backgroundVessel.srfSpeed);
+
+                if (initialBackgroundEnvOverride.HasValue)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CreateSplitBranch: forcing initial background env {initialBackgroundEnvOverride.Value} " +
+                        $"for pid={backgroundVessel.persistentId}");
+                }
+
                 activeTree.BackgroundMap[backgroundVessel.persistentId] = bgChild.RecordingId;
-                backgroundRecorder?.OnVesselBackgrounded(backgroundVessel.persistentId);
+                backgroundRecorder?.OnVesselBackgrounded(
+                    backgroundVessel.persistentId,
+                    initialEnvironmentOverride: initialBackgroundEnvOverride);
             }
 
             // Stop any existing undock continuation and vessel continuation (tree handles them)
@@ -3194,6 +3250,8 @@ namespace Parsek
                 if (RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
                     activeTree.ActiveRecordingId, activeDestroyed))
                 {
+                    Patches.FlightResultsPatch.ArmForDeferredMerge(
+                        "all tree leaves terminal after background destruction");
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight",
                         "All tree leaves now terminal after background destruction — triggering tree merge");
@@ -3813,10 +3871,20 @@ namespace Parsek
 
             // Safety net: if FlightResultsPatch has a pending message that was never replayed
             // (e.g., tree destruction path didn't fire), replay it now
-            if (Patches.FlightResultsPatch.HasPendingResults())
+            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
+                pendingTreeOwnsReplay,
+                ParsekScenario.MergeDialogPending))
             {
                 ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
-                Patches.FlightResultsPatch.ReplayFlightResults();
+                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
+            }
+            else if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight",
+                    "FlightResults safety net deferred — pending merge flow owns the replay");
             }
 
             // #267: if a restore coroutine is already running (double OnFlightReady fire),
@@ -3961,6 +4029,16 @@ namespace Parsek
         /// </summary>
         private void ClearSceneChangeTransientState()
         {
+            bool hadTreeDestructionDialogPending = treeDestructionDialogPending;
+            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            bool sceneChangeWillCreateMergeOwner = hadTreeDestructionDialogPending
+                && RecordingStore.PendingDestinationScene.HasValue
+                && RecordingStore.PendingDestinationScene.Value != GameScenes.FLIGHT
+                && RecordingStore.PendingDestinationScene.Value != GameScenes.MAINMENU
+                && !ParsekScenario.IsAutoMerge;
+
             // Clear dock/undock pending state
             ClearDockUndockState();
 
@@ -3970,11 +4048,30 @@ namespace Parsek
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
 
-            // Clear any suppressed flight results — don't carry stale crash reports across scenes
+            // Clear any stale suppressed flight results on scene change, but preserve
+            // captured crash reports when a pending merge flow still owns their replay.
             if (Patches.FlightResultsPatch.HasPendingResults())
             {
-                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
-                Patches.FlightResultsPatch.ClearPending();
+                if (Patches.FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
+                    pendingTreeOwnsReplay,
+                    sceneChangeWillCreateMergeOwner,
+                    ParsekScenario.MergeDialogPending))
+                {
+                    ParsekLog.Info("Flight",
+                        "Preserving captured FlightResults on scene change — pending merge flow will replay it");
+                }
+                else
+                {
+                    ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
+                    Patches.FlightResultsPatch.ClearPending("scene change with no merge owner");
+                }
+            }
+            else if (Patches.FlightResultsPatch.DeferredMergeArmed)
+            {
+                ParsekLog.Info("Flight",
+                    "Clearing armed FlightResults suppression on scene change before any stock dialog was intercepted");
+                Patches.FlightResultsPatch.ClearPending(
+                    "scene change before stock FlightResults were intercepted");
             }
 
             // Clear split event detection state
@@ -7443,7 +7540,10 @@ namespace Parsek
             watchMode.TransferWatchToNextSegment(nextIndex);
 
         /// <summary>Called by policy to exit watch mode.</summary>
-        internal void ExitWatchModeFromPolicy() => watchMode.ExitWatchMode();
+        internal void ExitWatchModeFromPolicy() => watchMode.ExitWatchModePreservingLineage();
+
+        internal void ExitWatchModePreservingLineage(bool skipCameraRestore = false) =>
+            watchMode.ExitWatchModePreservingLineage(skipCameraRestore);
 
         /// <summary>Called by policy to switch camera to a spawned vessel after watch-mode spawn.</summary>
         internal void DeferredActivateVesselFromPolicy(uint vesselPid) =>
@@ -7452,6 +7552,23 @@ namespace Parsek
         /// <summary>Called by policy to start the watch-mode hold timer at recording end.</summary>
         internal void StartWatchHoldFromPolicy(float holdUntilRealTime) =>
             watchMode.StartWatchHold(holdUntilRealTime);
+
+        private static float GetCurrentWarpRateSafe()
+        {
+            try
+            {
+                return TimeWarp.CurrentRate;
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Unit-test host does not provide the live KSP warp singleton.
+                return 1f;
+            }
+            catch (MethodAccessException)
+            {
+                return 1f;
+            }
+        }
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
@@ -8207,11 +8324,8 @@ namespace Parsek
             double ghostDistance, int protectedIndex)
         {
             var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
-            bool isWatchedGhost = watchMode != null
-                ? watchMode.IsWatchedGhostState(recIdx, state)
-                : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
-            bool isWatchProtectedRecording = GhostPlaybackLogic.IsWatchProtectedRecording(
-                RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, protectedIndex, recIdx);
+            var (isWatchedGhost, _, isWatchProtectedRecording) =
+                ResolveZoneWatchState(recIdx, state, protectedIndex);
 
             // Cache distance on state for use by IsGhostWithinVisualRange
             if (state != null)
@@ -8244,7 +8358,7 @@ namespace Parsek
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
                         $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
-                    ExitWatchMode();
+                    ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
@@ -8287,7 +8401,7 @@ namespace Parsek
             // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
             // from the player and would complete playback while invisible.
             if (GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
-                    shouldHideMesh, zone, TimeWarp.CurrentRate, rec.HasOrbitSegments))
+                    shouldHideMesh, zone, GetCurrentWarpRateSafe(), rec.HasOrbitSegments))
             {
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
@@ -8330,6 +8444,20 @@ namespace Parsek
                 suppressVisualFx = distanceSuppressVisualFx,
                 reduceFidelity = distanceReduceFidelity
             };
+        }
+
+        internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
+            ResolveZoneWatchState(int recIdx, GhostPlaybackState state, int protectedIndex)
+        {
+            bool isWatchedGhost = watchMode != null
+                ? watchMode.IsWatchedGhostState(recIdx, state)
+                : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
+            int watchProtectionIndex = watchMode != null
+                ? watchMode.WatchProtectionRecordingIndex
+                : protectedIndex;
+            bool isWatchProtectedRecording = GhostPlaybackLogic.IsWatchProtectedRecording(
+                RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, watchProtectionIndex, recIdx);
+            return (isWatchedGhost, watchProtectionIndex, isWatchProtectedRecording);
         }
 
         #endregion

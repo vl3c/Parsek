@@ -95,6 +95,11 @@ namespace Parsek
         private Dictionary<uint, HashSet<uint>> preBreakVesselPidSnapshots
             = new Dictionary<uint, HashSet<uint>>();
 
+        // Consumed on the first loaded-state init after a branch backgrounds a vessel.
+        // This survives the "backgrounded while not yet loaded" path used by EVA splits.
+        private Dictionary<uint, SegmentEnvironment> pendingInitialEnvironmentOverrides
+            = new Dictionary<uint, SegmentEnvironment>();
+
         // Reusable buffer for transition-check methods (avoids per-frame List<PartEvent> allocations)
         private readonly List<PartEvent> reusableEventBuffer = new List<PartEvent>();
 
@@ -970,7 +975,10 @@ namespace Parsek
                     ? FlightRecorder.ComputeApproachAltitude(bgVessel.mainBody) : 0;
                 var rawEnv = ClassifyBackgroundEnvironment(
                     hasAtmo, bgVessel.altitude, atmoDepth,
-                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines, approachAlt);
+                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines, approachAlt,
+                    bgVessel.isEVA, bgVessel.heightFromTerrain,
+                    EnvironmentDetector.IsHeightFromTerrainValid(bgVessel.heightFromTerrain),
+                    bgVessel.mainBody != null && bgVessel.mainBody.ocean);
                 if (state.environmentHysteresis.Update(rawEnv, ut))
                 {
                     var newEnv = state.environmentHysteresis.CurrentEnvironment;
@@ -1063,20 +1071,28 @@ namespace Parsek
         /// <summary>
         /// Called when a vessel is added to the background map (transition or branch creation).
         /// </summary>
-        public void OnVesselBackgrounded(uint vesselPid, InheritedEngineState? inherited = null)
+        public void OnVesselBackgrounded(uint vesselPid, InheritedEngineState? inherited = null,
+            SegmentEnvironment? initialEnvironmentOverride = null)
         {
             if (tree == null) return;
 
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
 
+            if (initialEnvironmentOverride.HasValue)
+            {
+                pendingInitialEnvironmentOverrides[vesselPid] = initialEnvironmentOverride.Value;
+                ParsekLog.Verbose("BgRecorder",
+                    $"Queued initial environment override for pid={vesselPid}: {initialEnvironmentOverride.Value}");
+            }
+
             // Remove any stale state from a prior initialization (e.g. constructor
             // created on-rails state before this method is called for the same vessel).
             // Close any open orbit segment first so data is not lost.
-            double ut = Planetarium.GetUniversalTime();
             BackgroundOnRailsState staleRails;
             if (onRailsStates.TryGetValue(vesselPid, out staleRails) && staleRails.hasOpenOrbitSegment)
             {
+                double ut = Planetarium.GetUniversalTime();
                 CloseOrbitSegment(staleRails, ut);
             }
             onRailsStates.Remove(vesselPid);
@@ -1118,7 +1134,7 @@ namespace Parsek
         /// </summary>
         public void OnVesselRemovedFromBackground(uint vesselPid)
         {
-            double ut = Planetarium.GetUniversalTime();
+            double? ut = null;
 
             // Close any open orbit segment
             BackgroundOnRailsState railsState;
@@ -1126,7 +1142,8 @@ namespace Parsek
             {
                 if (railsState.hasOpenOrbitSegment)
                 {
-                    CloseOrbitSegment(railsState, ut);
+                    if (!ut.HasValue) ut = Planetarium.GetUniversalTime();
+                    CloseOrbitSegment(railsState, ut.Value);
                 }
                 onRailsStates.Remove(vesselPid);
             }
@@ -1135,7 +1152,8 @@ namespace Parsek
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(vesselPid, out loadedState))
             {
-                CloseBackgroundTrackSection(loadedState, ut);
+                if (!ut.HasValue) ut = Planetarium.GetUniversalTime();
+                CloseBackgroundTrackSection(loadedState, ut.Value);
 
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
@@ -1146,12 +1164,13 @@ namespace Parsek
                     Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
                     if (v != null)
                     {
-                        SampleBoundaryPoint(v, flushRec, ut);
+                        SampleBoundaryPoint(v, flushRec, ut.Value);
                     }
                 }
                 loadedStates.Remove(vesselPid);
             }
 
+            pendingInitialEnvironmentOverrides.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
 
@@ -1320,6 +1339,8 @@ namespace Parsek
                 ParsekLog.Info("BgRecorder", $"Background EVA vessel ended: pid={pid}");
             else
                 ParsekLog.Warn("BgRecorder", $"Background vessel destroyed: pid={pid}");
+
+            pendingInitialEnvironmentOverrides.Remove(pid);
         }
 
         /// <summary>
@@ -1391,6 +1412,7 @@ namespace Parsek
 
             onRailsStates.Clear();
             loadedStates.Clear();
+            pendingInitialEnvironmentOverrides.Clear();
 
             ParsekLog.Info("BgRecorder", "Shutdown complete — all background states cleared");
         }
@@ -1728,13 +1750,27 @@ namespace Parsek
 
             // Initialize environment tracking and open first TrackSection
             double ut = Planetarium.GetUniversalTime();
-            bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
-            double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
-            double approachAlt = (!hasAtmo && v.mainBody != null)
-                ? FlightRecorder.ComputeApproachAltitude(v.mainBody) : 0;
-            var initialEnv = ClassifyBackgroundEnvironment(
-                hasAtmo, v.altitude, atmoDepth,
-                (int)v.situation, v.srfSpeed, state.cachedEngines, approachAlt);
+            SegmentEnvironment overrideEnv;
+            SegmentEnvironment initialEnv;
+            if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out overrideEnv))
+            {
+                initialEnv = overrideEnv;
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: consumed initial environment override for pid={vesselPid}: {initialEnv}");
+            }
+            else
+            {
+                bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
+                double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
+                double approachAlt = (!hasAtmo && v.mainBody != null)
+                    ? FlightRecorder.ComputeApproachAltitude(v.mainBody) : 0;
+                initialEnv = ClassifyBackgroundEnvironment(
+                    hasAtmo, v.altitude, atmoDepth,
+                    (int)v.situation, v.srfSpeed, state.cachedEngines, approachAlt,
+                    v.isEVA, v.heightFromTerrain,
+                    EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain),
+                    v.mainBody != null && v.mainBody.ocean);
+            }
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
             StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
 
@@ -2046,7 +2082,11 @@ namespace Parsek
             bool hasAtmosphere, double altitude, double atmosphereDepth,
             int situation, double srfSpeed,
             List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines,
-            double approachAltitude = 0)
+            double approachAltitude = 0,
+            bool isEva = false,
+            double heightFromTerrain = -1,
+            bool heightFromTerrainValid = false,
+            bool hasOcean = false)
         {
             bool hasActiveThrust = false;
             if (cachedEngines != null)
@@ -2065,7 +2105,20 @@ namespace Parsek
 
             return EnvironmentDetector.Classify(
                 hasAtmosphere, altitude, atmosphereDepth,
-                situation, srfSpeed, hasActiveThrust, approachAltitude);
+                situation, srfSpeed, hasActiveThrust, approachAltitude,
+                isEva, heightFromTerrain, heightFromTerrainValid, hasOcean);
+        }
+
+        private bool TryConsumePendingInitialEnvironmentOverride(uint vesselPid, out SegmentEnvironment environment)
+        {
+            if (pendingInitialEnvironmentOverrides.TryGetValue(vesselPid, out environment))
+            {
+                pendingInitialEnvironmentOverrides.Remove(vesselPid);
+                return true;
+            }
+
+            environment = SegmentEnvironment.Atmospheric;
+            return false;
         }
 
         /// <summary>
@@ -3174,6 +3227,24 @@ namespace Parsek
         /// For testing: gets the count of debris TTL entries.
         /// </summary>
         internal int DebrisTTLCount => debrisTTLExpiry.Count;
+
+        internal int PendingInitialEnvironmentOverrideCount => pendingInitialEnvironmentOverrides.Count;
+
+        internal SegmentEnvironment? PeekPendingInitialEnvironmentOverrideForTesting(uint vesselPid)
+        {
+            SegmentEnvironment env;
+            if (pendingInitialEnvironmentOverrides.TryGetValue(vesselPid, out env))
+                return env;
+            return null;
+        }
+
+        internal SegmentEnvironment? ConsumePendingInitialEnvironmentOverrideForTesting(uint vesselPid)
+        {
+            SegmentEnvironment env;
+            if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out env))
+                return env;
+            return null;
+        }
 
         /// <summary>
         /// For testing: gets the accumulated TrackSections for a loaded vessel.
