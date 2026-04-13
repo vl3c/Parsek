@@ -214,6 +214,12 @@ namespace Parsek
                 return;
             }
 
+            // Persist the currently-open TrackSection as a closed segment before we append
+            // recorder.TrackSections into the tree. Without this, mid-flight saves drop the
+            // active sparse trajectory chunk, and quickload playback can freeze or drift
+            // across the missing interval (#327).
+            recorder.CheckpointOpenTrackSectionForSerialization(Planetarium.GetUniversalTime());
+
             int prevPointCount = treeRec.Points.Count;
             int prevEventCount = treeRec.PartEvents.Count;
 

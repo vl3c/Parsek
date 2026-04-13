@@ -43,6 +43,7 @@ All notable changes to Parsek are documented here.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
 - `#326` EVA branch recordings no longer seed bogus atmospheric start fragments when a landed or splashed kerbal is backgrounded before KSP finishes the vessel switch. The branch path now carries a one-shot surface override through delayed child initialization, and atmospheric-body EVA classification now keeps ground-adjacent or sea-level bobbing kerbals in surface segments instead of producing stray `atmo` optimizer splits.
+- Mid-flight active-tree saves now checkpoint the recorder's currently-open `TrackSection` before serializing and immediately reopen a continuation section afterward, so quickload no longer drops the live sparse trajectory chunk and post-separation main-stage playback does not freeze or drift across the missing save/load interval (`#327`).
 - The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.
 
 ### Developer Tools
@@ -57,6 +58,7 @@ All notable changes to Parsek are documented here.
 - Added regression coverage for zero-throttle engine seeding vs. orphan-engine auto-start, so staged-off debris boosters are pinned against replaying as visually full-throttle.
 - Added `#323` regression coverage for in-session hierarchy preservation: unit coverage pins the load-policy gate, and a live in-game `OnLoad` round-trip now proves a root-level debris group survives a stale saved hierarchy without being re-parented.
 - Added regression coverage for EVA branch surface seeding and atmospheric/splashed EVA environment classification, covering the queued background override path and the near-ground / sea-level EVA surface heuristics behind `#326`.
+- Added regression coverage for save-time `TrackSection` checkpointing across active, relative, and orbital-checkpoint sections, and saved a reusable `tools/inspect-recording-sidecar.ps1` inspector for decoding `.prec` sparse trajectory payloads while debugging storage/playback issues like `#327`.
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
 - `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 
