@@ -8816,16 +8816,30 @@ namespace Parsek
             // under ~2 m buries the pod. Applies only to the PositionAtPoint
             // call sites (past-end hold, loop cycle boundary, loop pause hold,
             // overlap expired): these are the "stuck at final point" paths.
-            // Normal in-flight playback goes through InterpolateAndPosition and
-            // still relies on the existing ClampGhostsToTerrain LateUpdate pass
-            // with its 0.5 m floor — mid-playback clamp is a follow-up tracked
-            // in the #282 todo-and-known-bugs entry.
+            // Normal in-flight playback already gets the distance-aware terrain
+            // floor from ClampGhostsToTerrain in LateUpdate; mirror that same
+            // minimum here so long-range watched landed ghosts do not sink below
+            // the visual terrain right as playback reaches its final point.
             TrajectoryPoint positioned = point;
             if (traj != null)
             {
                 var term = traj.TerminalStateValue;
                 if (term == TerminalState.Landed || term == TerminalState.Splashed)
-                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName, traj.TerrainHeightAtEnd);
+                {
+                    double minClearanceMeters = 0.5;
+                    CelestialBody clearanceBody = FlightGlobals.Bodies?.Find(b => b.name == point.bodyName);
+                    if (clearanceBody != null && FlightGlobals.ActiveVessel != null)
+                    {
+                        Vector3d pointWorld = clearanceBody.GetWorldSurfacePosition(
+                            point.latitude, point.longitude, point.altitude);
+                        double distToVessel = Vector3d.Distance(
+                            pointWorld, FlightGlobals.ActiveVessel.GetWorldPos3D());
+                        minClearanceMeters = ComputeTerrainClearance(distToVessel);
+                    }
+
+                    positioned = ApplyLandedGhostClearance(
+                        point, index, traj.VesselName, traj.TerrainHeightAtEnd, minClearanceMeters);
+                }
             }
 
             PositionGhostAt(state.ghost, positioned);
@@ -8849,16 +8863,20 @@ namespace Parsek
         ///
         /// <para>New behavior: preserve the recorded altitude. The only correction
         /// is an underground safety floor — push up if the recorded altitude is
-        /// below (current PQS terrain + 0.5 m), which only fires when PQS terrain
-        /// has shifted UP since recording. For NaN-recorded-terrain legacy
-        /// recordings we fall back to a fixed clearance above PQS.</para>
+        /// below the current PQS terrain floor. The caller supplies the minimum
+        /// clearance to use for the current playback context; long-range watched
+        /// ghosts use the same distance-aware floor as <c>ClampGhostsToTerrain</c>.
+        /// For NaN-recorded-terrain legacy recordings we fall back to a fixed
+        /// clearance above PQS.</para>
         ///
         /// <para>Ghosts are kinematic — no physics damage concern — so the safety
-        /// floor is small (0.5 m). <c>internal static</c> so in-game tests can
-        /// exercise it without needing a full <c>IGhostPositioner</c> chain.</para>
+        /// floor defaults to 0.5 m when the caller has no better context.
+        /// <c>internal static</c> so in-game tests can exercise it without
+        /// needing a full <c>IGhostPositioner</c> chain.</para>
         /// </summary>
         internal static TrajectoryPoint ApplyLandedGhostClearance(
-            TrajectoryPoint p, int index, string vesselName, double recordedTerrainHeight)
+            TrajectoryPoint p, int index, string vesselName, double recordedTerrainHeight,
+            double minClearanceMeters = 0.5)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == p.bodyName);
             if (body == null)
@@ -8896,7 +8914,7 @@ namespace Parsek
             // Primary path: trust the recorded altitude. Only push up if the
             // recorded altitude is below the current PQS terrain floor — which
             // only happens when PQS terrain has shifted UP since recording.
-            double safetyFloor = pqsTerrain + 0.5;
+            double safetyFloor = pqsTerrain + System.Math.Max(0.5, minClearanceMeters);
             if (p.altitude >= safetyFloor)
                 return p;
 
@@ -8905,7 +8923,7 @@ namespace Parsek
                 $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                 $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
                 $"-> {safetyFloor.ToString("F1", ic)} (delta=+{upDelta.ToString("F2", ic)}m, " +
-                $"body={body.name}, below-pqs-floor, " +
+                $"body={body.name}, below-pqs-floor, clearance={System.Math.Max(0.5, minClearanceMeters).ToString("F1", ic)}m, " +
                 $"recSurface={recordedTerrainHeight.ToString("F1", ic)})");
             p.altitude = safetyFloor;
             return p;
