@@ -2729,67 +2729,16 @@ namespace Parsek
                 a.x * b.y - a.y * b.x);
         }
 
-        private static float DotProduct(Vector3 a, Vector3 b)
+        private static Vector3 TransformAlongAxis(Vector3 localPoint, Vector3 axis, Vector3 pivot)
         {
-            return a.x * b.x + a.y * b.y + a.z * b.z;
-        }
+            Vector3 up = NormalizeVector(axis, Vector3.up);
+            Vector3 tangent = CrossProduct(Vector3.right, up);
+            if (tangent.x == 0f && tangent.y == 0f && tangent.z == 0f)
+                tangent = CrossProduct(Vector3.forward, up);
+            tangent = NormalizeVector(tangent, Vector3.right);
+            Vector3 bitangent = NormalizeVector(CrossProduct(up, tangent), Vector3.forward);
 
-        private static Quaternion CreateFromToRotation(Vector3 from, Vector3 to)
-        {
-            Vector3 normalizedFrom = NormalizeVector(from, Vector3.up);
-            Vector3 normalizedTo = NormalizeVector(to, normalizedFrom);
-            float dot = Mathf.Clamp(DotProduct(normalizedFrom, normalizedTo), -1f, 1f);
-
-            if (dot > 1f - 1e-6f)
-                return new Quaternion(0f, 0f, 0f, 1f);
-
-            if (dot < -1f + 1e-6f)
-            {
-                Vector3 orthogonalAxis = CrossProduct(Vector3.forward, normalizedFrom);
-                if (DotProduct(orthogonalAxis, orthogonalAxis) < 1e-6f)
-                    orthogonalAxis = CrossProduct(Vector3.right, normalizedFrom);
-                orthogonalAxis = NormalizeVector(orthogonalAxis, Vector3.right);
-                return new Quaternion(orthogonalAxis.x, orthogonalAxis.y, orthogonalAxis.z, 0f);
-            }
-
-            Vector3 cross = CrossProduct(normalizedFrom, normalizedTo);
-            float scale = Mathf.Sqrt((1f + dot) * 2f);
-            float inverseScale = 1f / scale;
-            Quaternion rotation = new Quaternion(
-                cross.x * inverseScale,
-                cross.y * inverseScale,
-                cross.z * inverseScale,
-                scale * 0.5f);
-
-            float magnitude = Mathf.Sqrt(
-                rotation.x * rotation.x +
-                rotation.y * rotation.y +
-                rotation.z * rotation.z +
-                rotation.w * rotation.w);
-            if (magnitude < 1e-6f)
-                return new Quaternion(0f, 0f, 0f, 1f);
-
-            return new Quaternion(
-                rotation.x / magnitude,
-                rotation.y / magnitude,
-                rotation.z / magnitude,
-                rotation.w / magnitude);
-        }
-
-        private static Vector3 RotateVector(Quaternion rotation, Vector3 point)
-        {
-            Vector3 axis = new Vector3(rotation.x, rotation.y, rotation.z);
-            float scalar = rotation.w;
-
-            return axis * (2f * DotProduct(axis, point))
-                + point * (scalar * scalar - DotProduct(axis, axis))
-                + CrossProduct(axis, point) * (2f * scalar);
-        }
-
-        internal static Vector3 TransformAlongAxis(Vector3 localPoint, Vector3 axis, Vector3 pivot)
-        {
-            Quaternion rotation = CreateFromToRotation(Vector3.up, axis);
-            return RotateVector(rotation, localPoint) + pivot;
+            return tangent * localPoint.x + up * localPoint.y + bitangent * localPoint.z + pivot;
         }
 
         /// <summary>
