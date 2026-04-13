@@ -21,7 +21,7 @@ namespace Parsek.Tests
             var decision = FlightResultsPatch.ClassifyDisplayIntercept(
                 bypass: true,
                 isAutoMerge: false,
-                deferredMergeArmed: true,
+                shouldIntercept: true,
                 hasPendingOutcome: true);
 
             Assert.Equal(
@@ -35,7 +35,7 @@ namespace Parsek.Tests
             var decision = FlightResultsPatch.ClassifyDisplayIntercept(
                 bypass: false,
                 isAutoMerge: true,
-                deferredMergeArmed: true,
+                shouldIntercept: true,
                 hasPendingOutcome: false);
 
             Assert.Equal(
@@ -49,7 +49,7 @@ namespace Parsek.Tests
             var decision = FlightResultsPatch.ClassifyDisplayIntercept(
                 bypass: false,
                 isAutoMerge: false,
-                deferredMergeArmed: true,
+                shouldIntercept: true,
                 hasPendingOutcome: false);
 
             Assert.Equal(
@@ -63,7 +63,7 @@ namespace Parsek.Tests
             var decision = FlightResultsPatch.ClassifyDisplayIntercept(
                 bypass: false,
                 isAutoMerge: false,
-                deferredMergeArmed: false,
+                shouldIntercept: false,
                 hasPendingOutcome: true);
 
             Assert.Equal(
@@ -103,23 +103,6 @@ namespace Parsek.Tests
 
             Assert.True(allowed);
             Assert.False(FlightResultsPatch.Bypass);
-        }
-
-        [Theory]
-        [InlineData(true, PendingTreeState.Finalized, true)]
-        [InlineData(true, PendingTreeState.Limbo, false)]
-        [InlineData(true, PendingTreeState.LimboVesselSwitch, false)]
-        [InlineData(false, PendingTreeState.Finalized, false)]
-        public void PendingTreeOwnsReplay_OnlyFinalizedPendingTreesOwn(
-            bool hasPendingTree,
-            PendingTreeState pendingTreeState,
-            bool expected)
-        {
-            bool ownsReplay = FlightResultsPatch.PendingTreeOwnsReplay(
-                hasPendingTree,
-                pendingTreeState);
-
-            Assert.Equal(expected, ownsReplay);
         }
 
         [Fact]
@@ -164,138 +147,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldReplayOnFlightReady_FalseWhenPendingTreeOwnsReplay()
-        {
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-
-            bool pendingTreeOwnsReplay = FlightResultsPatch.PendingTreeOwnsReplay(
-                hasPendingTree: true,
-                pendingTreeState: PendingTreeState.Finalized);
-
-            bool result = FlightResultsPatch.ShouldReplayOnFlightReady(
-                pendingTreeOwnsReplay,
-                mergeDialogPending: false);
-
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void ShouldReplayOnFlightReady_TrueWhenPendingTreeIsOnlyLimboCarrier()
-        {
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-
-            bool pendingTreeOwnsReplay = FlightResultsPatch.PendingTreeOwnsReplay(
-                hasPendingTree: true,
-                pendingTreeState: PendingTreeState.Limbo);
-
-            bool result = FlightResultsPatch.ShouldReplayOnFlightReady(
-                pendingTreeOwnsReplay,
-                mergeDialogPending: false);
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void ShouldPreserveCapturedResultsOnSceneChange_TrueWhenSceneExitWillCreateMergeOwner()
-        {
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-
-            bool result = FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
-                pendingTreeOwnsReplay: false,
-                sceneChangeWillCreateMergeOwner: true,
-                mergeDialogPending: false);
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void ShouldPreserveCapturedResultsOnSceneChange_FalseWhenOnlyLimboCarrierExists()
-        {
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-
-            bool result = FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
-                pendingTreeOwnsReplay: false,
-                sceneChangeWillCreateMergeOwner: false,
-                mergeDialogPending: false);
-
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void ShouldPreserveCapturedResultsOnSceneChange_FalseWhenOnlyArmedButNothingCaptured()
-        {
-            FlightResultsPatch.DeferredMergeArmed = true;
-
-            bool result = FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
-                pendingTreeOwnsReplay: true,
-                sceneChangeWillCreateMergeOwner: true,
-                mergeDialogPending: true);
-
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady_WithOwner_KeepsArmedUntilCaptureOrResolution()
-        {
-            FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
-            FlightResultsPatch.DeferredMergeArmed = true;
-
-            FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
-                mergeOwnerExists: true,
-                reason: "unit test owner exists");
-
-            Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
-            Assert.True(FlightResultsPatch.DeferredMergeArmed);
-            Assert.False(FlightResultsPatch.HasPendingResults());
-        }
-
-        [Fact]
-        public void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady_WithoutOwner_ClearsCapturedState()
-        {
-            FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-            FlightResultsPatch.DeferredMergeArmed = true;
-
-            FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
-                mergeOwnerExists: false,
-                reason: "unit test no owner");
-
-            Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
-            Assert.False(FlightResultsPatch.DeferredMergeArmed);
-            Assert.False(FlightResultsPatch.HasPendingResults());
-        }
-
-        [Fact]
-        public void ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange_TrueForFlight()
-        {
-            bool result = FlightResultsPatch.ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
-                awaitingSceneChangeMergeOwner: true,
-                pendingDestinationScene: GameScenes.FLIGHT);
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange_FalseForMainMenu()
-        {
-            bool result = FlightResultsPatch.ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
-                awaitingSceneChangeMergeOwner: true,
-                pendingDestinationScene: GameScenes.MAINMENU);
-
-            Assert.False(result);
-        }
-
-        [Fact]
         public void ClearPending_ClearsCapturedOutcomeAndArmedState()
         {
             FlightResultsPatch.DeferredMergeArmed = true;
             FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-            FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
             FlightResultsPatch.Bypass = true;
 
             FlightResultsPatch.ClearPending("unit test clear");
 
-            Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
             Assert.False(FlightResultsPatch.DeferredMergeArmed);
             Assert.False(FlightResultsPatch.HasPendingResults());
             Assert.True(FlightResultsPatch.Bypass);
@@ -306,7 +165,6 @@ namespace Parsek.Tests
             FlightResultsPatch.Bypass = false;
             FlightResultsPatch.DeferredMergeArmed = false;
             FlightResultsPatch.PendingOutcomeMsg = null;
-            FlightResultsPatch.AwaitingSceneChangeMergeOwner = false;
         }
     }
 }

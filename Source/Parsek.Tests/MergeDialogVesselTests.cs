@@ -137,14 +137,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanPersistVessel_SubOrbital_ReturnsTrue()
+        public void CanPersistVessel_SubOrbital_ReturnsFalse()
         {
             var rec = new Recording
             {
                 TerminalStateValue = TerminalState.SubOrbital,
                 VesselSnapshot = new ConfigNode("VESSEL")
             };
-            Assert.True(MergeDialog.CanPersistVessel(rec));
+            Assert.False(MergeDialog.CanPersistVessel(rec));
+        }
+
+        [Fact]
+        public void CanPersistVessel_Debris_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                IsDebris = true
+            };
+            Assert.False(MergeDialog.CanPersistVessel(rec));
         }
 
         // ============================================================
@@ -229,6 +241,33 @@ namespace Parsek.Tests
             Assert.Equal(2, decisions.Count);
             Assert.False(decisions["r1"]);
             Assert.False(decisions["r2"]);
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_DebrisAndSubOrbital_DefaultGhostOnly()
+        {
+            var tree = new RecordingTree { TreeName = "CrashDebris" };
+            tree.Recordings["debris"] = new Recording
+            {
+                RecordingId = "debris",
+                VesselName = "Booster Debris",
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                IsDebris = true
+            };
+            tree.Recordings["suborbital"] = new Recording
+            {
+                RecordingId = "suborbital",
+                VesselName = "Capsule",
+                TerminalStateValue = TerminalState.SubOrbital,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+
+            Assert.Equal(2, decisions.Count);
+            Assert.False(decisions["debris"]);
+            Assert.False(decisions["suborbital"]);
         }
 
         [Fact]
