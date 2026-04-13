@@ -875,8 +875,8 @@ namespace Parsek
             userModeOverride = false;
             currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
             lastLoggedHorizonVectorKey = null;
-            lastMapViewEnabled = MapView.MapIsEnabled;
-            pendingMapFocusRestore = lastMapViewEnabled;
+            (lastMapViewEnabled, pendingMapFocusRestore) =
+                InitializeMapFocusRestoreState(MapView.MapIsEnabled);
             return true;
         }
 
@@ -1636,20 +1636,9 @@ namespace Parsek
 
         private void UpdateMapFocusRestore()
         {
-            bool mapViewEnabled = MapView.MapIsEnabled;
-            if (!mapViewEnabled)
-            {
-                lastMapViewEnabled = false;
-                pendingMapFocusRestore = false;
-                return;
-            }
-
-            if (!lastMapViewEnabled)
-                pendingMapFocusRestore = true;
-
-            lastMapViewEnabled = true;
-
-            if (!pendingMapFocusRestore)
+            (lastMapViewEnabled, pendingMapFocusRestore, bool shouldAttemptRestore) =
+                AdvanceMapFocusRestoreState(lastMapViewEnabled, pendingMapFocusRestore, MapView.MapIsEnabled);
+            if (!shouldAttemptRestore)
                 return;
 
             uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(watchedRecordingIndex);
@@ -1666,13 +1655,50 @@ namespace Parsek
                 GhostMapPresence.EnsureGhostOrbitRenderers();
             }
 
-            if (PlanetariumCamera.fetch == null || ghostVessel.mapObject == null)
+            if (!CanRestoreMapFocus(
+                    ghostPid,
+                    ghostVessel != null,
+                    ghostVessel.mapObject != null,
+                    PlanetariumCamera.fetch != null))
                 return;
 
             PlanetariumCamera.fetch.SetTarget(ghostVessel.mapObject);
             pendingMapFocusRestore = false;
             ParsekLog.Info("GhostMap",
                 $"Restored map focus to watched ghost '{ghostVessel.vesselName}' (recIndex={watchedRecordingIndex})");
+        }
+
+        internal static (bool lastMapViewEnabled, bool pendingMapFocusRestore)
+            InitializeMapFocusRestoreState(bool mapViewEnabled)
+        {
+            return (mapViewEnabled, mapViewEnabled);
+        }
+
+        internal static (bool lastMapViewEnabled, bool pendingMapFocusRestore, bool shouldAttemptRestore)
+            AdvanceMapFocusRestoreState(
+                bool lastMapViewEnabled,
+                bool pendingMapFocusRestore,
+                bool mapViewEnabled)
+        {
+            if (!mapViewEnabled)
+                return (false, false, false);
+
+            if (!lastMapViewEnabled)
+                pendingMapFocusRestore = true;
+
+            return (true, pendingMapFocusRestore, pendingMapFocusRestore);
+        }
+
+        internal static bool CanRestoreMapFocus(
+            uint ghostPid,
+            bool hasGhostVessel,
+            bool hasMapObject,
+            bool hasPlanetariumCamera)
+        {
+            return ghostPid != 0
+                && hasGhostVessel
+                && hasMapObject
+                && hasPlanetariumCamera;
         }
 
         /// <summary>
