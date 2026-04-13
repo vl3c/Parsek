@@ -467,10 +467,13 @@ namespace Parsek
 
             string groupName = GenerateUniqueGroupName(tree.TreeName);
             int debrisCount = 0;
+            int crewCount = 0;
             string debrisGroupName = null;
+            string crewGroupName = null;
 
             foreach (var rec in tree.Recordings.Values)
             {
+                string targetGroup = groupName;
                 if (rec.IsDebris)
                 {
                     // Create debris subgroup on first debris recording
@@ -479,28 +482,86 @@ namespace Parsek
                         debrisGroupName = groupName + " / Debris";
                         GroupHierarchyStore.SetGroupParent(debrisGroupName, groupName);
                     }
-                    if (rec.RecordingGroups == null)
-                        rec.RecordingGroups = new List<string>();
-                    if (!rec.RecordingGroups.Contains(debrisGroupName))
-                        rec.RecordingGroups.Add(debrisGroupName);
+                    targetGroup = debrisGroupName;
                     debrisCount++;
                 }
-                else
+                else if (!string.IsNullOrEmpty(rec.EvaCrewName))
                 {
-                    if (rec.RecordingGroups == null)
-                        rec.RecordingGroups = new List<string>();
-                    if (!rec.RecordingGroups.Contains(groupName))
-                        rec.RecordingGroups.Add(groupName);
+                    // EVA recordings belong under a dedicated crew subgroup for the mission.
+                    if (crewGroupName == null)
+                    {
+                        crewGroupName = groupName + " / Crew";
+                        GroupHierarchyStore.SetGroupParent(crewGroupName, groupName);
+                    }
+                    targetGroup = crewGroupName;
+                    crewCount++;
                 }
+
+                if (rec.RecordingGroups == null)
+                    rec.RecordingGroups = new List<string>();
+                if (!rec.RecordingGroups.Contains(targetGroup))
+                    rec.RecordingGroups.Add(targetGroup);
             }
 
-            int stageCount = tree.Recordings.Count - debrisCount;
-            if (debrisCount > 0)
+            int mainCount = tree.Recordings.Count - debrisCount - crewCount;
+            if (debrisCount > 0 || crewCount > 0)
+            {
+                var details = new List<string>();
+                if (mainCount > 0)
+                    details.Add($"{mainCount} main under '{groupName}'");
+                if (crewCount > 0)
+                    details.Add($"{crewCount} crew under '{crewGroupName}'");
+                if (debrisCount > 0)
+                    details.Add($"{debrisCount} debris under '{debrisGroupName}'");
                 ParsekLog.Info("RecordingStore",
-                    $"Auto-grouped {stageCount} stage(s) under '{groupName}', {debrisCount} debris under '{debrisGroupName}'");
+                    $"Auto-grouped {string.Join(", ", details)}");
+            }
             else
+            {
                 ParsekLog.Info("RecordingStore",
                     $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
+            }
+        }
+
+        private static string ResolveTreeRootGroupName(RecordingTree tree)
+        {
+            if (tree == null) return null;
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec.RecordingGroups == null || rec.RecordingGroups.Count == 0)
+                    continue;
+
+                string groupName = rec.RecordingGroups[0];
+                string parent;
+                while (GroupHierarchyStore.TryGetGroupParent(groupName, out parent))
+                    groupName = parent;
+                return groupName;
+            }
+
+            return null;
+        }
+
+        private static string ResolveAdoptedTreeGroup(string rootGroupName, Recording rec)
+        {
+            if (string.IsNullOrEmpty(rootGroupName) || rec == null)
+                return rootGroupName;
+
+            if (rec.IsDebris)
+            {
+                string debrisGroupName = rootGroupName + " / Debris";
+                GroupHierarchyStore.SetGroupParent(debrisGroupName, rootGroupName);
+                return debrisGroupName;
+            }
+
+            if (!string.IsNullOrEmpty(rec.EvaCrewName))
+            {
+                string crewGroupName = rootGroupName + " / Crew";
+                GroupHierarchyStore.SetGroupParent(crewGroupName, rootGroupName);
+                return crewGroupName;
+            }
+
+            return rootGroupName;
         }
 
         /// <summary>
@@ -514,17 +575,8 @@ namespace Parsek
             if (string.IsNullOrEmpty(tree.TreeName))
                 return;
 
-            string adoptGroupName = null;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                if (!rec.IsDebris && rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
-                {
-                    adoptGroupName = rec.RecordingGroups[0];
-                    break;
-                }
-            }
-
-            if (adoptGroupName == null)
+            string rootGroupName = ResolveTreeRootGroupName(tree);
+            if (rootGroupName == null)
                 return;
 
             // Collect tree vessel PIDs and time range for matching
@@ -551,12 +603,7 @@ namespace Parsek
 
                 if (!match) continue;
 
-                string targetGroup = cr.IsDebris
-                    ? adoptGroupName + " / Debris"
-                    : adoptGroupName;
-                // Ensure debris subgroup has parent relationship
-                if (cr.IsDebris)
-                    GroupHierarchyStore.SetGroupParent(targetGroup, adoptGroupName);
+                string targetGroup = ResolveAdoptedTreeGroup(rootGroupName, cr);
                 cr.RecordingGroups = new List<string> { targetGroup };
                 adopted++;
                 ParsekLog.Info("RecordingStore",
@@ -564,7 +611,7 @@ namespace Parsek
             }
             if (adopted > 0)
                 ParsekLog.Info("RecordingStore",
-                    $"Adopted {adopted} orphaned recording(s) into tree group '{adoptGroupName}'");
+                    $"Adopted {adopted} orphaned recording(s) into tree group '{rootGroupName}'");
         }
 
         /// <summary>

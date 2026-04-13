@@ -1801,6 +1801,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_EvaCrewGroupedUnderCrewSubgroup()
+        {
+            var vessel = MakeRec("vessel", "Kerbal X", treeId: "t-crew", pid: 100);
+            var eva = MakeRec("eva", "Jebediah Kerman", treeId: "t-crew", pid: 200);
+            eva.ParentRecordingId = vessel.RecordingId;
+            eva.EvaCrewName = "Jebediah Kerman";
+
+            var tree = new RecordingTree
+            {
+                Id = "t-crew", TreeName = "Kerbal X",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { vessel.RecordingId, vessel },
+                    { eva.RecordingId, eva }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.NotNull(vessel.RecordingGroups);
+            Assert.Single(vessel.RecordingGroups);
+            Assert.Equal("Kerbal X", vessel.RecordingGroups[0]);
+
+            Assert.NotNull(eva.RecordingGroups);
+            Assert.Single(eva.RecordingGroups);
+            Assert.Equal("Kerbal X / Crew", eva.RecordingGroups[0]);
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Crew", out string parent));
+            Assert.Equal("Kerbal X", parent);
+        }
+
+        [Fact]
         public void CommitTree_AdoptsOrphanedRecordingByTreeId()
         {
             // Pre-commit an orphaned recording with matching TreeId
@@ -1850,6 +1881,34 @@ namespace Parsek.Tests
             Assert.NotNull(orphanDebris.RecordingGroups);
             Assert.Contains("Debris", orphanDebris.RecordingGroups[0]);
             Assert.True(GroupHierarchyStore.TryGetGroupParent(orphanDebris.RecordingGroups[0], out string parent));
+        }
+
+        [Fact]
+        public void CommitTree_AdoptsOrphanedEvaIntoCrewSubgroup()
+        {
+            var orphanEva = MakeRec("orphan-eva", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
+            orphanEva.TreeId = "t-crew-adopt";
+            orphanEva.ParentRecordingId = "root";
+            orphanEva.EvaCrewName = "Bob Kerman";
+            RecordingStore.AddRecordingWithTreeForTesting(orphanEva);
+
+            var tree = new RecordingTree
+            {
+                Id = "t-crew-adopt", TreeName = "Kerbal X",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "root", MakeRec("root", "Kerbal X", treeId: "t-crew-adopt", pid: 100, startUT: 100, endUT: 200) },
+                    { "cont", MakeRec("cont", "Kerbal X", treeId: "t-crew-adopt", pid: 100, startUT: 200, endUT: 300) }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.NotNull(orphanEva.RecordingGroups);
+            Assert.Single(orphanEva.RecordingGroups);
+            Assert.Equal("Kerbal X / Crew", orphanEva.RecordingGroups[0]);
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Crew", out string parent));
+            Assert.Equal("Kerbal X", parent);
         }
 
         [Fact]
