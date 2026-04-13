@@ -59,7 +59,9 @@ namespace Parsek.Tests
         private sealed class SpawnPrimingPositioner : IGhostPositioner
         {
             internal int InterpolateCalls;
+            internal int PositionAtPointCalls;
             internal double LastUT;
+            internal double LastPointUT;
             internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
 
             public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
@@ -81,6 +83,11 @@ namespace Parsek.Tests
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, TrajectoryPoint point)
             {
+                PositionAtPointCalls++;
+                LastPointUT = point.ut;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, point.bodyName ?? "Kerbin", point.altitude));
             }
 
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
@@ -1205,6 +1212,24 @@ namespace Parsek.Tests
             Assert.True(state.deferVisibilityUntilPlaybackSync);
 
             UnityEngine.Object.DestroyImmediate(state.ghost);
+        }
+
+        [Fact]
+        public void HasRenderableGhostData_SinglePoint_ReturnsTrue()
+        {
+            var traj = new MockTrajectory();
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 0,
+                longitude = 0,
+                altitude = 0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            });
+
+            Assert.True(GhostPlaybackEngine.HasRenderableGhostData(traj));
         }
 
         [Fact]

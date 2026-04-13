@@ -7785,7 +7785,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
+                bool hasData = GhostPlaybackEngine.HasRenderableGhostData(rec);
 
                 bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
                 bool chainLoopOrDisabled = rec.IsChainRecording &&

@@ -116,6 +116,14 @@ namespace Parsek
 
         #endregion
 
+        internal static bool HasRenderableGhostData(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && ((traj.Points != null && traj.Points.Count > 0)
+                    || traj.HasOrbitSegments
+                    || traj.SurfacePos.HasValue);
+        }
+
         internal GhostPlaybackEngine(IGhostPositioner positioner)
         {
             this.positioner = positioner;
@@ -260,10 +268,11 @@ namespace Parsek
                     continue;
                 }
 
-                bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
+                bool hasPointData = traj.Points != null && traj.Points.Count > 0;
+                bool hasInterpolatedPoints = traj.Points != null && traj.Points.Count >= 2;
                 bool hasOrbitData = traj.HasOrbitSegments;
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
-                if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
+                if (!HasRenderableGhostData(traj)) continue;
 
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
@@ -362,7 +371,7 @@ namespace Parsek
                             var syncCtx = ctx;
                             syncCtx.currentUT = parentLoopUT;
                             if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
-                                    hasPoints, hasSurfaceData, hasOrbitData,
+                                    hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
                                     allowEarlyDestroyedDebrisCompletion: false,
                                     ref state, ref ghostActive))
                             {
@@ -394,7 +403,7 @@ namespace Parsek
                 if (inRange)
                 {
                     if (RenderInRangeGhost(i, traj, f, ctx, suppressVisualFx,
-                            hasPoints, hasSurfaceData, hasOrbitData,
+                            hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
                             allowEarlyDestroyedDebrisCompletion: true,
                             ref state, ref ghostActive))
                         continue;
@@ -404,7 +413,7 @@ namespace Parsek
                 if ((pastEnd || pastEffectiveEnd)
                     && !completedEventFired.Contains(i)
                     && !earlyDestroyedDebrisCompleted.Contains(i))
-                    HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPoints);
+                    HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPointData);
 
                 // === Stale past-end ghost cleanup ===
                 // Ghost survived past-end (e.g. watch hold), completed event already fired,
@@ -463,7 +472,7 @@ namespace Parsek
         /// </summary>
         private bool RenderInRangeGhost(int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f,
             FrameContext ctx, bool suppressVisualFx,
-            bool hasPoints, bool hasSurfaceData, bool hasOrbitData,
+            bool hasPointData, bool hasInterpolatedPoints, bool hasSurfaceData, bool hasOrbitData,
             bool allowEarlyDestroyedDebrisCompletion,
             ref GhostPlaybackState state, ref bool ghostActive)
         {
@@ -524,7 +533,7 @@ namespace Parsek
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
 
             // Position the ghost
-            if (hasPoints)
+            if (hasInterpolatedPoints)
             {
                 // Check for relative frame positioning (Phase 3b: docking/rendezvous)
                 bool usedRelative = false;
@@ -544,6 +553,13 @@ namespace Parsek
                     positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
                 }
             }
+            else if (hasPointData)
+            {
+                if (ShouldPrimeSinglePointGhostFromOrbit(traj, ctx.currentUT))
+                    positioner.PositionFromOrbit(i, traj, state, ctx.currentUT);
+                else
+                    positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
+            }
             else if (hasSurfaceData)
             {
                 positioner.PositionAtSurface(i, traj, state);
@@ -562,7 +578,7 @@ namespace Parsek
 
             if (allowEarlyDestroyedDebrisCompletion
                 && TryHandleEarlyDestroyedDebrisCompletion(
-                    i, traj, f, ctx, state, ghostActive, hasPoints))
+                    i, traj, f, ctx, state, ghostActive, hasPointData))
             {
                 return true;
             }
@@ -572,7 +588,7 @@ namespace Parsek
 
         private bool TryHandleEarlyDestroyedDebrisCompletion(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
-            FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPoints)
+            FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPointData)
         {
             if (completedEventFired.Contains(index))
                 return true;
@@ -597,7 +613,7 @@ namespace Parsek
                 Flags = flags,
                 GhostWasActive = ghostActive,
                 PastEffectiveEnd = ctx.currentUT > flags.chainEndUT,
-                LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
+                LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
                 CurrentUT = ctx.currentUT
             });
 
@@ -612,7 +628,7 @@ namespace Parsek
         /// fires completed event. Works for both active and inactive ghost cases.
         /// </summary>
         private void HandlePastEndGhost(int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f,
-            FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPoints)
+            FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPointData)
         {
             completedEventFired.Add(i);
 
@@ -636,7 +652,7 @@ namespace Parsek
                 Flags = f,
                 GhostWasActive = ghostActive,
                 PastEffectiveEnd = ctx.currentUT > f.chainEndUT,
-                LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
+                LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
                 CurrentUT = ctx.currentUT
             });
         }

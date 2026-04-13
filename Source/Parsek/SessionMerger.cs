@@ -105,16 +105,36 @@ namespace Parsek
                 merged.TrackSections = mergedSections;
                 merged.PartEvents = mergedEvents;
 
-                // Keep flat lists consistent with the authoritative section payload when we
-                // can rebuild them losslessly. Relative or metadata-only sections still fall
-                // back to the caller-provided flat lists.
-                bool rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(merged);
+                // Preserve newer flat tail data when the resolved TrackSections are only a
+                // prefix of the source flat trajectory (e.g. board/merge appended points after
+                // the last flushed sparse section). Otherwise prefer the resolved sections and
+                // rebuild the flat lists from them.
+                bool flatTailExtendsResolvedSections =
+                    RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                        srcRec, mergedSections, allowRelativeSections: true);
+                bool rebuiltFlatTrajectory = false;
+                if (!flatTailExtendsResolvedSections)
+                    rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                        merged, allowRelativeSections: true);
+
                 if (!rebuiltFlatTrajectory)
                 {
-                    if (srcRec.Points != null)
+                    bool copiedFlatTrajectory = false;
+                    if (srcRec.Points != null && srcRec.Points.Count > 0)
+                    {
                         merged.Points = new List<TrajectoryPoint>(srcRec.Points);
-                    if (srcRec.OrbitSegments != null)
+                        copiedFlatTrajectory = true;
+                    }
+
+                    if (srcRec.OrbitSegments != null && srcRec.OrbitSegments.Count > 0)
+                    {
                         merged.OrbitSegments = new List<OrbitSegment>(srcRec.OrbitSegments);
+                        copiedFlatTrajectory = true;
+                    }
+
+                    if (!copiedFlatTrajectory)
+                        rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                            merged, allowRelativeSections: true);
                 }
 
                 // Copy SegmentEvents
@@ -144,7 +164,9 @@ namespace Parsek
                     srcRec.TrackSections ?? new List<TrackSection>(), mergedSections);
                 ParsekLog.Verbose(Tag,
                     $"MergeTree: recording='{recId}' flatSync=" +
-                    (rebuiltFlatTrajectory ? "track-sections" : "legacy-flat-copy"));
+                    (rebuiltFlatTrajectory
+                        ? "track-sections"
+                        : (flatTailExtendsResolvedSections ? "preserved-flat-copy" : "track-sections-fallback")));
             }
 
             ParsekLog.Info(Tag,
