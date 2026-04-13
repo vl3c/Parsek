@@ -1224,6 +1224,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveEffectiveWatchTargetIndex_NonBreakupInactiveFallbackChild_DoesNotDescendIntoActiveGrandchild()
+        {
+            var bp1 = new BranchPoint
+            {
+                Id = "bp1",
+                Type = BranchPointType.Undock,
+                ChildRecordingIds = new List<string> { "fallback-main" }
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp2",
+                ChildRecordingIds = new List<string> { "fallback-grandchild" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp1, bp2 }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("fallback-main", vesselPid: 300, treeId: "t1", childBpId: "bp2"),
+                MakeRec("fallback-grandchild", vesselPid: 300, treeId: "t1"),
+            };
+
+            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                0, recs, new List<RecordingTree> { tree }, idx => idx == 2);
+
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
         public void TreeBranch_BreakupDifferentPid_DoesNotFallbackToActiveChild()
         {
             var bp = new BranchPoint

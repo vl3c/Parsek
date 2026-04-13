@@ -3351,15 +3351,10 @@ namespace Parsek
                 if (child == null || child.IsDebris)
                     continue;
 
-                int resolvedChildIndex = ResolveEffectiveWatchTargetIndex(
-                    childIndex,
-                    committed,
-                    trees,
-                    isGhostActive,
-                    visited,
-                    depth + 1);
-                if (resolvedChildIndex >= 0)
-                    return resolvedChildIndex;
+                // Mirror FindNextWatchTarget exactly for non-PID fallback:
+                // only an immediate active non-debris child is a valid target.
+                if (isGhostActive != null && isGhostActive(childIndex))
+                    return childIndex;
             }
 
             return -1;
