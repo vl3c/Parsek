@@ -390,6 +390,14 @@ namespace Parsek
             return result;
         }
 
+        private static bool NeedsCrewEndStatePopulation(Recording rec)
+        {
+            return rec != null
+                && !rec.CrewEndStatesResolved
+                && rec.CrewEndStates == null
+                && (rec.VesselSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName));
+        }
+
         /// <summary>
         /// Finds a committed recording by its ID. Returns null if not found.
         /// </summary>
@@ -561,7 +569,7 @@ namespace Parsek
                 if (existingIds.Contains(rec.RecordingId)) continue;
 
                 // Populate end states first
-                if (!rec.CrewEndStatesResolved && rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                if (NeedsCrewEndStatePopulation(rec))
                     KerbalsModule.PopulateCrewEndStates(rec);
 
                 var kerbalActions = CreateKerbalAssignmentActions(
@@ -592,7 +600,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (!rec.CrewEndStatesResolved && rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                if (NeedsCrewEndStatePopulation(rec))
                 {
                     KerbalsModule.PopulateCrewEndStates(rec);
                     if (rec.CrewEndStates != null) populated++;

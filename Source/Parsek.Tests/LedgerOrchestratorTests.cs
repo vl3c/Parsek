@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -765,6 +766,64 @@ namespace Parsek.Tests
             Assert.Equal(KerbalEndState.Aboard, result[0].EndState);
 
             CrewReservationManager.ResetReplacementsForTesting();
+        }
+
+        [Fact]
+        public void PopulateUnpopulatedCrewEndStates_EvaOnlyRecording_PopulatesCrewEndStates()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-eva-populate",
+                VesselName = "Bill Kerman",
+                EvaCrewName = "Bill Kerman",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "PopulateUnpopulatedCrewEndStates", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates["Bill Kerman"]);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void MigrateKerbalAssignments_EvaOnlyRecording_PopulatesEndStateBeforeActionCreation()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-eva-migrate",
+                VesselName = "Bill Kerman",
+                EvaCrewName = "Bill Kerman",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 10,
+                ExplicitEndUT = 20
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "MigrateKerbalAssignments", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.KerbalAssignment, Ledger.Actions[0].Type);
+            Assert.Equal("Bill Kerman", Ledger.Actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Dead, Ledger.Actions[0].KerbalEndStateField);
+            Assert.True(rec.CrewEndStatesResolved);
+
+            RecordingStore.ResetForTesting();
         }
 
         // ================================================================

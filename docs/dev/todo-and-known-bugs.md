@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~341. EVA-only recordings can skip crew end-state population during migration/load repair~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). Commit-time kerbal action creation already treated `EvaCrewName` as a valid crew source, but the legacy migration path and the "populate missing end states on load" safety net only ran when `VesselSnapshot != null`.
+
+**Root cause:** `MigrateKerbalAssignments()` and `PopulateUnpopulatedCrewEndStates()` duplicated an older, narrower guard instead of reusing the commit-time "has crew source" predicate. EVA recordings that stored only `EvaCrewName` therefore skipped end-state inference on those later paths.
+
+**Fix:** The migration and safety-net paths now share a single `NeedsCrewEndStatePopulation()` predicate that accepts either `VesselSnapshot` or `EvaCrewName`. Added `LedgerOrchestratorTests` regressions for both private paths to pin EVA-only recordings to a resolved `Dead`/`Recovered`/etc. end state instead of `Unknown`.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~340. Permanent-loss slots can keep stale stand-in occupancy or stay permanently gone after the death is rewound away~~
 
 **Observed in:** Kerbals/events-actions audit (2026-04-13). Slots with an old temporary chain could still present a stand-in as the active occupant after the owner later died permanently, and a saved `permanentlyGone=True` flag could persist even after the death-causing recording was removed from the timeline.
