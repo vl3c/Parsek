@@ -782,6 +782,34 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region OnFlightReadyHasMergeOwnerAfterDispatch
+
+        [Fact]
+        public void OnFlightReadyHasMergeOwnerAfterDispatch_TrueForFallbackPendingTree()
+        {
+            bool result = ParsekFlight.OnFlightReadyHasMergeOwnerAfterDispatch(
+                pendingTreeOwnsReplay: false,
+                mergeDialogPending: false,
+                hasPendingTree: true,
+                restoringActiveTree: false);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void OnFlightReadyHasMergeOwnerAfterDispatch_FalseForPendingTreeUnderRestore()
+        {
+            bool result = ParsekFlight.OnFlightReadyHasMergeOwnerAfterDispatch(
+                pendingTreeOwnsReplay: false,
+                mergeDialogPending: false,
+                hasPendingTree: true,
+                restoringActiveTree: true);
+
+            Assert.False(result);
+        }
+
+        #endregion
+
         #region IsTreePadFailure
 
         [Fact]

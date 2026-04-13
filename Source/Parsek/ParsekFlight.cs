@@ -3917,29 +3917,6 @@ namespace Parsek
             Log("Flight ready. Checking for pending recordings...");
             ParsekLog.RecState("OnFlightReady", CaptureRecorderState());
 
-            // Safety net: if FlightResultsPatch has a pending message that was never replayed
-            // (e.g., tree destruction path didn't fire), replay it now
-            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
-                RecordingStore.HasPendingTree,
-                RecordingStore.PendingTreeStateValue);
-            Patches.FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
-                pendingTreeOwnsReplay || ParsekScenario.MergeDialogPending,
-                pendingTreeOwnsReplay
-                    ? "OnFlightReady: crash scene change resolved to pending merge owner"
-                    : "OnFlightReady: crash scene change resolved without pending merge owner");
-            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
-                pendingTreeOwnsReplay,
-                ParsekScenario.MergeDialogPending))
-            {
-                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
-                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
-            }
-            else if (Patches.FlightResultsPatch.HasPendingResults())
-            {
-                ParsekLog.Info("Flight",
-                    "FlightResults safety net deferred — pending merge flow owns the replay");
-            }
-
             // #267: if a restore coroutine is already running (double OnFlightReady fire),
             // skip ResetFlightReadyState and the dispatch — the running coroutine owns
             // activeTree/recorder and ResetFlightReadyState would null them.
@@ -4046,6 +4023,39 @@ namespace Parsek
                     "restore coroutine in progress (#293)");
             }
 
+            // Safety net: if FlightResultsPatch has a pending message that was never replayed
+            // (for example, a crash path fell back to OnFlightReady), resolve any crash-scene
+            // owner wait AFTER the fallback pending-tree path above has had a chance to create
+            // a real merge owner for this scene.
+            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            bool mergeOwnerExistsAfterDispatch = OnFlightReadyHasMergeOwnerAfterDispatch(
+                pendingTreeOwnsReplay,
+                ParsekScenario.MergeDialogPending,
+                RecordingStore.HasPendingTree,
+                restoringActiveTree);
+            Patches.FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
+                mergeOwnerExistsAfterDispatch,
+                mergeOwnerExistsAfterDispatch
+                    ? "OnFlightReady: crash scene change resolved to pending merge owner"
+                    : "OnFlightReady: crash scene change resolved without pending merge owner");
+            pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
+                pendingTreeOwnsReplay,
+                ParsekScenario.MergeDialogPending))
+            {
+                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
+                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
+            }
+            else if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight",
+                    "FlightResults safety net deferred — pending merge flow owns the replay");
+            }
+
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
@@ -4086,7 +4096,9 @@ namespace Parsek
                 RecordingStore.HasPendingTree,
                 RecordingStore.PendingTreeStateValue);
             bool awaitingSceneChangeMergeOwner =
-                Patches.FlightResultsPatch.AwaitingSceneChangeMergeOwner;
+                Patches.FlightResultsPatch.ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
+                    Patches.FlightResultsPatch.AwaitingSceneChangeMergeOwner,
+                    RecordingStore.PendingDestinationScene);
 
             // Clear dock/undock pending state
             ClearDockUndockState();
@@ -4137,6 +4149,17 @@ namespace Parsek
             pendingSplitInProgress = false;
             pendingSplitRecorder = null;
             preBreakVesselPids = null;
+        }
+
+        internal static bool OnFlightReadyHasMergeOwnerAfterDispatch(
+            bool pendingTreeOwnsReplay,
+            bool mergeDialogPending,
+            bool hasPendingTree,
+            bool restoringActiveTree)
+        {
+            return pendingTreeOwnsReplay
+                || mergeDialogPending
+                || (hasPendingTree && !restoringActiveTree);
         }
 
         #endregion

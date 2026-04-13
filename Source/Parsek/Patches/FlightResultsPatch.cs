@@ -209,6 +209,15 @@ namespace Parsek.Patches
             ClearPending(reason);
         }
 
+        internal static bool ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
+            bool awaitingSceneChangeMergeOwner,
+            GameScenes? pendingDestinationScene)
+        {
+            return awaitingSceneChangeMergeOwner
+                && pendingDestinationScene.HasValue
+                && pendingDestinationScene.Value != GameScenes.MAINMENU;
+        }
+
         /// <summary>
         /// Re-shows KSP's flight results dialog with the stored outcome message.
         /// Also clears any pre-capture armed state when no message was intercepted.

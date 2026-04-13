@@ -266,6 +266,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange_TrueForFlight()
+        {
+            bool result = FlightResultsPatch.ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
+                awaitingSceneChangeMergeOwner: true,
+                pendingDestinationScene: GameScenes.FLIGHT);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange_FalseForMainMenu()
+        {
+            bool result = FlightResultsPatch.ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
+                awaitingSceneChangeMergeOwner: true,
+                pendingDestinationScene: GameScenes.MAINMENU);
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void ClearPending_ClearsCapturedOutcomeAndArmedState()
         {
             FlightResultsPatch.DeferredMergeArmed = true;
