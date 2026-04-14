@@ -37,6 +37,7 @@ namespace Parsek
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
+        public float currentPower;
     }
 
     internal struct DeployableTransformState
@@ -119,6 +120,7 @@ namespace Parsek
         public FloatCurve speedCurve;
         public float emissionScale = 1f;
         public float speedScale = 1f;
+        public float currentPower;
     }
 
     internal class AudioGhostInfo

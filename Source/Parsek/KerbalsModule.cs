@@ -563,6 +563,7 @@ namespace Parsek
                     // Need a new stand-in at this depth -- will be created by ApplyToRoster
                     // For now, mark as needing generation (name = null)
                     slot.Chain.Add(null); // placeholder -- ApplyToRoster fills with real name
+                    KerbalLoadRepairDiagnostics.RecordChainExtension(slot.OwnerName, depth);
                     ParsekLog.Verbose(Tag,
                         $"Chain depth {depth} needed for slot '{slot.OwnerName}' -- pending generation");
                 }
@@ -736,6 +737,83 @@ namespace Parsek
         // ApplyToRoster — KSP state mutations
         // ────────────────────────────────────────────────────────
 
+        internal interface IKerbalRosterFacade
+        {
+            bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status);
+            bool TryCreateGeneratedStandIn(string trait, out string generatedName);
+            bool TryRecreateStandIn(string desiredName, string trait);
+            bool TryRemove(string name);
+        }
+
+        private sealed class KerbalRosterFacade : IKerbalRosterFacade
+        {
+            private readonly KerbalRoster roster;
+
+            public KerbalRosterFacade(KerbalRoster roster)
+            {
+                this.roster = roster;
+            }
+
+            public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
+            {
+                status = default(ProtoCrewMember.RosterStatus);
+                if (roster == null || string.IsNullOrEmpty(name))
+                    return false;
+
+                foreach (ProtoCrewMember pcm in roster.Crew)
+                {
+                    if (pcm.name != name) continue;
+                    status = pcm.rosterStatus;
+                    return true;
+                }
+
+                return false;
+            }
+
+            public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
+            {
+                generatedName = null;
+                if (roster == null)
+                    return false;
+
+                ProtoCrewMember newStandIn = roster.GetNewKerbal(
+                    ProtoCrewMember.KerbalType.Crew);
+                if (newStandIn == null)
+                    return false;
+
+                KerbalRoster.SetExperienceTrait(newStandIn, trait);
+                generatedName = newStandIn.name;
+                return true;
+            }
+
+            public bool TryRecreateStandIn(string desiredName, string trait)
+            {
+                if (roster == null || string.IsNullOrEmpty(desiredName))
+                    return false;
+
+                var pcm = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                if (pcm == null)
+                    return false;
+
+                pcm.ChangeName(desiredName);
+                KerbalRoster.SetExperienceTrait(pcm, trait);
+                return true;
+            }
+
+            public bool TryRemove(string name)
+            {
+                if (roster == null || string.IsNullOrEmpty(name))
+                    return false;
+
+                var pcm = FindInRoster(roster, name);
+                if (pcm == null)
+                    return false;
+
+                roster.Remove(pcm);
+                return true;
+            }
+        }
+
         /// <summary>
         /// Apply derived kerbal state to the KSP roster. Creates stand-ins,
         /// removes unused displaced stand-ins, and populates the crewReplacements
@@ -760,10 +838,22 @@ namespace Parsek
                 return;
             }
 
+            ApplyToRoster(new KerbalRosterFacade(roster));
+        }
+
+        internal void ApplyToRoster(IKerbalRosterFacade roster)
+        {
+            if (roster == null)
+            {
+                ParsekLog.Verbose(Tag, "ApplyToRoster: no roster facade — skipping");
+                return;
+            }
+
             using (SuppressionGuard.Crew())
             {
                 int standInsCreated = 0, standInsRecreated = 0;
                 int deletedUnused = 0, retiredDisplaced = 0;
+                var recreatedNames = new HashSet<string>();
 
                 // Step 1: Create missing stand-ins
                 foreach (var kvp in slots)
@@ -777,16 +867,17 @@ namespace Parsek
                         if (slot.Chain[i] != null)
                         {
                             // Verify stand-in still exists in roster
-                            if (FindInRoster(roster, slot.Chain[i]) == null)
+                            ProtoCrewMember.RosterStatus existingStatus;
+                            if (!roster.TryGetStatus(slot.Chain[i], out existingStatus))
                             {
                                 // Stand-in was removed (e.g., KSP cleanup) — recreate
-                                var created = CreateStandIn(roster, slot.OwnerTrait, slot.Chain[i]);
-                                if (created == null)
+                                if (!roster.TryRecreateStandIn(slot.Chain[i], slot.OwnerTrait))
                                     ParsekLog.Warn(Tag,
                                         $"Failed to recreate stand-in '{slot.Chain[i]}'");
                                 else
                                 {
                                     standInsRecreated++;
+                                    recreatedNames.Add(slot.Chain[i]);
                                     ParsekLog.Info(Tag,
                                         $"Recreated stand-in '{slot.Chain[i]}' ({slot.OwnerTrait}) " +
                                         $"for slot '{slot.OwnerName}' depth {i}");
@@ -796,15 +887,13 @@ namespace Parsek
                         }
 
                         // Null entry = pending generation (new depth from PostWalk)
-                        ProtoCrewMember newStandIn = roster.GetNewKerbal(
-                            ProtoCrewMember.KerbalType.Crew);
-                        if (newStandIn != null)
+                        string generatedName;
+                        if (roster.TryCreateGeneratedStandIn(slot.OwnerTrait, out generatedName))
                         {
-                            KerbalRoster.SetExperienceTrait(newStandIn, slot.OwnerTrait);
-                            slot.Chain[i] = newStandIn.name;
+                            slot.Chain[i] = generatedName;
                             standInsCreated++;
                             ParsekLog.Info(Tag,
-                                $"Stand-in generated: '{newStandIn.name}' ({slot.OwnerTrait}) " +
+                                $"Stand-in generated: '{generatedName}' ({slot.OwnerTrait}) " +
                                 $"for slot '{slot.OwnerName}' depth {i}");
                         }
                         else
@@ -843,11 +932,13 @@ namespace Parsek
                         else
                         {
                             // Unused — remove from roster entirely
-                            var pcm = FindInRoster(roster, standIn);
-                            if (pcm != null && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available)
+                            ProtoCrewMember.RosterStatus rosterStatus;
+                            if (roster.TryGetStatus(standIn, out rosterStatus)
+                                && rosterStatus == ProtoCrewMember.RosterStatus.Available
+                                && roster.TryRemove(standIn))
                             {
-                                roster.Remove(pcm);
                                 deletedUnused++;
+                                KerbalLoadRepairDiagnostics.RecordUnusedStandInDeleted(standIn);
                                 ParsekLog.Info(Tag,
                                     $"Stand-in '{standIn}' displaced -> deleted (unused)");
                             }
@@ -870,6 +961,30 @@ namespace Parsek
                     }
                 }
 
+                foreach (var kvp in slots)
+                {
+                    var slot = kvp.Value;
+                    for (int i = slot.Chain.Count - 1; i >= 0; i--)
+                    {
+                        string standIn = slot.Chain[i];
+                        if (standIn == null) continue;
+
+                        bool isReserved = reservations.ContainsKey(standIn);
+                        bool usedInRecording = IsKerbalInAnyRecording(standIn);
+                        if (!IsDisplacedChainEntry(slot, i) || isReserved || !usedInRecording)
+                            continue;
+
+                        ProtoCrewMember.RosterStatus currentStatus;
+                        if (!roster.TryGetStatus(standIn, out currentStatus))
+                            continue;
+
+                        if (recreatedNames.Contains(standIn))
+                            KerbalLoadRepairDiagnostics.RecordRetiredStandInRecreated(standIn);
+                        else
+                            KerbalLoadRepairDiagnostics.RecordRetiredStandInKept(standIn);
+                    }
+                }
+
                 ParsekLog.Info(Tag,
                     $"ApplyToRoster complete: {slots.Count} slots, " +
                     $"{retiredKerbals.Count} retired, " +
@@ -886,18 +1001,6 @@ namespace Parsek
                 if (pcm.name == name) return pcm;
             }
             return null;
-        }
-
-        private static ProtoCrewMember CreateStandIn(
-            KerbalRoster roster, string trait, string existingName)
-        {
-            var pcm = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-            if (pcm != null)
-            {
-                pcm.ChangeName(existingName);
-                KerbalRoster.SetExperienceTrait(pcm, trait);
-            }
-            return pcm;
         }
 
         internal static bool ShouldUseGhostOnlyChainHandoffEndState(Recording rec)
@@ -1025,21 +1128,31 @@ namespace Parsek
             ParsekLog.Info(Tag, $"Saved {slots.Count} kerbal slot(s) with {chainEntryCount} chain entries");
         }
 
-        internal void LoadSlots(ConfigNode parentNode)
+        internal KerbalSlotLoadSummary LoadSlots(ConfigNode parentNode)
         {
             slots.Clear();
+            var summary = new KerbalSlotLoadSummary();
 
             // Try new format first
             ConfigNode slotsNode = parentNode.GetNode("KERBAL_SLOTS");
             if (slotsNode != null)
             {
+                summary.HasData = true;
                 ConfigNode[] slotNodes = slotsNode.GetNodes("SLOT");
                 int chainEntryCount = 0;
+                int ignoredEntries = 0;
                 for (int i = 0; i < slotNodes.Length; i++)
                 {
+                    string ownerName = slotNodes[i].GetValue("owner") ?? "";
+                    if (string.IsNullOrEmpty(ownerName))
+                    {
+                        ignoredEntries++;
+                        continue;
+                    }
+
                     var slot = new KerbalSlot
                     {
-                        OwnerName = slotNodes[i].GetValue("owner") ?? "",
+                        OwnerName = ownerName,
                         OwnerTrait = slotNodes[i].GetValue("trait") ?? "Pilot",
                         OwnerPermanentlyGone = slotNodes[i].GetValue("permanentlyGone") == "True",
                         Chain = new List<string>()
@@ -1053,19 +1166,30 @@ namespace Parsek
                             slot.Chain.Add(name);
                             chainEntryCount++;
                         }
+                        else
+                        {
+                            ignoredEntries++;
+                        }
                     }
-                    if (!string.IsNullOrEmpty(slot.OwnerName))
-                        slots[slot.OwnerName] = slot;
+                    if (slots.ContainsKey(slot.OwnerName))
+                        ignoredEntries++;
+                    slots[slot.OwnerName] = slot;
                 }
+                summary.SlotsLoaded = slots.Count;
+                summary.ChainEntriesLoaded = chainEntryCount;
+                summary.IgnoredEntries = ignoredEntries;
                 ParsekLog.Info(Tag, $"Loaded {slots.Count} kerbal slot(s) with {chainEntryCount} chain entries from KERBAL_SLOTS");
-                return;
+                return summary;
             }
 
             // Backward compat: migrate from CREW_REPLACEMENTS
             ConfigNode replacementsNode = parentNode.GetNode("CREW_REPLACEMENTS");
             if (replacementsNode != null)
             {
+                summary.HasData = true;
+                summary.LoadedFromLegacyCrewReplacements = true;
                 ConfigNode[] entries = replacementsNode.GetNodes("ENTRY");
+                int ignoredEntries = 0;
                 for (int i = 0; i < entries.Length; i++)
                 {
                     string original = entries[i].GetValue("original");
@@ -1082,14 +1206,26 @@ namespace Parsek
                                 Chain = new List<string> { replacement }
                             };
                         }
+                        else
+                        {
+                            ignoredEntries++;
+                        }
+                    }
+                    else
+                    {
+                        ignoredEntries++;
                     }
                 }
+                summary.SlotsLoaded = slots.Count;
+                summary.ChainEntriesLoaded = slots.Count;
+                summary.IgnoredEntries = ignoredEntries;
                 ParsekLog.Info(Tag,
                     $"Migrated {slots.Count} slot(s) from legacy CREW_REPLACEMENTS");
-                return;
+                return summary;
             }
 
             ParsekLog.Verbose(Tag, "LoadSlots: no KERBAL_SLOTS or CREW_REPLACEMENTS found");
+            return summary;
         }
 
         // ────────────────────────────────────────────────────────

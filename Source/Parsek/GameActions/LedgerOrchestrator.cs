@@ -517,6 +517,7 @@ namespace Parsek
             MigrateKerbalAssignments();
 
             RecalculateAndPatch();
+            KerbalLoadRepairDiagnostics.EmitAndReset();
         }
 
         /// <summary>
@@ -596,17 +597,196 @@ namespace Parsek
                 if (KerbalAssignmentActionsMatch(existing, kerbalActions))
                     continue;
 
+                var repairStats = ClassifyKerbalAssignmentRepair(existing, kerbalActions);
+
                 Ledger.ReplaceActionsForRecording(
                     GameActionType.KerbalAssignment, rec.RecordingId, kerbalActions);
                 repairedRecordings++;
                 oldRows += existing != null ? existing.Count : 0;
                 newRows += kerbalActions.Count;
+                KerbalLoadRepairDiagnostics.RecordMigrationRepair(
+                    1,
+                    existing != null ? existing.Count : 0,
+                    kerbalActions.Count);
+                KerbalLoadRepairDiagnostics.RecordTouristRowsSkipped(
+                    rec.RecordingId, repairStats.TouristRowsSkipped);
+
+                for (int s = 0; s < repairStats.RemappedRows.Count; s++)
+                {
+                    var remap = repairStats.RemappedRows[s];
+                    KerbalLoadRepairDiagnostics.RecordRemappedRow(
+                        rec.RecordingId, remap.FromName, remap.ToName);
+                }
+
+                for (int s = 0; s < repairStats.EndStateRewrites.Count; s++)
+                {
+                    var rewrite = repairStats.EndStateRewrites[s];
+                    KerbalLoadRepairDiagnostics.RecordEndStateRewrite(
+                        rec.RecordingId, rewrite.KerbalName, rewrite.FromState, rewrite.ToState);
+                }
             }
 
             if (repairedRecordings > 0)
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows})");
+        }
+
+        private struct KerbalAssignmentRepairRename
+        {
+            public string FromName;
+            public string ToName;
+        }
+
+        private struct KerbalAssignmentEndStateRewrite
+        {
+            public string KerbalName;
+            public KerbalEndState FromState;
+            public KerbalEndState ToState;
+        }
+
+        private sealed class KerbalAssignmentRepairStats
+        {
+            public readonly List<KerbalAssignmentRepairRename> RemappedRows
+                = new List<KerbalAssignmentRepairRename>();
+            public readonly List<KerbalAssignmentEndStateRewrite> EndStateRewrites
+                = new List<KerbalAssignmentEndStateRewrite>();
+            public int TouristRowsSkipped;
+        }
+
+        private static KerbalAssignmentRepairStats ClassifyKerbalAssignmentRepair(
+            List<GameAction> existing,
+            List<GameAction> desired)
+        {
+            var stats = new KerbalAssignmentRepairStats();
+            if (existing == null || existing.Count == 0)
+                return stats;
+
+            var filteredExisting = new List<GameAction>();
+            for (int i = 0; i < existing.Count; i++)
+            {
+                var existingAction = existing[i];
+                if (existingAction == null)
+                    continue;
+
+                if (string.Equals(existingAction.KerbalRole, "Tourist",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    stats.TouristRowsSkipped++;
+                    continue;
+                }
+
+                filteredExisting.Add(existingAction);
+            }
+
+            if (desired == null || desired.Count == 0 || filteredExisting.Count == 0)
+                return stats;
+
+            var matchedExisting = new bool[filteredExisting.Count];
+            var matchedDesired = new bool[desired.Count];
+
+            // Reorder-only repairs should not log false remap samples. Match exact-name rows
+            // first, then classify the remaining unmatched rows as true remaps/rewrites.
+            for (int i = 0; i < desired.Count; i++)
+            {
+                var desiredAction = desired[i];
+                int existingIndex = FindRepairRowMatch(
+                    filteredExisting, matchedExisting, desiredAction, requireSameName: true);
+                if (existingIndex < 0)
+                    continue;
+
+                matchedExisting[existingIndex] = true;
+                matchedDesired[i] = true;
+
+                var existingAction = filteredExisting[existingIndex];
+                if (existingAction.KerbalEndStateField != desiredAction.KerbalEndStateField)
+                {
+                    stats.EndStateRewrites.Add(new KerbalAssignmentEndStateRewrite
+                    {
+                        KerbalName = desiredAction.KerbalName,
+                        FromState = existingAction.KerbalEndStateField,
+                        ToState = desiredAction.KerbalEndStateField
+                    });
+                }
+            }
+
+            for (int i = 0; i < desired.Count; i++)
+            {
+                if (matchedDesired[i])
+                    continue;
+
+                var desiredAction = desired[i];
+                int existingIndex = FindRepairRowMatch(
+                    filteredExisting, matchedExisting, desiredAction, requireSameName: false);
+                if (existingIndex < 0)
+                    continue;
+
+                matchedExisting[existingIndex] = true;
+                matchedDesired[i] = true;
+
+                var existingAction = filteredExisting[existingIndex];
+                if (!string.Equals(existingAction.KerbalName, desiredAction.KerbalName,
+                    StringComparison.Ordinal))
+                {
+                    stats.RemappedRows.Add(new KerbalAssignmentRepairRename
+                    {
+                        FromName = existingAction.KerbalName,
+                        ToName = desiredAction.KerbalName
+                    });
+                }
+
+                if (existingAction.KerbalEndStateField != desiredAction.KerbalEndStateField)
+                {
+                    stats.EndStateRewrites.Add(new KerbalAssignmentEndStateRewrite
+                    {
+                        KerbalName = desiredAction.KerbalName,
+                        FromState = existingAction.KerbalEndStateField,
+                        ToState = desiredAction.KerbalEndStateField
+                    });
+                }
+            }
+
+            return stats;
+        }
+
+        private static int FindRepairRowMatch(
+            List<GameAction> existing,
+            bool[] matchedExisting,
+            GameAction desiredAction,
+            bool requireSameName)
+        {
+            if (existing == null || matchedExisting == null || desiredAction == null)
+                return -1;
+
+            for (int i = 0; i < existing.Count; i++)
+            {
+                if (matchedExisting[i])
+                    continue;
+
+                var existingAction = existing[i];
+                if (existingAction == null)
+                    continue;
+                if (!string.Equals(existingAction.RecordingId, desiredAction.RecordingId,
+                    StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(existingAction.KerbalRole, desiredAction.KerbalRole,
+                    StringComparison.Ordinal))
+                    continue;
+                if (Math.Abs(existingAction.UT - desiredAction.UT) > 0.1)
+                    continue;
+                if (Math.Abs(existingAction.StartUT - desiredAction.StartUT) > 0.1f)
+                    continue;
+                if (Math.Abs(existingAction.EndUT - desiredAction.EndUT) > 0.1f)
+                    continue;
+                if (requireSameName
+                    && !string.Equals(existingAction.KerbalName, desiredAction.KerbalName,
+                        StringComparison.Ordinal))
+                    continue;
+
+                return i;
+            }
+
+            return -1;
         }
 
         private static bool KerbalAssignmentActionsMatch(
