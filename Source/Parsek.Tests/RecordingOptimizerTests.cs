@@ -2234,6 +2234,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimBoringTail_LandedStableTerminalState_StillTrims()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0,
+                    rotation = Quaternion.identity,
+                    situation = SurfaceSituation.Landed
+                }
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin", latitude = 0.1, longitude = 0.2, altitude = 100, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin", latitude = 0.3, longitude = 0.4, altitude = 60, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 130, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 150, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 120 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 120, endUT = 150 });
+
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(130, rec.EndUT);
+        }
+
+        [Fact]
+        public void TrimBoringTail_LandedTerminalStateChangesLater_DoesNotTrim()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0,
+                    rotation = Quaternion.identity,
+                    situation = SurfaceSituation.Landed
+                }
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin", latitude = 0.1, longitude = 0.2, altitude = 100, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin", latitude = 0.3, longitude = 0.4, altitude = 60, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 130, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 140, bodyName = "Kerbin", latitude = 1.02, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.Points.Add(new TrajectoryPoint { ut = 150, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0, rotation = Quaternion.identity });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 120 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 120, endUT = 150 });
+
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(150, rec.EndUT);
+        }
+
+        [Fact]
         public void TrimBoringTail_TrimsExoBallisticTail()
         {
             var rec = MakeRecordingWithBoringTail(17000, 17060, 17660,
@@ -2647,6 +2713,77 @@ namespace Parsek.Tests
                 $"Expected stable orbit to trim near entry, got EndUT={rec.EndUT}");
             Assert.DoesNotContain(rec.PartEvents,
                 e => e.eventType == PartEventType.EngineIgnited && e.value <= 0f && e.ut > rec.EndUT);
+        }
+
+        [Fact]
+        public void TrimBoringTail_StableOrbitingTerminalShape_StillTrims()
+        {
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 1.25;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 800000.0;
+            rec.TerminalOrbitLAN = 120.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.01,
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 45.0
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(rec.EndUT <= 140);
+        }
+
+        [Fact]
+        public void TrimBoringTail_OrbitChangesAfterTrimPoint_DoesNotTrim()
+        {
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 3.5;
+            rec.TerminalOrbitEccentricity = 0.2;
+            rec.TerminalOrbitSemiMajorAxis = 1200000.0;
+            rec.TerminalOrbitLAN = 200.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 75.0;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 175,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.01,
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 45.0
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 175,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 3.5,
+                eccentricity = 0.2,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 200.0,
+                argumentOfPeriapsis = 75.0
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(220, rec.EndUT);
         }
 
         /// <summary>

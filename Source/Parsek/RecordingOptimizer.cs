@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -1000,6 +1002,14 @@ namespace Parsek
         /// </summary>
         internal const double DefaultTailBufferSeconds = 10.0;
 
+        internal const double StableTailSurfaceLatitudeTolerance = 1e-4;
+        internal const double StableTailSurfaceLongitudeTolerance = 1e-4;
+        internal const double StableTailSurfaceAltitudeTolerance = 5.0;
+        internal const float StableTailSurfaceRotationToleranceDegrees = 1.0f;
+        internal const double StableTailOrbitSemiMajorAxisTolerance = 1000.0;
+        internal const double StableTailOrbitEccentricityTolerance = 1e-4;
+        internal const double StableTailOrbitAngleToleranceDegrees = 0.05;
+
         /// <summary>
         /// Minimum recording duration to be eligible for tail trimming.
         /// Recordings shorter than this are left untouched.
@@ -1106,6 +1116,223 @@ namespace Parsek
             return lastUT;
         }
 
+        internal static bool TailPreservesTerminalSpawnState(Recording rec, double trimUT)
+        {
+            if (rec == null || !rec.TerminalStateValue.HasValue)
+                return true;
+
+            switch (rec.TerminalStateValue.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.Docked:
+                    return TailMatchesTerminalOrbit(rec, trimUT);
+
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                    return TailMatchesTerminalSurfaceState(rec, trimUT);
+
+                default:
+                    return true;
+            }
+        }
+
+        private static bool TailMatchesTerminalOrbit(Recording rec, double trimUT)
+        {
+            if (rec == null
+                || string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                || rec.TerminalOrbitSemiMajorAxis <= 0.0)
+            {
+                return false;
+            }
+
+            bool sawTailOrbit = false;
+
+            if (rec.OrbitSegments != null)
+            {
+                for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                {
+                    OrbitSegment seg = rec.OrbitSegments[i];
+                    if (seg.endUT <= trimUT)
+                        continue;
+
+                    sawTailOrbit = true;
+                    if (!OrbitShapeMatchesTerminal(rec, seg))
+                        return false;
+                }
+            }
+
+            if (!sawTailOrbit && rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    TrackSection sec = rec.TrackSections[i];
+                    if (sec.checkpoints == null)
+                        continue;
+
+                    for (int j = 0; j < sec.checkpoints.Count; j++)
+                    {
+                        OrbitSegment checkpoint = sec.checkpoints[j];
+                        if (checkpoint.endUT <= trimUT)
+                            continue;
+
+                        sawTailOrbit = true;
+                        if (!OrbitShapeMatchesTerminal(rec, checkpoint))
+                            return false;
+                    }
+                }
+            }
+
+            return sawTailOrbit;
+        }
+
+        private static bool OrbitShapeMatchesTerminal(Recording rec, OrbitSegment seg)
+        {
+            if (string.IsNullOrEmpty(seg.bodyName) || seg.semiMajorAxis <= 0.0)
+                return false;
+
+            if (seg.bodyName != rec.TerminalOrbitBody)
+                return false;
+
+            if (Math.Abs(seg.semiMajorAxis - rec.TerminalOrbitSemiMajorAxis) > StableTailOrbitSemiMajorAxisTolerance)
+                return false;
+
+            if (Math.Abs(seg.eccentricity - rec.TerminalOrbitEccentricity) > StableTailOrbitEccentricityTolerance)
+                return false;
+
+            if (AngleDeltaDegrees(seg.inclination, rec.TerminalOrbitInclination) > StableTailOrbitAngleToleranceDegrees)
+                return false;
+
+            if (AngleDeltaDegrees(seg.longitudeOfAscendingNode, rec.TerminalOrbitLAN) > StableTailOrbitAngleToleranceDegrees)
+                return false;
+
+            if (AngleDeltaDegrees(seg.argumentOfPeriapsis, rec.TerminalOrbitArgumentOfPeriapsis) > StableTailOrbitAngleToleranceDegrees)
+                return false;
+
+            return true;
+        }
+
+        private static bool TailMatchesTerminalSurfaceState(Recording rec, double trimUT)
+        {
+            if (!TryGetTerminalSurfaceReference(rec, out string terminalBody,
+                out double terminalLat, out double terminalLon, out double terminalAlt,
+                out Quaternion terminalRotation, out bool hasTerminalRotation))
+            {
+                return false;
+            }
+
+            bool sawTailPoint = false;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                TrajectoryPoint pt = rec.Points[i];
+                if (pt.ut <= trimUT)
+                    continue;
+
+                sawTailPoint = true;
+                if (!SurfacePointMatchesTerminal(pt, terminalBody, terminalLat, terminalLon,
+                    terminalAlt, terminalRotation, hasTerminalRotation))
+                {
+                    return false;
+                }
+            }
+
+            return sawTailPoint;
+        }
+
+        private static bool TryGetTerminalSurfaceReference(Recording rec,
+            out string body, out double lat, out double lon, out double alt,
+            out Quaternion rotation, out bool hasRotation)
+        {
+            body = null;
+            lat = 0.0;
+            lon = 0.0;
+            alt = 0.0;
+            rotation = Quaternion.identity;
+            hasRotation = false;
+
+            if (rec == null)
+                return false;
+
+            if (rec.TerminalPosition.HasValue)
+            {
+                SurfacePosition pos = rec.TerminalPosition.Value;
+                body = pos.body;
+                lat = pos.latitude;
+                lon = pos.longitude;
+                alt = pos.altitude;
+                rotation = pos.rotation;
+                hasRotation = HasMeaningfulRotation(pos.rotation);
+                return true;
+            }
+
+            if (rec.SurfacePos.HasValue)
+            {
+                SurfacePosition pos = rec.SurfacePos.Value;
+                body = pos.body;
+                lat = pos.latitude;
+                lon = pos.longitude;
+                alt = pos.altitude;
+                rotation = pos.rotation;
+                hasRotation = HasMeaningfulRotation(pos.rotation);
+                return true;
+            }
+
+            if (rec.Points == null || rec.Points.Count == 0)
+                return false;
+
+            TrajectoryPoint lastPt = rec.Points[rec.Points.Count - 1];
+            body = lastPt.bodyName;
+            lat = lastPt.latitude;
+            lon = lastPt.longitude;
+            alt = lastPt.altitude;
+            rotation = lastPt.rotation;
+            hasRotation = HasMeaningfulRotation(lastPt.rotation);
+            return true;
+        }
+
+        private static bool SurfacePointMatchesTerminal(TrajectoryPoint pt,
+            string terminalBody, double terminalLat, double terminalLon, double terminalAlt,
+            Quaternion terminalRotation, bool hasTerminalRotation)
+        {
+            string pointBody = pt.bodyName;
+            if (!string.IsNullOrEmpty(terminalBody) || !string.IsNullOrEmpty(pointBody))
+            {
+                if ((terminalBody ?? string.Empty) != (pointBody ?? string.Empty))
+                    return false;
+            }
+
+            if (Math.Abs(pt.latitude - terminalLat) > StableTailSurfaceLatitudeTolerance)
+                return false;
+
+            if (Math.Abs(pt.longitude - terminalLon) > StableTailSurfaceLongitudeTolerance)
+                return false;
+
+            if (Math.Abs(pt.altitude - terminalAlt) > StableTailSurfaceAltitudeTolerance)
+                return false;
+
+            bool pointHasRotation = HasMeaningfulRotation(pt.rotation);
+            if (hasTerminalRotation || pointHasRotation)
+            {
+                if (!(hasTerminalRotation && pointHasRotation))
+                    return false;
+
+                if (Quaternion.Angle(pt.rotation, terminalRotation) > StableTailSurfaceRotationToleranceDegrees)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool HasMeaningfulRotation(Quaternion rotation)
+        {
+            return rotation.x != 0f || rotation.y != 0f || rotation.z != 0f || rotation.w != 0f;
+        }
+
+        private static double AngleDeltaDegrees(double a, double b)
+        {
+            double delta = Math.Abs(a - b) % 360.0;
+            return delta > 180.0 ? 360.0 - delta : delta;
+        }
+
         /// <summary>
         /// Trims the boring tail of a leaf recording. If the recording ends with a long
         /// idle period (ExoBallistic or SurfaceStationary), removes trailing points and
@@ -1146,6 +1373,15 @@ namespace Parsek
 
             double trimUT = lastInterestingUT + bufferSeconds;
             if (trimUT >= rec.EndUT) return false; // boring tail is shorter than buffer
+
+            if (!TailPreservesTerminalSpawnState(rec, trimUT))
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"TrimBoringTail: skipped '{rec.VesselName}' ({rec.RecordingId}) " +
+                    $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
+                    $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                return false;
+            }
 
             double originalEndUT = rec.EndUT;
             int originalPointCount = rec.Points.Count;
