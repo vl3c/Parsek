@@ -1396,6 +1396,25 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
+### ~~T65. Revert-finalized active non-leaf recordings can keep `terminal=null` and default ghost-only~~
+
+**Observed in:** `logs/2026-04-14_1449_booster-separation-improved-check/` on the validated `fix/booster-separation-seed-timing` package (`cf5e6dac`). The booster separation seed-timing fix itself is validated in that bundle; the follow-up regression is the separate revert path:
+
+- `KSP.log:10757` classified the load as a real revert
+- `KSP.log:10771` finalized active recording `Kerbal X` as `terminal=none`, `leaf=False`
+- `KSP.log:10967-10968` merge dialog treated that active non-leaf as `canPersist=False` / `spawnable=0`
+- `KSP.log:11012` applied `ghost-only` to the main recording
+
+**Root cause:** `FinalizePendingLimboTreeForRevert()` finalized the pending tree during `OnLoad`, after the scene reset but before the active non-leaf helper had any scene-exit fallback. Leaf recordings already handled "live vessel unavailable during scene exit" by inferring a terminal from trajectory data; `EnsureActiveRecordingTerminalState()` only tried `FindVesselByPid(...)` and otherwise left the active recording at `TerminalStateValue = null`. That made the merge dialog suppress the main recording even though the stashed recording already had a valid end snapshot/trajectory.
+
+**Fix:** `EnsureActiveRecordingTerminalState()` now accepts scene-exit semantics and reuses the same trajectory-based fallback the leaf finalizer uses when the live vessel is unavailable. On the revert/finalize path it now infers the active non-leaf terminal from recorded end data instead of leaving it null. Added focused regression coverage in `Bug278FinalizeLimboTests.cs` for both the scene-exit inference case and the non-scene-exit no-op case.
+
+**Priority:** Medium — the bug only hits revert/finalize on breakup-continuous active recordings, but it blocks the main vessel from being spawnable in the merge dialog and cascades into ghost-only ledger state
+
+**Status:** ~~Fixed~~
+
+---
+
 ### T62. Add a cold-start kerbal slot migration integration test
 
 The kerbals review fixed several issues that only show up on a true game restart path rather than during an already-initialized session: `KERBAL_SLOTS` loading before the kerbals module exists, persisted stand-in rows that need repair, and end-state population for EVA-only assignments.

@@ -2138,7 +2138,7 @@ namespace Parsek
                 else if (rec.TerminalStateValue.HasValue)
                     newlySet++;
             }
-            ParsekFlight.EnsureActiveRecordingTerminalState(tree);
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
             ParsekFlight.PruneZeroPointLeaves(tree);
 
             RecordingStore.MarkPendingTreeFinalized();

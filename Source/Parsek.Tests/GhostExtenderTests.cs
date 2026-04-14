@@ -166,6 +166,33 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Surface terminal must prefer terminal position over stale orbital metadata.
+        /// Guards: landed/splashed recordings do not extend as orbital just because
+        /// they still carry earlier orbit segments or backfilled orbit fields.
+        /// </summary>
+        [Fact]
+        public void ChooseStrategy_SurfaceTerminalWithOrbitalMetadata_PrefersSurface()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = CircularSMA,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 100.0
+                }
+            };
+
+            var strategy = GhostExtender.ChooseStrategy(rec);
+
+            Assert.Equal(GhostExtensionStrategy.Surface, strategy);
+        }
+
+        /// <summary>
         /// TerminalOrbitBody set but SMA=0 falls through to Surface.
         /// Guards: incomplete orbital data does not select Orbital.
         /// </summary>
