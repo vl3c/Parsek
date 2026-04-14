@@ -3393,6 +3393,27 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
+            Recording rec,
+            bool allowRelativeSections = false)
+        {
+            if (rec == null
+                || !HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections))
+            {
+                return false;
+            }
+
+            bool healedPoints = TryHealMalformedFlatFallbackPointsFromTrackSections(rec);
+            bool healedOrbitSegments = TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(rec);
+            if (!healedPoints && !healedOrbitSegments)
+                return false;
+
+            rec.CachedStats = null;
+            rec.CachedStatsPointCount = 0;
+            rec.MarkFilesDirty();
+            return true;
+        }
+
         private static bool FlatTrajectoryExactlyMatchesTrackSectionPayload(Recording rec)
         {
             if (rec == null)
@@ -3406,6 +3427,70 @@ namespace Parsek
             var rebuiltOrbitSegments = new List<OrbitSegment>();
             RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rebuiltOrbitSegments);
             return OrbitSegmentListsEqual(rebuiltOrbitSegments, rec.OrbitSegments);
+        }
+
+        private static bool TryHealMalformedFlatFallbackPointsFromTrackSections(Recording rec)
+        {
+            if (rec.Points == null || rec.Points.Count == 0)
+                return false;
+
+            var rebuiltPoints = new List<TrajectoryPoint>();
+            RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+            if (rebuiltPoints.Count == 0 || rec.Points.Count < rebuiltPoints.Count)
+                return false;
+
+            for (int i = 0; i < rebuiltPoints.Count; i++)
+            {
+                if (!TrajectoryPointEquals(rebuiltPoints[i], rec.Points[i]))
+                    return false;
+            }
+
+            int suffixStart = FindSafeTrajectoryPointSuffixStart(rec.Points, rebuiltPoints);
+            if (suffixStart < 0)
+                return false;
+
+            var healedPoints = new List<TrajectoryPoint>(rebuiltPoints);
+            AppendTrajectoryPointSuffix(healedPoints, rec.Points, suffixStart);
+            if (!TrajectoryPointListIsMonotonicNonDecreasing(healedPoints)
+                || TrajectoryPointListsEqual(healedPoints, rec.Points))
+            {
+                return false;
+            }
+
+            rec.Points = healedPoints;
+            return true;
+        }
+
+        private static bool TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(Recording rec)
+        {
+            if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return false;
+
+            var rebuiltOrbitSegments = new List<OrbitSegment>();
+            RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rebuiltOrbitSegments);
+            if (rebuiltOrbitSegments.Count == 0 || rec.OrbitSegments.Count < rebuiltOrbitSegments.Count)
+                return false;
+
+            for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
+            {
+                if (!OrbitSegmentEquals(rebuiltOrbitSegments[i], rec.OrbitSegments[i]))
+                    return false;
+            }
+
+            int suffixStart = FindSafeOrbitSegmentSuffixStart(rec.OrbitSegments, rebuiltOrbitSegments);
+            if (suffixStart < 0)
+                return false;
+
+            var healedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
+            AppendOrbitSegmentSuffix(healedOrbitSegments, rec.OrbitSegments, suffixStart);
+            if (!OrbitSegmentListIsMonotonicNonDecreasing(healedOrbitSegments)
+                || OrbitSegmentListsEqual(healedOrbitSegments, rec.OrbitSegments))
+            {
+                return false;
+            }
+
+            rec.OrbitSegments = healedOrbitSegments;
+            return true;
         }
 
         private static bool TrajectoryPointListsEqual(List<TrajectoryPoint> a, List<TrajectoryPoint> b)
@@ -3538,6 +3623,39 @@ namespace Parsek
             return 0;
         }
 
+        private static int FindSafeTrajectoryPointSuffixStart(
+            List<TrajectoryPoint> flatPoints,
+            List<TrajectoryPoint> rebuiltPoints)
+        {
+            if (flatPoints == null
+                || rebuiltPoints == null
+                || rebuiltPoints.Count == 0
+                || flatPoints.Count < rebuiltPoints.Count)
+            {
+                return -1;
+            }
+
+            double minUt = rebuiltPoints[rebuiltPoints.Count - 1].ut;
+            for (int start = rebuiltPoints.Count; start < flatPoints.Count; start++)
+            {
+                if (flatPoints[start].ut < minUt)
+                    continue;
+
+                if (flatPoints[start].ut == minUt
+                    && !TrajectoryPointEquals(flatPoints[start], rebuiltPoints[rebuiltPoints.Count - 1]))
+                {
+                    continue;
+                }
+
+                if (!TrajectoryPointSuffixIsMonotonicNonDecreasing(flatPoints, start))
+                    continue;
+
+                return start;
+            }
+
+            return -1;
+        }
+
         private static int FindOrbitSegmentSuffixPrefixOverlap(
             List<OrbitSegment> existing,
             List<OrbitSegment> incoming)
@@ -3564,6 +3682,101 @@ namespace Parsek
             }
 
             return 0;
+        }
+
+        private static int FindSafeOrbitSegmentSuffixStart(
+            List<OrbitSegment> flatOrbitSegments,
+            List<OrbitSegment> rebuiltOrbitSegments)
+        {
+            if (flatOrbitSegments == null
+                || rebuiltOrbitSegments == null
+                || rebuiltOrbitSegments.Count == 0
+                || flatOrbitSegments.Count < rebuiltOrbitSegments.Count)
+            {
+                return -1;
+            }
+
+            double minStartUT = rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1].startUT;
+            for (int start = rebuiltOrbitSegments.Count; start < flatOrbitSegments.Count; start++)
+            {
+                if (flatOrbitSegments[start].startUT < minStartUT)
+                    continue;
+
+                if (flatOrbitSegments[start].startUT == minStartUT
+                    && !OrbitSegmentEquals(flatOrbitSegments[start], rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1]))
+                {
+                    continue;
+                }
+
+                if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(flatOrbitSegments, start))
+                    continue;
+
+                return start;
+            }
+
+            return -1;
+        }
+
+        private static bool TrajectoryPointSuffixIsMonotonicNonDecreasing(
+            List<TrajectoryPoint> points,
+            int startIndex)
+        {
+            if (points == null || startIndex >= points.Count)
+                return true;
+
+            double previousUt = points[startIndex].ut;
+            for (int i = startIndex + 1; i < points.Count; i++)
+            {
+                if (points[i].ut < previousUt)
+                    return false;
+                previousUt = points[i].ut;
+            }
+
+            return true;
+        }
+
+        private static bool OrbitSegmentSuffixIsMonotonicNonDecreasing(
+            List<OrbitSegment> orbitSegments,
+            int startIndex)
+        {
+            if (orbitSegments == null || startIndex >= orbitSegments.Count)
+                return true;
+
+            double previousStartUT = orbitSegments[startIndex].startUT;
+            for (int i = startIndex + 1; i < orbitSegments.Count; i++)
+            {
+                if (orbitSegments[i].startUT < previousStartUT)
+                    return false;
+                previousStartUT = orbitSegments[i].startUT;
+            }
+
+            return true;
+        }
+
+        private static void AppendTrajectoryPointSuffix(
+            List<TrajectoryPoint> target,
+            List<TrajectoryPoint> source,
+            int startIndex)
+        {
+            for (int i = startIndex; i < source.Count; i++)
+            {
+                if (target.Count > 0 && TrajectoryPointEquals(target[target.Count - 1], source[i]))
+                    continue;
+                target.Add(source[i]);
+            }
+        }
+
+        private static void AppendOrbitSegmentSuffix(
+            List<OrbitSegment> target,
+            List<OrbitSegment> source,
+            int startIndex)
+        {
+            for (int i = startIndex; i < source.Count; i++)
+            {
+                if (target.Count > 0 && OrbitSegmentEquals(target[target.Count - 1], source[i]))
+                    continue;
+                target.Add(source[i]);
+            }
         }
 
         private static bool TrajectoryPointEquals(TrajectoryPoint a, TrajectoryPoint b)
@@ -3709,6 +3922,21 @@ namespace Parsek
                 DeserializePoints(sourceNode, rec);
                 DeserializeOrbitSegments(sourceNode, rec);
                 DeserializeTrackSections(sourceNode, rec.TrackSections);
+
+                bool healedMalformedFlatFallback = false;
+                if (formatVersion >= 1 && rec.TrackSections.Count > 0)
+                {
+                    healedMalformedFlatFallback = TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
+                        rec, allowRelativeSections: true);
+                    if (healedMalformedFlatFallback && !SuppressLogging)
+                    {
+                        ParsekLog.Verbose("RecordingStore",
+                            $"DeserializeTrajectoryFrom: recording={rec.RecordingId} version={formatVersion} " +
+                            $"healed malformed flat fallback using track-section prefix " +
+                            $"points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                            $"trackSections={rec.TrackSections.Count}");
+                    }
+                }
 
                 if (formatVersion >= 1)
                 {
