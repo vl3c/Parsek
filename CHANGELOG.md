@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.2
+
+_Unreleased._
+
+---
+
 ## 0.8.1
 
 ### Recording System Optimization

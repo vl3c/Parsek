@@ -7,6 +7,331 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 372. PR #253 / #254 follow-up: dead helpers left behind after batch-skip pivot
+
+**Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
+
+**Concern:** PR `#253` ("FLIGHT save/load test cleanup and quickload canary guards") added new infrastructure to support live `OnSave`/`OnLoad` round-trip tests under synthetic scenario loads:
+
+- `ParsekFlight.NormalizeAfterSyntheticScenarioLoad`
+- `ParsekFlight.DestroyAllTimelineGhosts(string ghostMapReason)` overload (default `"rewind"`)
+- `WatchModeController.ClearAfterSyntheticScenarioLoad`
+- `WatchModeController.HasDeferredWatchAfterFastForward` exposure
+- `Source/Parsek.Tests/.../SyntheticScenarioLoadHelpers.cs` (test helper)
+
+The very next PR `#254` ("Fix `#332` follow-up: keep destructive quickload tests out of FLIGHT batches") changed the diagnosis: the live round-trip tests weren't the cause, the quickload canary itself was breaking KSP. `#254` deleted the live round-trip tests and `SyntheticScenarioLoadHelpers.cs` wholesale, but left the production-side helpers from `#253` in place. They now have no live caller.
+
+**Why it didn't get caught:** the cleanup happened in the same day as the original add, and `#254` was framed as a test-runner change, not a production code revert.
+
+**What to do (later):** delete the orphaned helpers, or leave them with an explicit `// retained for future synthetic-scenario test infrastructure` comment if there is a known follow-up. `WatchModeController.ClearAfterSyntheticScenarioLoad` in particular duplicates ~15 fields from `ResetWatchState` and is a maintenance trap (any new field added to `ResetWatchState` won't be added here).
+
+**Status:** TODO. Cleanup pass, low priority.
+
+**Verified current head (during #256-#265 review):** all four helpers are still present in `WatchModeController.cs` and `ParsekFlight.cs`. PR `#257` removed a different set of orphaned merge-flow helpers (`AwaitingSceneChangeMergeOwner`, `PendingTreeOwnsReplay`, `OnFlightReadyHasMergeOwnerAfterDispatch` from `FlightResultsPatch` / `ParsekScenario`), so a related cleanup pass already happened — the `#372` items appear to have just been missed by it.
+
+---
+
+## 380. `scripts/release.py` aborts on the pre-existing `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` test failure
+
+**Source:** `v0.8.1` release execution on `2026-04-14`. Discovered while running `python scripts/release.py` from clean `main` after `PR #293` merged.
+
+**Concern:** `Parsek.Tests.GhostPlaybackEngineTests.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` throws `System.Security.SecurityException : ECall methods must be packaged into a system module` when the xUnit harness tries to instantiate a Unity `GameObject` outside the Unity runtime. The failure has been mentioned as "pre-existing" in `PR #258`, `#274`, `#276`, `#279`, and several other reviews during the `0.8.0` → `0.8.1` cycle.
+
+`scripts/release.py` line `104` runs `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` unfiltered, so the single failure aborts the entire release flow with `ERROR: Running Tests failed (exit code 1)` and the script never reaches the `package(version)` step. The `v0.8.1` release was packaged manually by:
+
+1. Running `dotnet test --filter "FullyQualifiedName!~SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT"` to confirm everything else is green (`6195/6195` passing on that filter).
+2. Calling `release.py`'s `package(read_version())` directly via `python -c` to skip the failed test gate but reuse the same zip layout.
+
+**Why it bites now and not for `0.8.0`:** the test was added or broke after `v0.8.0` shipped (`PR #258` was the first review to mention it). `release.py` has been silently broken for the entire `0.8.1` cycle.
+
+**Two clean fixes (pick one):**
+
+1. **Mark the test `[Fact(Skip = "...")]` in source.** Lowest-friction; the in-game runtime suite covers the same behavior with a real Unity `GameObject`. Suggested skip reason: `"Unity GameObject instantiation requires runtime — covered by the in-game runtime suite (`InGameTests/RuntimeTests.cs`)."`
+2. **Add `--filter "FullyQualifiedName!~SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT"` to the `dotnet test` invocation in `scripts/release.py`.** Keeps the test definition intact for future Unity-runtime fixers, but moves the exclusion into the release script itself. Document it inline so the next person knows why.
+
+**Status:** TODO. Blocks the next scriptable release. Not blocking ad-hoc releases that follow the manual two-step workaround.
+
+---
+
+## 379. PR #285 follow-up: load-bearing storage dedupe rewrite needs fresh-eyes pass
+
+**Source:** light review of PRs `#276`-`#285` after `v0.8.0` ship.
+
+**Concern:** PR `#285` ("Fix rewind resume metadata and background recording cleanup") rewrote `RecordingStore.AppendPointsFromTrackSections` and `RecordingStore.AppendOrbitSegmentsFromTrackSections` to use full suffix-prefix overlap dedupe via the new `FindTrajectoryPointSuffixPrefixOverlap` helper, replacing the previous single-boundary-element dedupe. It also tightened `FlatTrajectoryExtendsTrackSectionPayload` to reject non-monotonic flat points / orbit segments and added `PruneSinglePointDestroyedDebrisLeaves` with a `SidecarLoadFailed` guard.
+
+The rewrite is in the hottest path of the storage layer (every flush + every load + every merge runs through `Append*FromTrackSections`). The light review found no bugs, but this is exactly the kind of code that benefits from a second reviewer.
+
+**What to look at:**
+
+- `FindTrajectoryPointSuffixPrefixOverlap` worst-case complexity (O(n*m) where n = flat tail length, m = first-section prefix length). Confirm the bound is acceptable on large recordings (Kerbal X breakup with hundreds of debris frames).
+- Boundary case: flat list ends exactly at the start of a section with zero overlap — should return overlap = 0, not 1.
+- Boundary case: flat list ends in a non-monotonic spike that would be rejected by `FlatTrajectoryExtendsTrackSectionPayload` — confirm dedupe doesn't get called in that path.
+- `PruneSinglePointDestroyedDebrisLeaves` guard list (`Points.Count==1 && no TrackSections && no Orbit && no SurfacePos && !SidecarLoadFailed`) — confirm `SidecarLoadFailed` is set anywhere a sidecar load fails, not just `LoadRecordingFiles`.
+
+**Status:** TODO. No visible bug, just the size/criticality of the rewrite warrants a second pass. Roll into the next storage-layer review session.
+
+---
+
+## 378. PR #266 follow-up: section-authoritative exact-match cost on large recordings
+
+**Source:** light review of PRs `#266`-`#275` after `v0.8.0` ship.
+
+**Concern:** PR `#266` tightened `ShouldWriteSectionAuthoritativeTrajectory` to require `FlatTrajectoryExactlyMatchesTrackSectionPayload` in addition to `HasCompleteTrackSectionPayloadForFlatSync`. The exact-match check rebuilds the points + orbit segments from sections and compares element-by-element against the flat lists on every save.
+
+For typical recordings this is fine. For pathological cases (a long-tree mission with thousands of points or many orbital checkpoints), `OnSave` now does a full rebuild + compare on every save tick, which is O(n) work per recording per save. With many recordings in a session this could show up as save-tick stutter.
+
+Two paths if it bites:
+
+1. Cache a "flat is in sync with sections" bit on the `Recording` and invalidate it inside the methods that mutate either side (any place `MarkFilesDirty()` is called from a section/flat mutation). The exact-match check then becomes O(1).
+2. Drop the exact-match requirement and trust that any `MarkFilesDirty()` caller has already kept flat and sections in sync. Risk: regressing to the pre-`#266` problem where drifted flat/section data wrote a section-authoritative sidecar that didn't round-trip.
+
+**Status:** TODO. Not a known regression — flag for diagnostics review only. Add a verbose log line in the slow path that times the exact-match check and emit a warning if it exceeds a few ms.
+
+---
+
+## 377. PR #266 / #270 / #276 etc. minor smells found during #266-#292 review
+
+**Source:** light review of PRs `#266`-`#292` after `v0.8.0` ship. Collected here so they don't disappear; none are blocking.
+
+- **`#267` dead `var activeWatchTarget` recompute.** `EnterWatchMode` calls `GetWatchTarget(...)` after `TryApplySwitchedWatchCameraState` already called `SetTargetTransform`, just to populate a log line. Cosmetic.
+- **`#269` legacy group inference fragility.** `EnsureAutoGeneratedTreeGroups` lazily populates the new fields from `RecordingGroups[0]` for trees loaded from pre-fix saves. If the user reordered groups before the fix landed, the inference picks the wrong "primary" group. Acceptable as best-effort but worth a note in the migration log.
+- **`#271` dead `ComputeSnapshotVisualRootLocalOffset` helper.** After dropping the debris CoM shift, the helper unconditionally returns `Vector3.zero`. Either delete it or comment it as an extension point.
+- **`#272` odd `||` guard in double-click handler.** `if (flight != null || recIndex >= 0)` enters `HandleWatchRequest` even when `flight == null` so the helper can emit the "materialize" message. Counterintuitive but intentional.
+- **`#274` per-frame `EnsureGhostOrbitRenderers` while restore pending.** `UpdateMapFocusRestore` calls `GhostMapPresence.EnsureGhostOrbitRenderers()` every frame until the renderers appear. Cheap but worth a one-time-per-pending-restore gate.
+- **`#276` implicit `PartEvents` sort-order assumption.** `IsInertPartEventForTailTrim` and `FindLastInterestingUT` walk `PartEvents` from the tail backward and break at the first non-inert event. Correct only if `PartEvents` is sorted by UT — `StopRecording()` does sort it, but this is an implicit invariant. Either add a debug-only `Assert.That(IsSorted())` precondition or sort defensively in the helpers.
+- **`#279` `LoadSlots` duplicate-counter bookkeeping.** Counter is incremented AFTER the dictionary write, so a duplicate owner silently overwrites the previous slot before the diagnostic counter sees it. Minor: bookkeeping is incorrect even though the runtime behavior (last-write-wins) is what existing code expected.
+- **`#291` hand-rolled quaternion math duplication.** `RotateVectorByQuaternion`/`InverseRotateVectorByQuaternion`/`NormalizeQuaternion` exist purely for testability (Unity `Quaternion * Vector3` operator can't run in unit tests). Math is standard Rodrigues form. `DecomposeOrbitDirectionInTargetFrame` could share a helper with `CompensateCameraAngles` but it's not blocking.
+
+**Status:** TODO. Cleanup pass, very low priority.
+
+---
+
+## 376. PR #265 follow-up: dual storage of `AutoAssignedStandaloneGroupName` and easy-to-miss clear paths
+
+**Source:** light review of PRs `#256`-`#265` after `v0.8.0` ship.
+
+**Concerns:** PR `#265` added auto-grouping of EVA tree recordings into a `Mission / Crew` subgroup and storage of an `AutoAssignedStandaloneGroupName` marker so later commits can adopt orphan rows back into the correct group.
+
+1. **Dual storage redundancy.** The marker is stored both as a `Recording.AutoAssignedStandaloneGroupName` field (persisted in `.sfs` via `autoAssignedStandaloneGroup`) AND in a static `Dictionary<string, string> autoAssignedStandaloneGroupsByRecordingId` keyed by `RecordingId`. The dict is populated lazily from the field by `TryGetAutoAssignedStandaloneGroup`. Apparent reason: field-less test paths still need the lookup. Worth either (a) collapsing to one source of truth, or (b) documenting the invariant explicitly in a comment so future readers don't get the two out of sync.
+2. **Easy-to-forget `ClearAutoAssignedStandaloneGroup` on new group-mutation paths.** Every existing group-mutation entry point (`AddRecordingToGroup`, `RemoveRecordingFromGroup`, `AddChainToGroup`, `RemoveChainFromGroup`, `RenameGroup`, `RemoveGroupFromAll`, `ReplaceGroupOnAll`) now calls `ClearAutoAssignedStandaloneGroup`. Any new group-mutation entry point added later must also call it, or a manual edit will silently get re-adopted on the next tree commit. Worth adding a centralized helper (e.g. `ApplyGroupMutation(rec, action)`) instead of relying on per-call discipline.
+3. **"Pull whole chain into group block" rule** in `RecordingsTableUI.BuildGroupDisplayBlocks`: when one row of a chain is in a group, the entire chain is added to the group block via `AddDisplayBlockMembers(members, fullChain)`. `directMembers` gates which rows enter the group, so non-group chain siblings only show up for display ordering. Internally consistent but slightly surprising in mixed chain+group corpora; deserves a focused playtest with a chain that spans group/non-group boundaries.
+
+**Status:** TODO. None of these are bugs today. Roll into the next opportunistic cleanup of `RecordingStore` group plumbing.
+
+---
+
+## 375. PR #258 follow-up: chatty `TrackGhostAppearance` Info-level logs and `allowActivation` threading surface
+
+**Source:** light review of PRs `#256`-`#265` after `v0.8.0` ship.
+
+**Concerns:** PR `#258` ("Fix debris ghost initial replay frame") gates ghost activation on `ResolveGhostActivationStartUT` (first playable payload UT) instead of `traj.StartUT`, and adds a `ghost_visuals` sub-container so debris CoM offset can be applied at the visual root without shifting the playback root transform. Two follow-up items:
+
+1. **`TrackGhostAppearance` logs at `ParsekLog.Info` on every first-visible-frame** for every ghost, recording root + part + renderer-bounds + playback-point + snapshot-frame positions. This is deliberate observability the author added to confirm the fix works in the wild, but with many debris recordings active, normal gameplay will produce a high-volume `Info`-level log stream. Demote to `Verbose` (or `VerboseRateLimited` with a per-recording key) once the fix is field-validated.
+2. **`allowActivation` parameter is now threaded through ~8 positioner methods** plus a new `deferVisibilityUntilPlaybackSync` state and `ShouldAutoActivateGhost` helper. The plumbing is correct but creates a new "every positioning path must remember to opt in" maintenance contract. Worth either documenting the contract in a comment near `ActivateGhostVisualsIfNeeded`, or considering an inversion (default = activate, explicit `defer = true` only for the loop/sync paths that actually need to defer).
+3. **Self-described as needing runtime validation.** The PR merged before in-game verification on a representative debris-heavy scenario.
+
+**Status:** TODO. The behavioral change is sound; this is observability cleanup + contract documentation + the runtime validation step.
+
+---
+
+## 374. PR #263 follow-up: `KerbalAssignmentActionsMatch` UT comparator inconsistent literal types
+
+**Source:** light review of PRs `#256`-`#265` after `v0.8.0` ship.
+
+**Concern:** `KerbalAssignmentActionsMatch` compares `StartUT`/`EndUT` with `Math.Abs(a.UT - b.UT) > 0.1` mixing `double`-typed difference with what visually look like `float` literals (the codebase comparator elsewhere uses `0.1f` for similar tolerances). Both compile to a `double` constant after promotion, so semantically identical, but the inconsistency is a code-style smell that suggests the author may have meant a tighter or looser tolerance. Worth a quick confirmation that `0.1` seconds is the intended tolerance for "same kerbal assignment row", not an artifact of float/double conversion.
+
+`FindTraitForKerbal` is also worth a glance: it walks `GameStateStore.Baselines` from the end on every call, O(`baselines * crew`). Fine for current baseline counts (few per session) but if anything ever adds baselines on a per-recording or per-vessel cadence it becomes hot. Note for the kerbal subsystem watch list.
+
+**Status:** TODO. Cosmetic + a hot-path note. No correctness issue.
+
+---
+
+## 373. PR #262 follow-up: `ResolveImmediateLandedGhostClearanceMeters` silently regresses to legacy floor when active vessel is null
+
+**Source:** light review of PRs `#256`-`#265` after `v0.8.0` ship.
+
+**Concern:** PR `#262` extended `ApplyLandedGhostClearance` with a `minClearanceMeters` parameter so past-end / surface-hold paths use the same distance-aware floor as `LateUpdate`. The `ResolveImmediateLandedGhostClearanceMeters` helper falls back to a hardcoded `0.5` when `body == null` or `FlightGlobals.ActiveVessel == null`. That `0.5` matches the legacy pre-fix value, so when the fallback fires we silently regress to the old behavior. In practice no active vessel typically means no watcher and no visible ghost, so the regression is invisible — but if any non-watch code path positions a landed ghost while `ActiveVessel` is null (cold-start, scene transition), the long-range terrain-sinking symptom that `#262` was meant to fix could come back unnoticed.
+
+Separately, `PositionAtSurface` updates `lastInterpolatedBodyName` / `lastInterpolatedAltitude` inside the new clearance branch but NOT in the non-clearance branch (where `TerrainHeightAtEnd` is `NaN`). Pre-fix code didn't set them at all, so this is a net improvement, but the asymmetry is a smell — the two branches should either both update the cache or both leave it untouched.
+
+**Status:** TODO. Both items are minor: log a warning when the fallback fires, and unify the cache-update behavior across branches.
+
+---
+
+## 371. PR #248 follow-up: round-trip test for `NormalizeContinuousEvaBoundaryMerge` output
+
+**Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
+
+**Concern:** `#248` ("Fix continuous EVA atmo-surface optimizer boundaries") added `NormalizeContinuousEvaBoundaryMerge` to `RecordingOptimizer`, which calls `RecordingStore.TrySyncFlatTrajectoryFromTrackSections(target, allowRelativeSections: true)` after re-merging EVA atmo/surface neighbors. `TrimOverlappingSectionFrames` is the new helper that drops duplicate boundary frames using `<= previousEndUT`.
+
+The merge logic looks correct in isolation, but it runs over the same `TrackSections` payload that `#230` made authoritative on disk for `RecordingFormatVersion >= 1`. There is no explicit test that:
+
+1. Saves a recording in section-authoritative mode (binary `v2`/`v3`),
+2. Loads it,
+3. Triggers `NormalizeContinuousEvaBoundaryMerge` on the loaded recording,
+4. Re-saves and re-loads,
+5. Asserts the post-merge `Points` / `OrbitSegments` are byte-identical to the in-memory state on the second load.
+
+`TrimOverlappingSectionFrames` is gated to absolute + relative frames (correct for the `allowRelativeSections` flag), but a continuous-EVA recording that crosses an orbital-checkpoint boundary would skip the trim — confirm whether that combination is even possible (EVA on a body with orbital frame? unlikely but worth a unit test that documents the assumption).
+
+**Status:** TODO. Add a focused round-trip test in `RecordingStorageRoundTripTests`. Low priority unless an in-game EVA repro shows section drift after a few save/load cycles.
+
+---
+
+## 370. PR #246 follow-up: latent NRE in group watch button log line
+
+**Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
+
+**Concern:** `#246` added `ResolveEffectiveWatchTargetIndex` so group "W" buttons follow auto-follow handoffs. The button click log line dereferences `committed[resolvedWatchIdx].VesselName` to print which segment was watched. That index can be `-1` if `ResolveEffectiveWatchTargetIndex` returns no match, which would NRE.
+
+**Why it doesn't bite today:** `GUI.enabled = canWatch` guards the button, and `canWatch` implies `hasGhost` which implies `resolvedWatchIdx >= 0` upstream. The chain is correct but fragile — if a future refactor reorders the `canWatch`/`resolvedWatchIdx` computation, the log line becomes the regression.
+
+**What to do (later):** defensive `resolvedWatchIdx >= 0 ? committed[resolvedWatchIdx].VesselName : "<none>"` in the log line. Trivial.
+
+**Status:** TODO. Cosmetic/defensive cleanup.
+
+---
+
+## 369. Post-0.8.0 review minor smells and edge cases
+
+**Source:** light review of PRs `#236`-`#245` after `v0.8.0` ship. Collected here so they don't disappear; none are blocking.
+
+- **`#238` `ComputePendingWatchHoldSeconds` NaN warp rate.** Guards `warpRate <= 0.01f` but not `float.NaN`. If `CurrentWarpRateNow` ever returns `NaN`, `Mathf.Ceil((... / NaN) + grace)` is `NaN`, and `Mathf.Clamp` falls through to base. Not a correctness bug today but easy to harden.
+- **`#239` `PopulateCrewEndStates` EVA edge case.** Branch `GhostVisualSnapshot != null || !string.IsNullOrEmpty(EvaCrewName)` is followed by `ExtractCrewFromSnapshot(rec.GhostVisualSnapshot)` which only reads the ghost snapshot. An EVA recording with non-empty `EvaCrewName` and null ghost snapshot now takes the "empty crew" path and is marked resolved. Confirm EVA crew-end-state population is handled elsewhere and this branch is intentional.
+- **`#241` cosmetic `return true; return true;`.** `RenderInRangeGhost` ends with two consecutive `return true;` statements, second is unreachable. Trivial cleanup.
+
+**Status:** TODO. Roll into the next opportunistic cleanup pass; not worth a dedicated PR.
+
+---
+
+## 368. PR #240 follow-up: pad-failure heuristic falls back to Kerbin radius on unknown modded bodies
+
+**Source:** light review of PRs `#236`-`#245` after `v0.8.0` ship.
+
+**Concern:** `#240` introduced `TryGetPadLocalizedMotionMetrics` to detect pad-drop / fall-over launches as pad-local even when raw 3D max distance is inflated by vertical collapse. The helper computes surface range using a body radius lookup table for stock bodies (`Kerbol`, `Moho`, `Eve`, `Gilly`, `Kerbin`, `Mun`, `Minmus`, `Duna`, `Ike`, `Dres`, `Jool`, `Laythe`, `Vall`, `Tylo`, `Bop`, `Pol`, `Eeloo`), with `FlightGlobals.Bodies` lookup tried first as the runtime path.
+
+The fallback when the body name is not in the table is **Kerbin's 600 km radius**. On a much smaller body (a modded Gilly-equivalent or a small asteroid moon), that over-estimates radius → under-estimates angular distance → surface range looks small → the heuristic could wrongly classify a real launch as "pad-local" and suppress the merge dialog. On a much larger modded body the opposite happens (pad-locality undetected, normal merge dialog flow).
+
+**Why it likely doesn't bite in practice:** most modded planet packs (RSS, JNSQ, OPM, Beyond Home) register their bodies in `FlightGlobals.Bodies` before any flight scene loads, so the runtime lookup catches them. The fallback only kicks in if `FlightGlobals.Bodies` lookup fails for a body that exists in a recording — an unusual mid-game removal of a planet pack.
+
+**What to do:** either log a warning when the table fallback triggers (so the user sees it once and reports the body name), or replace the table fallback with a sentinel that disables the heuristic entirely on unknown bodies (return `+∞` like the multi-body transition guard does).
+
+**Status:** TODO. Low priority — only triggers on planet-pack uninstall mid-save.
+
+---
+
+## 367. PR #242 follow-up: in-game save/load breakup repro still needed
+
+**Source:** PR `#242` body explicitly listed this as a follow-up the author did not run before merge.
+
+**Context:** `#242` checkpoints the recorder's currently-open `TrackSection` during active-tree save serialization, then immediately reopens a continuation section with the same environment / reference frame / source / anchor metadata. Unit tests cover absolute, relative, and orbital-checkpoint checkpointing. The PR was driven by bug `#327` evidence (logs/2026-04-13 s13 bundle showed `103` live points but only `35` in the sidecar after save).
+
+**What still needs to happen:** an in-game breakup save/load repro on current head to confirm the visible "frozen / off-trajectory after quickload" symptom is gone. The unit tests pin the helper behavior and serialization output but cannot prove the original gameplay symptom is fixed end-to-end.
+
+**Suggested repro:** Kerbal X (or any multi-stage rocket), launch, stage to breakup, `F5` quicksave during the breakup, `F9` quickload, watch the resumed playback for the original main-stage continuation. Compare against the same bundle's symptom shape.
+
+**Status:** TODO. Validation step, no code change expected unless the repro fails.
+
+---
+
+## 366. PR #236 follow-up: staged sidecar rollback can leave split state if restore step itself throws
+
+**Source:** light review of PRs `#236`-`#245` after `v0.8.0` ship.
+
+**Concern:** `#236` ("Phase 11.5: compress snapshot sidecars losslessly") introduced a staged-commit / rollback pattern in `RecordingStore` so multi-file sidecar writes can be rolled back atomically: each write goes to `.stage.<guid>`, then `ApplyStagedSidecarChanges` commits via `File.Replace` / `File.Move` with `.bak.<guid>` backups, and `CleanupStagedSidecarArtifacts` reverses on exception.
+
+The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) does not wrap individual restore steps in their own `try`/`catch`. If restoration itself throws midway through (for example, the `.bak` file was deleted by an external process or the disk filled mid-restore), the remaining earlier commits stay in their committed state and the outer `catch` in `SaveRecordingFilesToPathsInternal` rethrows / logs and returns `false`. That leaves the sidecar set in a partially-rolled-back state.
+
+**Why it matters:** the outer rollback also restores `rec.SidecarEpoch` and `rec.GhostSnapshotMode` to their pre-save values, so the in-memory recording correctly re-flags itself dirty for the next save. The risk is concrete only if the partially-committed `.prec` or `_vessel.craft` survives long enough for a load before the next save runs and overwrites it — a narrow window in normal use, much wider on a crash/Alt+F4 right after a save failure.
+
+**Why it didn't show up in review of `#230`:** I initially attributed the staged-commit pattern to `#252` readable mirrors; the `#236`-`#245` light pass found that `#236` is actually where it landed.
+
+**Suggested fix (later):** wrap each `RestoreCommittedSidecarChange` call in its own `try`/`catch`, log the per-step failure, and continue rolling back the remaining changes. Atomicity is best-effort already (multiple files, no transaction across them), so the goal is "minimize remaining inconsistency" rather than perfect rollback.
+
+**Status:** TODO. Low priority — failure mode requires both a save exception and a rollback exception in the same call.
+
+---
+
+## 365. PR #230 follow-up: focused review of optimizer/merger flat-cache resync and epoch hydration
+
+**Source:** light review of PRs `#226`-`#235` after `v0.8.0` ship.
+
+**Concern:** `#230` ("Phase 11.5 recording storage optimization") bundles an on-disk format change (`TrackSections` authoritative, compact binary `v2` / sparse `v3` sidecars, snapshot alias mode) together with several runtime bug fixes discovered during playtest: optimizer boring-tail nested trims, merge metadata carry-over, section-authoritative timing bounds, stale-sidecar epoch hydration, zero-throttle debris engine playback, watch handoff bounds. Large scope + interlocking semantics in `RecordingOptimizer` / `SessionMerger` / `RecordingStore` is exactly the area that historically produces ghost-lookup and `R`/`FF` regressions.
+
+**What to look at:**
+
+- `RecordingOptimizer` merge metadata transfer: does it preserve branch/end-state metadata and tree ownership across nested boring-tail trims and re-merges? Any asymmetry between "trim then merge" vs "merge then trim"?
+- `SessionMerger` + `TrackSections` flat-cache resync: is the flat trajectory cache rebuilt from sections after every merge path, and is it idempotent under repeated save/load?
+- Epoch hydration safety: confirm `SaveRecordingFiles` in-memory epoch rollback path is correct on every early-return and exception branch, not just the happy path the PR description describes.
+- Mixed-format round-trip coverage: which combinations of (`flat only` / `sections only` / `flat+sections duplicated prefix` / `v2` / `v3` / alias-mode snapshot) have round-trip tests? Any format that only goes one way?
+- Zero-throttle debris engine playback: the fix is part of the storage PR but is actually runtime state. Check that the gate is not accidentally coupled to sidecar format version.
+
+**Evidence to collect:** long-tree save/load playtest (branching + quickload-resume + breakup + EVA) on the current head; diff the sidecars before/after load to confirm idempotency; `dotnet test` focused on `RecordingStore`, `SessionMerger`, `RecordingOptimizer`, `Bug270SidecarEpochTests`, `Bug278SnapshotPersistenceTests`, mixed-format round-trips.
+
+**Status:** TODO. Not blocking — PR is merged and playtested — but the area is still unstable (author shipped with 10+ open follow-ups `#315`-`#326`).
+
+**First-pass review note (`docs/dev/research/pr-230-detailed-review.md`):** no visible bugs in `RecordingOptimizer`, `SessionMerger`, `RecordingStore`, `Recording.cs`, or the new `TrajectorySidecarBinary` header/probe. Found that the PR also fixes four real latent bugs in the optimizer/merger that are not called out in the changelog (`MergeInto` dropping terminal-orbit / `ChildBranchPointId` metadata, `SplitAtSection` leaking stale `CachedStats` to the new half, `TrimBoringTail` lying about trims by setting `endUT` without pruning frames, tree-state not synced when optimizer merged recordings).
+
+**Second-pass items (open — some may already be addressed by later PRs, check before working):**
+
+- `TrajectorySidecarBinary` reader bounds and sparse `v3` point encoding: verify reads respect stream length, handle truncated files gracefully, and that the sparse-flag combinations round-trip losslessly (especially "body default + funds override" mixed cases).
+- `BackgroundRecorder` flat-cache maintenance: does the background path produce the same section/flat shape the optimizer expects? PR `#230` lists "background recorder + optimizer consistency" as in-scope; confirm by reading `BackgroundRecorder.cs` against `RecordingOptimizer.TrimBoringTail` / `MergeInto`.
+- `PartStateSeeder` interaction with trimmed track sections (used for debris start-pose seeding per `#264` and friends — likely already addressed downstream).
+- Round-trip coverage matrix in `RecordingStorageRoundTripTests`: which of (`v0` flat / `v1` flat+sections duplicated / `v1` section-authoritative / `v2` / `v3` / alias-mode snapshot) pairs have explicit equality assertions? Any format that only goes one way?
+- Zero-throttle debris engine playback path: find the gate in the diff and verify it is not coupled to sidecar format version.
+- ~~Verify staged-write rollback was part of `#230` or added later.~~ **Resolved during #236-#245 review pass:** the staged-commit / `.stage.<guid>` / `.bak.<guid>` rollback pattern was added by `#236` (Phase 11.5 snapshot compression). `#230` itself shipped with a single-pass write sequence; if a save failed after epoch bump and before all sidecars were written, the in-memory `SidecarEpoch` was off by one until `#236` landed. The window was small (one PR) but real.
+- `StartUT`/`EndUT` getters now do a three-source scan plus linear payload search per call. Hot-path sample to confirm no allocation-free CPU regression, especially in the playback engine.
+- `HasCompleteTrackSectionPayloadForFlatSync` returns `false` on any single empty section. If "freshly opened continuation section with no frames yet" is a normal shape for branch tips, those will quietly write flat-only on disk even when `RecordingFormatVersion >= 1`. Grep verbose logs for `used flat fallback path` on recordings that should be section-authoritative.
+- `TrajectoryPointEquals` / `OrbitSegmentEquals` use exact float equality. Safe today (lossless `"R"` text + exact binary), but a future lossy codec would silently break boundary dedupe. Worth a unit test that round-trips through every codec and asserts equality on boundary pairs.
+
+**Pre-flight before acting on these:** check `git log -p --since="2026-04-12"` for the relevant files; #230 is the start of a long Phase 11.5 follow-up tail and several items above may already be resolved.
+
+**Resolutions found during the #266-#292 review pass:**
+
+- **Mixed-format round-trip coverage (partial):** PR `#266` added the `FlatTrajectoryExactlyMatchesTrackSectionPayload` exact-match guard in `ShouldWriteSectionAuthoritativeTrajectory` so any drift between flat and section payloads forces flat fallback on save. PR `#270` added `FlatTrajectoryExtendsTrackSectionPayload` to preserve flat tails when they extend sections. PR `#285` rewrote `AppendPointsFromTrackSections` / `AppendOrbitSegmentsFromTrackSections` to use full suffix-prefix overlap dedupe instead of single-boundary matching, and tightened `FlatTrajectoryExtendsTrackSectionPayload` to reject non-monotonic flat tails. PR `#289` added `TryHealMalformedFlatFallbackTrajectoryFromTrackSections` that detects loaded recordings where flat duplicates a section prefix and rebuilds the safe monotonic suffix. The combined effect is that the format is now self-healing on both write and load, with strict invariants on what "flat extends sections" means. The original concern was mostly addressed by these four PRs; the remaining open item is targeted unit coverage that pins each codec pair (`v0`/`v1`/`v2`/`v3` × text/binary) explicitly.
+- **`BackgroundRecorder` flat-cache consistency:** PR `#266` centralized min/max altitude tracking in `AddFrameToActiveTrackSection` (previously only in tests), and PR `#285` added the `PruneSinglePointDestroyedDebrisLeaves` path with a `SidecarLoadFailed` guard so loaded-but-failed recordings cannot be mistaken for empty leaves and pruned. The remaining open item is the single end-to-end repro that confirms background-then-foreground transitions produce the same flat shape the optimizer expects.
+- **Optimizer aggressive trim safety:** PR `#276` added `IsInertPartEventForTailTrim` so zero-throttle engine/RCS events are treated as inert and don't extend tails. PR `#287` added a terminal-state-shape match before `TrimBoringTail` actually shortens `EndUT`. Both are conservative tightenings consistent with `#230`'s direction. No regressions found, but the implicit assumption that `PartEvents` is sorted by UT (made by `IsInertPartEventForTailTrim` and `FindLastInterestingUT`) deserves either a debug-only assertion or a sort precondition documented at the helper.
+
+**Net status:** the Phase 11.5 storage area received roughly 6 follow-up PRs after `#230` between 2026-04-12 and 2026-04-14. The format is in much better shape than after `#230` alone; the open second-pass items above are now mostly observability + targeted unit coverage rather than correctness concerns.
+
+---
+
+## 364. PR #229 follow-up: T7 hidden-tier unload/re-entry one-shot FX and prewarm timing
+
+**Source:** light review of PRs `#226`-`#235` after `v0.8.0` ship.
+
+**Concern:** `#229` unloads hidden-tier ghost visuals while keeping logical playback shell state alive, then rebuilds visuals on visible-tier re-entry without replaying transient puff/one-shot effects. Two risk areas to confirm in playtest:
+
+1. **Shell-state resurrection of part-event bookkeeping.** On re-entry the shell must already reflect every one-shot event that fired during the hidden interval (`LightOn`, `ParachuteDeployed`, `ShroudJettisoned`, `FairingJettisoned`, `GearDeployed`, `CargoBayOpened`, `RCSActivated`, `EngineIgnited`, `DeployableExtended`). If replay rewinds state on rebuild and re-fires these, the visible tier pops.
+2. **Prewarm timing off-by-one near structural events.** If the tier transition window does not include a short prewarm before decouple / jettison / breakup, the first visible frame after re-entry can show a stale shell that still owns parts the logical playback has already split off.
+
+**What to look at:** `GhostPlaybackEngine` tier-transition callback, `GhostPlaybackState` shell restore path, and the part-event replay filter used during `RebuildVisualsForVisibleTier` (or equivalent). Confirm the filter distinguishes "transient puff already fired" from "latched state that must be re-applied".
+
+**Evidence to collect:** playtest near staging / parachute deploy / fairing jettison with many ghosts active so tier transitions actually happen; watch for one-shot FX re-fires and single-frame "stale shell" pops at the tier boundary.
+
+**Status:** TODO. Not blocking — fix design matches the visual-efficiency principle — but the two failure modes above are plausible enough to warrant a targeted playtest before the next release.
+
+---
+
+## 363. PR #232 follow-up: WatchModeController refactor surface-area watch
+
+**Source:** light review of PRs `#226`-`#235` after `v0.8.0` ship.
+
+**Concern:** `#232` ("Fix late watched debris visibility after watch exit") describes a targeted fix, but the diff is actually a substantial refactor of `WatchModeController` (~150 lines plus a 264-line `Issue316WatchProtectionTests` file). The state split between "exact watched state" and "post-watch debris retention" now threads through hold-expiry, high-warp, cutoff, policy, and target-loss paths — all of which have their own recent regressions. Logic looks coherent in review but the surface area is large enough that flagged for a second pass.
+
+**What to look at:**
+
+- High-warp exit path: does post-watch debris retention correctly release when warp drops back to `1x`, or can it leak across scene changes?
+- Interaction with `#235` breakup watch fallback: retention state and the breakup selector are both gated on "watched lineage", confirm there is no double-booking.
+- Auto-exit vs user-initiated exit parity: both paths should clear retention once the last descendant debris finishes.
+- Zone rendering interaction: `ZoneRenderingTests` gained `+216` lines — confirm the zone manager respects retention flags consistently in all camera/policy states.
+
+**Evidence to collect:** playtest of crash at high warp with multiple debris children, compare against normal-warp crash; long debris tail (large booster breakup) to confirm retention releases at the right moment.
+
+**Status:** TODO. Low priority — flagged only for surface area, no visible bug.
+
+---
+
 ## 362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch
 
 **Observed in:** `logs/2026-04-14_1954_kerbal-x-f5f9-fix-verify` (2026-04-14) while re-validating the `Kerbal X` mid-flight `F5/F9` fix. Near the very end of the resumed run, the active vessel was already being destroyed but `onPartDeCouple` still reported two late fragments (`parachuteLarge`, `HeatShield2`). The deferred split pass then classified that event as `WithinSegment newVessels=0` instead of creating one more debris branch.
