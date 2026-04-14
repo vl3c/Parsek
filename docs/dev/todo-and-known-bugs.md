@@ -7,13 +7,15 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 354. Orbital end-of-playback spawns can use the wrong vessel snapshot even when the orbit is correct
+## ~~354. Orbital end-of-playback spawns can use the wrong vessel snapshot even when the orbit is correct~~
 
-**Observed in:** `logs/2026-04-14_0419_high-warp-orbit-wrong-real-orbit` (2026-04-14). After the `#353` orbit-source fixes, the real vessel for `Kerbal X` spawned onto the expected last stable Kerbin orbit instead of dying or inheriting a nonsense orbit, but the spawned vessel state still did not match the expected final recorded vessel snapshot.
+**Observed in:** `logs/2026-04-14_0419_high-warp-orbit-wrong-real-orbit` and `logs/2026-04-14_0434_orbital-spawn-wrong-snapshot-followup` (2026-04-14). After the `#353` orbit-source fixes, the real vessel for `Kerbal X` spawned onto the expected last stable Kerbin orbit instead of dying or inheriting a nonsense orbit, but the spawned vessel state still matched an older breakup-time snapshot instead of the final stable-recording state.
 
-**Current understanding:** the orbital spawn path now appears to be sourcing the correct last stable orbit seed, but it still reuses a vessel snapshot whose part/module state does not line up with the final stable-recording state that the user expects to materialize at end of playback. The exact stale fields and whether the bad source is the saved vessel snapshot, snapshot repair, or spawn-time mutation are still unknown.
+**Root cause:** the bad snapshot was already persisted before spawn. In the breakup-continuous tree design, the active recording keeps its earlier `ChildBranchPointId`, so `FinalizeIndividualRecording()` treated it as a non-leaf and skipped the stable-terminal re-snapshot path that normal landed/splashed/orbiting leaves use. `EnsureActiveRecordingTerminalState()` only set `TerminalStateValue`; it did not refresh `VesselSnapshot`, so the tree kept the old post-breakup `_vessel.craft` sidecar even though the terminal orbit had been updated correctly.
 
-**Next investigation:** compare the final trimmed recording state against the spawned vessel snapshot node after `SpawnAtPosition()` / `ProtoVessel.Load()`, then identify which vessel-level or part/module fields need to be refreshed from the final stable recording state instead of the earlier snapshot.
+**Fix:** tree finalization now detects when the active recording is the effective leaf for its vessel and ends in a stable spawnable terminal state (`Landed`, `Splashed`, `Orbiting`). For that case it captures terminal orbit/position from the live vessel and rewrites the terminal snapshot before the tree is persisted, using the same stable-terminal snapshot refresh path as ordinary leaf recordings. Added regression coverage for the effective-leaf versus same-PID-continuation gating helper.
+
+**Status:** ~~Fixed~~
 
 ---
 

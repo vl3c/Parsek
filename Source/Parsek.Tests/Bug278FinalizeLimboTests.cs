@@ -212,6 +212,73 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRefreshActiveEffectiveLeafSnapshot_StableTerminalBreakupContinuous_ReturnsTrue()
+        {
+            var tree = new RecordingTree { TreeName = "Test", Id = "tree-1" };
+            var active = new Recording
+            {
+                RecordingId = "active-effective-leaf",
+                TreeId = tree.Id,
+                VesselPersistentId = 42,
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            var debris = new Recording
+            {
+                RecordingId = "debris-child",
+                TreeId = tree.Id,
+                VesselPersistentId = 99,
+                ParentBranchPointId = "bp-1",
+                IsDebris = true,
+            };
+
+            tree.Recordings[active.RecordingId] = active;
+            tree.Recordings[debris.RecordingId] = debris;
+            tree.ActiveRecordingId = active.RecordingId;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-1",
+                ParentRecordingIds = new List<string> { active.RecordingId },
+                ChildRecordingIds = new List<string> { debris.RecordingId }
+            });
+
+            Assert.True(ParsekFlight.ShouldRefreshActiveEffectiveLeafSnapshot(tree, active));
+        }
+
+        [Fact]
+        public void ShouldRefreshActiveEffectiveLeafSnapshot_SamePidContinuation_ReturnsFalse()
+        {
+            var tree = new RecordingTree { TreeName = "Test", Id = "tree-1" };
+            var active = new Recording
+            {
+                RecordingId = "active-nonleaf",
+                TreeId = tree.Id,
+                VesselPersistentId = 42,
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            var continuation = new Recording
+            {
+                RecordingId = "same-pid-child",
+                TreeId = tree.Id,
+                VesselPersistentId = 42,
+                ParentBranchPointId = "bp-1",
+            };
+
+            tree.Recordings[active.RecordingId] = active;
+            tree.Recordings[continuation.RecordingId] = continuation;
+            tree.ActiveRecordingId = active.RecordingId;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-1",
+                ParentRecordingIds = new List<string> { active.RecordingId },
+                ChildRecordingIds = new List<string> { continuation.RecordingId }
+            });
+
+            Assert.False(ParsekFlight.ShouldRefreshActiveEffectiveLeafSnapshot(tree, active));
+        }
+
+        [Fact]
         public void PruneZeroPointLeaves_RemovesEmptyDestroyedLeaves()
         {
             // The limbo finalize now also runs PruneZeroPointLeaves, so any

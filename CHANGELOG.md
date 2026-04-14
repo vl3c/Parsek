@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#354` Active breakup-continuous tree recordings that end in a stable spawned state now get a fresh terminal snapshot during tree finalization, so effective-leaf orbital end-of-playback spawns no longer reuse the old post-breakup `_vessel.craft` node after the orbit itself has already been corrected.
 - `#353` High-warp orbital end-of-playback spawns now trim stable orbital boring tails against real activity instead of stale zero-throttle engine seed artifacts, then propagate stored terminal orbits to the current spawn UT and scrub stale packed-vessel/part atmospheric metadata before `ProtoVessel.Load()`, so stable-orbit recordings resolve around the normal 10-second boring-state buffer and deferred orbital spawns no longer mix an old endpoint state with a later planet rotation on the way into KSP's on-rails `SUB_ORBITAL`/`101.3 kPa` pressure kill path.
 - `#352` Pending-tree merge dialogs now evaluate active non-leaf vessels against the current tree structure instead of only committed trees, so breakup-continuous landings and splashdowns default to persist exactly when runtime playback would spawn them.
 - `#350` Boarded-EVA playback now preserves post-board flat trajectory tails when merged `TrackSections` are only a stale prefix, and single-point boarded leaf recordings now count as renderable playback/spawn data, so the last kerbal can finish the visible re-entry path and the final capsule with the re-boarded kerbal now spawns at recording end.

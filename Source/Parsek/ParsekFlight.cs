@@ -6152,6 +6152,7 @@ namespace Parsek
             // so FinalizeIndividualRecording skips its terminalState. The optimizer
             // will propagate this to the chain tip via SplitAtSection.
             EnsureActiveRecordingTerminalState(tree);
+            RefreshActiveEffectiveLeafSnapshot(tree, isSceneExit);
 
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
@@ -6202,6 +6203,54 @@ namespace Parsek
                     $"{activeRec.TerminalStateValue} on active recording " +
                     $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
             }
+        }
+
+        internal static bool ShouldRefreshActiveEffectiveLeafSnapshot(
+            RecordingTree tree,
+            Recording activeRec)
+        {
+            if (tree == null || activeRec == null)
+                return false;
+            if (string.IsNullOrEmpty(tree.ActiveRecordingId)
+                || tree.ActiveRecordingId != activeRec.RecordingId)
+                return false;
+            if (string.IsNullOrEmpty(activeRec.ChildBranchPointId))
+                return false;
+            if (!activeRec.TerminalStateValue.HasValue
+                || !IsStableSpawnTerminal(activeRec.TerminalStateValue.Value))
+                return false;
+
+            return GhostPlaybackLogic.IsEffectiveLeafForVessel(activeRec, tree);
+        }
+
+        internal static void RefreshActiveEffectiveLeafSnapshot(RecordingTree tree, bool isSceneExit)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.ActiveRecordingId))
+                return;
+            if (!tree.Recordings.TryGetValue(tree.ActiveRecordingId, out var activeRec))
+                return;
+            if (!ShouldRefreshActiveEffectiveLeafSnapshot(tree, activeRec))
+                return;
+
+            Vessel activeVessel = activeRec.VesselPersistentId != 0
+                ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
+                : null;
+            if (activeVessel == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"FinalizeTreeRecordings: active effective leaf '{activeRec.RecordingId}' " +
+                    $"stable terminal={activeRec.TerminalStateValue} but vessel not found " +
+                    $"(isSceneExit={isSceneExit}) — keeping existing snapshot");
+                return;
+            }
+
+            CaptureTerminalOrbit(activeRec, activeVessel);
+            CaptureTerminalPosition(activeRec, activeVessel);
+            TryRefreshStableTerminalSnapshot(
+                activeRec,
+                activeVessel,
+                isSceneExit,
+                "FinalizeTreeRecordings: re-snapshotted active effective leaf");
         }
 
         internal static void FinalizeIndividualRecording(Recording rec, double commitUT, bool isSceneExit)
@@ -6328,30 +6377,8 @@ namespace Parsek
             if (isLeaf && rec.TerminalStateValue.HasValue && finalizeVessel != null)
             {
                 var ts = rec.TerminalStateValue.Value;
-                bool stableTerminal = ts == TerminalState.Landed
-                    || ts == TerminalState.Splashed
-                    || ts == TerminalState.Orbiting;
-                if (stableTerminal)
-                {
-                    ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
-                    if (freshSnapshot != null)
-                    {
-                        rec.VesselSnapshot = freshSnapshot;
-                        if (rec.GhostVisualSnapshot == null)
-                            rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
-                        rec.MarkFilesDirty();  // Critical: ensures next SaveRecordingFiles writes the fresh snapshot to disk
-                        ParsekLog.Info("Flight",
-                            $"FinalizeIndividualRecording: re-snapshotted '{rec.RecordingId}' " +
-                            $"with stable terminal state {ts} " +
-                            $"(vessel.situation={finalizeVessel.situation}, isSceneExit={isSceneExit}) [#289]");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose("Flight",
-                            $"FinalizeIndividualRecording: re-snapshot returned null for " +
-                            $"'{rec.RecordingId}' (terminal={ts}, isSceneExit={isSceneExit}) — keeping stale snapshot");
-                    }
-                }
+                if (IsStableSpawnTerminal(ts))
+                    TryRefreshStableTerminalSnapshot(rec, finalizeVessel, isSceneExit, "FinalizeIndividualRecording");
             }
 
             // Backfill terminal orbit for recordings that had TerminalStateValue set early
@@ -6485,6 +6512,42 @@ namespace Parsek
 
             // Default: vessel was in flight (atmospheric descent, suborbital, etc.)
             return TerminalState.SubOrbital;
+        }
+
+        private static bool IsStableSpawnTerminal(TerminalState state)
+        {
+            return state == TerminalState.Landed
+                || state == TerminalState.Splashed
+                || state == TerminalState.Orbiting;
+        }
+
+        private static bool TryRefreshStableTerminalSnapshot(
+            Recording rec,
+            Vessel vessel,
+            bool isSceneExit,
+            string logPrefix)
+        {
+            if (rec == null || vessel == null || !rec.TerminalStateValue.HasValue)
+                return false;
+
+            var ts = rec.TerminalStateValue.Value;
+            ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            if (freshSnapshot == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"{logPrefix}: re-snapshot returned null for '{rec.RecordingId}' " +
+                    $"(terminal={ts}, isSceneExit={isSceneExit}) — keeping stale snapshot");
+                return false;
+            }
+
+            rec.VesselSnapshot = freshSnapshot;
+            if (rec.GhostVisualSnapshot == null)
+                rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
+            rec.MarkFilesDirty();
+            ParsekLog.Info("Flight",
+                $"{logPrefix} '{rec.RecordingId}' with stable terminal state {ts} " +
+                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289/#354]");
+            return true;
         }
 
         /// <summary>
