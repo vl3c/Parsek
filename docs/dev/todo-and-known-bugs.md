@@ -146,7 +146,7 @@ Two paths if it bites:
 
 ---
 
-## 373. PR #262 follow-up: `ResolveImmediateLandedGhostClearanceMeters` silently regresses to legacy floor when active vessel is null
+## ~~373. PR #262 follow-up: `ResolveImmediateLandedGhostClearanceMeters` silently regresses to legacy floor when active vessel is null~~
 
 **Source:** light review of PRs `#256`-`#265` after `v0.8.0` ship.
 
@@ -154,7 +154,9 @@ Two paths if it bites:
 
 Separately, `PositionAtSurface` updates `lastInterpolatedBodyName` / `lastInterpolatedAltitude` inside the new clearance branch but NOT in the non-clearance branch (where `TerrainHeightAtEnd` is `NaN`). Pre-fix code didn't set them at all, so this is a net improvement, but the asymmetry is a smell — the two branches should either both update the cache or both leave it untouched.
 
-**Status:** TODO. Both items are minor: log a warning when the fallback fires, and unify the cache-update behavior across branches.
+**Status:** ~~Fixed~~.
+
+**Fix:** (1) Replaced the silent `return 0.5;` fallback in `ResolveImmediateLandedGhostClearanceMeters` with an explicit `ParsekLog.WarnRateLimited("TerrainCorrect", ...)` naming the ghost index, vessel name, body, and the fallback reason (`no-body`, `no-active-vessel`, or `no-body-and-no-active-vessel`), rate-limited per ghost+reason so scene-transition / cold-start paths surface without spamming. The literal `0.5` is now pinned as `ImmediateLandedGhostClearanceFallbackMeters` and the `(hasBody, hasActiveVessel)` decision is extracted into `ResolveImmediateLandedGhostClearanceFallbackReason` (pure `internal static`) with unit tests in `TerrainCorrectorTests` covering all four input combinations. Call sites in `PositionAtPoint` and `PositionAtSurface` were updated to pass `index` / `traj.VesselName` through so the warning can name the offending ghost. (2) The second claim (`PositionAtSurface` cache asymmetry) was stale at review time: the follow-up commit `e54f9a8c` that added the `ShouldApplyImmediateSurfacePositionClearance` guard already placed the `state.lastInterpolatedBodyName` / `state.lastInterpolatedAltitude` updates OUTSIDE the `if` block, so both the clearance and non-clearance branches in current HEAD already update the cache unconditionally. Consumers (`WatchModeController` camera/atmo/reentry-FX, `DriveReentryToZero`, `GhostPlaybackEngine.UpdateReentryFx`) rely on that cache being fresh after every surface position, so the symmetric "both update" behavior is the correct one and no code change is needed for this sub-item. Documented the stale premise here to avoid re-opening the review comment.
 
 ---
 
