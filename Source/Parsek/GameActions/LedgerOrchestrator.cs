@@ -662,17 +662,7 @@ namespace Parsek
             if (existing == null || existing.Count == 0)
                 return stats;
 
-            var desiredBySequence = new Dictionary<int, GameAction>();
-            if (desired != null)
-            {
-                for (int i = 0; i < desired.Count; i++)
-                {
-                    var desiredAction = desired[i];
-                    if (desiredAction != null)
-                        desiredBySequence[desiredAction.Sequence] = desiredAction;
-                }
-            }
-
+            var filteredExisting = new List<GameAction>();
             for (int i = 0; i < existing.Count; i++)
             {
                 var existingAction = existing[i];
@@ -680,16 +670,21 @@ namespace Parsek
                     continue;
 
                 if (string.Equals(existingAction.KerbalRole, "Tourist",
-                    StringComparison.OrdinalIgnoreCase)
-                    && !desiredBySequence.ContainsKey(existingAction.Sequence))
+                    StringComparison.OrdinalIgnoreCase))
                 {
                     stats.TouristRowsSkipped++;
                     continue;
                 }
 
-                GameAction desiredAction;
-                if (!desiredBySequence.TryGetValue(existingAction.Sequence, out desiredAction)
-                    || desiredAction == null)
+                filteredExisting.Add(existingAction);
+            }
+
+            int compareCount = Math.Min(filteredExisting.Count, desired != null ? desired.Count : 0);
+            for (int i = 0; i < compareCount; i++)
+            {
+                var existingAction = filteredExisting[i];
+                var desiredAction = desired[i];
+                if (existingAction == null || desiredAction == null)
                     continue;
 
                 if (!string.Equals(existingAction.KerbalName, desiredAction.KerbalName,
@@ -700,7 +695,6 @@ namespace Parsek
                         FromName = existingAction.KerbalName,
                         ToName = desiredAction.KerbalName
                     });
-                    continue;
                 }
 
                 if (existingAction.KerbalEndStateField != desiredAction.KerbalEndStateField)

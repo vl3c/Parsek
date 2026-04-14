@@ -18,6 +18,7 @@ namespace Parsek
         private const int MaxSamples = 3;
         private readonly List<string> samples = new List<string>();
 
+        public bool HasSlotData;
         public bool LoadedFromLegacyCrewReplacements;
         public int SlotsLoaded;
         public int ChainEntriesLoaded;
@@ -45,6 +46,7 @@ namespace Parsek
                     || EndStateRewrites > 0
                     || TouristRowsSkipped > 0
                     || RetiredStandInsRecreated > 0
+                    || RetiredStandInsKept > 0
                     || UnusedStandInsDeleted > 0;
             }
         }
@@ -64,7 +66,10 @@ namespace Parsek
             var sb = new StringBuilder();
             sb.Append("repair summary: ");
             sb.Append("slotSource=");
-            sb.Append(LoadedFromLegacyCrewReplacements ? "legacy-creplacements" : "KERBAL_SLOTS");
+            if (!HasSlotData)
+                sb.Append("none");
+            else
+                sb.Append(LoadedFromLegacyCrewReplacements ? "legacy-creplacements" : "KERBAL_SLOTS");
             sb.Append(" slots=");
             sb.Append(SlotsLoaded.ToString(CultureInfo.InvariantCulture));
             sb.Append(" chainEntries=");
@@ -123,6 +128,7 @@ namespace Parsek
             if (current == null || !summary.HasData)
                 return;
 
+            current.HasSlotData = true;
             current.LoadedFromLegacyCrewReplacements = summary.LoadedFromLegacyCrewReplacements;
             current.SlotsLoaded = summary.SlotsLoaded;
             current.ChainEntriesLoaded = summary.ChainEntriesLoaded;
