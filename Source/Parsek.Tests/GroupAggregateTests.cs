@@ -566,5 +566,15 @@ namespace Parsek.Tests
             var descendants = new HashSet<int> { 0, 1 };
             Assert.Equal(1, ParsekUI.FindGroupWatchRecordingIndex(descendants, committed));
         }
+
+        [Fact]
+        public void WatchRecording_ActiveSiblingBeatsEarlierInactiveDebris()
+        {
+            var earlier = MakeRec(17000, 17100, "Stage1"); earlier.IsDebris = true;
+            var later = MakeRec(17050, 17150, "Stage2"); later.IsDebris = true;
+            var committed = new List<Recording> { earlier, later };
+            var descendants = new HashSet<int> { 0, 1 };
+            Assert.Equal(1, ParsekUI.FindGroupWatchRecordingIndex(descendants, committed, idx => idx == 1));
+        }
     }
 }

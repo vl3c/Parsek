@@ -326,6 +326,28 @@ namespace Parsek.Tests
                 new HashSet<int> { 0, 1 }, committed));
         }
 
+        [Fact]
+        public void GroupWatchSource_UsesActiveSiblingWhenEarliestDebrisIsInactive()
+        {
+            var earlier = MakeRec(100, 150, "Booster A"); earlier.IsDebris = true;
+            var later = MakeRec(120, 170, "Booster B"); later.IsDebris = true;
+            var committed = new List<Recording> { earlier, later };
+
+            Assert.Equal(1, RecordingsTableUI.FindGroupWatchRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed, idx => idx == 1));
+        }
+
+        [Fact]
+        public void GroupWatchSource_PrefersActiveNonDebrisOverActiveDebris()
+        {
+            var debris = MakeRec(50, 100, "Booster"); debris.IsDebris = true;
+            var vessel = MakeRec(100, 200, "Rocket");
+            var committed = new List<Recording> { debris, vessel };
+
+            Assert.Equal(1, RecordingsTableUI.FindGroupWatchRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed, idx => true));
+        }
+
         // ── GetRecordingSortKey ──
 
         [Fact]

@@ -136,7 +136,7 @@ namespace Parsek
         // index reuse, unlike the existing index-keyed lastCanFF/lastCanRewind
         // which the bug #279 review flagged as a follow-up cleanup target).
         // Group entries are prefixed with "{groupName}/" so two groups whose
-        // main recording happens to share an id (impossible today, but cheap
+        // current watch source happens to share an id (impossible today, but cheap
         // insurance) still get distinct entries. Pruned each table draw via
         // PruneStaleWatchTransitionEntries.
         private Dictionary<string, bool> lastCanWatchByRecId = new Dictionary<string, bool>();
@@ -470,7 +470,7 @@ namespace Parsek
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
             if (isDebris)
-                return "Debris is not watchable";
+                return "Debris rows are not directly watchable";
             if (!hasGhost)
                 return "No active ghost — recording is in the past/future or has no trajectory points";
             if (!sameBody)
@@ -1335,7 +1335,8 @@ namespace Parsek
             // Find the watch source for this group. Prefer the earliest non-debris
             // recording, but allow debris-only groups to expose a group-level watch
             // affordance so breakup boosters remain focusable during playback.
-            int watchSourceIdx = FindGroupWatchRecordingIndex(descendants, committed);
+            int watchSourceIdx = FindGroupWatchRecordingIndex(
+                descendants, committed, flight.HasActiveGhost);
 
             // Find the "main" (earliest non-debris) recording for group-level R/FF buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
@@ -1358,13 +1359,13 @@ namespace Parsek
 
                     // Bug #279: log enabled/disabled transitions for the group W
                     // button at INFO level. Group key combines group name + the
-                    // RecordingId of the current main recording. RecordingId is
+                    // RecordingId of the current watch source. RecordingId is
                     // stable across rewind/truncate index reuse, so a group whose
-                    // main recording is replaced (e.g., truncate followed by a
-                    // new launch) doesn't carry over the previous main's cached
+                    // watch source is replaced (e.g., truncate followed by a
+                    // new launch) doesn't carry over the previous source's cached
                     // canWatch and emit a spurious transition.
                     //
-                    // Skip the cache+log entirely if the main recording has a
+                    // Skip the cache+log entirely if the watch source has a
                     // null/empty RecordingId. Mirrors the per-row guard above.
                     // Without this, the group dict would cache "{groupName}/",
                     // log once, get pruned by PruneStaleWatchEntries on the
@@ -2540,6 +2541,53 @@ namespace Parsek
             {
                 if (idx < 0 || idx >= committed.Count) continue;
                 var rec = committed[idx];
+                if (rec.StartUT < bestUT)
+                {
+                    bestUT = rec.StartUT;
+                    bestIdx = idx;
+                }
+            }
+            return bestIdx;
+        }
+
+        internal static int FindGroupWatchRecordingIndex(
+            HashSet<int> descendants,
+            IReadOnlyList<Recording> committed,
+            Func<int, bool> isGhostActive)
+        {
+            if (isGhostActive != null)
+            {
+                int activeMainIdx = FindEarliestGroupRecordingIndex(
+                    descendants,
+                    committed,
+                    (idx, rec) => !rec.IsDebris && isGhostActive(idx));
+                if (activeMainIdx >= 0)
+                    return activeMainIdx;
+
+                int activeAnyIdx = FindEarliestGroupRecordingIndex(
+                    descendants,
+                    committed,
+                    (idx, rec) => isGhostActive(idx));
+                if (activeAnyIdx >= 0)
+                    return activeAnyIdx;
+            }
+
+            return FindGroupWatchRecordingIndex(descendants, committed);
+        }
+
+        private static int FindEarliestGroupRecordingIndex(
+            HashSet<int> descendants,
+            IReadOnlyList<Recording> committed,
+            Func<int, Recording, bool> predicate)
+        {
+            int bestIdx = -1;
+            double bestUT = double.MaxValue;
+            foreach (int idx in descendants)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (predicate != null && !predicate(idx, rec))
+                    continue;
                 if (rec.StartUT < bestUT)
                 {
                     bestUT = rec.StartUT;
