@@ -3636,22 +3636,19 @@ namespace Parsek
             }
 
             double minUt = rebuiltPoints[rebuiltPoints.Count - 1].ut;
-            for (int start = Math.Max(rebuiltPoints.Count - 1, 0); start <= flatPoints.Count; start++)
+            for (int start = rebuiltPoints.Count; start < flatPoints.Count; start++)
             {
-                if (start < flatPoints.Count)
+                if (flatPoints[start].ut < minUt)
+                    continue;
+
+                if (flatPoints[start].ut == minUt
+                    && !TrajectoryPointEquals(flatPoints[start], rebuiltPoints[rebuiltPoints.Count - 1]))
                 {
-                    if (flatPoints[start].ut < minUt)
-                        continue;
-
-                    if (flatPoints[start].ut == minUt
-                        && !TrajectoryPointEquals(flatPoints[start], rebuiltPoints[rebuiltPoints.Count - 1]))
-                    {
-                        continue;
-                    }
-
-                    if (!TrajectoryPointSuffixIsMonotonicNonDecreasing(flatPoints, start))
-                        continue;
+                    continue;
                 }
+
+                if (!TrajectoryPointSuffixIsMonotonicNonDecreasing(flatPoints, start))
+                    continue;
 
                 return start;
             }
@@ -3700,22 +3697,19 @@ namespace Parsek
             }
 
             double minStartUT = rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1].startUT;
-            for (int start = Math.Max(rebuiltOrbitSegments.Count - 1, 0); start <= flatOrbitSegments.Count; start++)
+            for (int start = rebuiltOrbitSegments.Count; start < flatOrbitSegments.Count; start++)
             {
-                if (start < flatOrbitSegments.Count)
+                if (flatOrbitSegments[start].startUT < minStartUT)
+                    continue;
+
+                if (flatOrbitSegments[start].startUT == minStartUT
+                    && !OrbitSegmentEquals(flatOrbitSegments[start], rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1]))
                 {
-                    if (flatOrbitSegments[start].startUT < minStartUT)
-                        continue;
-
-                    if (flatOrbitSegments[start].startUT == minStartUT
-                        && !OrbitSegmentEquals(flatOrbitSegments[start], rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1]))
-                    {
-                        continue;
-                    }
-
-                    if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(flatOrbitSegments, start))
-                        continue;
+                    continue;
                 }
+
+                if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(flatOrbitSegments, start))
+                    continue;
 
                 return start;
             }
