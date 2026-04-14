@@ -41,6 +41,7 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
+        internal const float DefaultWatchEntryDistance = 50f;
         internal static Func<float> RealtimeNow = GetRealtimeSafe;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
         internal static Func<float> CurrentWarpRateNow = GetCurrentWarpRateSafe;
@@ -562,10 +563,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Captures the live ghost-relative camera orbit so manual watch switches
-        /// can reuse it on the next target instead of resetting to the default entry view.
+        /// Captures the current FlightCamera orbit and target basis so watch-mode
+        /// transitions can preserve the current world-facing direction.
         /// </summary>
-        private bool TryCaptureActiveWatchCameraState(out WatchCameraTransitionState cameraState)
+        private static bool TryCaptureCurrentFlightCameraState(
+            WatchCameraMode mode,
+            bool userModeOverride,
+            out WatchCameraTransitionState cameraState)
         {
             cameraState = default(WatchCameraTransitionState);
 
@@ -576,7 +580,7 @@ namespace Parsek
             cameraState.Distance = flightCamera.Distance;
             cameraState.Pitch = flightCamera.camPitch;
             cameraState.Heading = flightCamera.camHdg;
-            cameraState.Mode = currentCameraMode;
+            cameraState.Mode = mode;
             cameraState.UserModeOverride = userModeOverride;
             if (flightCamera.Target != null)
             {
@@ -584,6 +588,18 @@ namespace Parsek
                 cameraState.TargetRotation = flightCamera.Target.rotation;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Captures the live ghost-relative camera orbit so manual watch switches
+        /// can reuse it on the next target instead of resetting to the default entry view.
+        /// </summary>
+        private bool TryCaptureActiveWatchCameraState(out WatchCameraTransitionState cameraState)
+        {
+            return TryCaptureCurrentFlightCameraState(
+                currentCameraMode,
+                userModeOverride,
+                out cameraState);
         }
 
         internal static WatchCameraMode ResolveSwitchCameraMode(
@@ -615,6 +631,23 @@ namespace Parsek
                 currentState.Heading);
         }
 
+        internal static WatchCameraTransitionState PrepareFreshWatchCameraState(
+            WatchCameraTransitionState currentState,
+            bool hasAtmosphere,
+            double atmosphereDepth,
+            double altitude)
+        {
+            currentState.UserModeOverride = false;
+            currentState.Mode = ResolveSwitchCameraMode(
+                currentState.Mode,
+                currentState.UserModeOverride,
+                hasAtmosphere,
+                atmosphereDepth,
+                altitude);
+            currentState.Distance = DefaultWatchEntryDistance;
+            return currentState;
+        }
+
         private WatchCameraTransitionState ResolveSwitchCameraStateForGhost(
             WatchCameraTransitionState currentState,
             GhostPlaybackState state)
@@ -630,6 +663,21 @@ namespace Parsek
                 atmosphereDepth,
                 altitude);
             return currentState;
+        }
+
+        private WatchCameraTransitionState ResolveFreshWatchCameraStateForGhost(
+            WatchCameraTransitionState currentState,
+            GhostPlaybackState state)
+        {
+            CelestialBody body = ResolveBody(state);
+            bool hasAtmosphere = body != null && body.atmosphere;
+            double atmosphereDepth = body != null ? body.atmosphereDepth : 0.0;
+            double altitude = state != null ? state.lastInterpolatedAltitude : 0.0;
+            return PrepareFreshWatchCameraState(
+                currentState,
+                hasAtmosphere,
+                atmosphereDepth,
+                altitude);
         }
 
         private bool TryApplySwitchedWatchCameraState(
@@ -734,6 +782,12 @@ namespace Parsek
             bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;
             WatchCameraTransitionState switchCameraState = default(WatchCameraTransitionState);
             bool hasSwitchCameraState = switching && TryCaptureActiveWatchCameraState(out switchCameraState);
+            WatchCameraTransitionState freshEntryCameraState = default(WatchCameraTransitionState);
+            bool hasFreshEntryCameraState = !switching
+                && TryCaptureCurrentFlightCameraState(
+                    WatchCameraMode.Free,
+                    userModeOverride: false,
+                    out freshEntryCameraState);
             Vessel preservedCameraVessel = savedCameraVessel;
             float preservedCameraDistance = savedCameraDistance;
             float preservedCameraPitch = savedCameraPitch;
@@ -776,15 +830,20 @@ namespace Parsek
                 && TryApplySwitchedWatchCameraState(
                     gs,
                     ResolveSwitchCameraStateForGhost(switchCameraState, gs));
+            bool restoredFreshEntryCameraState = !switching
+                && hasFreshEntryCameraState
+                && TryApplySwitchedWatchCameraState(
+                    gs,
+                    ResolveFreshWatchCameraStateForGhost(freshEntryCameraState, gs));
 
-            if (!restoredSwitchCameraState)
+            if (!restoredSwitchCameraState && !restoredFreshEntryCameraState)
             {
-                // Fresh watch entry starts from the default entry distance; manual ghost-to-ghost
-                // switches reuse the live watch camera state above instead of resetting here.
+                // Fall back to the legacy entry framing if we couldn't capture/apply the
+                // source camera basis (for example if FlightCamera was unavailable).
                 var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
                 if (watchTarget != null)
                     FlightCamera.fetch.SetTargetTransform(watchTarget);
-                FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
+                FlightCamera.fetch.SetDistance(DefaultWatchEntryDistance);  // override [75,400] entry clamp
             }
 
             var activeWatchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;

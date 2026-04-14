@@ -373,6 +373,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndDefaultEntryDistance()
+        {
+            var currentState = new WatchCameraTransitionState
+            {
+                Distance = 123f,
+                Pitch = 12f,
+                Heading = 34f,
+                Mode = WatchCameraMode.Free,
+                UserModeOverride = false
+            };
+
+            WatchCameraTransitionState result = WatchModeController.PrepareFreshWatchCameraState(
+                currentState,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 289);
+
+            Assert.Equal(WatchCameraMode.HorizonLocked, result.Mode);
+            Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
+            Assert.Equal(12f, result.Pitch);
+            Assert.Equal(34f, result.Heading);
+        }
+
+        [Fact]
+        public void PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndDefaultEntryDistance()
+        {
+            var currentState = new WatchCameraTransitionState
+            {
+                Distance = 88f,
+                Pitch = -5f,
+                Heading = 170f,
+                Mode = WatchCameraMode.Free,
+                UserModeOverride = false
+            };
+
+            WatchCameraTransitionState result = WatchModeController.PrepareFreshWatchCameraState(
+                currentState,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000);
+
+            Assert.Equal(WatchCameraMode.Free, result.Mode);
+            Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
+            Assert.Equal(-5f, result.Pitch);
+            Assert.Equal(170f, result.Heading);
+        }
+
+        [Fact]
         public void InitializeMapFocusRestoreState_MapAlreadyOpen_PrimesOneShotRestore()
         {
             var (lastMapViewEnabled, pendingMapFocusRestore) =
