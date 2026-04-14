@@ -178,7 +178,7 @@ The merge logic looks correct in isolation, but it runs over the same `TrackSect
 
 ---
 
-## 370. PR #246 follow-up: latent NRE in group watch button log line
+## ~~370. PR #246 follow-up: latent NRE in group watch button log line~~
 
 **Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
 
@@ -188,7 +188,9 @@ The merge logic looks correct in isolation, but it runs over the same `TrackSect
 
 **What to do (later):** defensive `resolvedWatchIdx >= 0 ? committed[resolvedWatchIdx].VesselName : "<none>"` in the log line. Trivial.
 
-**Status:** TODO. Cosmetic/defensive cleanup.
+**Fix:** Both group-W log sites in `Source/Parsek/UI/RecordingsTableUI.cs` (the enable/disable transition log at ~line 1393 and the click-time log at ~line 1412) now guard `committed[resolvedWatchIdx].VesselName` with `resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count ? ... : "<none>"`, matching the pre-existing pattern at the `resolvedTargetId` computation one scope above. `GUI.enabled = canWatch` still blocks the click path in practice; this hardens the log lines so a future refactor of the `canWatch`/`resolvedWatchIdx` ordering can't turn either into an `IndexOutOfRangeException`.
+
+**Status:** ~~Fixed~~.
 
 ---
 

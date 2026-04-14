@@ -1390,7 +1390,7 @@ namespace Parsek
                             string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, isDebris: false);
                             ParsekLog.Info("UI",
                                 $"Group Watch button '{groupName}' source=#{mainIdx} \"{committed[mainIdx].VesselName}\" " +
-                                $"resolved={(resolvedWatchIdx >= 0 ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} {reason} " +
+                                $"resolved={(resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} {reason} " +
                                 $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange}) " +
                                 $"{BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)}");
                         }
@@ -1409,7 +1409,7 @@ namespace Parsek
                             flight.EnterWatchMode(resolvedWatchIdx);
                         ParsekLog.Info("UI",
                             $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on source #{mainIdx} " +
-                            $"resolved #{resolvedWatchIdx} \"{committed[resolvedWatchIdx].VesselName}\" " +
+                            $"resolved {(resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} " +
                             $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                     }
                     GUI.enabled = true;
