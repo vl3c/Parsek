@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -8,6 +9,16 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class WatchModeControllerTests
     {
+        private static Vector3 OrbitDirectionFromAngles(float pitch, float heading)
+        {
+            float pitchRad = pitch * Mathf.Deg2Rad;
+            float headingRad = heading * Mathf.Deg2Rad;
+            return new Vector3(
+                Mathf.Sin(headingRad) * Mathf.Cos(pitchRad),
+                Mathf.Sin(pitchRad),
+                Mathf.Cos(headingRad) * Mathf.Cos(pitchRad));
+        }
+
         private static Recording MakeRecording(
             string id,
             uint vesselPid,
@@ -370,6 +381,83 @@ namespace Parsek.Tests
                 altitude: 150);
 
             Assert.Equal(WatchCameraMode.Free, result);
+        }
+
+        [Fact]
+        public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndDefaultEntryDistance()
+        {
+            var currentState = new WatchCameraTransitionState
+            {
+                Distance = 123f,
+                Pitch = 12f,
+                Heading = 34f,
+                Mode = WatchCameraMode.Free,
+                UserModeOverride = false
+            };
+
+            WatchCameraTransitionState result = WatchModeController.PrepareFreshWatchCameraState(
+                currentState,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 289);
+
+            Assert.Equal(WatchCameraMode.HorizonLocked, result.Mode);
+            Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
+            Assert.Equal(12f, result.Pitch);
+            Assert.Equal(34f, result.Heading);
+        }
+
+        [Fact]
+        public void PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndDefaultEntryDistance()
+        {
+            var currentState = new WatchCameraTransitionState
+            {
+                Distance = 88f,
+                Pitch = -5f,
+                Heading = 170f,
+                Mode = WatchCameraMode.Free,
+                UserModeOverride = false
+            };
+
+            WatchCameraTransitionState result = WatchModeController.PrepareFreshWatchCameraState(
+                currentState,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000);
+
+            Assert.Equal(WatchCameraMode.Free, result.Mode);
+            Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
+            Assert.Equal(-5f, result.Pitch);
+            Assert.Equal(170f, result.Heading);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_WorldOrbitDirection_PreservesDirection()
+        {
+            Vector3 worldOrbitDirection = new Vector3(0.31f, 0.22f, 0.92f).normalized;
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = -11f,
+                Heading = 147f,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = worldOrbitDirection
+            };
+
+            Quaternion newTargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                state,
+                newTargetRotation);
+
+            Vector3 resolvedWorldDirection = WatchModeController.RotateVectorByQuaternion(
+                newTargetRotation,
+                OrbitDirectionFromAngles(newPitch, newHeading));
+
+            Assert.True(
+                Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
+                $"Expected preserved orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
         }
 
         [Fact]

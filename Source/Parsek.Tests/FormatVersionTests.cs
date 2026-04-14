@@ -462,6 +462,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DeserializeTrajectoryFrom_V1WithMalformedDuplicatedFlatPrefixWithoutSafeTail_DoesNotRewrite()
+        {
+            var rec = BuildStaleTrackSectionTailRecording(formatVersion: 1);
+            rec.Points.Clear();
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 1000.0));
+            rec.Points.Add(MakePoint(110.0, 0.05, 0.02, 1200.0));
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 1000.0));
+            rec.Points.Add(MakePoint(110.0, 0.05, 0.02, 1200.0));
+            rec.Points.Add(MakePoint(90.0, -0.03, -0.02, 800.0));
+
+            var node = new ConfigNode("PARSEK_RECORDING");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            logLines.Clear();
+            var restored = new Recording { RecordingId = rec.RecordingId };
+            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+
+            Assert.Equal(new[] { 100.0, 110.0, 100.0, 110.0, 90.0 }, restored.Points.Select(p => p.ut).ToArray());
+            Assert.Single(restored.TrackSections);
+            Assert.False(restored.FilesDirty);
+            Assert.DoesNotContain(logLines, l => l.Contains("healed malformed flat fallback"));
+        }
+
+        [Fact]
+        public void DeserializeTrajectoryFrom_V1WithMalformedDuplicatedOrbitPrefix_HealsFromTrackSectionPrefixAndKeepsTail()
+        {
+            var rec = BuildStaleTrackSectionTailOrbitRecording(formatVersion: 1);
+            rec.OrbitSegments.Insert(1, MakeOrbitSegment(100.0, 150.0, 700000.0));
+
+            var node = new ConfigNode("PARSEK_RECORDING");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            logLines.Clear();
+            var restored = new Recording { RecordingId = rec.RecordingId };
+            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+
+            Assert.Equal(new[] { 100.0, 200.0 }, restored.OrbitSegments.Select(s => s.startUT).ToArray());
+            Assert.Single(restored.TrackSections);
+            Assert.True(restored.FilesDirty);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("DeserializeTrajectoryFrom") &&
+                l.Contains("healed malformed flat fallback"));
+        }
+
+        [Fact]
         public void DeserializeTrajectoryFrom_InvalidVersion_LogsWarningAndTreatsAsV0()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
@@ -602,6 +648,32 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static Recording BuildStaleTrackSectionTailOrbitRecording(int formatVersion)
+        {
+            var first = MakeOrbitSegment(100.0, 150.0, 700000.0);
+            var tail = MakeOrbitSegment(200.0, 260.0, 705000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "stale-track-orbit-tail",
+                RecordingFormatVersion = formatVersion,
+                VesselName = "Tail Vessel Orbit"
+            };
+            rec.OrbitSegments.Add(first);
+            rec.OrbitSegments.Add(tail);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Background,
+                startUT = first.startUT,
+                endUT = first.endUT,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment> { first }
+            });
+            return rec;
+        }
+
         private static TrajectoryPoint MakePoint(
             double ut,
             double latitude,
@@ -617,6 +689,23 @@ namespace Parsek.Tests
                 rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
                 bodyName = "Kerbin",
                 velocity = new UnityEngine.Vector3(0, 0, 0)
+            };
+        }
+
+        private static OrbitSegment MakeOrbitSegment(double startUT, double endUT, double semiMajorAxis)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                semiMajorAxis = semiMajorAxis,
+                eccentricity = 0.01,
+                inclination = 28.5,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = startUT,
+                bodyName = "Kerbin"
             };
         }
 
