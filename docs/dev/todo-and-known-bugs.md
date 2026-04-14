@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 372. PR #253 / #254 follow-up: dead helpers left behind after batch-skip pivot
+## ~~372. PR #253 / #254 follow-up: dead helpers left behind after batch-skip pivot~~
 
 **Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
 
@@ -23,11 +23,16 @@ The very next PR `#254` ("Fix `#332` follow-up: keep destructive quickload tests
 
 **Why it didn't get caught:** the cleanup happened in the same day as the original add, and `#254` was framed as a test-runner change, not a production code revert.
 
-**What to do (later):** delete the orphaned helpers, or leave them with an explicit `// retained for future synthetic-scenario test infrastructure` comment if there is a known follow-up. `WatchModeController.ClearAfterSyntheticScenarioLoad` in particular duplicates ~15 fields from `ResetWatchState` and is a maintenance trap (any new field added to `ResetWatchState` won't be added here).
+**Status:** ~~Fixed~~. Cleanup pass, low priority.
 
-**Status:** TODO. Cleanup pass, low priority.
+**Fix:** deleted the four orphans after a grep-confirmed zero-caller check across `Source/`, `docs/`, and `scripts/`:
 
-**Verified current head (during #256-#265 review):** all four helpers are still present in `WatchModeController.cs` and `ParsekFlight.cs`. PR `#257` removed a different set of orphaned merge-flow helpers (`AwaitingSceneChangeMergeOwner`, `PendingTreeOwnsReplay`, `OnFlightReadyHasMergeOwnerAfterDispatch` from `FlightResultsPatch` / `ParsekScenario`), so a related cleanup pass already happened — the `#372` items appear to have just been missed by it.
+- `ParsekFlight.NormalizeAfterSyntheticScenarioLoad` removed outright.
+- `ParsekFlight.DestroyAllTimelineGhosts(string ghostMapReason = "rewind")` reverted to its pre-`#253` parameterless signature with a hard-coded `"rewind"` ghost-map removal reason; the two live call sites (`ParsekFlight.OnDestroy` scene teardown and `ParsekUI` "wipe all recordings") already called it without arguments.
+- `WatchModeController.ClearAfterSyntheticScenarioLoad` removed outright — this was the ~15-field duplicate of `ResetWatchState` flagged here as a maintenance trap.
+- `ParsekFlight.HasDeferredWatchAfterFastForward` property removed (`pendingWatchAfterFFId` itself stays, still live in the deferred-FF handoff path).
+
+Build: clean (0 warnings, 0 errors). Tests: 6195/6196 passing; the single failure is the pre-existing `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` Unity-runtime `SecurityException` tracked as `#380`.
 
 ---
 

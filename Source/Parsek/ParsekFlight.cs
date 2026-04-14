@@ -447,7 +447,6 @@ namespace Parsek
         }
         public bool HasActiveChain => chainManager?.HasActiveChain ?? false;
         public bool HasActiveTree => activeTree != null;
-        internal bool HasDeferredWatchAfterFastForward => !string.IsNullOrEmpty(pendingWatchAfterFFId);
 
         // Camera follow (watch mode) — forwarded from WatchModeController
         internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
@@ -8732,25 +8731,10 @@ namespace Parsek
             engine.DestroyGhost(index);
         }
 
-        internal void NormalizeAfterSyntheticScenarioLoad(string reason)
-        {
-            string cleanupReason = string.IsNullOrEmpty(reason)
-                ? "synthetic scenario load"
-                : reason;
-            ParsekLog.Info("TestRunner",
-                $"Normalizing FLIGHT runtime after {cleanupReason}");
-
-            pendingWatchAfterFFId = null;
-            watchMode.ClearAfterSyntheticScenarioLoad();
-
-            StopPlayback();
-            DestroyAllTimelineGhosts("synthetic-scenario-load");
-        }
-
-        public void DestroyAllTimelineGhosts(string ghostMapReason = "rewind")
+        public void DestroyAllTimelineGhosts()
         {
             // Remove ghost map ProtoVessels before engine cleanup
-            GhostMapPresence.RemoveAllGhostVessels(ghostMapReason);
+            GhostMapPresence.RemoveAllGhostVessels("rewind");
 
             // Engine destroys all ghost GOs and clears engine-owned state.
             // Fires OnAllGhostsDestroying so policy clears its own state.

@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 _Unreleased._
 
+### Maintenance
+
+- `#372` Removed orphaned synthetic-scenario test helpers left behind after the live FLIGHT save/load round-trip test infrastructure was reverted.
+
 ---
 
 ## 0.8.1
