@@ -2452,14 +2452,17 @@ namespace Parsek.InGameTests
             bool found = false;
             foreach (var line in logLines)
             {
-                if (line.Contains("[Flight]") && line.Contains("re-snapshotted") && line.Contains("[#289]"))
+                if (line.Contains("[Flight]")
+                    && line.Contains("FinalizeIndividualRecording")
+                    && line.Contains("stable terminal state")
+                    && line.Contains("[#289"))
                 {
                     found = true;
                     break;
                 }
             }
             InGameAssert.IsTrue(found,
-                "Expected '[Flight] FinalizeIndividualRecording: re-snapshotted ... [#289]' log line during finalize");
+                "Expected FinalizeIndividualRecording stable-terminal re-snapshot log line during finalize");
         }
 
         [InGameTest(Category = "Bug289", Scene = GameScenes.FLIGHT,

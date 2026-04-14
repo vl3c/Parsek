@@ -451,6 +451,45 @@ namespace Parsek.Tests
                 l.Contains("PruneZeroPointLeaves: removed 1 zero-point"));
         }
 
+        [Fact]
+        public void PruneSinglePointDestroyedDebrisLeaves_RemovesDestroyedDebrisStub()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "keep",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 75.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 50.0 });
+            keep.Points.Add(new TrajectoryPoint { ut = 75.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            var stub = new Recording
+            {
+                RecordingId = "destroyed-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 50.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            stub.Points.Add(new TrajectoryPoint { ut = 50.0 });
+            tree.Recordings[stub.RecordingId] = stub;
+
+            ParsekFlight.PruneSinglePointDestroyedDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("keep"));
+            Assert.False(tree.Recordings.ContainsKey("destroyed-stub"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDestroyedDebrisLeaves: removed 1 single-point destroyed debris stub"));
+        }
+
         #region InferTerminalStateFromTrajectory
 
         [Fact]

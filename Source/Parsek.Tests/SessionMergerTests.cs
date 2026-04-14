@@ -735,6 +735,70 @@ namespace Parsek.Tests
             Assert.Equal(2, merged.TrackSections.Count);
         }
 
+        [Fact]
+        public void MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy()
+        {
+            var section = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 20.0,
+                source = TrackSectionSource.Background,
+                sampleRateHz = 10f,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 0.0,
+                        latitude = 0.0,
+                        longitude = 0.0,
+                        altitude = 100.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 10.0,
+                        latitude = 0.1,
+                        longitude = 0.1,
+                        altitude = 110.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 20.0,
+                        latitude = 0.2,
+                        longitude = 0.2,
+                        altitude = 120.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    }
+                },
+                checkpoints = new List<OrbitSegment>(),
+                boundaryDiscontinuityMeters = 0f
+            };
+
+            var rec = MakeRecording("rec-bad-tail", "Bad Tail Vessel", new List<TrackSection> { section });
+            rec.Points = new List<TrajectoryPoint>(section.frames);
+            rec.Points.AddRange(section.frames);
+
+            var tree = MakeTree("Bad Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-bad-tail"];
+
+            Assert.Equal(new[] { 0.0, 10.0, 20.0 }, merged.Points.Select(p => p.ut).ToArray());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-bad-tail'") &&
+                l.Contains("flatSync=track-sections"));
+        }
+
         #endregion
 
         #region Log assertions — overlap count

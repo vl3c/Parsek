@@ -6297,6 +6297,7 @@ namespace Parsek
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
             PruneZeroPointLeaves(tree);
+            PruneSinglePointDestroyedDebrisLeaves(tree);
 
             // Compute tree-level resource delta
             tree.DeltaFunds = ComputeTreeDeltaFunds(tree);
@@ -6755,6 +6756,35 @@ namespace Parsek
             if (toPrune == null || toPrune.Count == 0)
                 return;
 
+            PruneLeafRecordings(
+                tree,
+                toPrune,
+                "PruneZeroPointLeaves",
+                "zero-point leaf recording(s)");
+        }
+
+        internal static void PruneSinglePointDestroyedDebrisLeaves(RecordingTree tree)
+        {
+            var toPrune = CollectSinglePointDestroyedDebrisLeafIds(tree);
+            if (toPrune == null || toPrune.Count == 0)
+                return;
+
+            // Same-frame breakup debris can die inside the coalescing window and only retain
+            // the split seed point. These stubs are non-playable, fail the data-health
+            // contract, and never contribute a meaningful ghost or spawn path.
+            PruneLeafRecordings(
+                tree,
+                toPrune,
+                "PruneSinglePointDestroyedDebrisLeaves",
+                "single-point destroyed debris stub(s)");
+        }
+
+        private static void PruneLeafRecordings(
+            RecordingTree tree,
+            List<string> toPrune,
+            string logTag,
+            string description)
+        {
             for (int i = 0; i < toPrune.Count; i++)
             {
                 string id = toPrune[i];
@@ -6786,7 +6816,7 @@ namespace Parsek
             }
 
             ParsekLog.Info("Flight",
-                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point leaf recording(s)" +
+                $"{logTag}: removed {toPrune.Count} {description}" +
                 (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
                 $" from tree '{tree.TreeName}'");
         }
@@ -6810,6 +6840,21 @@ namespace Parsek
             return result;
         }
 
+        internal static List<string> CollectSinglePointDestroyedDebrisLeafIds(RecordingTree tree)
+        {
+            List<string> result = null;
+            foreach (var kvp in tree.Recordings)
+            {
+                var rec = kvp.Value;
+                if (IsSinglePointDestroyedDebrisLeaf(rec))
+                {
+                    if (result == null) result = new List<string>();
+                    result.Add(kvp.Key);
+                }
+            }
+            return result;
+        }
+
         /// <summary>
         /// Returns true if a recording is a leaf with no playback data (zero points,
         /// no orbit segments, no surface position).
@@ -6821,6 +6866,16 @@ namespace Parsek
             return rec.Points.Count == 0
                 && rec.OrbitSegments.Count == 0
                 && !rec.SurfacePos.HasValue;
+        }
+
+        internal static bool IsSinglePointDestroyedDebrisLeaf(Recording rec)
+        {
+            if (rec == null || rec.ChildBranchPointId != null) return false;
+            if (rec.SidecarLoadFailed) return false;
+            if (!rec.IsDebris || rec.TerminalStateValue != TerminalState.Destroyed) return false;
+            if (rec.Points.Count != 1) return false;
+            if (rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue) return false;
+            return rec.TrackSections == null || rec.TrackSections.Count == 0;
         }
 
         internal static double ComputeTreeDeltaFunds(RecordingTree tree)
