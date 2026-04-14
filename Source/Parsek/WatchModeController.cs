@@ -777,8 +777,12 @@ namespace Parsek
                 return false;
 
             cameraState.Distance = flightCamera.Distance;
-            cameraState.Pitch = flightCamera.camPitch;
-            cameraState.Heading = flightCamera.camHdg;
+            // KSP stores camPitch / camHdg in RADIANS; Parsek's OrbitDirectionFromAngles
+            // / CompensateCameraAngles / DecomposeOrbitDirectionInTargetFrame all treat
+            // their angle arguments as DEGREES (they Deg2Rad internally). Convert at the
+            // KSP boundary so every WatchCameraTransitionState field is in degrees.
+            cameraState.Pitch = flightCamera.camPitch * Mathf.Rad2Deg;
+            cameraState.Heading = flightCamera.camHdg * Mathf.Rad2Deg;
             cameraState.Mode = mode;
             cameraState.UserModeOverride = userModeOverride;
             if (flightCamera.Target != null)
@@ -807,8 +811,8 @@ namespace Parsek
             if (TryGetCurrentFlightCameraPivotRotation(flightCamera, out var pivotRotation)
                 && TryResolveWorldOrbitDirection(
                     pivotRotation,
-                    flightCamera.camPitch,
-                    flightCamera.camHdg,
+                    flightCamera.camPitch * Mathf.Rad2Deg,
+                    flightCamera.camHdg * Mathf.Rad2Deg,
                     out worldOrbitDirection))
             {
                 return true;
@@ -1074,8 +1078,10 @@ namespace Parsek
                 flightCamera.SetTargetTransform(watchTarget);
 
             flightCamera.SetDistance(cameraState.Distance);
-            flightCamera.camPitch = pitch;
-            flightCamera.camHdg = heading;
+            // pitch / heading are in degrees (Parsek's internal convention); convert
+            // to radians for KSP's FlightCamera, which uses radians throughout.
+            flightCamera.camPitch = pitch * Mathf.Deg2Rad;
+            flightCamera.camHdg = heading * Mathf.Deg2Rad;
 
             if (flightCamera.transform?.parent != null && state.cameraPivot != null)
                 flightCamera.transform.parent.position = state.cameraPivot.position;
@@ -1226,8 +1232,9 @@ namespace Parsek
             {
                 savedCameraVessel = FlightGlobals.ActiveVessel;
                 savedCameraDistance = FlightCamera.fetch.Distance;
-                savedCameraPitch = FlightCamera.fetch.camPitch;
-                savedCameraHeading = FlightCamera.fetch.camHdg;
+                // Internal convention: store pitch/hdg in degrees (see TryCaptureCurrentFlightCameraState).
+                savedCameraPitch = FlightCamera.fetch.camPitch * Mathf.Rad2Deg;
+                savedCameraHeading = FlightCamera.fetch.camHdg * Mathf.Rad2Deg;
                 savedPivotSharpness = FlightCamera.fetch.pivotTranslateSharpness;
             }
             else
@@ -1432,8 +1439,9 @@ namespace Parsek
             {
                 flightCamera.SetTargetVessel(savedCameraVessel);
                 flightCamera.SetDistance(savedCameraDistance);
-                flightCamera.camPitch = savedCameraPitch;
-                flightCamera.camHdg = savedCameraHeading;
+                // savedCameraPitch / savedCameraHeading are stored in degrees; KSP wants radians.
+                flightCamera.camPitch = savedCameraPitch * Mathf.Deg2Rad;
+                flightCamera.camHdg = savedCameraHeading * Mathf.Deg2Rad;
                 ParsekLog.Verbose("CameraFollow",
                     $"FlightCamera.SetTargetVessel restored to {savedCameraVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
@@ -1832,15 +1840,19 @@ namespace Parsek
             if (newTarget == null) newTarget = state.cameraPivot;
             if (newTarget == null || newTarget == oldTarget) return;
 
-            // Compensate pitch/heading to prevent visual snap on mode switch
+            // Compensate pitch/heading to prevent visual snap on mode switch.
+            // CompensateCameraAngles works in degrees; KSP's FlightCamera uses radians,
+            // so convert at the boundary on both the read and the write.
             Quaternion oldRot = oldTarget != null ? oldTarget.rotation : Quaternion.identity;
             Quaternion newRot = newTarget.rotation;
-            var (newPitch, newHdg) = CompensateCameraAngles(
-                oldRot, newRot, FlightCamera.fetch.camPitch, FlightCamera.fetch.camHdg);
+            var (newPitchDeg, newHdgDeg) = CompensateCameraAngles(
+                oldRot, newRot,
+                FlightCamera.fetch.camPitch * Mathf.Rad2Deg,
+                FlightCamera.fetch.camHdg * Mathf.Rad2Deg);
 
             FlightCamera.fetch.SetTargetTransform(newTarget);
-            FlightCamera.fetch.camPitch = newPitch;
-            FlightCamera.fetch.camHdg = newHdg;
+            FlightCamera.fetch.camPitch = newPitchDeg * Mathf.Deg2Rad;
+            FlightCamera.fetch.camHdg = newHdgDeg * Mathf.Deg2Rad;
         }
 
         /// <summary>
