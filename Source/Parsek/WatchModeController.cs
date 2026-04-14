@@ -918,23 +918,31 @@ namespace Parsek
             rememberedHorizonLockedCameraState = default(WatchCameraTransitionState);
         }
 
-        private void RememberCurrentWatchCameraState()
+        /// <summary>
+        /// Stores a captured camera state into the remembered-per-mode slot as a
+        /// target-relative snapshot. The ghost and its horizon proxy rotate
+        /// continuously, so a world-orbit-direction snapshot becomes stale within
+        /// a frame and restoring it on the next mode swap would snap the camera
+        /// to wherever that world vector now lies in the rotated basis. Raw
+        /// (pitch, hdg) relative to the current target stay meaningful because
+        /// the target transform tracks the ghost. Used for mode-swap bookmarks
+        /// (V-toggle + auto-mode atmosphere crossings); W->W switches and chain
+        /// transfers still use the world-direction path because those apply
+        /// immediately on the same frame with no drift window.
+        /// </summary>
+        private void RememberWatchCameraStateAsTargetRelative(WatchCameraTransitionState cameraState)
         {
-            if (!TryCaptureActiveWatchCameraState(out var cameraState))
-                return;
-
-            // Remember only target-frame angles for V-toggle restore. Storing the
-            // captured world-orbit direction is wrong here: the ghost and its
-            // horizon proxy rotate continuously, so a "world direction" snapshot
-            // becomes stale within a frame and restoring it on the next toggle
-            // snaps the camera to wherever the stored world vector now lies in
-            // the rotated basis. Raw (pitch, hdg) relative to the current target
-            // stay meaningful because the target transform tracks the ghost.
             cameraState.HasTargetRotation = false;
             cameraState.TargetRotation = Quaternion.identity;
             cameraState.HasWorldOrbitDirection = false;
             cameraState.WorldOrbitDirection = Vector3.zero;
             RememberWatchCameraState(cameraState);
+        }
+
+        private void RememberCurrentWatchCameraState()
+        {
+            if (TryCaptureActiveWatchCameraState(out var cameraState))
+                RememberWatchCameraStateAsTargetRelative(cameraState);
         }
 
         private bool TryRestoreRememberedWatchCameraState(
@@ -1049,6 +1057,9 @@ namespace Parsek
             bool hasAtmosphere = body != null && body.atmosphere;
             double atmosphereDepth = body != null ? body.atmosphereDepth : 0.0;
             double altitude = state != null ? state.lastInterpolatedAltitude : 0.0;
+            // default(WatchCameraTransitionState).Mode is Free; PrepareFreshWatchCameraState
+            // upgrades it to HorizonLocked only under ShouldAutoHorizonLock (in-atmosphere
+            // low altitude). The body parameters drive that decision.
             return PrepareFreshWatchCameraState(
                 default(WatchCameraTransitionState),
                 hasAtmosphere,
@@ -1870,18 +1881,7 @@ namespace Parsek
                 ? WatchCameraMode.HorizonLocked
                 : WatchCameraMode.Free;
             if (TryCaptureActiveWatchCameraState(out var previousModeState))
-            {
-                // Strip the captured world-orbit data — we want the remembered
-                // mode state to preserve (pitch, hdg) relative to the live
-                // target transform, not a world-space snapshot that drifts as
-                // the ghost moves. See RememberCurrentWatchCameraState for
-                // the rationale.
-                previousModeState.HasTargetRotation = false;
-                previousModeState.TargetRotation = Quaternion.identity;
-                previousModeState.HasWorldOrbitDirection = false;
-                previousModeState.WorldOrbitDirection = Vector3.zero;
-                RememberWatchCameraState(previousModeState);
-            }
+                RememberWatchCameraStateAsTargetRelative(previousModeState);
             userModeOverride = true;
             currentCameraMode = nextMode;
             lastLoggedHorizonVectorKey = null;
@@ -1929,8 +1929,12 @@ namespace Parsek
                 var autoMode = shouldLock ? WatchCameraMode.HorizonLocked : WatchCameraMode.Free;
                 if (autoMode != currentCameraMode)
                 {
+                    // Mirror the V-toggle capture — a ghost auto-crossing the
+                    // atmosphere boundary must not leave a stale world-orbit
+                    // vector in the outgoing mode's remembered slot, or a later
+                    // auto-switch back will replay it and drift the camera.
                     if (TryCaptureActiveWatchCameraState(out var previousModeState))
-                        RememberWatchCameraState(previousModeState);
+                        RememberWatchCameraStateAsTargetRelative(previousModeState);
                     currentCameraMode = autoMode;
                     lastLoggedHorizonVectorKey = null;
                     if (!TryRestoreRememberedWatchCameraState(

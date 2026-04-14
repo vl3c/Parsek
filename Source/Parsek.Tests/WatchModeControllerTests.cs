@@ -441,6 +441,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DefaultWatchEntryConstants_AreInDegreeConvention_ProduceExpectedOrbitDirection()
+        {
+            // Pins the canonical fresh-entry constants to the degree convention that
+            // Parsek's OrbitDirectionFromAngles / CompensateCameraAngles expect.
+            // KSP's FlightCamera.camPitch / camHdg are in radians; all boundary
+            // accesses in WatchModeController.cs convert on read/write. If a future
+            // regression drops a Deg2Rad conversion or reinterprets these constants
+            // as radians, sin(12 rad) ≈ -0.5366 would break this assertion.
+            Vector3 orbit = WatchModeController.OrbitDirectionFromAngles(
+                WatchModeController.DefaultWatchEntryPitch,
+                WatchModeController.DefaultWatchEntryHeading);
+
+            // 12° pitch, 0° heading → (sin(0°)*cos(12°), sin(12°), cos(0°)*cos(12°))
+            Assert.InRange(orbit.x, -0.0001f, 0.0001f);
+            Assert.InRange(orbit.y, 0.2079f - 0.0001f, 0.2079f + 0.0001f);   // sin(12°)
+            Assert.InRange(orbit.z, 0.9781f - 0.0001f, 0.9781f + 0.0001f);   // cos(12°)
+
+            // Extra belt-and-suspenders: the constants must be in degree range,
+            // not radian range. A 12-radian pitch constant slipping through would
+            // be ~687° — way outside any sane camera angle.
+            Assert.InRange(WatchModeController.DefaultWatchEntryPitch, -90f, 90f);
+            Assert.InRange(WatchModeController.DefaultWatchEntryHeading, -180f, 180f);
+        }
+
+        [Fact]
         public void CompensateTransferredWatchAngles_NoRotationOrWorldDirection_ReturnsRawAngles()
         {
             // Canonical fresh-entry state: the remembered V-toggle state should also
