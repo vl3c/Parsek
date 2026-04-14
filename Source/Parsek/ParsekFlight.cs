@@ -9418,6 +9418,7 @@ namespace Parsek
                     positioned = ApplyLandedGhostClearance(
                         point, index, traj.VesselName, traj.TerrainHeightAtEnd,
                         ResolveImmediateLandedGhostClearanceMeters(
+                            index, traj.VesselName,
                             point.bodyName, point.latitude, point.longitude, point.altitude));
                 }
             }
@@ -9434,12 +9435,54 @@ namespace Parsek
                 positioned.altitude));
         }
 
+        // Literal floor returned by the immediate-clearance resolver when it
+        // cannot compute a distance-aware value. Matches the legacy pre-#262
+        // hardcoded floor — callers that hit this branch silently regress to
+        // the old behavior, so ResolveImmediateLandedGhostClearanceMeters
+        // emits a rate-limited warning naming the offending ghost (#373).
+        internal const double ImmediateLandedGhostClearanceFallbackMeters = 0.5;
+
+        /// <summary>
+        /// Pure decision helper: given whether a <see cref="CelestialBody"/>
+        /// resolved for the ghost's body name and whether an active vessel is
+        /// present, returns the reason the fallback fires (for logging), or
+        /// <c>null</c> when both inputs are live and the distance-aware path
+        /// can run. Extracted for unit testing without KSP singletons (#373).
+        /// </summary>
+        internal static string ResolveImmediateLandedGhostClearanceFallbackReason(
+            bool hasBody, bool hasActiveVessel)
+        {
+            if (!hasBody && !hasActiveVessel) return "no-body-and-no-active-vessel";
+            if (!hasBody) return "no-body";
+            if (!hasActiveVessel) return "no-active-vessel";
+            return null;
+        }
+
         private static double ResolveImmediateLandedGhostClearanceMeters(
+            int index, string vesselName,
             string bodyName, double latitude, double longitude, double altitude)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
-            if (body == null || FlightGlobals.ActiveVessel == null)
-                return 0.5;
+            bool hasBody = body != null;
+            bool hasActiveVessel = FlightGlobals.ActiveVessel != null;
+            string fallbackReason = ResolveImmediateLandedGhostClearanceFallbackReason(
+                hasBody, hasActiveVessel);
+            if (fallbackReason != null)
+            {
+                // #373: Silent regression to the legacy 0.5 m floor when the
+                // distance-aware resolver cannot run. Rate-limit per
+                // ghost+reason so scene-transition cold-start paths surface
+                // without spamming the log on every frame.
+                string safeVessel = string.IsNullOrEmpty(vesselName) ? "?" : vesselName;
+                string safeBody = string.IsNullOrEmpty(bodyName) ? "?" : bodyName;
+                ParsekLog.WarnRateLimited("TerrainCorrect",
+                    $"landed-ghost-clearance-fallback-{index}-{fallbackReason}",
+                    $"Landed ghost clearance fallback #{index} (\"{safeVessel}\") on body='{safeBody}': " +
+                    $"{fallbackReason} — using legacy floor " +
+                    $"{ImmediateLandedGhostClearanceFallbackMeters.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}m " +
+                    "(distance-aware #262 path skipped)");
+                return ImmediateLandedGhostClearanceFallbackMeters;
+            }
 
             Vector3d pointWorld = body.GetWorldSurfacePosition(latitude, longitude, altitude);
             double distToVessel = Vector3d.Distance(pointWorld, FlightGlobals.ActiveVessel.GetWorldPos3D());
@@ -9560,6 +9603,7 @@ namespace Parsek
                 syntheticPoint = ApplyLandedGhostClearance(
                     syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
                     ResolveImmediateLandedGhostClearanceMeters(
+                        index, traj.VesselName,
                         positioned.body, positioned.latitude, positioned.longitude, positioned.altitude));
                 positioned.altitude = syntheticPoint.altitude;
             }

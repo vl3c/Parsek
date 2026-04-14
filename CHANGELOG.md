@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 _Unreleased._
 
+### Bug Fixes
+
+- `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
+
 ---
 
 ## 0.8.1

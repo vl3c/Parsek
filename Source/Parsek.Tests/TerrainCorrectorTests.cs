@@ -178,6 +178,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveImmediateLandedGhostClearanceFallbackReason_AllLive_ReturnsNull()
+        {
+            string reason = ParsekFlight.ResolveImmediateLandedGhostClearanceFallbackReason(
+                hasBody: true, hasActiveVessel: true);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ResolveImmediateLandedGhostClearanceFallbackReason_NoBody_ReturnsNoBody()
+        {
+            string reason = ParsekFlight.ResolveImmediateLandedGhostClearanceFallbackReason(
+                hasBody: false, hasActiveVessel: true);
+            Assert.Equal("no-body", reason);
+        }
+
+        [Fact]
+        public void ResolveImmediateLandedGhostClearanceFallbackReason_NoActiveVessel_ReturnsNoActiveVessel()
+        {
+            string reason = ParsekFlight.ResolveImmediateLandedGhostClearanceFallbackReason(
+                hasBody: true, hasActiveVessel: false);
+            Assert.Equal("no-active-vessel", reason);
+        }
+
+        [Fact]
+        public void ResolveImmediateLandedGhostClearanceFallbackReason_NeitherLive_ReturnsCombined()
+        {
+            string reason = ParsekFlight.ResolveImmediateLandedGhostClearanceFallbackReason(
+                hasBody: false, hasActiveVessel: false);
+            Assert.Equal("no-body-and-no-active-vessel", reason);
+        }
+
+        [Fact]
+        public void ImmediateLandedGhostClearanceFallbackMeters_MatchesLegacyFloor()
+        {
+            // #373: Pin the fallback floor at 0.5 m so a future refactor that
+            // silently changes this constant immediately breaks the test.
+            Assert.Equal(0.5, ParsekFlight.ImmediateLandedGhostClearanceFallbackMeters);
+        }
+
+        [Fact]
         public void ShouldApplyImmediateSurfacePositionClearance_NaNTerrain_False()
         {
             Assert.False(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(double.NaN));
