@@ -1605,6 +1605,8 @@ namespace Parsek
             EngineGhostInfo info;
             if (!state.engineInfos.TryGetValue(key, out info)) return;
 
+            info.currentPower = power;
+
             // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
             // creation source. Unity's emission module is permanently disabled (bug #105).
             SetKspEmittersEnabled(info.kspEmitters, power > 0f);
@@ -1635,6 +1637,7 @@ namespace Parsek
         /// </summary>
         internal static void StopEngineFxForPart(GhostPlaybackState state, uint partPersistentId)
         {
+            ClearTrackedEnginePowerForPart(state, partPersistentId);
             if (state?.engineInfos == null) return;
             foreach (var info in state.engineInfos.Values)
             {
@@ -1657,6 +1660,7 @@ namespace Parsek
         /// </summary>
         internal static void StopRcsFxForPart(GhostPlaybackState state, uint partPersistentId)
         {
+            ClearTrackedRcsPowerForPart(state, partPersistentId);
             if (state?.rcsInfos == null) return;
             foreach (var info in state.rcsInfos.Values)
             {
@@ -1736,6 +1740,7 @@ namespace Parsek
         /// </summary>
         internal static void StopAudioForPart(GhostPlaybackState state, uint partPersistentId)
         {
+            ClearTrackedAudioPowerForPart(state, partPersistentId);
             if (state?.audioInfos == null) return;
             foreach (var info in state.audioInfos.Values)
             {
@@ -2062,6 +2067,8 @@ namespace Parsek
             RcsGhostInfo info;
             if (!state.rcsInfos.TryGetValue(key, out info)) return;
 
+            info.currentPower = power;
+
             // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
             // creation source. Unity's emission module is permanently disabled (bug #105).
             SetKspEmittersEnabled(info.kspEmitters, power > 0f);
@@ -2193,6 +2200,144 @@ namespace Parsek
                 }
             }
             ParsekLog.Info("Flight", $"Restored RCS emissions for {restoredCount} modules");
+        }
+
+        internal static List<(ulong key, float power)> CollectDeferredEnginePowerRestores(
+            GhostPlaybackState state)
+        {
+            var restores = new List<(ulong key, float power)>();
+            if (state?.engineInfos == null)
+                return restores;
+
+            foreach (var kvp in state.engineInfos)
+            {
+                EngineGhostInfo info = kvp.Value;
+                if (info == null || info.currentPower <= 0f)
+                    continue;
+
+                restores.Add((kvp.Key, info.currentPower));
+            }
+
+            return restores;
+        }
+
+        internal static void ClearTrackedEnginePowerForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.engineInfos == null)
+                return;
+
+            foreach (var info in state.engineInfos.Values)
+            {
+                if (info != null && info.partPersistentId == partPersistentId)
+                    info.currentPower = 0f;
+            }
+        }
+
+        internal static List<(ulong key, float power)> CollectDeferredRcsPowerRestores(
+            GhostPlaybackState state)
+        {
+            var restores = new List<(ulong key, float power)>();
+            if (state?.rcsInfos == null)
+                return restores;
+
+            foreach (var kvp in state.rcsInfos)
+            {
+                RcsGhostInfo info = kvp.Value;
+                if (info == null || info.currentPower <= 0f)
+                    continue;
+
+                restores.Add((kvp.Key, info.currentPower));
+            }
+
+            return restores;
+        }
+
+        internal static void ClearTrackedRcsPowerForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.rcsInfos == null)
+                return;
+
+            foreach (var info in state.rcsInfos.Values)
+            {
+                if (info != null && info.partPersistentId == partPersistentId)
+                    info.currentPower = 0f;
+            }
+        }
+
+        internal static List<(ulong key, float power)> CollectDeferredAudioPowerRestores(
+            GhostPlaybackState state)
+        {
+            var restores = new List<(ulong key, float power)>();
+            if (state?.audioInfos == null || state.audioMuted)
+                return restores;
+
+            foreach (var kvp in state.audioInfos)
+            {
+                AudioGhostInfo info = kvp.Value;
+                if (info == null || info.currentPower <= 0f)
+                    continue;
+
+                restores.Add((kvp.Key, info.currentPower));
+            }
+
+            return restores;
+        }
+
+        internal static void ClearTrackedAudioPowerForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.audioInfos == null)
+                return;
+
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info != null && info.partPersistentId == partPersistentId)
+                    info.currentPower = 0f;
+            }
+        }
+
+        internal static void RestoreDeferredRuntimeFxState(GhostPlaybackState state)
+        {
+            if (state == null)
+                return;
+
+            foreach (var restore in CollectDeferredEnginePowerRestores(state))
+            {
+                uint partPersistentId;
+                int moduleIndex;
+                FlightRecorder.DecodeEngineKey(restore.key, out partPersistentId, out moduleIndex);
+                SetEngineEmission(state, new PartEvent
+                {
+                    partPersistentId = partPersistentId,
+                    moduleIndex = moduleIndex
+                }, restore.power);
+            }
+
+            foreach (var restore in CollectDeferredRcsPowerRestores(state))
+            {
+                uint partPersistentId;
+                int moduleIndex;
+                FlightRecorder.DecodeEngineKey(restore.key, out partPersistentId, out moduleIndex);
+                SetRcsEmission(state, new PartEvent
+                {
+                    partPersistentId = partPersistentId,
+                    moduleIndex = moduleIndex
+                }, restore.power);
+            }
+
+            foreach (var restore in CollectDeferredAudioPowerRestores(state))
+            {
+                uint partPersistentId;
+                int moduleIndex;
+                FlightRecorder.DecodeEngineKey(restore.key, out partPersistentId, out moduleIndex);
+                SetEngineAudio(state, new PartEvent
+                {
+                    partPersistentId = partPersistentId,
+                    moduleIndex = moduleIndex
+                }, restore.power);
+            }
         }
 
         #endregion
