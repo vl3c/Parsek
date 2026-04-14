@@ -1382,11 +1382,15 @@ Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open on
 
 ### T65. Ghost audio suppression still logs disabled-source warnings on first appearance
 
-The plume regression is fixed, but the fresh smoke bundle still shows a follow-up issue in the ghost audio suppression path. In `logs/2026-04-14_1459_ghost-engine-fix-smoke/KSP.log`, the main `Kerbal X` ghost now correctly starts engine state before its first visible Flight appearance (`GhostAudio` start lines at `15228`, `15230`, `15232`; appearance at `15235`; watch mode only later at `15244`), yet KSP still logs `Can not play a disabled audio source` immediately beforehand at `15227`, `15229`, and `15231`. The same pattern repeats earlier in the session at `11904-11908` and `15135-15139`.
+The plume regression is fixed, but the fresh smoke bundle initially still showed a follow-up ghost-audio warning. In `logs/2026-04-14_1459_ghost-engine-fix-smoke/KSP.log`, the main `Kerbal X` ghost correctly starts engine state before its first visible Flight appearance (`GhostAudio` start lines at `15228`, `15230`, `15232`; appearance at `15235`; watch mode only later at `15244`), yet KSP logged `Can not play a disabled audio source` immediately beforehand at `15227`, `15229`, and `15231`. The same pattern repeated earlier in the session at `11904-11908` and `15135-15139`.
 
-Current evidence points at the capped/suppressed ghost-audio path rather than the plume/fx-restore path: the warning clusters align with `GhostAudio` capping engine sources to 4 (`11901`, `15132`, `15224`) and with engine starts that report `suppressed=1` for the extra engines. This needs a targeted follow-up to confirm whether the cap/suppression path is still calling `Play()` on intentionally disabled sources, and to fix it without regressing the deferred first-frame engine FX restore from `#355`.
+Root cause: the warnings did **not** come from capped-away audio sources or from the extra engines that were suppressed by the 4-source cap. The started PIDs in the warning cluster are the retained sources. The real issue was first-frame deferred activation: `GhostPlaybackEngine` applied engine events, including `SetEngineAudio(...).Play()`, while a freshly built ghost hierarchy was still inactive for playback-sync positioning. Unity logs the same warning when `Play()` is called on an inactive/disabled source. The existing deferred runtime restore already replays tracked engine/audio power after activation for `#355`; the fix is to let that restore own the first visible looped-audio start instead of calling `Play()` while the ghost is still inactive.
 
-**Priority:** Medium follow-up after merging `#355` — log noise / correctness issue, not a known plume-visibility regression
+The `suppressed=1` suffix on the surrounding `GhostAudio` start lines was only `ParsekLog.VerboseRateLimited` bookkeeping for repeated start logs, not ghost-audio suppression bookkeeping.
+
+**Status:** Fixed in code — targeted unit slice passes; fresh runtime smoke-log revalidation still recommended
+
+**Priority:** Medium follow-up after merging `#355` — fixed as log noise / correctness issue, not a plume-visibility regression
 
 ---
 
