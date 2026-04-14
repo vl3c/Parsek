@@ -7,6 +7,42 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~354. Orbital end-of-playback spawns can use the wrong vessel snapshot even when the orbit is correct~~
+
+**Observed in:** `logs/2026-04-14_0419_high-warp-orbit-wrong-real-orbit` and `logs/2026-04-14_0434_orbital-spawn-wrong-snapshot-followup` (2026-04-14). After the `#353` orbit-source fixes, the real vessel for `Kerbal X` spawned onto the expected last stable Kerbin orbit instead of dying or inheriting a nonsense orbit, but the spawned vessel state still matched an older breakup-time snapshot instead of the final stable-recording state.
+
+**Root cause:** the bad snapshot was already persisted before spawn. In the breakup-continuous tree design, the active recording keeps its earlier `ChildBranchPointId`, so `FinalizeIndividualRecording()` treated it as a non-leaf and skipped the stable-terminal re-snapshot path that normal landed/splashed/orbiting leaves use. `EnsureActiveRecordingTerminalState()` only set `TerminalStateValue`; it did not refresh `VesselSnapshot`, so the tree kept the old post-breakup `_vessel.craft` sidecar even though the terminal orbit had been updated correctly.
+
+**Fix:** tree finalization now detects when the active recording is the effective leaf for its vessel and ends in a stable spawnable terminal state (`Landed`, `Splashed`, `Orbiting`). For that case it captures terminal orbit/position from the live vessel and rewrites the terminal snapshot before the tree is persisted, using the same stable-terminal snapshot refresh path as ordinary leaf recordings. Added regression coverage for the effective-leaf versus same-PID-continuation gating helper.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~353. High-warp orbital end-of-playback spawns can immediately die to on-rails pressure despite a valid rebuilt orbit~~
+
+**Observed in:** `logs/2026-04-14_0301_high-warp-orbit-spawn-missing` and `logs/2026-04-14_0359_high-warp-orbit-stable-orbit-trim` (2026-04-14). During deferred high-time-warp orbital playback for `Kerbal X`, Parsek reported a successful real-vessel spawn but nothing materialized in orbit. The newer bundle also showed the ghost replaying a long stable orbital coast all the way to the original recording end instead of trimming to the normal boring-state buffer after orbit insertion.
+
+**Root cause:** two faults were compounding on the same path. First, `RecordingOptimizer.FindLastInterestingUT()` treated a late zero-throttle `EngineIgnited` seed artifact as real activity, so stable `ExoBallistic` tails were not trimmed to `last real activity + 10s`; playback stayed alive until the raw recording end instead of resolving shortly after the vessel entered its final stable orbit. Second, when the deferred orbital spawn finally ran, the spawn path was mixing time domains: it rebuilt the real vessel at the current `spawnUT`, but it fed `SpawnAtPosition()` a lat/lon/alt + velocity sample captured at the recording endpoint UT. During high warp, that let `GetWorldSurfacePosition()` use a later body rotation while the velocity still belonged to the old inertial state, so the reconstructed orbit could collapse into a suborbital trajectory even though the recording's stored terminal orbit was valid. The reused ascent snapshot also still carried stale packed-vessel and per-part atmospheric fields (`hgt`, PQS bounds, `altDispState`, `tempExt`, `tempExtUnexp`, `staticPressureAtm`), which made the packed vessel look even less like a stock orbital save-state.
+
+**Fix:** stable-orbit boring tails now ignore inert zero-throttle engine/RCS control-state seed artifacts when computing `lastInterestingUT`, so they trim to the normal `~10s` boring-state buffer after the last real activity instead of replaying a full orbital coast. Orbiting end-of-playback spawns also now prefer the recording's stored terminal orbit: `SpawnOrRecoverIfTooClose()` propagates that orbit to the current spawn UT, derives a current lat/lon/alt + orbital velocity from it, and only then calls `SpawnAtPosition()`. `NormalizeOrbitalSpawnMetadata()` also now scrubs both top-level packed fields and per-part atmospheric state back to stock orbital defaults before `ProtoVessel.Load()`. Added regression coverage for the terminal-orbit spawn-state selection, orbital metadata normalization, and zero-throttle engine-seed filtering in boring-tail trim.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~352. Pending-tree merge dialogs can ghost-only the active vessel even when playback would spawn it~~
+
+**Observed in:** `wt-fix-mun-landing-persist` follow-up (2026-04-14). In the merge dialog for a pending tree, an active non-leaf vessel from a breakup-continuous Mun landing or splashdown could default to ghost-only even though the same recording would be spawnable once committed and played back.
+
+**Root cause:** `MergeDialog.CanPersistVessel()` reuses `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd()`, but that policy originally resolved effective-leaf and non-leaf safety-net checks only through `RecordingStore.CommittedTrees`. During the merge dialog the tree is still pending, so active non-leaf recordings had no resolvable tree context and lost the breakup/effective-leaf distinction.
+
+**Fix:** `ShouldSpawnAtRecordingEnd()` now accepts an optional `RecordingTree` context and resolves effective-leaf / non-leaf safety-net checks against either the pending tree or the committed tree. `MergeDialog.BuildDefaultVesselDecisions()` passes the pending tree through for both normal leaves and the active non-leaf fallback, and regression coverage now pins pending-tree effective-leaf, same-PID continuation, and null-`ChildBranchPointId` safety-net behavior.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~351. Long-range landed ghosts can clip into terrain on held final-pose paths~~
 
 **Observed in:** `logs/2026-04-13_2136` ghost-underground follow-up (2026-04-13). A landed watched ghost in the visual tier could still end a playback step with its mesh partially sunk into terrain even though the normal in-flight clamp path kept earlier frames above ground.

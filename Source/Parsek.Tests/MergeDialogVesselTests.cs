@@ -159,6 +159,101 @@ namespace Parsek.Tests
             Assert.False(MergeDialog.CanPersistVessel(rec));
         }
 
+        [Fact]
+        public void CanPersistVessel_ActiveNonLeafEffectiveLeafInPendingTree_ReturnsTrue()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "Kerbal X",
+                RootRecordingId = "active",
+                ActiveRecordingId = "active"
+            };
+
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 100,
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X Debris",
+                VesselPersistentId = 200,
+                ParentBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                IsDebris = true
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.Breakup,
+                UT = 10.0
+            };
+            bp.ParentRecordingIds.Add("active");
+            bp.ChildRecordingIds.Add("debris");
+
+            tree.Recordings["active"] = active;
+            tree.Recordings["debris"] = debris;
+            tree.BranchPoints.Add(bp);
+
+            Assert.True(MergeDialog.CanPersistVessel(active, tree));
+        }
+
+        [Fact]
+        public void CanPersistVessel_ActiveNonLeafWithSamePidContinuationInPendingTree_ReturnsFalse()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "Kerbal X",
+                RootRecordingId = "active",
+                ActiveRecordingId = "active"
+            };
+
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 100,
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var continuation = new Recording
+            {
+                RecordingId = "continuation",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 100,
+                ParentBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.JointBreak,
+                UT = 10.0
+            };
+            bp.ParentRecordingIds.Add("active");
+            bp.ChildRecordingIds.Add("continuation");
+
+            tree.Recordings["active"] = active;
+            tree.Recordings["continuation"] = continuation;
+            tree.BranchPoints.Add(bp);
+
+            Assert.False(MergeDialog.CanPersistVessel(active, tree));
+        }
+
         // ============================================================
         // BuildDefaultVesselDecisions
         // ============================================================
@@ -296,6 +391,61 @@ namespace Parsek.Tests
             Assert.Single(decisions);
             Assert.True(decisions.ContainsKey("leaf"));
             Assert.False(decisions.ContainsKey("root"));
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_ActiveNonLeafEffectiveLeaf_DefaultsToPersist()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "Kerbal X",
+                RootRecordingId = "active",
+                ActiveRecordingId = "active"
+            };
+
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 100,
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X Debris",
+                VesselPersistentId = 200,
+                ParentBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                IsDebris = true
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.Breakup,
+                UT = 10.0
+            };
+            bp.ParentRecordingIds.Add("active");
+            bp.ChildRecordingIds.Add("debris");
+
+            tree.Recordings["active"] = active;
+            tree.Recordings["debris"] = debris;
+            tree.BranchPoints.Add(bp);
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+
+            Assert.Equal(2, decisions.Count);
+            Assert.True(decisions["active"]);
+            Assert.False(decisions["debris"]);
+            Assert.Contains(logLines, l =>
+                l.Contains("active-nonleaf='active'") &&
+                l.Contains("canPersist=True"));
         }
 
         // MarkForceSpawnOnTreeRecordings tests removed — spawn dedup bypass is now

@@ -178,7 +178,7 @@ namespace Parsek
         /// This reuses the same intrinsic spawn policy as timeline playback so the dialog's
         /// default "spawnable" count stays aligned with runtime behavior.
         /// </summary>
-        internal static bool CanPersistVessel(Recording rec)
+        internal static bool CanPersistVessel(Recording rec, RecordingTree treeContext = null)
         {
             if (rec == null)
                 return false;
@@ -186,7 +186,8 @@ namespace Parsek
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false);
+                isChainLoopingOrDisabled: false,
+                treeContext: treeContext);
             return needsSpawn;
         }
 
@@ -205,7 +206,7 @@ namespace Parsek
             for (int i = 0; i < leaves.Count; i++)
             {
                 var leaf = leaves[i];
-                bool canPersist = CanPersistVessel(leaf);
+                bool canPersist = CanPersistVessel(leaf, tree);
                 decisions[leaf.RecordingId] = canPersist;
                 ParsekLog.Verbose("MergeDialog",
                     $"BuildDefaultVesselDecisions: leaf='{leaf.RecordingId}' vessel='{leaf.VesselName}' " +
@@ -223,7 +224,7 @@ namespace Parsek
                 Recording activeRec;
                 if (tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec))
                 {
-                    bool canPersist = CanPersistVessel(activeRec);
+                    bool canPersist = CanPersistVessel(activeRec, tree);
                     decisions[activeRec.RecordingId] = canPersist;
                     ParsekLog.Verbose("MergeDialog",
                         $"BuildDefaultVesselDecisions: active-nonleaf='{activeRec.RecordingId}' " +

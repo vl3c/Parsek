@@ -85,7 +85,7 @@ namespace Parsek.Tests
             Assert.True(result);
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") &&
-                l.Contains("IsNonLeafInCommittedTree") &&
+                l.Contains("IsNonLeafInTree") &&
                 l.Contains("root-rec") &&
                 l.Contains("safety net triggered"));
         }
@@ -418,7 +418,7 @@ namespace Parsek.Tests
                 rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
 
             Assert.False(needsSpawn);
-            Assert.Contains("non-leaf in committed tree", reason);
+            Assert.Contains("non-leaf in tree", reason);
         }
 
         [Fact]
@@ -459,7 +459,46 @@ namespace Parsek.Tests
                 rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
 
             Assert.False(needsSpawn);
-            Assert.Contains("non-leaf in committed tree", reason);
+            Assert.Contains("non-leaf in tree", reason);
+        }
+
+        [Fact]
+        public void ShouldSpawn_NonLeafInPendingTreeContext_NullChildBranchPointId_ReturnsFalse()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-pending",
+                TreeName = "PendingTree",
+                RootRecordingId = "root-rec"
+            };
+
+            var rootRec = new Recording
+            {
+                RecordingId = "root-rec",
+                TreeId = "tree-pending",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var bp = new BranchPoint
+            {
+                Id = "bp-pending",
+                Type = BranchPointType.Breakup,
+                UT = 78.0
+            };
+            bp.ParentRecordingIds.Add("root-rec");
+            bp.ChildRecordingIds.Add("child-rec");
+
+            tree.Recordings["root-rec"] = rootRec;
+            tree.BranchPoints.Add(bp);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false, tree);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("non-leaf in tree", reason);
         }
 
         #endregion
@@ -791,6 +830,208 @@ namespace Parsek.Tests
             VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
 
             Assert.DoesNotContain(logLines, l => l.Contains("#169"));
+        }
+
+        #endregion
+
+        #region Recorded terminal orbit spawn state (#353)
+
+        [Fact]
+        public void ShouldUseRecordedTerminalOrbitSpawnState_OrbitingRecording_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+        }
+
+        [Fact]
+        public void ShouldUseRecordedTerminalOrbitSpawnState_EvaOrMissingOrbitData_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: true));
+
+            rec.TerminalOrbitSemiMajorAxis = 0.0;
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+        }
+
+        [Fact]
+        public void ComputeRecordedTerminalOrbitMeanAnomalyAtUT_ShiftsToSpawnUT()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitMeanAnomalyAtEpoch = 0.25,
+                TerminalOrbitEpoch = 2000.0,
+                TerminalOrbitSemiMajorAxis = 1535076.0272732542
+            };
+
+            double actual = VesselSpawner.ComputeRecordedTerminalOrbitMeanAnomalyAtUT(
+                rec, 3.5316e12, 2053.8556687927244);
+            double expected = TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
+                rec.TerminalOrbitMeanAnomalyAtEpoch,
+                rec.TerminalOrbitEpoch,
+                rec.TerminalOrbitSemiMajorAxis,
+                3.5316e12,
+                2053.8556687927244);
+
+            Assert.Equal(expected, actual, 10);
+        }
+
+        [Fact]
+        public void ComputeRecordedTerminalOrbitMeanAnomalyAtUT_InvalidInputs_UsesRecordedValue()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitMeanAnomalyAtEpoch = 1.75,
+                TerminalOrbitEpoch = 2000.0,
+                TerminalOrbitSemiMajorAxis = 0.0
+            };
+
+            Assert.Equal(1.75,
+                VesselSpawner.ComputeRecordedTerminalOrbitMeanAnomalyAtUT(rec, 3.5316e12, 2100.0), 10);
+            Assert.Equal(1.75,
+                VesselSpawner.ComputeRecordedTerminalOrbitMeanAnomalyAtUT(rec, 0.0, 2100.0), 10);
+        }
+
+        [Fact]
+        public void TryGetPreferredRecordedOrbitSeedForSpawn_PrefersLastOrbitSegment()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitInclination = 3.1941697709596331,
+                TerminalOrbitEccentricity = 0.13020261702803454,
+                TerminalOrbitSemiMajorAxis = 1535076.0272732542,
+                TerminalOrbitLAN = 3.6481022360695761,
+                TerminalOrbitArgumentOfPeriapsis = 45.008215755350477,
+                TerminalOrbitMeanAnomalyAtEpoch = 2.1799662805681828,
+                TerminalOrbitEpoch = 2042.84218735994
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1843.4542587652486,
+                endUT = 2028.0,
+                inclination = 0.61893643894622086,
+                eccentricity = 0.45999751866457206,
+                semiMajorAxis = 1140570.053246473,
+                longitudeOfAscendingNode = 187.83370664986606,
+                argumentOfPeriapsis = 178.86920484839638,
+                meanAnomalyAtEpoch = 2.7470939631732678,
+                epoch = 1843.4542587652486,
+                bodyName = "Kerbin"
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 2042.84218735994,
+                endUT = 2052.84218735994,
+                inclination = 3.1941697709596331,
+                eccentricity = 0.13020261702803454,
+                semiMajorAxis = 1535076.0272732542,
+                longitudeOfAscendingNode = 3.6481022360695761,
+                argumentOfPeriapsis = 45.008215755350477,
+                meanAnomalyAtEpoch = 2.1799662805681828,
+                epoch = 2042.84218735994,
+                bodyName = "Kerbin"
+            });
+
+            Assert.True(VesselSpawner.TryGetPreferredRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal(3.1941697709596331, inclination, 10);
+            Assert.Equal(0.13020261702803454, eccentricity, 10);
+            Assert.Equal(1535076.0272732542, semiMajorAxis, 10);
+            Assert.Equal(3.6481022360695761, lan, 10);
+            Assert.Equal(45.008215755350477, argumentOfPeriapsis, 10);
+            Assert.Equal(2.1799662805681828, meanAnomalyAtEpoch, 10);
+            Assert.Equal(2042.84218735994, epoch, 10);
+            Assert.Equal("Kerbin", bodyName);
+        }
+
+        #endregion
+
+        #region NormalizeOrbitalSpawnMetadata (#353)
+
+        [Fact]
+        public void NormalizeOrbitalSpawnMetadata_RewritesPackedAscentFields()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("hgt", "12521.6553");
+            snapshot.AddValue("distanceTraveled", "8210.7499948265686");
+            snapshot.AddValue("PQSMin", "2");
+            snapshot.AddValue("PQSMax", "10");
+            snapshot.AddValue("altDispState", "ASL");
+            snapshot.AddValue("skipGroundPositioning", "True");
+            snapshot.AddValue("skipGroundPositioningForDroppedPart", "True");
+            snapshot.AddValue("vesselSpawning", "True");
+            snapshot.AddValue("lastUT", "74.220361328121982");
+
+            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 1323814.6578770601);
+
+            Assert.Equal("-1", snapshot.GetValue("hgt"));
+            Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
+            Assert.Equal("0", snapshot.GetValue("PQSMin"));
+            Assert.Equal("0", snapshot.GetValue("PQSMax"));
+            Assert.Equal("DEFAULT", snapshot.GetValue("altDispState"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioning"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioningForDroppedPart"));
+            Assert.Equal("False", snapshot.GetValue("vesselSpawning"));
+            Assert.Equal("1323814.6578770601", snapshot.GetValue("lastUT"));
+        }
+
+        [Fact]
+        public void NormalizeOrbitalSpawnMetadata_RewritesPartAtmosphereFields()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("tempExt", "353.89914853869396");
+            part.AddValue("tempExtUnexp", "4");
+            part.AddValue("staticPressureAtm", "0.10801468253165093");
+
+            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 200.0);
+
+            Assert.Equal("0", part.GetValue("tempExt"));
+            Assert.Equal("0", part.GetValue("tempExtUnexp"));
+            Assert.Equal("0", part.GetValue("staticPressureAtm"));
+        }
+
+        [Fact]
+        public void NormalizeOrbitalSpawnMetadata_CreatesMissingFields()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+
+            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 123.5);
+
+            Assert.Equal("-1", snapshot.GetValue("hgt"));
+            Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
+            Assert.Equal("0", snapshot.GetValue("PQSMin"));
+            Assert.Equal("0", snapshot.GetValue("PQSMax"));
+            Assert.Equal("DEFAULT", snapshot.GetValue("altDispState"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioning"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioningForDroppedPart"));
+            Assert.Equal("False", snapshot.GetValue("vesselSpawning"));
+            Assert.Equal("123.5", snapshot.GetValue("lastUT"));
+            Assert.Equal("0", part.GetValue("tempExt"));
+            Assert.Equal("0", part.GetValue("tempExtUnexp"));
+            Assert.Equal("0", part.GetValue("staticPressureAtm"));
         }
 
         #endregion

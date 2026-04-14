@@ -303,7 +303,8 @@ namespace Parsek
             Vector3d velocity, double ut,
             HashSet<string> excludeCrew = null, bool preserveIdentity = false,
             TerminalState? terminalState = null,
-            Quaternion? rotation = null)
+            Quaternion? rotation = null,
+            Orbit orbitOverride = null)
         {
             try
             {
@@ -349,13 +350,19 @@ namespace Parsek
                 }
 
                 // Rebuild ORBIT subnode from position + velocity
-                var orbit = new Orbit();
-                Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
-                orbit.UpdateFromStateVectors(worldPos, velocity, body, ut);
+                Orbit orbit = orbitOverride;
+                if (orbit == null)
+                {
+                    orbit = new Orbit();
+                    Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
+                    orbit.UpdateFromStateVectors(worldPos, velocity, body, ut);
+                }
                 spawnNode.RemoveNode("ORBIT");
                 ConfigNode orbitNode = new ConfigNode("ORBIT");
                 SaveOrbitToNode(orbit, orbitNode, body);
                 spawnNode.AddNode(orbitNode);
+                if (sit == "ORBITING")
+                    NormalizeOrbitalSpawnMetadata(spawnNode, ut);
 
                 // Crew handling
                 RemoveDeadCrewFromSnapshot(spawnNode);
@@ -480,12 +487,18 @@ namespace Parsek
                 return;
             }
 
-            // Resolve spawn position from snapshot or trajectory endpoint
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+            bool useRecordedTerminalOrbit = ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
+
+            // Resolve spawn position from snapshot or trajectory endpoint.
             var lastPt = rec.Points[rec.Points.Count - 1];
             double spawnLat, spawnLon, spawnAlt;
             ResolveSpawnPosition(rec, index, lastPt, out spawnLat, out spawnLon, out spawnAlt);
 
-            string spawnBodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
+            string spawnBodyName = useRecordedTerminalOrbit
+                ? rec.TerminalOrbitBody
+                : RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == spawnBodyName);
             if (body == null)
             {
@@ -499,9 +512,33 @@ namespace Parsek
                 return;
             }
 
+            double spawnUT = Planetarium.GetUniversalTime();
+            Vector3d orbitalSpawnVelocity = Vector3d.zero;
+            Orbit orbitalSpawnOrbit = null;
+            if (useRecordedTerminalOrbit)
+            {
+                if (TryResolveRecordedTerminalOrbitSpawnState(
+                    rec, body, spawnUT, out double orbitLat, out double orbitLon,
+                    out double orbitAlt, out orbitalSpawnVelocity, out orbitalSpawnOrbit))
+                {
+                    spawnLat = orbitLat;
+                    spawnLon = orbitLon;
+                    spawnAlt = orbitAlt;
+
+                    ParsekLog.Verbose("Spawner", string.Format(CultureInfo.InvariantCulture,
+                        "Spawn #{0} ({1}): using recorded terminal orbit propagated to current UT " +
+                        "(ut={2:F2}, body={3}, lat={4:F4}, lon={5:F4}, alt={6:F1}, speed={7:F1})",
+                        index, rec.VesselName, spawnUT, body.name, spawnLat, spawnLon,
+                        spawnAlt, orbitalSpawnVelocity.magnitude));
+                }
+                else
+                {
+                    useRecordedTerminalOrbit = false;
+                }
+            }
+
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
-            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             // T57: resolve parent vessel PID for EVA collision exemption.
             // EVA trajectories overlap the parent vessel for their entire length;
             // without exemption, walkback exhausts all points and abandons the spawn.
@@ -530,7 +567,6 @@ namespace Parsek
             // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
             // RespawnVessel uses raw snapshot position, so override it with the trajectory
             // endpoint. Same pattern as EVA fix above. (#224)
-            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
             if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
             {
                 OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
@@ -573,13 +609,16 @@ namespace Parsek
 
             LogSpawnContext(rec, closestDist);
 
-            // SpawnAtPosition dispatch: orbital, EVA, and breakup-continuous all need the
-            // ORBIT subnode rebuilt from the endpoint's lat/lon/alt + velocity.
+            // SpawnAtPosition dispatch: EVA and breakup-continuous paths rebuild the ORBIT
+            // subnode from the resolved spawn position + velocity. Orbiting paths now prefer
+            // the recording's stored terminal orbit propagated to the current spawn UT, so
+            // deferred high-warp spawns do not mix an old endpoint state vector with a later
+            // planet rotation.
             //
             // - Orbital/Docked (#171): raw snapshot orbit was captured during ascent
             //   (suborbital), KSP's on-rails pressure check would destroy the vessel at
-            //   periapsis. SpawnAtPosition constructs a new orbit + correct sit from
-            //   altitude+speed.
+            //   periapsis. SpawnAtPosition constructs a new orbit + correct sit from a
+            //   current-UT propagated orbital state when terminal orbit data is available.
             // - EVA (#264): the snapshot's stale ORBIT subnode (captured when the kerbal
             //   was on the parent ladder) causes OrbitDriver.updateFromParameters to
             //   overwrite the corrected transform with the parent position on the first
@@ -600,19 +639,24 @@ namespace Parsek
                 || isBreakupContinuous;
             if (routeThroughSpawnAtPosition)
             {
-                Vector3d velocity = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
-                double spawnUT = Planetarium.GetUniversalTime();
-                Quaternion? rotArg = isBreakupContinuous ? (Quaternion?)lastPt.rotation : null;
+                Vector3d velocity = useRecordedTerminalOrbit
+                    ? orbitalSpawnVelocity
+                    : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
+                Quaternion? rotArg = isBreakupContinuous && !useRecordedTerminalOrbit
+                    ? (Quaternion?)lastPt.rotation
+                    : null;
 
                 string pathLabel;
-                if (isEva) pathLabel = "EVA";
+                if (useRecordedTerminalOrbit) pathLabel = "Orbital";
+                else if (isEva) pathLabel = "EVA";
                 else if (isBreakupContinuous) pathLabel = "Breakup";
                 else pathLabel = "Orbital";
 
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
                     rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
                     terminalState: rec.TerminalStateValue,
-                    rotation: rotArg);
+                    rotation: rotArg,
+                    orbitOverride: orbitalSpawnOrbit);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (rec.VesselSpawned)
                 {
@@ -2298,6 +2342,276 @@ namespace Parsek
 
             if (fixCount > 0)
                 ParsekLog.Info("Spawner", $"Spawn prep: added {fixCount} missing node(s) to snapshot");
+        }
+
+        /// <summary>
+        /// Orbital spawns can stay on rails for a while during high warp. Normalize both the
+        /// top-level packed vessel flags and the per-part atmospheric fields to stock orbital
+        /// ProtoVessel conventions before Load(), so deferred spawns do not inherit ascent-era
+        /// packed metadata. (#353)
+        /// </summary>
+        internal static void NormalizeOrbitalSpawnMetadata(ConfigNode spawnNode, double ut)
+        {
+            if (spawnNode == null)
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+            int topLevelFixCount = 0;
+            int partFixCount = 0;
+
+            void SetNodeValue(ConfigNode node, string key, string value, ref int fixCount)
+            {
+                if (node == null)
+                    return;
+
+                string current = node.GetValue(key);
+                if (current == value)
+                    return;
+
+                node.SetValue(key, value, true);
+                fixCount++;
+            }
+
+            SetNodeValue(spawnNode, "hgt", "-1", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "distanceTraveled", "0", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "PQSMin", "0", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "PQSMax", "0", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "altDispState", "DEFAULT", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "skipGroundPositioning", "False", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "skipGroundPositioningForDroppedPart", "False", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "vesselSpawning", "False", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "lastUT", ut.ToString("R", ic), ref topLevelFixCount);
+
+            ConfigNode[] partNodes = spawnNode.GetNodes("PART");
+            for (int i = 0; i < partNodes.Length; i++)
+            {
+                SetNodeValue(partNodes[i], "tempExt", "0", ref partFixCount);
+                SetNodeValue(partNodes[i], "tempExtUnexp", "0", ref partFixCount);
+                SetNodeValue(partNodes[i], "staticPressureAtm", "0", ref partFixCount);
+            }
+
+            if (topLevelFixCount > 0 || partFixCount > 0)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"NormalizeOrbitalSpawnMetadata: rewrote {topLevelFixCount} top-level field(s) " +
+                    $"and {partFixCount} part field(s) for orbital on-rails spawn");
+            }
+        }
+
+        internal static bool HasRecordedTerminalOrbit(Recording rec)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && rec.TerminalOrbitSemiMajorAxis > 0.0;
+        }
+
+        internal static double ComputeRecordedTerminalOrbitMeanAnomalyAtUT(
+            Recording rec, double bodyGravParam, double ut)
+        {
+            if (rec == null
+                || rec.TerminalOrbitSemiMajorAxis <= 0.0
+                || bodyGravParam <= 0.0
+                || double.IsNaN(ut)
+                || double.IsInfinity(ut))
+            {
+                return rec != null ? rec.TerminalOrbitMeanAnomalyAtEpoch : 0.0;
+            }
+
+            if (Math.Abs(ut - rec.TerminalOrbitEpoch) < 1e-9)
+                return rec.TerminalOrbitMeanAnomalyAtEpoch;
+
+            return TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
+                rec.TerminalOrbitMeanAnomalyAtEpoch,
+                rec.TerminalOrbitEpoch,
+                rec.TerminalOrbitSemiMajorAxis,
+                bodyGravParam,
+                ut);
+        }
+
+        internal static bool TryGetPreferredRecordedOrbitSeedForSpawn(
+            Recording rec,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+
+            if (rec == null)
+                return false;
+
+            if (rec.OrbitSegments != null)
+            {
+                for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
+                {
+                    OrbitSegment seg = rec.OrbitSegments[i];
+                    if (string.IsNullOrEmpty(seg.bodyName) || seg.semiMajorAxis <= 0.0)
+                        continue;
+
+                    inclination = seg.inclination;
+                    eccentricity = seg.eccentricity;
+                    semiMajorAxis = seg.semiMajorAxis;
+                    lan = seg.longitudeOfAscendingNode;
+                    argumentOfPeriapsis = seg.argumentOfPeriapsis;
+                    meanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
+                    epoch = seg.epoch;
+                    bodyName = seg.bodyName;
+                    return true;
+                }
+            }
+
+            if (!HasRecordedTerminalOrbit(rec))
+                return false;
+
+            inclination = rec.TerminalOrbitInclination;
+            eccentricity = rec.TerminalOrbitEccentricity;
+            semiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
+            lan = rec.TerminalOrbitLAN;
+            argumentOfPeriapsis = rec.TerminalOrbitArgumentOfPeriapsis;
+            meanAnomalyAtEpoch = rec.TerminalOrbitMeanAnomalyAtEpoch;
+            epoch = rec.TerminalOrbitEpoch;
+            bodyName = rec.TerminalOrbitBody;
+            return true;
+        }
+
+        internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)
+        {
+            return !isEva
+                && rec != null
+                && rec.TerminalStateValue == TerminalState.Orbiting
+                && HasRecordedTerminalOrbit(rec);
+        }
+
+        internal static bool TryBuildRecordedTerminalOrbitForSpawn(
+            Recording rec, CelestialBody body, double ut, out Orbit orbit)
+        {
+            orbit = null;
+
+            if (body == null)
+                return false;
+
+            if (!TryGetPreferredRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string orbitBodyName))
+            {
+                return false;
+            }
+
+            if (!string.Equals(body.name, orbitBodyName, StringComparison.Ordinal))
+            {
+                ParsekLog.Warn("Spawner",
+                    $"TryBuildRecordedTerminalOrbitForSpawn: body mismatch " +
+                    $"(body={body.name}, terminalBody={orbitBodyName})");
+                return false;
+            }
+
+            try
+            {
+                double meanAnomalyAtSpawnUT;
+                if (semiMajorAxis <= 0.0
+                    || body.gravParameter <= 0.0
+                    || double.IsNaN(ut)
+                    || double.IsInfinity(ut)
+                    || Math.Abs(ut - epoch) < 1e-9)
+                {
+                    meanAnomalyAtSpawnUT = meanAnomalyAtEpoch;
+                }
+                else
+                {
+                    meanAnomalyAtSpawnUT = TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
+                        meanAnomalyAtEpoch,
+                        epoch,
+                        semiMajorAxis,
+                        body.gravParameter,
+                        ut);
+                }
+
+                orbit = new Orbit(
+                    inclination,
+                    eccentricity,
+                    semiMajorAxis,
+                    lan,
+                    argumentOfPeriapsis,
+                    meanAnomalyAtSpawnUT,
+                    ut,
+                    body);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"TryBuildRecordedTerminalOrbitForSpawn failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static bool TryResolveRecordedTerminalOrbitSpawnState(
+            Recording rec, CelestialBody body, double ut,
+            out double lat, out double lon, out double alt, out Vector3d velocity, out Orbit orbit)
+        {
+            lat = 0.0;
+            lon = 0.0;
+            alt = 0.0;
+            velocity = Vector3d.zero;
+            orbit = null;
+
+            if (!TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, out orbit))
+                return false;
+
+            try
+            {
+                Vector3d worldPos = orbit.getPositionAtUT(ut);
+                velocity = orbit.getOrbitalVelocityAtUT(ut);
+                if (!IsFinite(worldPos) || !IsFinite(velocity))
+                {
+                    ParsekLog.Warn("Spawner",
+                        "TryResolveRecordedTerminalOrbitSpawnState: propagated orbital state was non-finite");
+                    return false;
+                }
+
+                lat = body.GetLatitude(worldPos);
+                lon = body.GetLongitude(worldPos);
+                alt = body.GetAltitude(worldPos);
+                if (double.IsNaN(lat) || double.IsNaN(lon) || double.IsNaN(alt)
+                    || double.IsInfinity(lat) || double.IsInfinity(lon) || double.IsInfinity(alt))
+                {
+                    ParsekLog.Warn("Spawner",
+                        "TryResolveRecordedTerminalOrbitSpawnState: propagated orbital position was non-finite");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"TryResolveRecordedTerminalOrbitSpawnState failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool IsFinite(Vector3d value)
+        {
+            return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
+                || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
         }
 
         internal static double SelectRelocatedAltitude(
