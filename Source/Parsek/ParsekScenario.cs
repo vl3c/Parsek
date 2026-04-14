@@ -463,14 +463,7 @@ namespace Parsek
             // serializing so an F5/F9 tree keeps its rewind affordance after merge.
             ParsekFlight.CopyRewindSaveToRoot(
                 activeTree,
-                recorder?.CaptureAtStop,
-                recorderFallbackSave: recorder?.RewindSaveFileName,
-                recorderFallbackReservedFunds: recorder?.RewindReservedFunds ?? 0,
-                recorderFallbackReservedScience: recorder?.RewindReservedScience ?? 0,
-                recorderFallbackReservedRep: recorder?.RewindReservedRep ?? 0,
-                recorderFallbackPreLaunchFunds: recorder?.PreLaunchFunds ?? 0,
-                recorderFallbackPreLaunchScience: recorder?.PreLaunchScience ?? 0,
-                recorderFallbackPreLaunchRep: recorder?.PreLaunchReputation ?? 0,
+                recorder,
                 logTag: "SaveActiveTreeIfAny");
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -67,6 +68,18 @@ namespace Parsek.Tests
                 PreLaunchScience = preSci,
                 PreLaunchReputation = preRep
             };
+        }
+
+        private static void SetRecorderProperty<T>(FlightRecorder recorder, string propertyName, T value)
+        {
+            var prop = typeof(FlightRecorder).GetProperty(
+                propertyName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.NotNull(prop);
+
+            var setter = prop.GetSetMethod(nonPublic: true);
+            Assert.NotNull(setter);
+            setter.Invoke(recorder, new object[] { value });
         }
 
         [Fact]
@@ -166,6 +179,32 @@ namespace Parsek.Tests
                 recorderFallbackPreLaunchRep: 55);
 
             var root = tree.Recordings[tree.RootRecordingId];
+            Assert.Equal(1200, root.RewindReservedFunds);
+            Assert.Equal(45, root.RewindReservedScience);
+            Assert.Equal(7, root.RewindReservedRep);
+            Assert.Equal(9000, root.PreLaunchFunds);
+            Assert.Equal(123, root.PreLaunchScience);
+            Assert.Equal(55, root.PreLaunchReputation);
+        }
+
+        [Fact]
+        public void RecorderOverload_UsesFallbackBudget_WhenCaptureAtStopIsNull()
+        {
+            var tree = MakeTree();
+            var recorder = new FlightRecorder();
+
+            SetRecorderProperty(recorder, nameof(FlightRecorder.RewindSaveFileName), "parsek_rw_fallback");
+            SetRecorderProperty(recorder, nameof(FlightRecorder.RewindReservedFunds), 1200d);
+            SetRecorderProperty(recorder, nameof(FlightRecorder.RewindReservedScience), 45d);
+            SetRecorderProperty(recorder, nameof(FlightRecorder.RewindReservedRep), 7f);
+            SetRecorderProperty(recorder, nameof(FlightRecorder.PreLaunchFunds), 9000d);
+            SetRecorderProperty(recorder, nameof(FlightRecorder.PreLaunchScience), 123d);
+            SetRecorderProperty(recorder, nameof(FlightRecorder.PreLaunchReputation), 55f);
+
+            ParsekFlight.CopyRewindSaveToRoot(tree, recorder, logTag: "RecorderOverload");
+
+            var root = tree.Recordings[tree.RootRecordingId];
+            Assert.Equal("parsek_rw_fallback", root.RewindSaveFileName);
             Assert.Equal(1200, root.RewindReservedFunds);
             Assert.Equal(45, root.RewindReservedScience);
             Assert.Equal(7, root.RewindReservedRep);

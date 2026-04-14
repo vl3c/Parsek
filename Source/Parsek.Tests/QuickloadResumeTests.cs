@@ -454,9 +454,24 @@ namespace Parsek.Tests
             Assert.True(saveIdx >= 0, "SaveActiveTreeIfAny serialization site not found");
             Assert.True(copyIdx < saveIdx,
                 "SaveActiveTreeIfAny must copy rewind metadata before serializing the active tree");
-            Assert.Contains("recorderFallbackSave: recorder?.RewindSaveFileName", scenarioSrc);
-            Assert.Contains("recorderFallbackReservedFunds: recorder?.RewindReservedFunds ?? 0", scenarioSrc);
-            Assert.Contains("recorderFallbackPreLaunchFunds: recorder?.PreLaunchFunds ?? 0", scenarioSrc);
+            string methodSrc = scenarioSrc.Substring(methodStart, saveIdx - methodStart);
+            Assert.Contains("ParsekFlight.CopyRewindSaveToRoot(", methodSrc);
+            Assert.Contains("activeTree,", methodSrc);
+            Assert.Contains("recorder,", methodSrc);
+        }
+
+        [Fact]
+        public void RecorderBackedCommitPaths_UseRecorderRootCopyOverload()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string flightSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
+
+            Assert.Contains("CopyRewindSaveToRoot(activeTree, recorder,", flightSrc);
+            Assert.Contains("CopyRewindSaveToRoot(activeTree, splitRecorder);", flightSrc);
+            Assert.Contains("CopyRewindSaveToRoot(tree, recorder,", flightSrc);
         }
 
         [Fact]
