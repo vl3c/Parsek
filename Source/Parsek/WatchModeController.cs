@@ -1533,49 +1533,6 @@ namespace Parsek
             ResetWatchState(preserveLineageProtection, destroyOverlapAnchor: true);
         }
 
-        internal void ClearAfterSyntheticScenarioLoad()
-        {
-            if (watchedRecordingIndex >= 0)
-            {
-                ExitWatchMode(skipCameraRestore: false, preserveLineageProtection: false);
-                return;
-            }
-
-            RemoveWatchModeControlLockSafe();
-            ClearLineageProtection();
-            watchedOverlapCycleIndex = -1;
-            overlapRetargetAfterUT = -1;
-            watchEndHoldUntilRealTime = -1;
-            watchEndHoldMaxRealTime = -1;
-            watchEndHoldPendingActivationUT = double.NaN;
-            watchNoTargetFrames = 0;
-            currentCameraMode = WatchCameraMode.Free;
-            userModeOverride = false;
-            lastLoggedWatchTargetMismatch = null;
-            lastLoggedWatchFocusKey = null;
-            lastLoggedHorizonVectorKey = null;
-            savedCameraVessel = null;
-            savedCameraDistance = 0f;
-            savedCameraPitch = 0f;
-            savedCameraHeading = 0f;
-            lastMapViewEnabled = false;
-            pendingMapFocusRestore = false;
-
-            if (overlapCameraAnchor == null)
-                return;
-
-            FlightCamera flightCamera = GetFlightCameraSafe();
-            Vessel activeVessel = GetActiveVesselSafe();
-            bool targetingOverlapAnchor = flightCamera != null
-                && flightCamera.Target == overlapCameraAnchor.transform;
-
-            UnityEngine.Object.Destroy(overlapCameraAnchor);
-            overlapCameraAnchor = null;
-
-            if (targetingOverlapAnchor && flightCamera != null && activeVessel != null)
-                flightCamera.SetTargetVessel(activeVessel);
-        }
-
         /// <summary>
         /// Determines whether a vessel's flight situation is safe for unattended flight.
         /// Safe means the vessel will not crash or deorbit while the player watches a ghost.
