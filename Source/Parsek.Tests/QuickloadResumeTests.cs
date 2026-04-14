@@ -455,6 +455,8 @@ namespace Parsek.Tests
             Assert.True(copyIdx < saveIdx,
                 "SaveActiveTreeIfAny must copy rewind metadata before serializing the active tree");
             Assert.Contains("recorderFallbackSave: recorder?.RewindSaveFileName", scenarioSrc);
+            Assert.Contains("recorderFallbackReservedFunds: recorder?.RewindReservedFunds ?? 0", scenarioSrc);
+            Assert.Contains("recorderFallbackPreLaunchFunds: recorder?.PreLaunchFunds ?? 0", scenarioSrc);
         }
 
         [Fact]

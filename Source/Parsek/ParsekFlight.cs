@@ -1631,7 +1631,14 @@ namespace Parsek
         /// recorder never captures one — the parent's CaptureAtStop is the only source.
         /// </summary>
         internal static void CopyRewindSaveToRoot(RecordingTree tree, Recording captureAtStop,
-            string recorderFallbackSave = null, string logTag = null)
+            string recorderFallbackSave = null,
+            double recorderFallbackReservedFunds = 0,
+            double recorderFallbackReservedScience = 0,
+            float recorderFallbackReservedRep = 0,
+            double recorderFallbackPreLaunchFunds = 0,
+            double recorderFallbackPreLaunchScience = 0,
+            float recorderFallbackPreLaunchRep = 0,
+            string logTag = null)
         {
             if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId)) return;
 
@@ -1652,21 +1659,21 @@ namespace Parsek
 
             // Copy reserved budget if not already set (same first-wins rule).
             // InitiateRewind reads these from the root recording via GetRewindRecording.
-            if (captureAtStop != null && rootRec.RewindReservedFunds == 0
+            if (rootRec.RewindReservedFunds == 0
                 && rootRec.RewindReservedScience == 0 && rootRec.RewindReservedRep == 0)
             {
-                rootRec.RewindReservedFunds = captureAtStop.RewindReservedFunds;
-                rootRec.RewindReservedScience = captureAtStop.RewindReservedScience;
-                rootRec.RewindReservedRep = captureAtStop.RewindReservedRep;
+                rootRec.RewindReservedFunds = captureAtStop?.RewindReservedFunds ?? recorderFallbackReservedFunds;
+                rootRec.RewindReservedScience = captureAtStop?.RewindReservedScience ?? recorderFallbackReservedScience;
+                rootRec.RewindReservedRep = captureAtStop?.RewindReservedRep ?? recorderFallbackReservedRep;
             }
 
             // Copy pre-launch budget if not already set.
-            if (captureAtStop != null && rootRec.PreLaunchFunds == 0
+            if (rootRec.PreLaunchFunds == 0
                 && rootRec.PreLaunchScience == 0 && rootRec.PreLaunchReputation == 0)
             {
-                rootRec.PreLaunchFunds = captureAtStop.PreLaunchFunds;
-                rootRec.PreLaunchScience = captureAtStop.PreLaunchScience;
-                rootRec.PreLaunchReputation = captureAtStop.PreLaunchReputation;
+                rootRec.PreLaunchFunds = captureAtStop?.PreLaunchFunds ?? recorderFallbackPreLaunchFunds;
+                rootRec.PreLaunchScience = captureAtStop?.PreLaunchScience ?? recorderFallbackPreLaunchScience;
+                rootRec.PreLaunchReputation = captureAtStop?.PreLaunchReputation ?? recorderFallbackPreLaunchRep;
             }
         }
 
@@ -6845,6 +6852,9 @@ namespace Parsek
             List<string> result = null;
             foreach (var kvp in tree.Recordings)
             {
+                if (kvp.Key == tree.RootRecordingId || kvp.Key == tree.ActiveRecordingId)
+                    continue;
+
                 var rec = kvp.Value;
                 if (IsSinglePointDestroyedDebrisLeaf(rec))
                 {

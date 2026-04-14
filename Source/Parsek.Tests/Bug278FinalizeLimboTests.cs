@@ -490,6 +490,46 @@ namespace Parsek.Tests
                 l.Contains("PruneSinglePointDestroyedDebrisLeaves: removed 1 single-point destroyed debris stub"));
         }
 
+        [Fact]
+        public void CollectSinglePointDestroyedDebrisLeafIds_SkipsRootAndActiveIds()
+        {
+            var tree = new RecordingTree
+            {
+                TreeName = "Test",
+                RootRecordingId = "root-stub",
+                ActiveRecordingId = "active-stub"
+            };
+
+            tree.Recordings["root-stub"] = new Recording
+            {
+                RecordingId = "root-stub",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 10.0 } }
+            };
+
+            tree.Recordings["active-stub"] = new Recording
+            {
+                RecordingId = "active-stub",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 20.0 } }
+            };
+
+            tree.Recordings["ordinary-stub"] = new Recording
+            {
+                RecordingId = "ordinary-stub",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 30.0 } }
+            };
+
+            var ids = ParsekFlight.CollectSinglePointDestroyedDebrisLeafIds(tree);
+
+            Assert.Single(ids);
+            Assert.Equal("ordinary-stub", ids[0]);
+        }
+
         #region InferTerminalStateFromTrajectory
 
         [Fact]

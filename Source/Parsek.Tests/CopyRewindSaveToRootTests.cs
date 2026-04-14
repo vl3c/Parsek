@@ -150,6 +150,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void UsesRecorderFallbackBudget_WhenCaptureAtStopIsNull()
+        {
+            var tree = MakeTree();
+
+            ParsekFlight.CopyRewindSaveToRoot(
+                tree,
+                captureAtStop: null,
+                recorderFallbackSave: "parsek_rw_fallback",
+                recorderFallbackReservedFunds: 1200,
+                recorderFallbackReservedScience: 45,
+                recorderFallbackReservedRep: 7,
+                recorderFallbackPreLaunchFunds: 9000,
+                recorderFallbackPreLaunchScience: 123,
+                recorderFallbackPreLaunchRep: 55);
+
+            var root = tree.Recordings[tree.RootRecordingId];
+            Assert.Equal(1200, root.RewindReservedFunds);
+            Assert.Equal(45, root.RewindReservedScience);
+            Assert.Equal(7, root.RewindReservedRep);
+            Assert.Equal(9000, root.PreLaunchFunds);
+            Assert.Equal(123, root.PreLaunchScience);
+            Assert.Equal(55, root.PreLaunchReputation);
+        }
+
+        [Fact]
         public void UsesRecorderFallback_WhenCaptureHasNoSave()
         {
             var tree = MakeTree();

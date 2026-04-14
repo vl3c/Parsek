@@ -465,6 +465,12 @@ namespace Parsek
                 activeTree,
                 recorder?.CaptureAtStop,
                 recorderFallbackSave: recorder?.RewindSaveFileName,
+                recorderFallbackReservedFunds: recorder?.RewindReservedFunds ?? 0,
+                recorderFallbackReservedScience: recorder?.RewindReservedScience ?? 0,
+                recorderFallbackReservedRep: recorder?.RewindReservedRep ?? 0,
+                recorderFallbackPreLaunchFunds: recorder?.PreLaunchFunds ?? 0,
+                recorderFallbackPreLaunchScience: recorder?.PreLaunchScience ?? 0,
+                recorderFallbackPreLaunchRep: recorder?.PreLaunchReputation ?? 0,
                 logTag: "SaveActiveTreeIfAny");
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
