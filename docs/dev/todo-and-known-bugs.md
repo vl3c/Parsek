@@ -7,6 +7,29 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch
+
+**Observed in:** `logs/2026-04-14_1954_kerbal-x-f5f9-fix-verify` (2026-04-14) while re-validating the `Kerbal X` mid-flight `F5/F9` fix. Near the very end of the resumed run, the active vessel was already being destroyed but `onPartDeCouple` still reported two late fragments (`parachuteLarge`, `HeatShield2`). The deferred split pass then classified that event as `WithinSegment newVessels=0` instead of creating one more debris branch.
+
+**Collected evidence:**
+
+- `KSP.log:12539` / `KSP.log:12541` log the late decouples for `parachuteLarge` and `HeatShield2`.
+- `KSP.log:12545` marks the active vessel destroyed during recording.
+- `KSP.log:12581` shows `2 vessel(s) caught by onPartDeCouple`.
+- `KSP.log:12582` / `KSP.log:12583` then classify the event as `WithinSegment` with `newVessels=0`.
+- `KSP.log:12586` immediately commits instead of resuming because the parent vessel is already destroyed.
+- Earlier in the same resumed run, the actual `F5/F9` regression is gone: resumed breakup events produce new `DebrisSplit` branches and the final saved tree reaches `8 recordings, 5 branchPoints` at `KSP.log:12968`.
+
+**Impact:** low-priority follow-up. The repaired quickload-resume path is working and the missing post-`F9` debris branches are back, but the very last crash-end shrapnel can still be dropped if it only exists transiently during terminal destruction.
+
+**Root cause:** likely a timing edge in the deferred split classifier. `onPartDeCouple` captures live `Vessel` references, but by the time the deferred pass evaluates them after the parent vessel is already dying, those late fragments may no longer survive the viability filters as real new vessels. `ResumeSplitRecorder(...)` then correctly commits because the parent vessel is already destroyed.
+
+**Desired policy:** decide explicitly whether terminal crash-end transient fragments should ever become recorded debris branches. If yes, the deferred split path likely needs a terminal-safe capture rule for those last fragments. If no, this should stay documented as intentional and non-blocking.
+
+**Status:** TODO for future check; not blocking the `Kerbal X` `F5/F9` fix in PR `#290`
+
+---
+
 ## ~~361. Loaded committed recordings can keep a duplicated flat-prefix tail and fail monotonicity checks~~
 
 **Observed in:** `logs/2026-04-14_1836_pr285-ingame-batches` (2026-04-14). Both the KSC-view and FLIGHT-mode in-game batches failed `RuntimeTests.CommittedRecordingsHaveValidData` on committed recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) because the loaded point list jumped backward from `170.92` to `155.84`.
