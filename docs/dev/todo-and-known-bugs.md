@@ -1418,68 +1418,52 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
-### T62. Add a cold-start kerbal slot migration integration test
+### ~~T62. Add a cold-start kerbal slot migration integration test~~
 
-The kerbals review fixed several issues that only show up on a true game restart path rather than during an already-initialized session: `KERBAL_SLOTS` loading before the kerbals module exists, persisted stand-in rows that need repair, and end-state population for EVA-only assignments.
+This coverage landed in the new kerbal load pipeline suite. `KerbalLoadPipelineTests` now exercises the cold-start load ordering around `LoadCrewAndGroupState(...)` and `LedgerOrchestrator.OnKspLoad(...)`, including:
 
-What still deserves dedicated coverage is the real cold-start sequence:
+- persisted `KERBAL_SLOTS` restoring before kerbal recalculation
+- stale historical `KerbalAssignment` rows being repaired back to the slot owner
+- EVA-only recordings repopulating crew end states during load repair
+- a second load pass staying stable instead of rewriting equivalent rows again
 
-- load a save with persisted `KERBAL_SLOTS`, `CREW_REPLACEMENTS`, and ledger rows from an older or partially broken format
-- run the actual `ParsekScenario.OnLoad` / `LedgerOrchestrator.OnLoad` / `OnKspLoad` ordering instead of unit-level helpers
-- verify slot chains, repaired assignment rows, stand-in reverse-mapping, and recalculated reservations all converge to the same final state after a restart
+That gives us a dedicated restart-path regression test for the exact slot-load + migration + repair convergence path that had been missing.
 
-Game scenario worth locking down:
+**Status:** ~~Fixed~~
 
-- Jeb has a persisted stand-in chain
-- an EVA-only recording exists for another kerbal
-- one or more saved assignment rows still point at a stand-in name from a pre-fix save
-- after a full reload, the same kerbals stay reserved, the same stand-ins stay attached to the same slots, and no extra replacement cascade appears
+---
 
-**Priority:** Medium — current fixes are covered, but the exact cold-start ordering is still more integration-heavy than the focused unit suites
+### T63. Expand true `ApplyToRoster()` end-to-end coverage for repaired historical stand-ins
+
+Most of this TODO is now covered. `KerbalLoadDiagnosticsTests` pins:
+
+- retired stand-in recreation and unused stand-in deletion through the roster-application pass
+- failed historical recreation not producing a false "kept" repair summary
+- a minimal real-`KerbalRoster` wrapper path for the steady-state retired-history case
+
+What still remains is the deeper real-roster mutation path. The production `KerbalRosterFacade` branches for generated stand-ins, recreated stand-ins, and deletions are still validated mainly through the fake roster facade because KSP's native crew-generation path is awkward to exercise safely in xUnit.
+
+The follow-up worth keeping open is a true mutation-heavy wrapper test that proves the real `KerbalRoster` adapter preserves the same recreated/deleted outcomes as the facade-path regression tests.
+
+**Priority:** Low — the behavioral risk is now concentrated in the real-roster adapter seam, not the reservation logic itself
 
 **Status:** Open
 
 ---
 
-### T63. Add end-to-end `ApplyToRoster()` coverage for repaired historical stand-ins
+### ~~T64. Add explicit diagnostics for kerbal slot/assignment repair on load~~
 
-The recent kerbals fixes restored several edge cases around displaced stand-ins, retired stand-in recreation, ghost-only chains, and historical retirement tracking. The logic now looks correct, but most of that confidence still comes from targeted tests around recomputation rather than a full roster-application pass.
+This shipped as `KerbalLoadRepairDiagnostics`. Parsek now emits a concise once-per-load repair summary when kerbal reservation data is actively repaired, including:
 
-Add scenario tests that drive the final roster mutation step and verify:
+- slot source / ignored persisted slot entries
+- chain-extension repairs
+- repaired recording counts plus old/new assignment row totals
+- stand-in remaps, end-state rewrites, and tourist rows skipped during migration
+- retired stand-in recreation and unused stand-in deletion during roster application
 
-- a repaired historical stand-in that should remain retired is recreated in the roster as retired/unavailable
-- a displaced stand-in that no longer belongs to any active or historical chain is deleted instead of lingering as assignable crew
-- permanent owner loss shrinks the active slot correctly even if that slot previously had stand-ins
-- later reload/recompute cycles preserve the same historical-retirement outcome instead of oscillating between deleted/available/retired
+The emission now works on both cold-start and in-session scene loads, and the regression suite pins the tricky cases that initially produced misleading output: mixed tourist + remap repairs, pure reorder/sequence-only rewrites, chain-extension reporting, and failed historical recreation.
 
-Game scenarios worth locking down:
-
-- remove an owner reservation while a deeper stand-in is still historically significant
-- load a save where the roster entry is missing but the slot graph proves the stand-in must still exist as retired history
-- kill the owner after a temporary chain existed and confirm no stale stand-in keeps auto-filling the dead kerbal's slot
-
-**Priority:** Medium — this is the main remaining integration risk in the kerbals reservation system after the audit fixes
-
-**Status:** Open
-
----
-
-### T64. Add explicit diagnostics for kerbal slot/assignment repair on load
-
-The loader now repairs several historical data problems on purpose: stand-in names stored in assignment rows, missing reverse-maps from persisted slots, ghost-only chain tips, and cold-start slot initialization order. When those repairs happen silently, later bug reports become hard to root-cause because the save the player loads is no longer the save shape we debug against.
-
-Add focused diagnostics that emit once per load when Parsek repairs kerbal reservation data, including:
-
-- which assignment rows were remapped from stand-in name to owner name
-- whether persisted slot chains were repaired, trimmed, or ignored
-- whether historical stand-ins were recreated as retired roster entries
-- whether any tourist assignments were skipped during migration
-
-These should stay concise and summary-oriented rather than spamming per-frame logs.
-
-**Priority:** Low — not a correctness blocker, but it will reduce future debugging cost for save migration/regression reports
-
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 

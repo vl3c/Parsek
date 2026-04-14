@@ -603,6 +603,8 @@ namespace Parsek
 
                 RegisterMainMenuHook();
                 DetectSaveFolderChange();
+                if (!RewindContext.IsRewinding)
+                    KerbalLoadRepairDiagnostics.Begin();
                 LoadCrewAndGroupState(node);
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
@@ -1108,6 +1110,8 @@ namespace Parsek
                     }
 
                     LedgerOrchestrator.RecalculateAndPatch();
+                    if (KerbalLoadRepairDiagnostics.IsActive)
+                        KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                     ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                     WriteLoadTiming(sw, recordings.Count);
@@ -1274,6 +1278,7 @@ namespace Parsek
             }
             finally
             {
+                KerbalLoadRepairDiagnostics.Reset();
                 // Always capture timing, even on exception (matches OnSave pattern)
                 WriteLoadTiming(sw, loadedRecordingCount);
             }
@@ -1491,7 +1496,10 @@ namespace Parsek
 
             CrewReservationManager.LoadCrewReplacements(node);
             LedgerOrchestrator.Initialize();
-            LedgerOrchestrator.Kerbals?.LoadSlots(node);
+            var slotSummary = LedgerOrchestrator.Kerbals != null
+                ? LedgerOrchestrator.Kerbals.LoadSlots(node)
+                : default(KerbalSlotLoadSummary);
+            KerbalLoadRepairDiagnostics.RecordSlotLoad(slotSummary);
 
             if (!ShouldLoadGroupHierarchyFromSave(initialLoadDone, RewindContext.IsRewinding))
             {
