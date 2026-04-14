@@ -1174,16 +1174,20 @@ namespace Parsek
                         // the recording-side fix. The 0.01 floor ensures plume visibility
                         // for backward compatibility. New recordings skip zero-throttle
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
-                        SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
-                        SetEngineAudio(state, evt, System.Math.Max(evt.value, 0.01f));
+                        float ignitionPower = System.Math.Max(evt.value, 0.01f);
+                        SetEngineEmission(state, evt, ignitionPower);
+                        SetEngineAudio(state, evt, ignitionPower);
+                        ApplyThrottleDrivenEngineHeat(state, evt, ignitionPower);
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
                         SetEngineAudio(state, evt, 0f);
+                        ApplyThrottleDrivenEngineHeat(state, evt, 0f);
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
                         SetEngineAudio(state, evt, evt.value);
+                        ApplyThrottleDrivenEngineHeat(state, evt, evt.value);
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -1627,6 +1631,33 @@ namespace Parsek
                 }
 
             }
+        }
+
+        // FXModuleAnimateThrottle visuals are sampled into HeatGhostInfo at build time,
+        // but recordings only guarantee engine state events. Drive those sampled
+        // nozzle/emissive states directly from engine playback so active engines do
+        // not stay visually cold in close views.
+        internal static void ApplyThrottleDrivenEngineHeat(
+            GhostPlaybackState state, PartEvent evt, float power)
+        {
+            if (state?.heatInfos == null)
+                return;
+            if (!state.heatInfos.TryGetValue(evt.partPersistentId, out HeatGhostInfo info) || info == null)
+                return;
+            if (info.driverKind != HeatVisualDriverKind.EngineThrottle)
+                return;
+
+            ApplyHeatState(state, evt, ComputeThrottleDrivenHeatLevel(power));
+        }
+
+        internal static HeatLevel ComputeThrottleDrivenHeatLevel(float power)
+        {
+            if (power <= 0f)
+                return HeatLevel.Cold;
+
+            return power >= FlightRecorder.AnimateHeatHotThreshold
+                ? HeatLevel.Hot
+                : HeatLevel.Medium;
         }
 
         /// <summary>

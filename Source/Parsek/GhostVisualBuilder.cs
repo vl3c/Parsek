@@ -4466,7 +4466,7 @@ namespace Parsek
         /// Returns null if no heat transforms or materials were resolved.
         /// </summary>
         private static HeatGhostInfo TryBuildHeatInfo(
-            Part prefab, string heatAnimName, string heatSource,
+            Part prefab, string heatAnimName, string heatSource, HeatVisualDriverKind driverKind,
             Transform modelNodeTransform, string partName, uint persistentId)
         {
             List<HeatTransformState> resolvedHeatTransforms = null;
@@ -4514,6 +4514,7 @@ namespace Parsek
                 var heatInfo = new HeatGhostInfo
                 {
                     partPersistentId = persistentId,
+                    driverKind = driverKind,
                     transforms = resolvedHeatTransforms,
                     materialStates = heatMaterialStates
                 };
@@ -5709,7 +5710,12 @@ namespace Parsek
                 string heatSource = hasAnimateHeat ? "ModuleAnimateHeat"
                     : hasAnimateThrottle ? "FXModuleAnimateThrottle"
                     : "FXModuleAnimateRCS";
-                heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource,
+                HeatVisualDriverKind driverKind = hasAnimateHeat
+                    ? HeatVisualDriverKind.ModuleAnimateHeat
+                    : hasAnimateThrottle
+                        ? HeatVisualDriverKind.EngineThrottle
+                        : HeatVisualDriverKind.RcsThrottle;
+                heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource, driverKind,
                     modelNode.transform, partName, persistentId);
             }
 

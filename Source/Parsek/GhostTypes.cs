@@ -77,9 +77,17 @@ namespace Parsek
         public Color hotEmission;
     }
 
+    internal enum HeatVisualDriverKind
+    {
+        ModuleAnimateHeat,
+        EngineThrottle,
+        RcsThrottle
+    }
+
     internal class HeatGhostInfo
     {
         public uint partPersistentId;
+        public HeatVisualDriverKind driverKind;
         public List<HeatTransformState> transforms;
         public List<HeatMaterialState> materialStates;
     }

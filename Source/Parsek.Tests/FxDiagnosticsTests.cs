@@ -78,5 +78,26 @@ namespace Parsek.Tests
             Assert.Contains("speed=12.00", line);
             Assert.Contains("playing=True", line);
         }
+
+        [Fact]
+        public void ComputeThrottleDrivenHeatLevel_ZeroPower_ReturnsCold()
+        {
+            Assert.Equal(HeatLevel.Cold, GhostPlaybackLogic.ComputeThrottleDrivenHeatLevel(0f));
+            Assert.Equal(HeatLevel.Cold, GhostPlaybackLogic.ComputeThrottleDrivenHeatLevel(-0.1f));
+        }
+
+        [Fact]
+        public void ComputeThrottleDrivenHeatLevel_PartialPower_ReturnsMedium()
+        {
+            Assert.Equal(HeatLevel.Medium, GhostPlaybackLogic.ComputeThrottleDrivenHeatLevel(0.01f));
+            Assert.Equal(HeatLevel.Medium, GhostPlaybackLogic.ComputeThrottleDrivenHeatLevel(0.5f));
+        }
+
+        [Fact]
+        public void ComputeThrottleDrivenHeatLevel_HighPower_ReturnsHot()
+        {
+            Assert.Equal(HeatLevel.Hot, GhostPlaybackLogic.ComputeThrottleDrivenHeatLevel(0.8f));
+            Assert.Equal(HeatLevel.Hot, GhostPlaybackLogic.ComputeThrottleDrivenHeatLevel(1f));
+        }
     }
 }
