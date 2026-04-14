@@ -541,6 +541,7 @@ namespace Parsek
             if (sceneChangeInProgress) return;
 
             ClearStaleConfirmations();
+            HandleMissedVesselSwitchRecovery();
 
             HandleTreeDockMerge();
             HandleDockUndockCommitRestart();
@@ -4596,6 +4597,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Safety net for vessel switches that change <see cref="FlightGlobals.ActiveVessel"/>
+        /// without reaching either the physics-frame recorder path or onVesselChange.
+        /// Replays the normal <see cref="OnVesselSwitchComplete"/> transition once the
+        /// frame loop can prove Parsek's active recorder/tree state is out of sync.
+        /// </summary>
+        private void HandleMissedVesselSwitchRecovery()
+        {
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
+            bool activeVesselTrackedInBackground = activeTree != null
+                && activeVesselPid != 0
+                && activeTree.BackgroundMap.ContainsKey(activeVesselPid);
+
+            if (!ShouldRecoverMissedVesselSwitch(
+                    restoringActiveTree,
+                    activeTree != null,
+                    pendingTreeDockMerge,
+                    pendingSplitRecorder != null,
+                    pendingSplitInProgress,
+                    recorder != null,
+                    recorder != null && recorder.IsRecording,
+                    recorder != null && recorder.ChainToVesselPending,
+                    recorder != null ? recorder.RecordingVesselId : 0,
+                    activeVesselPid,
+                    activeVesselTrackedInBackground))
+            {
+                return;
+            }
+
+            if (GhostMapPresence.IsGhostMapVessel(activeVesselPid)) return;
+
+            uint recorderPid = recorder != null ? recorder.RecordingVesselId : 0;
+            ParsekLog.Warn("Flight",
+                $"Update: recovering missed vessel switch for active vessel '{activeVessel.vesselName}' " +
+                $"(activePid={activeVesselPid}, recorderPid={recorderPid}, " +
+                $"trackedInBackground={activeVesselTrackedInBackground})");
+            OnVesselSwitchComplete(activeVessel);
+        }
+
+        /// <summary>
         /// Zeros all dock/undock pending-transition fields.
         /// Called from scene change, flight ready, and after dock/undock commit/restart.
         /// </summary>
@@ -6090,6 +6131,41 @@ namespace Parsek
             if (pendingSplitRecorder != null || pendingSplitInProgress) return false;
             if (recorder != null && recorder.ChainToVesselPending) return false;
             return true;
+        }
+
+        /// <summary>
+        /// Pure guard for the Update() safety net that replays missed vessel switches.
+        /// Runs only when tree state is active and stable enough that the normal
+        /// <see cref="OnVesselSwitchComplete"/> path is safe to reuse.
+        /// </summary>
+        internal static bool ShouldRecoverMissedVesselSwitch(
+            bool isRestoringActiveTree,
+            bool hasActiveTree,
+            bool pendingTreeDockMerge,
+            bool hasPendingSplitRecorder,
+            bool pendingSplitInProgress,
+            bool hasRecorder,
+            bool recorderIsRecording,
+            bool recorderChainToVesselPending,
+            uint recorderVesselPid,
+            uint activeVesselPid,
+            bool activeVesselTrackedInBackground)
+        {
+            if (isRestoringActiveTree) return false;
+            if (!hasActiveTree) return false;
+            if (pendingTreeDockMerge) return false;
+            if (hasPendingSplitRecorder || pendingSplitInProgress) return false;
+            if (activeVesselPid == 0) return false;
+
+            if (hasRecorder)
+            {
+                if (!recorderIsRecording) return false;
+                if (recorderChainToVesselPending) return false;
+                if (recorderVesselPid == 0) return false;
+                return recorderVesselPid != activeVesselPid;
+            }
+
+            return activeVesselTrackedInBackground;
         }
 
         /// <summary>
