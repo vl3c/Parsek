@@ -23,6 +23,8 @@ namespace Parsek
         public bool UserModeOverride;
         public bool HasTargetRotation;
         public Quaternion TargetRotation;
+        public bool HasWorldOrbitDirection;
+        public Vector3 WorldOrbitDirection;
     }
 
     /// <summary>
@@ -587,6 +589,52 @@ namespace Parsek
                 cameraState.HasTargetRotation = true;
                 cameraState.TargetRotation = flightCamera.Target.rotation;
             }
+            if (TryGetCurrentFlightCameraWorldOrbitDirection(
+                    flightCamera,
+                    out var worldOrbitDirection))
+            {
+                cameraState.HasWorldOrbitDirection = true;
+                cameraState.WorldOrbitDirection = worldOrbitDirection;
+            }
+            return true;
+        }
+
+        internal static bool TryGetCurrentFlightCameraWorldOrbitDirection(
+            FlightCamera flightCamera,
+            out Vector3 worldOrbitDirection)
+        {
+            worldOrbitDirection = Vector3.zero;
+            if (flightCamera?.transform == null)
+                return false;
+
+            Vector3 orbitCenter;
+            if (flightCamera.transform.parent != null)
+            {
+                orbitCenter = flightCamera.transform.parent.position;
+            }
+            else if (flightCamera.Target != null)
+            {
+                orbitCenter = flightCamera.Target.position;
+            }
+            else
+            {
+                return false;
+            }
+
+            Vector3 orbitVector = flightCamera.transform.position - orbitCenter;
+            float sqrMagnitude = orbitVector.sqrMagnitude;
+            if (sqrMagnitude <= 1e-6f
+                || float.IsNaN(orbitVector.x)
+                || float.IsNaN(orbitVector.y)
+                || float.IsNaN(orbitVector.z)
+                || float.IsInfinity(orbitVector.x)
+                || float.IsInfinity(orbitVector.y)
+                || float.IsInfinity(orbitVector.z))
+            {
+                return false;
+            }
+
+            worldOrbitDirection = orbitVector / Mathf.Sqrt(sqrMagnitude);
             return true;
         }
 
@@ -621,6 +669,11 @@ namespace Parsek
             WatchCameraTransitionState currentState,
             Quaternion newTargetRotation)
         {
+            if (currentState.HasWorldOrbitDirection)
+                return DecomposeOrbitDirectionInTargetFrame(
+                    currentState.WorldOrbitDirection,
+                    newTargetRotation);
+
             if (!currentState.HasTargetRotation)
                 return (currentState.Pitch, currentState.Heading);
 
@@ -1289,14 +1342,68 @@ namespace Parsek
                 Mathf.Cos(hdgRad) * Mathf.Cos(pitchRad));
 
             // Transform to world space via old target, then back to new target's local space
-            Vector3 worldDir = oldTargetRot * localDir;
-            Vector3 newLocalDir = Quaternion.Inverse(newTargetRot) * worldDir;
+            Vector3 worldDir = RotateVectorByQuaternion(oldTargetRot, localDir);
+            Vector3 newLocalDir = InverseRotateVectorByQuaternion(newTargetRot, worldDir);
 
             // Decompose back to pitch/hdg
             float newPitch = Mathf.Asin(Mathf.Clamp(newLocalDir.y, -1f, 1f)) * Mathf.Rad2Deg;
             float newHdg = Mathf.Atan2(newLocalDir.x, newLocalDir.z) * Mathf.Rad2Deg;
 
             return (newPitch, newHdg);
+        }
+
+        internal static (float pitch, float hdg) DecomposeOrbitDirectionInTargetFrame(
+            Vector3 worldOrbitDirection,
+            Quaternion targetRotation)
+        {
+            Vector3 normalizedDirection = worldOrbitDirection.normalized;
+            Vector3 localDir = InverseRotateVectorByQuaternion(targetRotation, normalizedDirection);
+            float pitch = Mathf.Asin(Mathf.Clamp(localDir.y, -1f, 1f)) * Mathf.Rad2Deg;
+            float hdg = Mathf.Atan2(localDir.x, localDir.z) * Mathf.Rad2Deg;
+            return (pitch, hdg);
+        }
+
+        internal static Vector3 RotateVectorByQuaternion(Quaternion rotation, Vector3 direction)
+        {
+            Quaternion normalized = NormalizeQuaternion(rotation);
+            Vector3 axis = new Vector3(normalized.x, normalized.y, normalized.z);
+            float scalar = normalized.w;
+            return 2f * Vector3.Dot(axis, direction) * axis
+                + (scalar * scalar - Vector3.Dot(axis, axis)) * direction
+                + 2f * scalar * Vector3.Cross(axis, direction);
+        }
+
+        internal static Vector3 InverseRotateVectorByQuaternion(Quaternion rotation, Vector3 direction)
+        {
+            Quaternion normalized = NormalizeQuaternion(rotation);
+            Quaternion inverse = new Quaternion(
+                -normalized.x,
+                -normalized.y,
+                -normalized.z,
+                normalized.w);
+            return RotateVectorByQuaternion(inverse, direction);
+        }
+
+        internal static Quaternion NormalizeQuaternion(Quaternion rotation)
+        {
+            float sqrMagnitude =
+                rotation.x * rotation.x
+                + rotation.y * rotation.y
+                + rotation.z * rotation.z
+                + rotation.w * rotation.w;
+            if (sqrMagnitude <= 1e-12f
+                || float.IsNaN(sqrMagnitude)
+                || float.IsInfinity(sqrMagnitude))
+            {
+                return new Quaternion(0f, 0f, 0f, 1f);
+            }
+
+            float inverseMagnitude = 1f / Mathf.Sqrt(sqrMagnitude);
+            return new Quaternion(
+                rotation.x * inverseMagnitude,
+                rotation.y * inverseMagnitude,
+                rotation.z * inverseMagnitude,
+                rotation.w * inverseMagnitude);
         }
 
         // === Horizon-locked camera mode — instance methods ===
