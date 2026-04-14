@@ -562,6 +562,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeAllForCommit_DoesNotDuplicateTrackSectionPayloadAlreadyMirroredInFlatPoints()
+        {
+            uint pid = 70325;
+            string recId = "rec_flat_overlap";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Add(new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 10, 0)
+            });
+            tree.Recordings[recId].Points.Add(new TrajectoryPoint
+            {
+                ut = 2010.0,
+                latitude = 1.1,
+                longitude = 2.1,
+                altitude = 140.0,
+                rotation = new UnityEngine.Quaternion(0, 0.1f, 0, 0.99f),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 20, 0)
+            });
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 10, 0)
+            });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2010.0,
+                latitude = 1.1,
+                longitude = 2.1,
+                altitude = 140.0,
+                rotation = new UnityEngine.Quaternion(0, 0.1f, 0, 0.99f),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 20, 0)
+            });
+
+            bgRecorder.FinalizeAllForCommit(2010.0);
+
+            var rec = tree.Recordings[recId];
+            Assert.Equal(new[] { 2000.0, 2010.0 }, rec.Points.Select(p => p.ut).ToArray());
+        }
+
+        [Fact]
         public void FlushLoadedStateForOnRailsTransitionForTesting_NoPayloadEnvChange_PersistsBoundarySection()
         {
             uint pid = 7033;

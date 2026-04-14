@@ -428,6 +428,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveActiveTreeIfAny_CopiesRecorderRewindSaveToSerializedRoot()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string scenarioSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "ParsekScenario.cs"));
+
+            int methodStart = scenarioSrc.IndexOf(
+                "private static void SaveActiveTreeIfAny(ConfigNode node)",
+                StringComparison.Ordinal);
+            Assert.True(methodStart >= 0, "SaveActiveTreeIfAny method signature not found");
+
+            int copyIdx = scenarioSrc.IndexOf(
+                "ParsekFlight.CopyRewindSaveToRoot(",
+                methodStart,
+                StringComparison.Ordinal);
+            int saveIdx = scenarioSrc.IndexOf(
+                "activeTree.Save(treeNode);",
+                methodStart,
+                StringComparison.Ordinal);
+
+            Assert.True(copyIdx >= 0, "SaveActiveTreeIfAny no longer copies rewind metadata to the root");
+            Assert.True(saveIdx >= 0, "SaveActiveTreeIfAny serialization site not found");
+            Assert.True(copyIdx < saveIdx,
+                "SaveActiveTreeIfAny must copy rewind metadata before serializing the active tree");
+            string methodSrc = scenarioSrc.Substring(methodStart, saveIdx - methodStart);
+            Assert.Contains("ParsekFlight.CopyRewindSaveToRoot(", methodSrc);
+            Assert.Contains("activeTree,", methodSrc);
+            Assert.Contains("recorder,", methodSrc);
+        }
+
+        [Fact]
+        public void RecorderBackedCommitPaths_UseRecorderRootCopyOverload()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string flightSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
+
+            Assert.Contains("CopyRewindSaveToRoot(activeTree, recorder,", flightSrc);
+            Assert.Contains("CopyRewindSaveToRoot(activeTree, splitRecorder);", flightSrc);
+            Assert.Contains("CopyRewindSaveToRoot(tree, recorder,", flightSrc);
+        }
+
+        [Fact]
         public void TryRestoreActiveTreeNode_DoesNotWriteDeadBoundaryAnchorUT()
         {
             // BoundaryAnchor can't round-trip (needs full TrajectoryPoint, not just UT),

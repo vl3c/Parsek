@@ -1491,8 +1491,7 @@ namespace Parsek
             {
                 recorder.TransitionToBackground();
                 FlushRecorderToTreeRecording(recorder, activeTree);
-                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
-                    recorderFallbackSave: recorder.RewindSaveFileName,
+                CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "OnVesselSwitch(active)");
 
                 // Add old vessel to BackgroundMap
@@ -1516,8 +1515,7 @@ namespace Parsek
             else if (recorder != null && recorder.IsBackgrounded && recorder.TransitionToBackgroundPending)
             {
                 FlushRecorderToTreeRecording(recorder, activeTree);
-                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
-                    recorderFallbackSave: recorder.RewindSaveFileName,
+                CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "OnVesselSwitch(bg)");
 
                 string oldRecId = activeTree.ActiveRecordingId;
@@ -1624,6 +1622,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Copies rewind metadata from a live recorder onto the tree root using its
+        /// CaptureAtStop when present, otherwise the recorder's in-memory fallback fields.
+        /// Centralized so every recorder-backed commit path keeps the same rewind budget
+        /// and pre-launch baseline semantics.
+        /// </summary>
+        internal static void CopyRewindSaveToRoot(RecordingTree tree, FlightRecorder sourceRecorder,
+            string logTag = null)
+        {
+            if (sourceRecorder == null) return;
+
+            CopyRewindSaveToRoot(
+                tree,
+                sourceRecorder.CaptureAtStop,
+                recorderFallbackSave: sourceRecorder.RewindSaveFileName,
+                recorderFallbackReservedFunds: sourceRecorder.RewindReservedFunds,
+                recorderFallbackReservedScience: sourceRecorder.RewindReservedScience,
+                recorderFallbackReservedRep: sourceRecorder.RewindReservedRep,
+                recorderFallbackPreLaunchFunds: sourceRecorder.PreLaunchFunds,
+                recorderFallbackPreLaunchScience: sourceRecorder.PreLaunchScience,
+                recorderFallbackPreLaunchRep: sourceRecorder.PreLaunchReputation,
+                logTag: logTag);
+        }
+
+        /// <summary>
         /// Copies the rewind save filename and reserved budget from a CaptureAtStop (or
         /// recorder fallback) to the tree's root recording. Called from every flush/commit
         /// site so the R button and rewind budget resolve correctly regardless of which
@@ -1632,7 +1654,14 @@ namespace Parsek
         /// recorder never captures one — the parent's CaptureAtStop is the only source.
         /// </summary>
         internal static void CopyRewindSaveToRoot(RecordingTree tree, Recording captureAtStop,
-            string recorderFallbackSave = null, string logTag = null)
+            string recorderFallbackSave = null,
+            double recorderFallbackReservedFunds = 0,
+            double recorderFallbackReservedScience = 0,
+            float recorderFallbackReservedRep = 0,
+            double recorderFallbackPreLaunchFunds = 0,
+            double recorderFallbackPreLaunchScience = 0,
+            float recorderFallbackPreLaunchRep = 0,
+            string logTag = null)
         {
             if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId)) return;
 
@@ -1653,21 +1682,21 @@ namespace Parsek
 
             // Copy reserved budget if not already set (same first-wins rule).
             // InitiateRewind reads these from the root recording via GetRewindRecording.
-            if (captureAtStop != null && rootRec.RewindReservedFunds == 0
+            if (rootRec.RewindReservedFunds == 0
                 && rootRec.RewindReservedScience == 0 && rootRec.RewindReservedRep == 0)
             {
-                rootRec.RewindReservedFunds = captureAtStop.RewindReservedFunds;
-                rootRec.RewindReservedScience = captureAtStop.RewindReservedScience;
-                rootRec.RewindReservedRep = captureAtStop.RewindReservedRep;
+                rootRec.RewindReservedFunds = captureAtStop?.RewindReservedFunds ?? recorderFallbackReservedFunds;
+                rootRec.RewindReservedScience = captureAtStop?.RewindReservedScience ?? recorderFallbackReservedScience;
+                rootRec.RewindReservedRep = captureAtStop?.RewindReservedRep ?? recorderFallbackReservedRep;
             }
 
             // Copy pre-launch budget if not already set.
-            if (captureAtStop != null && rootRec.PreLaunchFunds == 0
+            if (rootRec.PreLaunchFunds == 0
                 && rootRec.PreLaunchScience == 0 && rootRec.PreLaunchReputation == 0)
             {
-                rootRec.PreLaunchFunds = captureAtStop.PreLaunchFunds;
-                rootRec.PreLaunchScience = captureAtStop.PreLaunchScience;
-                rootRec.PreLaunchReputation = captureAtStop.PreLaunchReputation;
+                rootRec.PreLaunchFunds = captureAtStop?.PreLaunchFunds ?? recorderFallbackPreLaunchFunds;
+                rootRec.PreLaunchScience = captureAtStop?.PreLaunchScience ?? recorderFallbackPreLaunchScience;
+                rootRec.PreLaunchReputation = captureAtStop?.PreLaunchReputation ?? recorderFallbackPreLaunchRep;
             }
         }
 
@@ -2061,7 +2090,7 @@ namespace Parsek
                 // After the split, the new child recorder never has the rewind save, so
                 // FinalizeTreeRecordings / StashActiveTreeAsPendingLimbo can't find it.
                 // Copying here preserves it for the R button and rewind budget.
-                CopyRewindSaveToRoot(activeTree, splitRecorder.CaptureAtStop);
+                CopyRewindSaveToRoot(activeTree, splitRecorder);
             }
 
             // Set ChildBranchPointId on parent
@@ -6012,8 +6041,7 @@ namespace Parsek
                 FlushRecorderToTreeRecording(recorder, activeTree);
 
                 // Copy rewind save to the root recording so the R button works after revert.
-                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
-                    recorderFallbackSave: recorder.RewindSaveFileName,
+                CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "StashTreeLimbo");
             }
 
@@ -6235,8 +6263,7 @@ namespace Parsek
                 FlushRecorderToTreeRecording(recorder, activeTree);
 
                 // Copy rewind save + reserved budget to the root recording.
-                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
-                    recorderFallbackSave: recorder.RewindSaveFileName,
+                CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "MergeCommitFlush");
 
                 oldVesselPid = recorder.RecordingVesselId;
@@ -6350,8 +6377,7 @@ namespace Parsek
                 FlushRecorderToTreeRecording(recorder, tree);
 
                 // Copy rewind save + reserved budget to the root recording.
-                CopyRewindSaveToRoot(tree, recorder.CaptureAtStop,
-                    recorderFallbackSave: recorder.RewindSaveFileName,
+                CopyRewindSaveToRoot(tree, recorder,
                     logTag: "FinalizeTreeRecordings");
             }
 
@@ -6373,6 +6399,7 @@ namespace Parsek
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
             PruneZeroPointLeaves(tree);
+            PruneSinglePointDestroyedDebrisLeaves(tree);
 
             // Compute tree-level resource delta
             tree.DeltaFunds = ComputeTreeDeltaFunds(tree);
@@ -6831,6 +6858,35 @@ namespace Parsek
             if (toPrune == null || toPrune.Count == 0)
                 return;
 
+            PruneLeafRecordings(
+                tree,
+                toPrune,
+                "PruneZeroPointLeaves",
+                "zero-point leaf recording(s)");
+        }
+
+        internal static void PruneSinglePointDestroyedDebrisLeaves(RecordingTree tree)
+        {
+            var toPrune = CollectSinglePointDestroyedDebrisLeafIds(tree);
+            if (toPrune == null || toPrune.Count == 0)
+                return;
+
+            // Same-frame breakup debris can die inside the coalescing window and only retain
+            // the split seed point. These stubs are non-playable, fail the data-health
+            // contract, and never contribute a meaningful ghost or spawn path.
+            PruneLeafRecordings(
+                tree,
+                toPrune,
+                "PruneSinglePointDestroyedDebrisLeaves",
+                "single-point destroyed debris stub(s)");
+        }
+
+        private static void PruneLeafRecordings(
+            RecordingTree tree,
+            List<string> toPrune,
+            string logTag,
+            string description)
+        {
             for (int i = 0; i < toPrune.Count; i++)
             {
                 string id = toPrune[i];
@@ -6862,7 +6918,7 @@ namespace Parsek
             }
 
             ParsekLog.Info("Flight",
-                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point leaf recording(s)" +
+                $"{logTag}: removed {toPrune.Count} {description}" +
                 (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
                 $" from tree '{tree.TreeName}'");
         }
@@ -6886,6 +6942,24 @@ namespace Parsek
             return result;
         }
 
+        internal static List<string> CollectSinglePointDestroyedDebrisLeafIds(RecordingTree tree)
+        {
+            List<string> result = null;
+            foreach (var kvp in tree.Recordings)
+            {
+                if (kvp.Key == tree.RootRecordingId || kvp.Key == tree.ActiveRecordingId)
+                    continue;
+
+                var rec = kvp.Value;
+                if (IsSinglePointDestroyedDebrisLeaf(rec))
+                {
+                    if (result == null) result = new List<string>();
+                    result.Add(kvp.Key);
+                }
+            }
+            return result;
+        }
+
         /// <summary>
         /// Returns true if a recording is a leaf with no playback data (zero points,
         /// no orbit segments, no surface position).
@@ -6897,6 +6971,16 @@ namespace Parsek
             return rec.Points.Count == 0
                 && rec.OrbitSegments.Count == 0
                 && !rec.SurfacePos.HasValue;
+        }
+
+        internal static bool IsSinglePointDestroyedDebrisLeaf(Recording rec)
+        {
+            if (rec == null || rec.ChildBranchPointId != null) return false;
+            if (rec.SidecarLoadFailed) return false;
+            if (!rec.IsDebris || rec.TerminalStateValue != TerminalState.Destroyed) return false;
+            if (rec.Points.Count != 1) return false;
+            if (rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue) return false;
+            return rec.TrackSections == null || rec.TrackSections.Count == 0;
         }
 
         internal static double ComputeTreeDeltaFunds(RecordingTree tree)
