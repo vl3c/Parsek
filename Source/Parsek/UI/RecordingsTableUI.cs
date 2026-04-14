@@ -1336,7 +1336,7 @@ namespace Parsek
             // recording, but allow debris-only groups to expose a group-level watch
             // affordance so breakup boosters remain focusable during playback.
             int watchSourceIdx = FindGroupWatchRecordingIndex(
-                descendants, committed, flight.HasActiveGhost);
+                descendants, committed, flight != null ? new Func<int, bool>(flight.HasActiveGhost) : null);
 
             // Find the "main" (earliest non-debris) recording for group-level R/FF buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);

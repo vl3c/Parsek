@@ -348,6 +348,17 @@ namespace Parsek.Tests
                 new HashSet<int> { 0, 1 }, committed, idx => true));
         }
 
+        [Fact]
+        public void GroupWatchSource_NullActivePredicate_FallsBackToStaticSelection()
+        {
+            var debris = MakeRec(100, 200, "Booster"); debris.IsDebris = true;
+            var vessel = MakeRec(150, 250, "Rocket");
+            var committed = new List<Recording> { debris, vessel };
+
+            Assert.Equal(1, RecordingsTableUI.FindGroupWatchRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed, null));
+        }
+
         // ── GetRecordingSortKey ──
 
         [Fact]
