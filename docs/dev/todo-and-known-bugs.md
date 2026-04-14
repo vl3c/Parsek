@@ -1434,6 +1434,18 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
+### T66. Add an in-game regression for fresh active-vessel -> ghost watch entry orientation
+
+PR `#288` fixed the first `Watch Ghost` transition so it preserves the active-vessel camera basis and no longer flips the camera to the opposite side of the pad on entry. The current automated coverage only pins the fresh-entry mode/distance state prep plus the shared target-basis compensation math; it does not execute the exact stock `FlightCamera` capture -> ghost retarget path in a live KSP scene.
+
+**Follow-up:** add an in-game/runtime repro that starts from a known pad-side anchor-camera view, enters watch mode on a same-body ghost, and asserts the watched first frame preserves the same world-side orientation relative to the vessel/body instead of mirroring to the opposite side.
+
+**Priority:** Medium — the core fix is in, but only live KSP can prove the exact first-entry camera handoff end-to-end
+
+**Status:** Open
+
+---
+
 ### ~~T62. Add a cold-start kerbal slot migration integration test~~
 
 This coverage landed in the new kerbal load pipeline suite. `KerbalLoadPipelineTests` now exercises the cold-start load ordering around `LoadCrewAndGroupState(...)` and `LedgerOrchestrator.OnKspLoad(...)`, including:
@@ -1614,6 +1626,16 @@ The R button never appears in the recordings table because `RewindSaveFileName` 
 ---
 
 ## TODO — Nice to have
+
+### T67. Investigate the unrelated full-suite `GhostPlaybackEngineTests` Unity-host `SecurityException`
+
+The current `Parsek.Tests` full-suite run still has a pre-existing unrelated failure in `GhostPlaybackEngineTests.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`, throwing `System.Security.SecurityException: ECall methods must be packaged into a system module.` The focused watch-camera slices pass, so this did not block PR `#288`, but the failure still weakens the normal full-suite signal.
+
+**Follow-up:** reproduce the failing test in isolation, identify which Unity-native call path is escaping the current test harness assumptions, and either move that assertion behind an in-game/runtime test or harden the unit test so `dotnet test Source\\Parsek.Tests\\Parsek.Tests.csproj` can run cleanly again.
+
+**Priority:** Low — unrelated to the watch-camera fix, but worth cleaning up so the normal full suite becomes trustworthy again
+
+**Status:** Open
 
 ### ~~T53. Watch camera mode selection~~
 
