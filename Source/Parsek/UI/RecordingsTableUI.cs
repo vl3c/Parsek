@@ -1332,16 +1332,21 @@ namespace Parsek
 
             var flight = parentUI.Flight;
 
-            // Find the "main" (earliest non-debris) recording for group-level W and R/FF buttons
+            // Find the watch source for this group. Prefer the earliest non-debris
+            // recording, but allow debris-only groups to expose a group-level watch
+            // affordance so breakup boosters remain focusable during playback.
+            int watchSourceIdx = FindGroupWatchRecordingIndex(descendants, committed);
+
+            // Find the "main" (earliest non-debris) recording for group-level R/FF buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
 
             // Watch button (flight only) — follows the group's current live continuation
             if (parentUI.InFlightMode)
             {
-                if (mainIdx >= 0)
+                if (watchSourceIdx >= 0)
                 {
                     int resolvedWatchIdx = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                        mainIdx,
+                        watchSourceIdx,
                         committed,
                         RecordingStore.CommittedTrees,
                         flight.HasActiveGhost);
@@ -1349,9 +1354,6 @@ namespace Parsek
                     bool sameBody = hasGhost && flight.IsGhostOnSameBody(resolvedWatchIdx);
                     bool inRange = hasGhost && flight.IsGhostWithinVisualRange(resolvedWatchIdx);
                     bool isWatching = resolvedWatchIdx >= 0 && flight.WatchedRecordingIndex == resolvedWatchIdx;
-                    // No IsDebris check needed: FindGroupMainRecordingIndex
-                    // (RecordingsTableUI.cs:~2021) already excludes debris from
-                    // the candidate set, so mainIdx is never a debris row.
                     bool canWatch = hasGhost && sameBody && inRange;
 
                     // Bug #279: log enabled/disabled transitions for the group W
@@ -1371,10 +1373,10 @@ namespace Parsek
                     // null/empty shouldn't happen in practice (all recordings
                     // get a GUID at construction), but the defensive guard is
                     // free and matches the per-row site for consistency.
-                    string mainRecId = committed[mainIdx].RecordingId;
-                    if (!string.IsNullOrEmpty(mainRecId))
+                    string watchSourceRecId = committed[watchSourceIdx].RecordingId;
+                    if (!string.IsNullOrEmpty(watchSourceRecId))
                     {
-                        string groupWatchKey = groupName + "/" + mainRecId;
+                        string groupWatchKey = groupName + "/" + watchSourceRecId;
                         string resolvedTargetId = resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count
                             ? committed[resolvedWatchIdx].RecordingId
                             : null;
@@ -1389,10 +1391,10 @@ namespace Parsek
                             lastResolvedWatchTargetByGroup[groupWatchKey] = resolvedTargetId;
                             string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, isDebris: false);
                             ParsekLog.Info("UI",
-                                $"Group Watch button '{groupName}' source=#{mainIdx} \"{committed[mainIdx].VesselName}\" " +
+                                $"Group Watch button '{groupName}' source=#{watchSourceIdx} \"{committed[watchSourceIdx].VesselName}\" " +
                                 $"resolved={(resolvedWatchIdx >= 0 ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} {reason} " +
                                 $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange}) " +
-                                $"{BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)}");
+                                $"{BuildWatchObservabilitySuffix(flight, watchSourceIdx, resolvedWatchIdx)}");
                         }
                     }
 
@@ -1402,13 +1404,13 @@ namespace Parsek
                     if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
                     {
                         string beforeFocus = flight.DescribeWatchFocusForLogs();
-                        string beforeEligibility = BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx);
+                        string beforeEligibility = BuildWatchObservabilitySuffix(flight, watchSourceIdx, resolvedWatchIdx);
                         if (isWatching)
                             flight.ExitWatchMode();
                         else
                             flight.EnterWatchMode(resolvedWatchIdx);
                         ParsekLog.Info("UI",
-                            $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on source #{mainIdx} " +
+                            $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on source #{watchSourceIdx} " +
                             $"resolved #{resolvedWatchIdx} \"{committed[resolvedWatchIdx].VesselName}\" " +
                             $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                     }
@@ -2510,6 +2512,34 @@ namespace Parsek
                 if (idx < 0 || idx >= committed.Count) continue;
                 var rec = committed[idx];
                 if (rec.IsDebris) continue;
+                if (rec.StartUT < bestUT)
+                {
+                    bestUT = rec.StartUT;
+                    bestIdx = idx;
+                }
+            }
+            return bestIdx;
+        }
+
+        /// <summary>
+        /// Returns the preferred group-level watch source. Uses the same primary
+        /// selection as <see cref="FindGroupMainRecordingIndex"/> when a non-debris
+        /// recording exists, but falls back to the earliest descendant so
+        /// debris-only groups remain explicitly watchable.
+        /// </summary>
+        internal static int FindGroupWatchRecordingIndex(
+            HashSet<int> descendants, IReadOnlyList<Recording> committed)
+        {
+            int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
+            if (mainIdx >= 0)
+                return mainIdx;
+
+            int bestIdx = -1;
+            double bestUT = double.MaxValue;
+            foreach (int idx in descendants)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
                 if (rec.StartUT < bestUT)
                 {
                     bestUT = rec.StartUT;

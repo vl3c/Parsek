@@ -204,8 +204,8 @@ namespace Parsek.Tests
             // of the coalesce pattern is also a regression that this assert
             // would not catch directly. We test for the explicit guard
             // instead, which is the safer pattern.
-            Assert.Contains("string mainRecId = committed[mainIdx].RecordingId;", uiSrc);
-            Assert.Contains("if (!string.IsNullOrEmpty(mainRecId))", uiSrc);
+            Assert.Contains("string watchSourceRecId = committed[watchSourceIdx].RecordingId;", uiSrc);
+            Assert.Contains("if (!string.IsNullOrEmpty(watchSourceRecId))", uiSrc);
             // And the dangerous coalesce pattern must be GONE.
             Assert.DoesNotContain("groupName + \"/\" + (mainRecId ?? \"\")", uiSrc);
         }
@@ -274,7 +274,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
             Assert.Contains("BuildWatchObservabilitySuffix(flight, ri)", uiSrc);
-            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)", uiSrc);
+            Assert.Contains("BuildWatchObservabilitySuffix(flight, watchSourceIdx, resolvedWatchIdx)", uiSrc);
             Assert.Contains("beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}", uiSrc);
         }
 
@@ -301,6 +301,29 @@ namespace Parsek.Tests
             Assert.Contains("ResolveEffectiveWatchTargetIndex", groupWatchBlock);
             Assert.Contains("flight.WatchedRecordingIndex == resolvedWatchIdx", groupWatchBlock);
             Assert.Contains("resolvedWatchIdx", groupWatchBlock);
+            Assert.Contains("watchSourceIdx", groupWatchBlock);
+        }
+
+        [Fact]
+        public void GroupWatchSource_AllDebris_ReturnsEarliestDebris()
+        {
+            var d1 = MakeRec(150, 250, "Booster A"); d1.IsDebris = true;
+            var d2 = MakeRec(100, 200, "Booster B"); d2.IsDebris = true;
+            var committed = new List<Recording> { d1, d2 };
+
+            Assert.Equal(1, RecordingsTableUI.FindGroupWatchRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed));
+        }
+
+        [Fact]
+        public void GroupWatchSource_MixedTypes_PrefersEarliestNonDebris()
+        {
+            var debris = MakeRec(50, 100, "Booster"); debris.IsDebris = true;
+            var vessel = MakeRec(100, 200, "Rocket");
+            var committed = new List<Recording> { debris, vessel };
+
+            Assert.Equal(1, RecordingsTableUI.FindGroupWatchRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed));
         }
 
         // ── GetRecordingSortKey ──
