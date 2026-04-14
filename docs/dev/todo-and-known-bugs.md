@@ -158,7 +158,7 @@ Separately, `PositionAtSurface` updates `lastInterpolatedBodyName` / `lastInterp
 
 ---
 
-## 371. PR #248 follow-up: round-trip test for `NormalizeContinuousEvaBoundaryMerge` output
+## ~~371. PR #248 follow-up: round-trip test for `NormalizeContinuousEvaBoundaryMerge` output~~
 
 **Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
 
@@ -174,7 +174,9 @@ The merge logic looks correct in isolation, but it runs over the same `TrackSect
 
 `TrimOverlappingSectionFrames` is gated to absolute + relative frames (correct for the `allowRelativeSections` flag), but a continuous-EVA recording that crosses an orbital-checkpoint boundary would skip the trim — confirm whether that combination is even possible (EVA on a body with orbital frame? unlikely but worth a unit test that documents the assumption).
 
-**Status:** TODO. Add a focused round-trip test in `RecordingStorageRoundTripTests`. Low priority unless an in-game EVA repro shows section drift after a few save/load cycles.
+**Fix:** added `EvaBoundaryMergeRoundTripTests.MergeInto_ContinuousEvaBoundary_V3Roundtrip_PointsAndOrbitSegmentsStable` — builds two EVA-tagged section-authoritative recordings (atmo + surface, continuous Kerbin boundary), saves both as v3 binary sidecars, loads them, runs `RecordingOptimizer.MergeInto` which triggers `NormalizeContinuousEvaBoundaryMerge` → `TrimOverlappingSectionFrames` → `TrySyncFlatTrajectoryFromTrackSections`, deep-copies the post-merge `Points` / `OrbitSegments`, then re-saves and re-loads the merged recording and asserts the second-load trajectory matches the captured snapshot field-by-field. Companion test `CanMergeContinuousEvaAtmoSurfaceBoundary_OrbitalPhasePair_IsNotAllowed` pins the invariant that `CanMergeContinuousEvaAtmoSurfaceBoundary` rejects orbital phase pairs (`SegmentPhase == "exo"`), so the normalizer cannot observe an `OrbitalCheckpoint` section via this code path — documents the todo question about EVA + orbital-checkpoint combinations.
+
+**Status:** ~~Fixed~~
 
 ---
 
