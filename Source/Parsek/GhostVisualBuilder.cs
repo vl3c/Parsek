@@ -2331,8 +2331,10 @@ namespace Parsek
 
             if (result.Count > 0)
             {
-                ParsekLog.Verbose("GhostAudio",
-                    $"Built {result.Count} audio source(s) for '{partName}' pid={persistentId}");
+                ParsekLog.VerboseRateLimited("GhostAudio",
+                    $"audio-build-{partName}-{persistentId}",
+                    $"Built {result.Count} audio source(s) for '{partName}' pid={persistentId}",
+                    5.0);
             }
 
             return result.Count > 0 ? result : null;
@@ -2519,9 +2521,12 @@ namespace Parsek
                             !IsRendererEnabledByVariantRule(
                                 t, modelRoot, selectedVariantGameObjects, out _, out _));
                         if (fxTransforms.Count < preFilter)
-                            ParsekLog.Verbose("GhostVisual", $"RCS '{partName}' midx={moduleIndex}: " +
+                            ParsekLog.VerboseRateLimited("GhostVisual",
+                                $"rcs-variant-filter-{partName}-{moduleIndex}-{transformName}",
+                                $"RCS '{partName}' midx={moduleIndex}: " +
                                 $"variant filter removed {preFilter - fxTransforms.Count} of {preFilter} " +
-                                $"'{transformName}' RCS FX transforms");
+                                $"'{transformName}' RCS FX transforms",
+                                5.0);
                     }
                     if (fxTransforms.Count == 0)
                     {
@@ -2536,8 +2541,11 @@ namespace Parsek
                             srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                         if (ghostFxParent == null)
                         {
-                            ParsekLog.Verbose("GhostVisual", $"RCS '{partName}' midx={moduleIndex}: " +
-                                $"transform='{transformName}' parent resolution failed");
+                            ParsekLog.VerboseRateLimited("GhostVisual",
+                                $"rcs-parent-miss-{partName}-{moduleIndex}-{transformName}",
+                                $"RCS '{partName}' midx={moduleIndex}: " +
+                                $"transform='{transformName}' parent resolution failed",
+                                5.0);
                             continue;
                         }
                         LogFxParentAlignmentDiagnostic(
@@ -4319,8 +4327,10 @@ namespace Parsek
             if (trackedMaterials > 0)
             {
                 if (clearedEmissives > 0)
-                    ParsekLog.Verbose("GhostVisual",
-                        $"Part '{partName}' pid={persistentId}: cleared {clearedEmissives} inherited emissive(s) to black");
+                    ParsekLog.VerboseRateLimited("GhostVisual",
+                        $"emissive-clear-{partName}-{persistentId}",
+                        $"Part '{partName}' pid={persistentId}: cleared {clearedEmissives} inherited emissive(s) to black",
+                        5.0);
                 return materialStates;
             }
 
@@ -5611,9 +5621,11 @@ namespace Parsek
                     var jt = jettisonInfo.jettisonTransforms[ji];
                     if (jt != null) jt.gameObject.SetActive(false);
                 }
-                ParsekLog.Verbose("GhostVisual",
+                ParsekLog.VerboseRateLimited("GhostVisual",
+                    $"jettison-hidden-{partName}-{persistentId}",
                     $"    Part '{partName}' pid={persistentId}: jettison transforms hidden " +
-                    $"(isJettisoned=True in snapshot MODULE data)");
+                    $"(isJettisoned=True in snapshot MODULE data)",
+                    5.0);
             }
 
             // Detect engine parts and clone FX particle systems

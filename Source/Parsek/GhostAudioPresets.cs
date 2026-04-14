@@ -13,6 +13,7 @@ namespace Parsek
         internal const float MediumThrustThreshold = 50f;  // kN
         internal const int MaxAudioSourcesPerGhost = 4;
         internal const float OneShotVolumeScale = 0.5f;
+        private const double ResolutionLogIntervalSeconds = 5.0;
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>
         {
@@ -30,6 +31,14 @@ namespace Parsek
             { "IntakeAir",            "sound_jet_deep" },
             { "Fallback",             "sound_rocket_spurts" }
         };
+
+        private static void LogResolvedClip(string prefabName, int moduleIndex, string message)
+        {
+            ParsekLog.VerboseRateLimited("GhostAudio",
+                $"resolve-clip-{prefabName}-{moduleIndex}",
+                message,
+                ResolutionLogIntervalSeconds);
+        }
 
         /// <summary>
         /// Classify the primary propellant type from a ModuleEngines propellant list.
@@ -103,7 +112,7 @@ namespace Parsek
             if (propType == "XenonGas" || propType == "ElectricCharge" || propType == "IntakeAir")
             {
                 string clip = LookupClip(propType);
-                ParsekLog.Verbose("GhostAudio",
+                LogResolvedClip(prefab.name, moduleIndex,
                     $"Resolved '{prefab.name}' midx={moduleIndex}: propellant={propType} → clip='{clip}'");
                 return clip;
             }
@@ -117,7 +126,7 @@ namespace Parsek
                 result = LookupClip("Fallback");
             }
 
-            ParsekLog.Verbose("GhostAudio",
+            LogResolvedClip(prefab.name, moduleIndex,
                 $"Resolved '{prefab.name}' midx={moduleIndex}: {propType}_{thrustClass} thrust={engine.maxThrust:F0}kN → clip='{result}'");
             return result;
         }
