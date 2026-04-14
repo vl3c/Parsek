@@ -517,6 +517,7 @@ namespace Parsek
             MigrateKerbalAssignments();
 
             RecalculateAndPatch();
+            KerbalLoadRepairDiagnostics.EmitAndReset();
         }
 
         /// <summary>
@@ -596,17 +597,124 @@ namespace Parsek
                 if (KerbalAssignmentActionsMatch(existing, kerbalActions))
                     continue;
 
+                var repairStats = ClassifyKerbalAssignmentRepair(existing, kerbalActions);
+
                 Ledger.ReplaceActionsForRecording(
                     GameActionType.KerbalAssignment, rec.RecordingId, kerbalActions);
                 repairedRecordings++;
                 oldRows += existing != null ? existing.Count : 0;
                 newRows += kerbalActions.Count;
+                KerbalLoadRepairDiagnostics.RecordMigrationRepair(
+                    1,
+                    existing != null ? existing.Count : 0,
+                    kerbalActions.Count);
+                KerbalLoadRepairDiagnostics.RecordTouristRowsSkipped(
+                    rec.RecordingId, repairStats.TouristRowsSkipped);
+
+                for (int s = 0; s < repairStats.RemappedRows.Count; s++)
+                {
+                    var remap = repairStats.RemappedRows[s];
+                    KerbalLoadRepairDiagnostics.RecordRemappedRow(
+                        rec.RecordingId, remap.FromName, remap.ToName);
+                }
+
+                for (int s = 0; s < repairStats.EndStateRewrites.Count; s++)
+                {
+                    var rewrite = repairStats.EndStateRewrites[s];
+                    KerbalLoadRepairDiagnostics.RecordEndStateRewrite(
+                        rec.RecordingId, rewrite.KerbalName, rewrite.FromState, rewrite.ToState);
+                }
             }
 
             if (repairedRecordings > 0)
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows})");
+        }
+
+        private struct KerbalAssignmentRepairRename
+        {
+            public string FromName;
+            public string ToName;
+        }
+
+        private struct KerbalAssignmentEndStateRewrite
+        {
+            public string KerbalName;
+            public KerbalEndState FromState;
+            public KerbalEndState ToState;
+        }
+
+        private sealed class KerbalAssignmentRepairStats
+        {
+            public readonly List<KerbalAssignmentRepairRename> RemappedRows
+                = new List<KerbalAssignmentRepairRename>();
+            public readonly List<KerbalAssignmentEndStateRewrite> EndStateRewrites
+                = new List<KerbalAssignmentEndStateRewrite>();
+            public int TouristRowsSkipped;
+        }
+
+        private static KerbalAssignmentRepairStats ClassifyKerbalAssignmentRepair(
+            List<GameAction> existing,
+            List<GameAction> desired)
+        {
+            var stats = new KerbalAssignmentRepairStats();
+            if (existing == null || existing.Count == 0)
+                return stats;
+
+            var desiredBySequence = new Dictionary<int, GameAction>();
+            if (desired != null)
+            {
+                for (int i = 0; i < desired.Count; i++)
+                {
+                    var desiredAction = desired[i];
+                    if (desiredAction != null)
+                        desiredBySequence[desiredAction.Sequence] = desiredAction;
+                }
+            }
+
+            for (int i = 0; i < existing.Count; i++)
+            {
+                var existingAction = existing[i];
+                if (existingAction == null)
+                    continue;
+
+                if (string.Equals(existingAction.KerbalRole, "Tourist",
+                    StringComparison.OrdinalIgnoreCase)
+                    && !desiredBySequence.ContainsKey(existingAction.Sequence))
+                {
+                    stats.TouristRowsSkipped++;
+                    continue;
+                }
+
+                GameAction desiredAction;
+                if (!desiredBySequence.TryGetValue(existingAction.Sequence, out desiredAction)
+                    || desiredAction == null)
+                    continue;
+
+                if (!string.Equals(existingAction.KerbalName, desiredAction.KerbalName,
+                    StringComparison.Ordinal))
+                {
+                    stats.RemappedRows.Add(new KerbalAssignmentRepairRename
+                    {
+                        FromName = existingAction.KerbalName,
+                        ToName = desiredAction.KerbalName
+                    });
+                    continue;
+                }
+
+                if (existingAction.KerbalEndStateField != desiredAction.KerbalEndStateField)
+                {
+                    stats.EndStateRewrites.Add(new KerbalAssignmentEndStateRewrite
+                    {
+                        KerbalName = desiredAction.KerbalName,
+                        FromState = existingAction.KerbalEndStateField,
+                        ToState = desiredAction.KerbalEndStateField
+                    });
+                }
+            }
+
+            return stats;
         }
 
         private static bool KerbalAssignmentActionsMatch(
