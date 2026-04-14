@@ -834,6 +834,108 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Recorded terminal orbit spawn state (#353)
+
+        [Fact]
+        public void ShouldUseRecordedTerminalOrbitSpawnState_OrbitingRecording_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+        }
+
+        [Fact]
+        public void ShouldUseRecordedTerminalOrbitSpawnState_EvaOrMissingOrbitData_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: true));
+
+            rec.TerminalOrbitSemiMajorAxis = 0.0;
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+        }
+
+        #endregion
+
+        #region NormalizeOrbitalSpawnMetadata (#353)
+
+        [Fact]
+        public void NormalizeOrbitalSpawnMetadata_RewritesPackedAscentFields()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("hgt", "12521.6553");
+            snapshot.AddValue("distanceTraveled", "8210.7499948265686");
+            snapshot.AddValue("PQSMin", "2");
+            snapshot.AddValue("PQSMax", "10");
+            snapshot.AddValue("altDispState", "ASL");
+            snapshot.AddValue("skipGroundPositioning", "True");
+            snapshot.AddValue("skipGroundPositioningForDroppedPart", "True");
+            snapshot.AddValue("vesselSpawning", "True");
+            snapshot.AddValue("lastUT", "74.220361328121982");
+
+            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 1323814.6578770601);
+
+            Assert.Equal("-1", snapshot.GetValue("hgt"));
+            Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
+            Assert.Equal("0", snapshot.GetValue("PQSMin"));
+            Assert.Equal("0", snapshot.GetValue("PQSMax"));
+            Assert.Equal("DEFAULT", snapshot.GetValue("altDispState"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioning"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioningForDroppedPart"));
+            Assert.Equal("False", snapshot.GetValue("vesselSpawning"));
+            Assert.Equal("1323814.6578770601", snapshot.GetValue("lastUT"));
+        }
+
+        [Fact]
+        public void NormalizeOrbitalSpawnMetadata_RewritesPartAtmosphereFields()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("tempExt", "353.89914853869396");
+            part.AddValue("tempExtUnexp", "4");
+            part.AddValue("staticPressureAtm", "0.10801468253165093");
+
+            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 200.0);
+
+            Assert.Equal("0", part.GetValue("tempExt"));
+            Assert.Equal("0", part.GetValue("tempExtUnexp"));
+            Assert.Equal("0", part.GetValue("staticPressureAtm"));
+        }
+
+        [Fact]
+        public void NormalizeOrbitalSpawnMetadata_CreatesMissingFields()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+
+            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 123.5);
+
+            Assert.Equal("-1", snapshot.GetValue("hgt"));
+            Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
+            Assert.Equal("0", snapshot.GetValue("PQSMin"));
+            Assert.Equal("0", snapshot.GetValue("PQSMax"));
+            Assert.Equal("DEFAULT", snapshot.GetValue("altDispState"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioning"));
+            Assert.Equal("False", snapshot.GetValue("skipGroundPositioningForDroppedPart"));
+            Assert.Equal("False", snapshot.GetValue("vesselSpawning"));
+            Assert.Equal("123.5", snapshot.GetValue("lastUT"));
+            Assert.Equal("0", part.GetValue("tempExt"));
+            Assert.Equal("0", part.GetValue("tempExtUnexp"));
+            Assert.Equal("0", part.GetValue("staticPressureAtm"));
+        }
+
+        #endregion
+
         #region OverrideSnapshotPosition (EVA spawn fix)
 
         [Fact]
