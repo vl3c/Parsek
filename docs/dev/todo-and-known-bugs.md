@@ -7,6 +7,566 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 389. Time-range filter for Timeline window and Recordings table (scroll-limit mitigation for long careers)
+
+**Source:** maintenance request `2026-04-15`. As a career progresses, both the Timeline window and the Recordings table accumulate entries linearly. A mature career (100+ missions) becomes painful to navigate — scrolling dozens of screenfuls to find a specific flight is not sustainable. The user wants a time-interval filter ("show entries from UT A to UT B") that limits both windows to a user-chosen slice.
+
+**Concern:** Neither window has a time-range filter today. Current filter surfaces:
+
+- `Source/Parsek/UI/TimelineWindowUI.cs` has `DrawFilterBar` at line `281`-`331` with only four toggles: Overview/Detail tier selector + Recordings/Actions/Events source toggles. `IsEntryVisible` at line `405`-`415` gates rows on `Tier` + `Source`. No UT check.
+- `Source/Parsek/UI/RecordingsTableUI.cs` supports sort via `sortColumn` (line `85`) but has no filter bar at all — every committed recording draws every frame, gated only by chain/group expand state.
+
+For a 200-mission career the Timeline window could have 1000+ entries and the Recordings table 200+ top-level rows plus debris children. Scroll performance and human navigation both degrade past a few hundred rows.
+
+**Desired behavior:**
+
+1. Add a time-range filter that both windows share (same state, so filtering in one window applies to the other — or at least they read the same underlying settings so "Year 2, Day 40 to Day 60" behaves consistently).
+2. Default: no range filter (current behavior). Empty state = show everything.
+3. When a range is set:
+   - Timeline window: `IsEntryVisible` additionally checks `entry.UT` (or equivalent) is inside `[rangeStartUT, rangeEndUT]`.
+   - Recordings table: skip any recording whose `[StartUT, EndUT]` window has zero overlap with `[rangeStartUT, rangeEndUT]`. Default to "overlap any" rather than "fully contained" so a mission spanning the boundary still shows.
+   - Chain segments / tree children: keep visible if any descendant's window overlaps the range — otherwise a range that cuts a chain mid-flight would confusingly hide part of it.
+   - Debris children: same rule as parents. If the parent recording is in range, its debris stays visible in the expand view.
+4. Clear filter: single button / Clear-X in the filter UI that resets to unlimited.
+5. Visual indicator: when a range is active, the window title bar (or a small label near the filter) shows the active range and total matched count, e.g. `"Year 2, Day 40 - Day 60 (14 matches)"`.
+
+**UI surface — the actual "idk exactly how" question:**
+
+Three options, ranked by recommended order:
+
+1. **Two-slider range control with quick presets.** In the Timeline filter bar, add a second row (or an expand/collapse "Time range" disclosure): min-UT slider + max-UT slider over `[earliest committed UT, current UT + some future headroom]`, plus preset buttons: "Last day", "Last 7 days", "Last 30 days", "This year", "All time (clear)". The sliders are IMGUI `GUILayout.HorizontalSlider` — simple, matches existing visual language. Preset buttons cover 90% of real use. Full manual slider for the 10% edge case.
+2. **Two text fields with KSP-date parsing.** Two `GUILayout.TextField`s accepting KSP date strings (`Y2 D40`, or UT seconds, or whatever `KSPUtil.PrintDateCompact` round-trips to). Parse + validate on commit. Harder to use (you have to know the format) but more precise for power users. Consider as a v2 addition if users ask for exact dates.
+3. **Click-on-timeline drag-to-select.** Let the user draw a range directly in the timeline window by click-and-dragging across visible rows. Most intuitive but the most work to implement — the timeline window today is a plain vertical `GUILayout` of rows, not a horizontal time axis. Out of scope for v1.
+
+Start with **option 1** (sliders + presets). Simplest path to a working filter, matches the existing filter-bar visual language.
+
+**Shared state:**
+
+- New singleton-ish struct `TimeRangeFilter` with `double? MinUT` / `double? MaxUT` fields (null = unbounded), exposed from `ParsekUI` or a new small class `TimeRangeFilterState`. Both windows read from it. Both update `filterDirty` flags (existing `TimelineWindowUI.filterDirty` pattern — `RecordingsTableUI` would need an equivalent if it doesn't have one).
+- Optional: persist across sessions in `ParsekSettings` so the user's range survives save/load. Low stakes either way — the user may *want* it reset on load. Default: don't persist.
+
+**Pure helper methods (testable without Unity):**
+
+- `static bool IsEntryInRange(double entryUT, double? minUT, double? maxUT)` — core predicate.
+- `static bool IsRecordingInRange(double startUT, double endUT, double? minUT, double? maxUT)` — overlap check.
+- `static bool IsGroupInRange(HashSet<int> descendants, IReadOnlyList<Recording> committed, double? minUT, double? maxUT)` — "any descendant overlaps" check.
+- Put in a new `UI/TimeRangeFilterLogic.cs` or extend an existing logic file. Unit tests cover empty range, one-sided (min only / max only), no-overlap, partial overlap, fully-contained.
+
+**Wiring:**
+
+- `TimelineWindowUI.IsEntryVisible` (line `405`) — add `if (!TimeRangeFilterLogic.IsEntryInRange(entry.UT, state.MinUT, state.MaxUT)) return false;`.
+- `TimelineWindowUI.DrawFilterBar` (line `281`) — add second row with sliders + clear button.
+- `RecordingsTableUI` (line `85`+) — add filter dirty flag + skip recordings/groups where the range predicate fails. Add the same filter UI (or a compact version) at the top of the table.
+- Existing group expand/collapse state (`expandedGroups` HashSet in `ParsekUI`) is independent of filtering — don't force-expand filtered groups, just hide rows.
+
+**Performance:**
+
+- Both windows already rebuild filter state from scratch when `filterDirty` is set (Timeline: line `243`-`265`). Time-range filtering adds one float comparison per entry — O(n) same as existing path. No perf concern for realistic career sizes.
+- For truly huge careers (thousands of entries) the bottleneck is row drawing, not filtering. Filtering *helps* here because hidden rows don't draw. This TODO is the right direction.
+
+**Interaction with #385 (Kerbals Status window):** the Kerbals window will have its own summary of crew-end-state events per recording. Those should also respect the range filter so a "show me what happened in the last 30 days" slice of the Kerbals window makes sense. Out of scope for v1 — note as a followup.
+
+**Open questions:**
+
+- Should the range be UT-based (raw seconds) or calendar-based (Year/Day)? UT under the hood, UI displays via `KSPUtil.PrintDateCompact`. Sliders operate on UT, labels show formatted dates.
+- Max-UT slider end: current UT, or current UT + some future window (for planned missions)? Use `max(currentUT, latest committed EndUT) + 10% headroom`. Future-dated entries are rare but exist.
+- What happens if the user scrolls to an entry that's later filtered out? The scroll position should snap back to the top on filter change. Log the snap.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/TimeRangeFilterLogic.cs` (new, pure static helpers)
+- `Source/Parsek/UI/TimelineWindowUI.cs` — `DrawFilterBar` + `IsEntryVisible` + shared-state plumbing
+- `Source/Parsek/UI/RecordingsTableUI.cs` — new filter bar + skip logic in the draw loop
+- `Source/Parsek/ParsekUI.cs` — owns the shared `TimeRangeFilterState` singleton (or wherever the other cross-window state lives)
+- `Source/Parsek.Tests/` — unit tests for `TimeRangeFilterLogic` predicates
+- `CHANGELOG.md` under Unreleased: "Timeline and Recordings windows now support a time-range filter (UT interval) with quick presets (Last day / Last 7 days / Last 30 days / This year / Clear). Useful for navigating long careers with many missions."
+
+**Status:** TODO. Size: M. Not urgent today, but the scale problem is real and will bite hard in any career-mode playtest past ~50 missions. Worth implementing before the next playtest pass with a mature save. Size is mostly RecordingsTableUI integration — it currently has no filter bar at all, so this adds a new visual element to a busy table.
+
+---
+
+## 388. Tracking station: add a Ghost visibility toggle alongside the stock type filters
+
+**Source:** maintenance request `2026-04-14`. Stock KSP's tracking station has a row of show/hide toggles (asteroids, debris, probes, rovers, landers, ships, stations, bases, EVAs, planes, relays, flags). Parsek adds a *new* category of entries — "ghosts" — but there's no user control to hide them in bulk. Users need a single toggle that collapses all Parsek ghosts out of both the vessel list and the map view simultaneously.
+
+**Concern:** Parsek ghost presence in the tracking station comes from two independent render paths:
+
+1. **Proto-vessel ghosts.** `GhostMapPresence.CreateGhostVesselsFromCommittedRecordings` creates lightweight `ProtoVessel` entries that show up in the stock tracking station vessel list and have real orbit renderers. Behavior is patched in `Source/Parsek/Patches/GhostTrackingStationPatch.cs` (Fly/Delete/Recover/SetVessel all intercepted). The stock type filters DO hide these when the corresponding `VesselType` is toggled off — but that's the wrong UX: hiding "Ships" shouldn't hide ghost ships, and hiding ghosts shouldn't hide real ships.
+2. **Atmospheric ghost markers.** `Source/Parsek/ParsekTrackingStation.cs` line `65`-`109` `OnGUI` iterates `RecordingStore.CommittedRecordings` and calls `MapMarkerRenderer.DrawMarker` directly for recordings in atmospheric phases (no proto-vessel exists for these). These entries bypass the stock vessel list entirely and do NOT respond to the stock type filters — they're always visible.
+
+Both paths need the same toggle. Currently neither does.
+
+**Desired behavior:**
+
+- A single bool `ParsekSettings.Current.showGhostsInTrackingStation` (default `true`). Persisted across sessions.
+- When `false`:
+  - `ParsekTrackingStation.OnGUI` skips all atmospheric ghost marker draws (early-return inside the `for` loop over `committed`).
+  - Proto-vessel ghosts are hidden from the stock vessel list. Options for implementing this:
+    1. **Suppress creation:** `GhostMapPresence.CreateGhostVesselsFromCommittedRecordings` returns `0` when the flag is off. Simplest, but entering TS with ghosts disabled, then enabling the toggle, needs a live recreate pass. `Update` already has a count-based force-tick (`ParsekTrackingStation.cs:49`-`57`) — extend it to force a tick when the toggle flips.
+    2. **Hide after creation:** keep creating them, then iterate `GhostMapPresence.ghostMapVesselPids` and set their `orbitRenderer` visibility off + remove from the vessel list on filter change. More flicker-prone.
+  - Prefer option 1. The force-tick-on-toggle pattern already exists for commit detection, so reusing it is cheap.
+- When `true` again, ghosts reappear on the next lifecycle tick (or immediately via force-tick on toggle flip).
+
+**UI surface:**
+
+Two reasonable placements — pick one:
+
+1. **Parsek settings window.** `Source/Parsek/UI/SettingsWindowUI.cs` already has a Ghost section (see memory index). Add a `Show ghosts in Tracking Station` checkbox there. Minimal new UI, consistent with existing toggle patterns. Downside: user has to open the main Parsek window to change TS visibility, which is annoying if they're in TS and want to quickly hide ghosts.
+2. **In-scene TS button.** Draw a small `GUI.Toggle` inside `ParsekTrackingStation.OnGUI` — bottom-right corner or attached to the existing stock filter bar position. Harder to position cleanly (stock filter bar is Unity UI, not IMGUI, so we can't piggy-back directly — would need to locate the stock bar's RectTransform and place our toggle adjacent via `GameObject.Find` + offset, fragile).
+
+Start with **option 1** (SettingsWindowUI checkbox). It's enough for the feature request and avoids stock UI layout coupling. If users ask for an in-scene quick toggle later, add it as a followup.
+
+**Settings plumbing:**
+
+- `Source/Parsek/ParsekSettings.cs` — add `public bool showGhostsInTrackingStation = true;`. Ensure it's serialized in `ParsekScenario.OnSave`/`OnLoad` alongside the other settings fields.
+- `Source/Parsek/UI/SettingsWindowUI.cs` — add the checkbox with label "Show ghosts in Tracking Station". On change, log `ParsekLog.Info("UI", $"showGhostsInTrackingStation -> {value}")`.
+- `Source/Parsek/ParsekTrackingStation.cs` — inside `OnGUI` line `80`-`108`, add `if (!ParsekSettings.Current.showGhostsInTrackingStation) return;` before the loop. Inside `Update` line `41`-`63`, track `lastKnownShowGhosts` alongside `lastKnownCommittedCount` and force a lifecycle tick when the flag flips.
+- `Source/Parsek/GhostMapPresence.cs` — `CreateGhostVesselsFromCommittedRecordings` reads `ParsekSettings.Current.showGhostsInTrackingStation` and short-circuits creation when `false`. `UpdateTrackingStationGhostLifecycle` calls `RemoveAllGhostVessels("type-filter-off")` when the flag flips to `false` with existing ghosts in play.
+
+**Interaction with the custom atmospheric marker click-toggle (bug #386):** those sticky-label states belong to individual markers. When the flag turns off and all markers disappear, the sticky set should NOT be cleared (user flipping the toggle back on expects the same sticky marks to return). Sticky set lives in `MapMarkerRenderer` state keyed by `RecordingId`, not by `VesselType` or visibility, so this "just works" as long as the clearing paths don't over-reach. Worth a comment in the fix.
+
+**Proto-vessel ghost interaction with stock type filters:** independent of this TODO — the stock filters still apply to ghost ProtoVessels (a ghost Ship will be hidden when "Ships" is filtered off, same as real ships). That's arguably a bug in itself — ghost entries should probably be categorized as "Ghost" globally, not inherit the vessel's type for filter purposes. Out of scope for this TODO, but note it as a follow-up candidate if users complain.
+
+**Tests:**
+
+- Pure unit test: a helper method `ParsekTrackingStation.ShouldDrawAnyAtmosphericMarkers(ParsekSettings)` or similar that returns the early-return decision, so the toggle semantics are testable without Unity.
+- Runtime test: open TS with the flag off, assert no atmospheric markers drawn and ghost ProtoVessel count is zero. Flip flag on, force tick, assert markers + ghosts reappear.
+- `ParsekSettings` save/load round-trip test — make sure the new field survives.
+
+**Files to touch:**
+
+- `Source/Parsek/ParsekSettings.cs` (add field)
+- `Source/Parsek/ParsekScenario.cs` (if settings serialization is done there and not auto-reflected)
+- `Source/Parsek/UI/SettingsWindowUI.cs` (checkbox)
+- `Source/Parsek/ParsekTrackingStation.cs` (OnGUI early-return + Update force-tick on flag flip)
+- `Source/Parsek/GhostMapPresence.cs` (short-circuit creation, remove all when flag drops)
+- `Source/Parsek.Tests/` (toggle semantics test + settings round-trip test)
+- `Source/Parsek/InGameTests/RuntimeTests.cs` (TS lifecycle test)
+- `CHANGELOG.md` under Unreleased: "New Tracking Station filter toggle to show/hide Parsek ghosts (Settings > Ghost section)."
+
+**Status:** TODO. Size: S-M. Pure plumbing, no novel systems. Main design choice is option-1 vs option-2 for the UI surface — recommended option 1 above.
+
+---
+
+## 387. Ghost map icons don't match stock ProtoVessel icons for the same VesselType
+
+**Source:** maintenance request `2026-04-14`. Users report that Parsek's custom ghost icon in map view / tracking station sometimes looks different from the stock icon for the same vessel type. Root cause confirmed by decompiling `KSP.UI.Screens.Mapview.MapNode` — Parsek's atlas-indexing logic is wrong.
+
+**Concern:** `Source/Parsek/MapMarkerRenderer.cs` line `153`-`193` builds `vesselIconUVs` by reading `MapNode.iconSprites` (an obtained-via-reflection `Sprite[]`) and assigning entries by sequential array index:
+
+```csharp
+var vtypes = new[] {
+    VesselType.Ship, VesselType.Plane, VesselType.Probe,
+    VesselType.Relay, VesselType.Rover, VesselType.Lander,
+    VesselType.Station, VesselType.Base, VesselType.EVA,
+    VesselType.Flag, VesselType.Debris, VesselType.SpaceObject,
+    VesselType.DeployedScienceController, VesselType.DeployedSciencePart
+};
+for (int i = 0; i < vtypes.Length && i < sprites.Length; i++)
+{
+    Sprite s = sprites[i];
+    if (s == null) continue;
+    Rect r = s.textureRect;
+    vesselIconUVs[vtypes[i]] = ...
+}
+```
+
+This assumes `sprites[0]` is the Ship sprite, `sprites[1]` is the Plane sprite, etc. **That assumption is wrong.** Decompiling `KSP.UI.Screens.Mapview.MapNode` (lines `2309`-`2321` of the decompiled source) shows the actual lookup is a custom switch:
+
+```csharp
+// From stock KSP MapNode icon index resolution:
+VesselType.Debris => 7
+VesselType.SpaceObject => 21
+VesselType.Probe => 18
+VesselType.Rover => 19
+VesselType.Lander => 14
+VesselType.Ship => 20
+VesselType.Station => 0
+VesselType.Base => 5
+VesselType.EVA => 13
+VesselType.Flag => 11
+VesselType.Plane => 23
+VesselType.Relay => 24
+VesselType.DeployedScienceController => 28
+VesselType.DeployedGroundPart => 29
+```
+
+So `iconSprites[0]` is the Station sprite, `iconSprites[20]` is the Ship sprite, `iconSprites[7]` is the Debris sprite, etc. Parsek's current mapping ends up assigning:
+
+- Ship → `sprites[0]` → actually the Station sprite
+- Plane → `sprites[1]` → some unrelated sprite (no entry in the table → unused slot)
+- Probe → `sprites[2]` → unused slot
+- Relay → `sprites[3]` → unused slot
+- ...
+
+This produces the exact symptom users are reporting: ghosts of a given type show an icon that matches a *different* stock vessel type.
+
+**Fix:** replace the sequential-index loop with the exact same mapping stock uses. Hard-code it from the decompiled table rather than trying to derive it:
+
+```csharp
+private static readonly Dictionary<VesselType, int> StockIconIndexByVesselType =
+    new Dictionary<VesselType, int>
+    {
+        { VesselType.Station, 0 },
+        { VesselType.Base, 5 },
+        { VesselType.Debris, 7 },
+        { VesselType.Flag, 11 },
+        { VesselType.EVA, 13 },
+        { VesselType.Lander, 14 },
+        { VesselType.Probe, 18 },
+        { VesselType.Rover, 19 },
+        { VesselType.Ship, 20 },
+        { VesselType.SpaceObject, 21 },
+        { VesselType.Plane, 23 },
+        { VesselType.Relay, 24 },
+        { VesselType.DeployedScienceController, 28 },
+        { VesselType.DeployedGroundPart, 29 },
+    };
+
+foreach (var kv in StockIconIndexByVesselType)
+{
+    int idx = kv.Value;
+    if (idx < 0 || idx >= sprites.Length || sprites[idx] == null) continue;
+    Rect r = sprites[idx].textureRect;
+    vesselIconUVs[kv.Key] = new Rect(
+        r.x / spriteAtlas.width, r.y / spriteAtlas.height,
+        r.width / spriteAtlas.width, r.height / spriteAtlas.height);
+}
+```
+
+Two things to verify before shipping:
+
+1. **Is `sprites[idx].texture` the same atlas for every entry?** Today's code picks `spriteAtlas` from the first non-null sprite (line `165`-`173`), then normalizes every `textureRect` by that one atlas's width/height. If sprites at different indices live in different atlas textures, the UV computation for the "other" atlas sprites is wrong. Parsek's current code has the same latent issue — it just didn't surface because most stock sprites live in the same atlas. Before adding the indices above, loop through and confirm every index's `sprites[idx].texture` matches `spriteAtlas`, log a warning and skip any that don't.
+2. **`DeployedSciencePart` absence.** The stock table has `DeployedScienceController` and `DeployedGroundPart` but no `DeployedSciencePart`. Parsek's current array does include it. Decide whether to leave `DeployedSciencePart` without a custom icon (falls back to `fallbackDiamond`, line `70`-`76`) or to reuse the `DeployedScienceController` sprite. Probably the former — stock doesn't give it one either.
+
+**Test:** add an in-game runtime test (`Source/Parsek/InGameTests/RuntimeTests.cs`, category "MapView" or similar) that:
+
+1. Gets a `MapView.UINodePrefab` and extracts its `iconSprites` via the same reflection path.
+2. Spawns ghost markers for several vessel types via a controlled fixture (or reuses existing ghost test infrastructure).
+3. For each spawned type, asserts that `MapMarkerRenderer.vesselIconUVs[vtype]` matches `sprites[StockIconIndexByVesselType[vtype]].textureRect` (normalized).
+4. Logs the per-type icon assignment so future regressions are obvious in the test output.
+
+A unit test is insufficient here — this needs the live `MapView` reflection target to be authoritative.
+
+**Files to touch:**
+
+- `Source/Parsek/MapMarkerRenderer.cs` — replace the `vtypes` array + sequential loop at lines `154`-`193` with the dictionary-driven lookup above.
+- `Source/Parsek/InGameTests/RuntimeTests.cs` — add the icon-consistency runtime test.
+- `CHANGELOG.md` under Unreleased: "Ghost map icons now match the stock ProtoVessel icon for each vessel type (Ship, Plane, Probe, ...). Previous versions used an incorrect sequential atlas indexing that caused ships to appear as stations, etc."
+- Consider updating `docs/ksp_mapnode_icon_indices.md` (new file) with the decompiled mapping for future reference, similar to `ksp_flightcamera_units.md` / `ksp_aerofx_physics.md` references already tracked in memory. Cross-link from the fix commit.
+
+**Status:** TODO. Size: S. Straightforward replacement, main risk is the per-index atlas-texture consistency check (point 1 above). High user-visible impact — every Parsek user sees wrong icons today.
+
+---
+
+## 386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click
+
+**Source:** maintenance request `2026-04-14`. Parsek's custom ghost map icon currently always draws a `"Ghost: <name>"` text label directly below it. Stock KSP vessel icons don't — they only show the name on hover (and clicking enters/pins the target). The ghost icon should match that behavior so the map view isn't cluttered with permanent text for every ghost.
+
+**Concern:** `Source/Parsek/MapMarkerRenderer.cs` line `80` draws the label unconditionally every frame:
+
+```csharp
+labelStyle.normal.textColor = color;
+GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), "Ghost: " + label, labelStyle);
+```
+
+There is no hover test, no click handling, and no per-marker "sticky" state. Both call sites hit this same path: `ParsekUI.DrawMapMarkers` (line `626`) in the flight scene map view, and `ParsekTrackingStation.OnGUI` (line `102`) in the tracking station.
+
+**Desired behavior:**
+
+1. **Default:** icon visible, label hidden.
+2. **Hover:** when the mouse cursor is over the icon rect (or a small padded version of it), draw the label for that one frame. Matches stock vessel-icon hover behavior.
+3. **Click (toggle):** click the icon once — the label becomes sticky (drawn every frame regardless of hover). Click again — sticky clears. Clicking a different ghost toggles its own sticky independently. Multiple ghosts can be sticky simultaneously.
+4. **Behavior parity:** left-click is the toggle. Don't interfere with KSP's own map view drag / camera controls — consume the click only when the cursor is actually over a ghost icon rect. Use `Event.current.Use()` inside the hit test, same pattern stock KSP uses for its own map nodes.
+
+**Implementation sketch:**
+
+- `MapMarkerRenderer.DrawMarker` takes a `label` string today but has no identity for the marker. Add a `string markerKey` parameter (use `rec.RecordingId` at the call sites — stable across index reuse, see the discussion in bug #279). The renderer uses this as the key for sticky-state.
+- Add `MapMarkerRenderer` fields: `private static readonly HashSet<string> stickyMarkers = new HashSet<string>();` and `private static string hoveredMarkerThisFrame;`.
+- In `DrawMarker`:
+  1. Compute `Rect iconRect = new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize);` (already computed inline, just hoist it).
+  2. `bool hover = iconRect.Contains(Event.current.mousePosition);`
+  3. `bool sticky = stickyMarkers.Contains(markerKey);`
+  4. Draw the icon (existing code path).
+  5. If `hover || sticky` → draw the label (existing `GUI.Label` call).
+  6. If `hover && Event.current.type == EventType.MouseDown && Event.current.button == 0`:
+     - Toggle `markerKey` in `stickyMarkers`.
+     - `Event.current.Use()` so map view doesn't drag.
+     - `ParsekLog.Info("MapMarker", $"Ghost icon '{label}' sticky={(sticky ? "off" : "on")} key={markerKey}")`.
+- Clear `stickyMarkers` on scene change (new method `MapMarkerRenderer.ResetForSceneChange()`) and call it from `ParsekScenario.OnGameSceneLoadRequested` or the existing scene-teardown hook. Optional: keep stickies across tracking-station ↔ flight-map transitions so a sticky set in tracking station persists when entering map view of the same scene. Start by clearing on every scene change — simpler, can relax if users ask.
+- Handle `Event.current == null` gracefully (happens during non-repaint phases). Guard the hover test behind `Event.current != null`.
+
+**Edge cases:**
+
+- Multiple icons overlapping at the same screen position (two ghosts at the same orbit phase). Iterate in a stable order and let the first hit win. Document that stacked ghosts may need the player to zoom in. Not a regression — stock has the same issue with close vessels.
+- Hit rect size: 20px icon is small. Pad the hit rect to `iconSize + 6` (30px) on each side so the user doesn't have to pixel-hunt. Label rect is NOT a hit target — only the icon.
+- Icon drawn at `screenPos.z < 0` (behind camera) is early-returned at line `54` — sticky stays set but won't render. That's fine.
+- The flight scene has its own click handlers inside `ParsekUI` for the main window — make sure the map marker click handler runs *only* when `MapView.MapIsEnabled` (or the tracking station is active). Otherwise a click on the main-window area that happens to overlap a projected marker rect could double-fire. Quick guard: check `MapView.MapIsEnabled || HighLogic.LoadedScene == GameScenes.TRACKSTATION` at the top of the click branch.
+
+**Files to touch:**
+
+- `Source/Parsek/MapMarkerRenderer.cs` — add `markerKey` param, sticky set, hover/click handling. The only renderer.
+- `Source/Parsek/ParsekUI.cs` — `DrawMapMarkers` (line `626`) passes `rec.RecordingId` to the new `DrawMarker` signature.
+- `Source/Parsek/ParsekTrackingStation.cs` — line `102` passes `rec.RecordingId` too.
+- `Source/Parsek/ParsekScenario.cs` — call `MapMarkerRenderer.ResetForSceneChange()` from the existing scene-teardown path.
+- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool hover, bool sticky) => hover || sticky` (or similar) so the decision is testable without Unity. Toggle logic can also be extracted into a pure method `ToggleSticky(string key, HashSet<string> set)` for the same reason.
+- `CHANGELOG.md` under Unreleased: "Map view / tracking station ghost icons now match stock KSP: name label hidden by default, shows on hover, click to pin."
+
+**Open questions:**
+
+- Should the label style differ between hover (fading) and sticky (solid)? v1: identical. If users want visual distinction, bold the sticky one in a followup.
+- Does right-click do something else (center camera on ghost)? Stock uses left-click for target / right-click for center-focus on map nodes — for parity, consider adding right-click → `MapView.MapCamera.SetTarget(ghost)` if the ghost has a `ghostMapVesselPid` registered in `GhostMapPresence`. Defer to a followup unless trivial.
+- Map-node dedupe: when `GhostMapPresence` has already created a lightweight `ProtoVessel` for a ghost (for orbit line / tracking station integration), stock KSP draws a real `MapNode` for it, and `MapMarkerRenderer` draws a *second* custom icon on top. Confirm the custom icon is only drawn when there's no stock `MapNode` — grep for the condition in `ParsekUI.DrawMapMarkers`. If both draw, the label-hiding fix is moot in the dedupe case (stock label already shows). Worth verifying before starting work.
+
+**Status:** TODO. Size: S. Mostly `MapMarkerRenderer.cs` + call-site threading of `RecordingId` + one scene-reset hook. Main risk is clicking-on-marker vs. map-view drag interaction — test both scenes interactively before merging.
+
+---
+
+## 385. Timeline window: move Retired Stand-ins out, add a dedicated Kerbals Status window behind a toolbar button
+
+**Source:** maintenance request `2026-04-14`. The Retired Stand-ins list currently hangs off the bottom of the Timeline window (`UI/TimelineWindowUI.cs:523` `DrawRetiredKerbalsSection`, called from the main draw at line `238`). It's confusing in that location — "retired stand-ins" is not a timeline concept, and it takes vertical space that the timeline entry list should own.
+
+**Concern:** The timeline window mixes three unrelated concerns:
+
+1. Chronological entry list (the actual timeline).
+2. Retired Stand-ins list (per-kerbal admin state — `cachedRetiredKerbals` fed from `LedgerOrchestrator.Kerbals.GetRetiredKerbals()`, line `225`).
+3. Resource budget footer (funds/science/rep reservations — `DrawResourceBudget`, line `551`).
+
+The retired stand-ins belong in a kerbal-centric view alongside the other scattered kerbal state that users currently have no single place to look at:
+
+- **Reserved crew** — `CrewReservationManager.CrewReplacements` maps reserved→replacement kerbal names. Today the only way to know which kerbals are reserved is to cross-reference the game's astronaut complex and notice the `(Parsek: reserved)` suffix or similar.
+- **Replacement / stand-in kerbals** — the reverse map (who is standing in for whom, and which recording / tree committed them). `KerbalsModule.cs:420`-`479` is the canonical source.
+- **Retired stand-ins** — kerbals who served as a stand-in, got recovered, and are now retired from duty. Currently shown in the Timeline footer.
+- **Crew end-states per recording** — `CREW_END_STATES` ConfigNodes on each `Recording`; `KerbalsModule.cs` resolves them into live `ProtoCrewMember.State` updates. A Kerbals window could surface "which recording killed/stranded/recovered which kerbal" without the user having to open the Timeline and filter.
+
+**Desired behavior:**
+
+1. Remove `DrawRetiredKerbalsSection` from the Timeline window draw path (`TimelineWindowUI.cs:238`). Delete the `cachedRetiredKerbals` / `lastRetiredKerbalCount` fields (line `58`, rebuild at line `225`) from the Timeline window, or move them to the new Kerbals window's state.
+2. Add a small toolbar-style button in the Timeline window header — next to the existing filter / sort controls — labeled "Kerbals" (or an icon if the toolbar has one). Clicking it toggles a new `KerbalsWindowUI` sub-window, same pattern as `UI/ActionsWindowUI.cs` and `UI/SpawnControlUI.cs` (which are already coordinated from `ParsekUI.cs`).
+3. New `Source/Parsek/UI/KerbalsWindowUI.cs` following the existing UI sub-window convention:
+   - Own window rect + `showWindow` toggle persisted on the parent `ParsekUI`.
+   - Single `OnGUI` draw method with sections:
+     - **Reserved crew** (grouped by the recording / tree that reserved them) — pull from `CrewReservationManager.CrewReplacements`, invert the map if the "reserved → replacement" direction is more natural than "replacement → reserved" for users.
+     - **Active stand-ins** — replacements currently in play, with their originating recording name and status.
+     - **Retired stand-ins** — existing content from `DrawRetiredKerbalsSection`, same list, same styling (`timelineGrayStyle` equivalent).
+     - **Crew end-states summary** (optional v1) — count of dead / missing / recovered kerbals across all recordings. Collapsed by default if implemented.
+4. Log on open/close like other sub-windows (`ParsekLog.Info("UI", "Kerbals window opened/closed")`).
+5. Keep the resource budget footer where it is — it's still timeline-relevant (reservations are per-recording-in-flight and match the timeline's horizontal scope).
+
+**State sources to wire up:**
+
+- `CrewReservationManager.CrewReplacements` (line `22`) — `IReadOnlyDictionary<string, string>`. Keys are reserved kerbal names, values are replacement kerbal names.
+- `LedgerOrchestrator.Kerbals.GetRetiredKerbals()` — existing retired list.
+- `RecordingStore.CommittedRecordings` joined with `CrewReservationManager.ExtractCrewFromSnapshot(rec.GhostVisualSnapshot)` and `ExtractCrewFromSnapshot(rec.VesselSnapshot)` to compute start vs. end crew per recording. This is the data `KerbalsModule.cs:475` already uses — consider exposing a pure-static helper there so the Kerbals window can reuse it without duplicating the parse.
+- `CREW_END_STATES` ConfigNodes on each `Recording` (search for `crewEndStatesResolved` / `CREW_END_STATES` in `Recording.cs` and `RecordingTree.cs` for the load path).
+
+**Interaction with existing windows:**
+
+- `UI/ActionsWindowUI.cs` already shows some kerbal-adjacent state (retired list is also referenced there, confirm which window owns the canonical display). If actions window duplicates the retired list today, the Kerbals window should become the single canonical display and Actions should link/point to it or drop that section.
+- `ParsekUI.cs` coordinates sub-window lifetime. Add a `kerbalsWindowUI` field and dispatch `OnGUI` from the main `ParsekUI.OnGUI` like the other sub-windows.
+
+**Tests:**
+
+- Unit test the pure data shaping: a helper method on `KerbalsWindowUI` (or a pulled-out static) that takes `CrewReplacements` + `committedRecordings` + `retiredKerbals` and returns structured sections ready for rendering. Test empty-state, reserved-only, retired-only, and mixed populations.
+- No in-game runtime test needed unless the window exercises a code path the existing KerbalsModule tests don't cover.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/TimelineWindowUI.cs` — remove `DrawRetiredKerbalsSection`, `cachedRetiredKerbals`, `lastRetiredKerbalCount`; remove the call at line `238`; drop the cache-rebuild line at `225`; add the "Kerbals" toolbar button in the timeline header.
+- `Source/Parsek/UI/KerbalsWindowUI.cs` — new file, follow `UI/ActionsWindowUI.cs` structure.
+- `Source/Parsek/ParsekUI.cs` — register the new sub-window.
+- `Source/Parsek/CrewReservationManager.cs` — add a public helper `BuildReservedStandinPairs()` if the inverted/structured view is cleaner than the raw `CrewReplacements` dict. Optional.
+- `Source/Parsek.Tests/` — unit tests for the new pure data-shaping helper.
+- `CHANGELOG.md` under Unreleased: "New Kerbals Status window (reserved crew, active stand-ins, retired stand-ins) accessible from the Timeline window. Retired Stand-ins list removed from the Timeline footer."
+
+**Open questions:**
+
+- Toolbar entry vs. Timeline-header button: the user asked for "a button *in the timeline window*", so put it there first. If the window turns out to be broadly useful, a separate main-toolbar entry can come later.
+- Window persistence: should window position survive scene transitions? Follow whatever `ActionsWindowUI` does for consistency.
+- Sandbox mode: the resource budget footer hides in sandbox (`TimelineWindowUI.cs:554`-`559`). The Kerbals window probably shouldn't hide in sandbox — kerbal state still matters there. Confirm and don't blanket-copy the mode guard.
+
+**Status:** TODO. Size: S-M. Mostly UI plumbing + one new sub-window; no core logic changes. Cleans up the Timeline window's information density and gives kerbal admin state a proper home.
+
+---
+
+## 384. Copy the Learstar A1 mission from the S16 career into the test-career injector fixture as a far-away / map-view smoke test
+
+**Source:** maintenance request `2026-04-14`. The injected test career has lots of near-KSC content (Pad Walk, KSC Hopper, Flea Flight, etc.) and a handful of reentry recordings, but no representative mission with significant map-view / far-away state. The S16 campaign has a Learstar A1 flight that is a natural smoke test for this category.
+
+**Concern:** `Source/Parsek.Tests/SyntheticRecordingTests.cs` line `5497` calls `AddRealCareerRecordings(writer, kspRoot)` which reads the frozen fixture at `Source/Parsek.Tests/Fixtures/DefaultCareer/` (see `ResolveDefaultCareerFixtureDir` line `5952`). Any real-career recording used by `dotnet test --filter InjectAllRecordings` must live in that fixture — it does NOT read from the live S16 save at test time.
+
+Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs` (tree id `ab7b637507104dd8b621868485d7047e`, root recording `1bbb50cf98654a23a60b3248848b0301`). The tree has `maxDist = 500195928.56` m ( ~500 Mm, well outside Kerbin's 84 Mm SOI radius) — so it's a genuine map-view / far-away test case, not just another suborbital.
+
+**What to copy:**
+
+1. The full `RECORDING_TREE` node with id `ab7b637507104dd8b621868485d7047e` from `saves/s16/persistent.sfs`, including all child `RECORDING` nodes. As of the `2026-04-14` snapshot this includes at least:
+   - `1bbb50cf98654a23a60b3248848b0301` ("Learstar A1", 172 points, rewind save `parsek_rw_0a74d6`)
+   - `393b82ccb697492bb7b35c6c621f9d07` ("Learstar A1 Debris", 27 points, `isDebris=True`)
+   - Plus the remaining `Learstar A1 Debris` siblings under the same tree (grep for `Learstar` in `saves/s16/persistent.sfs` shows at least three debris recordings around lines 329, 776, 817, 840 — count them fresh when doing the actual copy, the S16 save grows).
+2. The matching sidecar files under `saves/s16/Parsek/Recordings/` — for each recording's `recordingId`, copy `<id>.prec`, `<id>_vessel.craft`, `<id>_ghost.craft` (and the readable `.txt` mirrors only if the fixture already stores them — check the existing DefaultCareer fixture before deciding; keeping mirrors out of the fixture is probably fine since they're regenerable and add bytes to the git tree).
+3. The rewind save file `parsek_rw_0a74d6.sfs` from `saves/s16/` — copy to `Source/Parsek.Tests/Fixtures/DefaultCareer/` so rewind-resume test paths can exercise the Learstar recording without needing a live S16 save. Verify whether the existing fixture already includes rewind saves (it should — `CopyRealRecordingFiles` at line `6026` copies them for live injection).
+4. Any `MILESTONE_STATE` entries tied to the Learstar flight — `AddRealCareerRecordings` already forwards all `MILESTONE_STATE` nodes from the fixture's `ParsekScenario` wholesale, so once the tree lives in the fixture persistent.sfs the milestones come along automatically.
+
+**Careful: the fixture persistent.sfs is a minimal hand-pruned save, not a clone of a live career.** Dropping the `RECORDING_TREE` node in isn't enough — verify:
+
+- No references to vessels/crew/parts that don't exist elsewhere in the fixture. Debris-only children should be self-contained (snapshot + trajectory), but the root recording's ghost snapshot must not depend on a MODULE from a mod the fixture persistent.sfs doesn't declare. If there's a mismatch, either strip the offending MODULE from the ghost snapshot or note in this TODO that the fixture needs an extra part-database shim.
+- No hard-coded universe time mismatches. The injector resolves `baseUT` dynamically (`ReadUTFromSave`, line `5349`) and offsets synthetic recordings from it (30s/60s/... see `SyntheticRecordingTests.cs:77`). Real career recordings keep their original UT range because they're copied verbatim — confirm Learstar A1's StartUT/EndUT don't collide with any existing real or synthetic recording's window in the test save. If the S16 campaign time is wildly later than the test save's daytime baseUT, the recording will render as "far future"; that may or may not be desirable for the smoke test. Worth checking what the current `AddRealCareerRecordings` flow does for the existing fixture recordings as a reference point.
+- Sidecar file format compatibility. The fixture currently stores `v1`-`v3` era files. Whatever format Learstar was recorded in must either match or go through a migration on load. Check `recordingFormatVersion` on the copied nodes (S16 Learstar shows `recordingFormatVersion = 3`) against the other fixture recordings — if they match, no migration concern.
+
+**Steps to actually do the copy:**
+
+1. Grep `saves/s16/persistent.sfs` for `Learstar` and collect every line from the tree's opening brace to its closing brace. Easiest via a small helper script or the `scripts/collect-logs.py` pattern — or just manual line extraction with the line numbers from grep and careful brace matching.
+2. Paste the full `RECORDING_TREE` block into `Source/Parsek.Tests/Fixtures/DefaultCareer/persistent.sfs` under the existing `ParsekScenario` SCENARIO node, after the current recording trees. Preserve surrounding indentation exactly.
+3. For each `recordingId` in the copied tree, copy `saves/s16/Parsek/Recordings/<id>.prec` + `_vessel.craft` + `_ghost.craft` to `Source/Parsek.Tests/Fixtures/DefaultCareer/Parsek/Recordings/`. Do NOT copy the `.txt` mirrors unless the fixture already has them for other recordings.
+4. Copy `saves/s16/parsek_rw_0a74d6.sfs` to `Source/Parsek.Tests/Fixtures/DefaultCareer/` if the other real-career fixture recordings have their rewind saves stored there; otherwise skip and drop the `rewindSave` value from the root recording.
+5. Run `dotnet test --filter InjectAllRecordings`. The existing assertions on line `5518`-`5535` only check for specific synthetic vessel names; add a new assertion `Assert.Contains("vesselName = Learstar A1", content)` so a future fixture regression (someone accidentally strips it) gets caught by the suite.
+6. Launch KSP, load the test career, confirm Learstar A1 appears in the recordings table, the ghost map presence shows at tracking station far from Kerbin, and the timeline plays back through map view without exceptions. This is the smoke test payoff — no unit test can exercise the map-view code path.
+
+**Fixture size impact:** Learstar A1's 172 trajectory points + debris children + vessel/ghost snapshots will add bytes to the git-tracked fixture. Check total size with `du -sh Source/Parsek.Tests/Fixtures/DefaultCareer` before and after the copy — if the increase is more than a few hundred KB, trim debris children that aren't strictly needed for the map-view smoke test (the root recording alone is the load-bearing one). Note the final size in the commit message.
+
+**Files to touch:**
+
+- `Source/Parsek.Tests/Fixtures/DefaultCareer/persistent.sfs` (add `RECORDING_TREE` block)
+- `Source/Parsek.Tests/Fixtures/DefaultCareer/Parsek/Recordings/` (new sidecar files)
+- `Source/Parsek.Tests/Fixtures/DefaultCareer/parsek_rw_0a74d6.sfs` (optional rewind save)
+- `Source/Parsek.Tests/SyntheticRecordingTests.cs` (add `vesselName = Learstar A1` assertion near line `5518`-`5535`)
+- `CHANGELOG.md` (Dev / internal section — not user-facing): "test career injector now includes a far-away / map-view smoke-test recording (Learstar A1 from S16 campaign)"
+
+**Status:** TODO. Size: S. Pure fixture plumbing, no runtime code changes. Main friction is the manual brace-matched copy of the RECORDING_TREE block and deciding whether to include all debris children or just the root.
+
+---
+
+## 383. Ghost engine flames should scale with nozzle diameter like stock KSP
+
+**Source:** maintenance request `2026-04-14`. Ghost flames on big engines (Mainsail, Mammoth, Rhino, Twin-Boar, KS-25x4 etc.) look visibly too small compared to the same engines running live in-game on the player vessel.
+
+**Concern:** `EngineFxBuilder.cs` clones the engine FX prefabs and places them on the ghost without rescaling to match the engine's thrust transform / nozzle size. The only size adjustments currently applied are:
+
+- Line `512`: `fxInstance.transform.localScale *= 0.35f` for the RAPIER white flame (`isRapierWhiteFlame`).
+- Line `517`-`518`: `main.startSizeMultiplier *= 0.45f` and `startSpeedMultiplier *= 0.75f` also for the RAPIER white flame only.
+- Lines `273` and `305`: `fxClone.transform.localScale = child.localScale` copies the *source child* local scale, which is typically `(1,1,1)` for prefab FX children — not the engine's thrust transform scale.
+
+Nothing in the pipeline reads the engine's nozzle diameter / thrust transform scale and propagates it to the FX. Stock KSP gets this right because the live `ModuleEngines` updates the particle system scale from the thrust transform each frame; Parsek never sees that update because the ghost FX is a static clone built at snapshot time.
+
+**What "proportional to nozzle diameter" means in practice:**
+
+KSP's engine FX emit from one or more `thrustTransform` GameObjects under the part. The `thrustTransform.lossyScale` (or `localScale` up the chain) encodes how the modeler sized the nozzle — a Mainsail's thrust transform is bigger than a Reliant's. Stock KSP scales the running effect's `startSize` / `startSpeed` by `thrustTransform.lossyScale.magnitude` (or a similar factor — investigate via `ilspycmd` on `ModuleEngines.FXUpdate` / `EffectList` before implementing). The same factor, captured at snapshot time, should be applied to the ghost FX clone.
+
+**Data capture (snapshot-time):** For each `ModuleEngines` on the recorded vessel, record a per-module `ThrustTransformScale` (float). Options:
+
+1. Average of `thrustTransform.lossyScale.magnitude / sqrt(3)` across all `thrustTransforms` on the module. This normalizes `(1,1,1)` → `1.0`.
+2. Bounding sphere radius derived from the thrust transform positions — closer to "nozzle diameter" but harder to reason about when an engine has multiple widely-spaced thrust points.
+
+Start with option 1. Add the field to the engine FX info payload (`GhostTypes.cs` or wherever `EngineGhostInfo` lives — grep for it). Serialize alongside existing engine FX data if it needs to survive save/load (check whether ghost FX is rebuilt from `_ghost.craft` or cached).
+
+**Application (build-time):** In `EngineFxBuilder.TryBuildEngineFX` (look for the main `BuildEngineFX` entry point, not just `TryBuildEngineFX`), after the `fxInstance` is cloned and parented:
+
+- Multiply `fxInstance.transform.localScale *= thrustTransformScale`.
+- Walk `fxInstance.GetComponentsInChildren<ParticleSystem>(true)` and multiply each `main.startSizeMultiplier *= thrustTransformScale`.
+- Consider whether `startSpeedMultiplier` should also scale (stock appears to scale it too, preserving the flame aspect ratio). Verify visually.
+- RAPIER white flame's `0.35f` / `0.45f` / `0.75f` constants need to compose with the new scale — keep them as *relative* adjustments applied on top of the nozzle-derived base.
+
+**Edge cases to check:**
+
+- Engines with multiple thrust transforms (Mammoth, Twin-Boar, KS-25x4) — the per-transform FX is currently instantiated per thrust point. Nozzle diameter here should be per-point, not averaged, so each flame plume stays the right size.
+- Engines with zero thrust transforms or `lossyScale == Vector3.zero` (broken modded parts) — fall back to `1.0`, don't divide by zero.
+- Fixed-scale model FX entries (`MODEL_MULTI_PARTICLE`) that already encode size in the config — these should *not* get a second scale factor applied. Discriminate by node type or test on a few stock engines (Ant, Spider, Reliant) to confirm they still look right.
+- Gimbal-animated engines — make sure the scale multiplication doesn't get reset by any per-frame code path that re-assigns `localScale`.
+
+**Files to touch:**
+
+- `Source/Parsek/EngineFxBuilder.cs` — main build path, apply scale.
+- `Source/Parsek/GhostTypes.cs` or wherever `EngineGhostInfo` is defined — add `ThrustTransformScale` field (verify file first).
+- `Source/Parsek/GhostVisualBuilder.cs` — snapshot-time capture site that feeds `EngineFxBuilder`.
+- `Source/Parsek.Tests/` — unit test for the scale computation helper (pure-static function that takes a list of `Vector3` scales and returns the factor).
+- `Source/Parsek/InGameTests/RuntimeTests.cs` — runtime test that snapshots a Mainsail on a test vessel, builds the ghost, and asserts the flame FX scale is approximately `mainsailThrustScale / reliantThrustScale` bigger than a Reliant-built ghost. Visual verification still needed.
+- `CHANGELOG.md` under Unreleased: "Ghost engine flames now scale with nozzle size, fixing visibly undersized flames on Mainsail, Mammoth, and other large engines."
+
+**Status:** TODO. Size: S-M. Mostly data capture + one scale multiplication; the hard part is picking the right factor and visually validating against stock. Decompile `ModuleEngines.FXUpdate` / `EffectList.OnEvent` first to confirm the formula stock actually uses.
+
+---
+
+## 382. Group "W" button should cycle to the next watchable vessel on each press
+
+**Source:** maintenance request `2026-04-14`. Today the group `W` button only ever resolves to one target (the group's "main" recording), so repeated presses toggle watch on/off for that single vessel. The user wants a **watch-next** semantics instead.
+
+**Concern:** `UI/RecordingsTableUI.cs` line `1336`-`1414` draws the group `W` button. It calls `FindGroupMainRecordingIndex(descendants, committed)` (line `2503`) which picks the non-debris descendant with the earliest `StartUT`, then routes that through `GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex` (line `3586` in `GhostPlaybackLogic.cs`) to get a single `resolvedWatchIdx`. The button enters watch mode on that one target (`flight.EnterWatchMode(resolvedWatchIdx)`, line `1409`). There is no concept of "next" — pressing `W` on a group with five watchable vessels will always pick the same main recording.
+
+**Desired behavior:** `W` on a group acts like a cyclic watch-next iterator over the group's watchable descendants.
+
+- Press 1: enter watch on the first eligible descendant (current "main" pick is fine as the seed).
+- Press 2: advance to the next eligible descendant in a stable order, switching watch target.
+- Press N: after the last eligible descendant, wrap back to the first (or exit watch — pick one, see open questions).
+- The `W*` indicator should still light up whenever *any* descendant in the group is currently watched, not just the first one.
+- Tooltip should reflect "next target: X" instead of "target: X" so the user knows what the next press will do.
+
+**Eligibility filter:** "watchable" = same filter the current single-target path uses (`hasGhost && sameBody && inRange && !IsDebris`). A vessel that is offscreen because of body/range should be skipped in the rotation — it never would have been enterable anyway. The rotation candidate set must also exclude the currently watched vessel's resolved chain head when it maps back to a group sibling (otherwise pressing `W` a second time on a single-vessel-watchable group would re-enter the same vessel).
+
+**State storage:** Per-group index cursor. Options:
+
+1. Transient in `RecordingsTableUI` (lost on UI close / scene change) — simplest, matches per-session mental model.
+2. Persisted in `GroupHierarchyStore` alongside `expandedGroups`. Heavier, only worth it if users complain about losing position.
+
+Start with option 1. Dictionary keyed by group name → last-entered `RecordingId` (not index — index is unstable across rewind/truncate, see bug #279 context on the same button). On each press, find the current cursor position in a freshly computed eligible list (by `RecordingId`), advance to the next, store the new `RecordingId`.
+
+**Interaction with existing watch infrastructure:**
+
+- `flight.EnterWatchMode(newIdx)` while already in watch mode should switch targets cleanly. Verify `WatchModeController` handles the switch without exiting and re-entering (which would reset camera anchoring). If it doesn't, either fix the controller or call a new `flight.SwitchWatchTarget(newIdx)` method.
+- The per-group log line at `1391`-`1395` (bug #279 infrastructure) currently logs transitions for a single resolved target. For watch-next, log `current→next` advances explicitly with the rotation position, and keep the cached `resolvedTargetId` pointing at the *next* target so the transition log still makes sense.
+- `lastCanWatchByGroup` and `lastResolvedWatchTargetByGroup` caches (line `143`-`144`) need to either be repurposed for the cursor or coexist with a new `groupWatchCursorByGroupName` dict. Prefer a new dict — the existing caches are specifically for logging transitions.
+
+**Open questions:**
+
+- After the last eligible vessel, does pressing `W` wrap to the first, or exit watch mode? Exit-then-wrap feels cleaner ("I've seen them all") but wrap is simpler. Pick wrap for v1.
+- Should the cursor reset when the eligible set changes (e.g., a new vessel becomes in-range)? Yes — if the stored `RecordingId` is no longer in the eligible list, fall back to the first eligible entry.
+- Does the ordering need to be user-visible? Stable order by `StartUT` (same as `FindGroupMainRecordingIndex`) is the natural default. If users want VesselName ordering, defer to a follow-up.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/RecordingsTableUI.cs` — group `W` button draw site (line `1336`-`1416`), add cursor dict, replace single-target resolution with rotation logic.
+- `Source/Parsek/GhostPlaybackLogic.cs` — consider adding a pure-static `AdvanceGroupWatchCursor(descendants, committed, cursorRecId, flight.WatchedRecordingIndex)` helper so the rotation decision is unit-testable independent of UI.
+- `Source/Parsek/WatchModeController.cs` — verify clean target switch, extend if needed.
+- Tests covering the new cursor advancement logic (empty eligible set, single-entry rotation, wrap, cursor-stale-recovery).
+- `CHANGELOG.md` under Unreleased: "Group `W` button now cycles to the next watchable vessel in the group on each press instead of always toggling the same target."
+
+**Status:** TODO. Size: S-M. No immediate blocker, but a high-visibility UX improvement for groups with multiple simultaneous ghosts.
+
+---
+
+## 381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period
+
+**Source:** maintenance request `2026-04-14`. The current "Loop every" field accepts negative values, which is confusing and only makes sense under the current end-to-start model.
+
+**Concern:** `GhostPlaybackLogic.ResolveLoopInterval` (line 226 in `Source/Parsek/GhostPlaybackLogic.cs`) treats `LoopIntervalSeconds` as the gap between the previous cycle's *end* and the next cycle's *start*, with `Math.Max(-duration + minCycleDuration, interval)` clamping so that negative values represent overlap (next loop launches before the current one finishes). Downstream consumers (`GhostPlaybackEngine.TryComputeLoopPlaybackUT`, `ParsekKSC.GetLoopIntervalSeconds`, `ParsekFlight.GetLoopIntervalSecondsForWatch`, the `LoopTimeUnit.Auto` branch) all follow the same end-to-start convention.
+
+The issue: recording duration is variable (a KSC Hopper is 30s, a Mun landing is 40 min), so "end + X seconds" is a useless unit for scheduling — users can't reason about cadence without first knowing every recording's length. Launch-to-launch period is what users actually want ("launch one every 10 minutes").
+
+**Proposed change:**
+
+1. Reinterpret `LoopIntervalSeconds` as **launch-to-launch period** — the fixed delta between successive cycle start times. The field is non-negative by definition.
+2. Reject negative values in the UI (`UI/RecordingsTableUI.cs` loop period editor) and in `ResolveLoopInterval`. Remove the `-duration + minCycleDuration` lower bound and replace it with `Math.Max(minCycleDuration, interval)`.
+3. Adapt the `LoopTimeUnit.Auto` path (`ParsekSettings.autoLoopIntervalSeconds`, default `10.0f`): Auto should now mean "launch every T seconds" with T = the global auto setting, independent of recording duration. Today Auto also feeds through `ResolveLoopInterval` end-to-start, so the semantics flip here too.
+4. Migration: existing recordings have `LoopIntervalSeconds = 10.0` (new default on `Recording.cs:44`) or user-edited values. A straight reinterpretation means a recording that was "10s gap after a 40s cycle" (= 50s launch-to-launch) becomes "10s launch-to-launch" (= 30s overlap). Decide whether to migrate on load (add `duration` to stored value on first v0 read) or accept the one-time behavior change and note it in CHANGELOG. Serialized field name `loopIntervalSeconds` in `.sfs` and `.prec` stays the same.
+5. Update `GhostPlaybackLogic.ResolveLoopInterval` tests, `GhostPlaybackEngine.TryComputeLoopPlaybackUT` tests, and any in-game tests that exercised the overlap (negative-interval) path. Overlap as a feature is preserved naturally: if `LoopIntervalSeconds < duration`, the next cycle launches before the previous one ends — same visual effect, no sign convention needed.
+6. Rename the UI label to clarify: "Launch every" instead of "Loop every", so the mental model matches the math.
+
+**Files to touch:**
+
+- `Source/Parsek/GhostPlaybackLogic.cs` (`ResolveLoopInterval`, line 226+)
+- `Source/Parsek/GhostPlaybackEngine.cs` (`TryComputeLoopPlaybackUT`, `GetLoopIntervalSeconds`)
+- `Source/Parsek/ParsekKSC.cs` (`GetLoopIntervalSeconds`, line 732)
+- `Source/Parsek/ParsekFlight.cs` (`GetLoopIntervalSecondsForWatch`, `autoLoopIntervalSeconds` plumbing at 8427/8504/8516)
+- `Source/Parsek/ParsekSettings.cs` (`autoLoopIntervalSeconds` docstring/range)
+- `Source/Parsek/Recording.cs` (default value comment, line 44)
+- `Source/Parsek/UI/RecordingsTableUI.cs` (loop period editor — reject negatives)
+- `Source/Parsek/UI/SettingsWindowUI.cs` (global auto-loop field description)
+- Tests covering `ResolveLoopInterval` and loop UT computation
+- `CHANGELOG.md` (behavior change notice) and this entry on completion
+
+**Status:** TODO. Design change, not a bug. Requires one-pass coordinated edit across engine + UI + migration decision. Size: M.
+
+---
+
 ## ~~372. PR #253 / #254 follow-up: dead helpers left behind after batch-skip pivot~~
 
 **Source:** light review of PRs `#246`-`#255` after `v0.8.0` ship.
