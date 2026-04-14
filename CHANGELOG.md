@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 _Unreleased._
 
+### Bug Fixes
+
+- `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
+
 ---
 
 ## 0.8.1
