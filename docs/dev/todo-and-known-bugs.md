@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~355. Flight anchor-camera ghost can miss engine plumes until watch mode~~
+
+**Observed in:** `logs/2026-04-14_1354_flight-ghost-engine-off` (2026-04-14). In Flight, the primary `Kerbal X` ghost looked like its engines were off from the normal anchor / in-flight camera view at liftoff even though `Watch Ghost` immediately showed the same ghost with engine plumes, and KSC playback also showed the plumes correctly.
+
+**Root cause:** the April 13 deferred-activation changes hid fresh ghosts until playback sync, but the Flight anchor-camera path was still consuming engine/RCS runtime state while that ghost was deferred/inactive. By the time the ghost became visible, the engine start/throttle events had already been applied and the one-shot runtime plume state was gone, so the first visible frame showed the mesh without the running plume FX. `Watch Ghost` and KSC playback did not regress because they replayed or applied the same runtime state while the ghost was already active.
+
+**Fix:** ghost playback now tracks current engine/RCS/audio power while applying runtime events and restores that deferred runtime FX state on the first active frame after deferred sync, but only when visual FX are not suppressed. The fix also clears tracked power on stop/decouple/destroy paths so stale runtime FX state cannot replay later. Focused regression coverage now pins the tracked-power collection/clearing helpers and the first-activation restore gate.
+
+**Status:** ~~Fixed~~ in PR `#281`
+
+---
+
 ## ~~354. Orbital end-of-playback spawns can use the wrong vessel snapshot even when the orbit is correct~~
 
 **Observed in:** `logs/2026-04-14_0419_high-warp-orbit-wrong-real-orbit` and `logs/2026-04-14_0434_orbital-spawn-wrong-snapshot-followup` (2026-04-14). After the `#353` orbit-source fixes, the real vessel for `Kerbal X` spawned onto the expected last stable Kerbin orbit instead of dying or inheriting a nonsense orbit, but the spawned vessel state still matched an older breakup-time snapshot instead of the final stable-recording state.
@@ -1367,6 +1379,16 @@ Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open on
 ---
 
 ## TODO — Ghost Visuals
+
+### T63. Ghost audio suppression still logs disabled-source warnings on first appearance
+
+The plume regression is fixed, but the fresh smoke bundle still shows a follow-up issue in the ghost audio suppression path. In `logs/2026-04-14_1459_ghost-engine-fix-smoke/KSP.log`, the main `Kerbal X` ghost now correctly starts engine state before its first visible Flight appearance (`GhostAudio` start lines at `15228`, `15230`, `15232`; appearance at `15235`; watch mode only later at `15244`), yet KSP still logs `Can not play a disabled audio source` immediately beforehand at `15227`, `15229`, and `15231`. The same pattern repeats earlier in the session at `11904-11908` and `15135-15139`.
+
+Current evidence points at the capped/suppressed ghost-audio path rather than the plume/fx-restore path: the warning clusters align with `GhostAudio` capping engine sources to 4 (`11901`, `15132`, `15224`) and with engine starts that report `suppressed=1` for the extra engines. This needs a targeted follow-up to confirm whether the cap/suppression path is still calling `Play()` on intentionally disabled sources, and to fix it without regressing the deferred first-frame engine FX restore from `#355`.
+
+**Priority:** Medium follow-up after merging `#355` — log noise / correctness issue, not a known plume-visibility regression
+
+---
 
 ### T25. Fairing internal truss structure after jettison
 
