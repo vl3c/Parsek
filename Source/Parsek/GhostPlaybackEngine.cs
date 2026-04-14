@@ -572,7 +572,8 @@ namespace Parsek
             // Apply visual events
             ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
                 zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
-            ActivateGhostVisualsIfNeeded(state);
+            if (ActivateGhostVisualsIfNeeded(state))
+                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
             TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: ctx.currentUT,
                 reason: "playback");
 
@@ -869,6 +870,8 @@ namespace Parsek
             // Apply visual events
             if (!skipLoopPartEvents)
                 ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, effectiveSuppressVisualFx);
+            if (ActivateGhostVisualsIfNeeded(state))
+                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
         }
 
         /// <summary>
@@ -985,7 +988,8 @@ namespace Parsek
                         positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
                         ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
                             zoneResult.skipPartEvents, effectiveSuppressVisualFx);
-                        ActivateGhostVisualsIfNeeded(primaryState);
+                        if (ActivateGhostVisualsIfNeeded(primaryState))
+                            GhostPlaybackLogic.RestoreDeferredRuntimeFxState(primaryState);
                         TrackGhostAppearance(index, traj, primaryState, primaryLoopUT, "loop-primary");
                     }
                 }
@@ -1081,7 +1085,8 @@ namespace Parsek
                 positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
                 ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
                     zoneResult.skipPartEvents, effectiveSuppressVisualFx);
-                ActivateGhostVisualsIfNeeded(ovState);
+                if (ActivateGhostVisualsIfNeeded(ovState))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(ovState);
                 TrackGhostAppearance(index, traj, ovState, loopUT, "loop-overlap");
             }
         }
@@ -2040,7 +2045,8 @@ namespace Parsek
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
                 skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
-            ActivateGhostVisualsIfNeeded(state);
+            if (ActivateGhostVisualsIfNeeded(state))
+                GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
             TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
         }
 
@@ -2110,15 +2116,18 @@ namespace Parsek
                 && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
         }
 
-        private static void ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
+        private static bool ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
         {
             if (state?.ghost == null)
-                return;
+                return false;
+
+            bool restoredDeferredState = state.deferVisibilityUntilPlaybackSync;
 
             if (!state.ghost.activeSelf)
                 state.ghost.SetActive(true);
 
             state.deferVisibilityUntilPlaybackSync = false;
+            return restoredDeferredState;
         }
 
         private static void ResetGhostAppearanceTracking(GhostPlaybackState state)
