@@ -1,6 +1,6 @@
 # Fix Plan: Bugs #269, #278, #279
 
-Status: drafted 2026-04-09 (post-review), revised 2026-04-10 after merging origin/main.
+Status: archived 2026-04-14. Historical fix-plan draft; `#278`/`#279` landed in PR `#176`, and `#269` landed later in PR `#184`.
 
 **Revision note (2026-04-10):** While this branch was open, PR #176 merged a different fix for #278 with the **correct** root-cause diagnosis (this draft's diagnosis was wrong). The PR #176 fix changed `FinalizePendingLimboTreeForRevert` to use real vessel situation instead of blanket-stamping leaves as Destroyed. The snapshot-loss part of the original #278 hypothesis was already covered by #280's PR #167. This plan has been updated to reflect that:
 

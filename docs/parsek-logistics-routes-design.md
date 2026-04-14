@@ -951,7 +951,7 @@ Destination destroyed (surface: proximity reconnects; orbital: route pauses). Or
 
 ## Appendix B: Reference Documents
 
-- `docs/dev/plans/phase-11-resource-snapshots.md` — Phase 11 detailed plan (resource snapshots, module architecture, route recording workflow)
+- `docs/dev/done/plans/phase-11-resource-snapshots.md` — Phase 11 detailed plan (resource snapshots, module architecture, route recording workflow)
 - `docs/dev/research/logistics-network-design.md` — logistics network research
 - `docs/dev/research/loop-playback-and-logistics.md` — loop mechanics and orbital drift
 - `docs/dev/research/resource-snapshots-preparation.md` — infrastructure analysis and unloaded vessel modification

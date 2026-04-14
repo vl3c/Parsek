@@ -142,9 +142,9 @@ Added 5 tests covering ORBITING(32) and ESCAPING(64) with thrust/no-thrust and a
 
 ## TODO — Refactor Deferred Items
 
-Items identified during refactor-2 (March 2026) but deferred because they require architectural changes beyond mechanical extraction. Full details in [refactor-2-deferred.md](plans/refactor-2-deferred.md).
+Items identified during refactor-2 (March 2026) but deferred because they require architectural changes beyond mechanical extraction. Full details in [refactor-2-deferred.md](refactor/refactor-2-deferred.md).
 
-A broader refactor-3 audit (March 2026) identified additional structural opportunities beyond these deferred items. Full analysis in [refactor-3-audit.md](plans/refactor-3-audit.md).
+A broader refactor-3 audit (March 2026) identified additional structural opportunities beyond these deferred items. Full analysis in [refactor-3-audit-old.md](refactor/refactor-3-audit-old.md).
 
 ### ~~T25. ParsekFlight TimelinePlaybackController extraction (D20)~~ DONE
 
@@ -2089,7 +2089,7 @@ Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit i
 
 **Root cause:** `ApplyOrbitToVessel` used `Orbit.UpdateFromOrbitAtUT()` which roundtrips through state vectors: Kepler elements -> pos/vel -> coordinate transforms -> re-derive Kepler elements. The `UpdateFromFixedVectors` step suffers catastrophic cancellation in the eccentricity vector computation for near-circular orbits (ecc ~0), producing significantly different `argumentOfPeriapsis` values. This shifts the vessel's position along the orbit relative to where the ghost mesh is (which uses a directly-constructed Orbit with the original elements). Additionally, `EnterWatchMode` had a hardcoded 100km distance limit ignoring the user's `ghostCameraCutoffKm` setting.
 
-**Decompilation evidence:** MapNode position comes from `vessel.GetWorldPos3D()` (set by OrbitDriver's `updateFromParameters()`) while ghost mesh uses `orbit.getPositionAtUT()` on a direct-constructed Orbit. Both compute `body.position + orbitRelativePos.xzy`, but with different Orbit internal states due to the roundtrip. `OrbitDriver.UpdateMode.IDLE` was considered but won't work — ghost ProtoVessels have no Rigidbody, so IDLE mode exits early without updating the vessel position. See `docs/dev/research/ghost-map-icon-position-fix.md`.
+**Decompilation evidence:** MapNode position comes from `vessel.GetWorldPos3D()` (set by OrbitDriver's `updateFromParameters()`) while ghost mesh uses `orbit.getPositionAtUT()` on a direct-constructed Orbit. Both compute `body.position + orbitRelativePos.xzy`, but with different Orbit internal states due to the roundtrip. `OrbitDriver.UpdateMode.IDLE` was considered but won't work — ghost ProtoVessels have no Rigidbody, so IDLE mode exits early without updating the vessel position. See `docs/dev/done/research/ghost-map-icon-position-fix.md`.
 
 **Fix (three parts):**
 1. **Position fix:** Replaced `UpdateFromOrbitAtUT` with `Orbit.SetOrbit()` in `ApplyOrbitToVessel`. `SetOrbit` directly assigns all 7 Keplerian elements + body and calls `Init()` — the same path as the Orbit constructor used by the ghost's cached orbit. Both Orbit objects now have identical internal state (confirmed 0.0m offset via per-frame diagnostic). Watch mode distance check now reads the user's `ghostCameraCutoffKm` setting.

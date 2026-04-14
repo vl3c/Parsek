@@ -2,7 +2,7 @@
 
 *ProtoVessel-based tracking station entries, orbit lines, and navigation targeting for ghost vessels.*
 
-**Status:** Implemented (Phases 1–3), pending in-game verification
+**Status:** Implemented (Phases 1–3) and archived after merge
 **Branch:** `claude/ghost-orbits-trajectories-JrKkc`
 **Prerequisites:** Investigation document + KSP API decompilation (same branch)
 
@@ -15,8 +15,8 @@ Ghost vessels are committed recordings playing back as visual Unity GameObjects.
 The investigation confirmed that KSP's `MapObject.ObjectType` is a closed enum — there is no map/tracking station presence without a real `Vessel` in `FlightGlobals.Vessels`. The ProtoVessel approach is the only viable path for full integration.
 
 **Reference documents:**
-- `docs/dev/research/ghost-orbits-trajectories-investigation.md` — problem, scenarios, edge cases
-- `docs/dev/research/ksp-map-presence-api-decompilation.md` — decompiled API reference
+- `docs/dev/done/research/ghost-orbits-trajectories-investigation.md` — problem, scenarios, edge cases
+- `docs/dev/done/research/ksp-map-presence-api-decompilation.md` — decompiled API reference
 - `docs/mods-references/KSPTrajectories-architecture-analysis.md` — custom rendering reference
 
 ---

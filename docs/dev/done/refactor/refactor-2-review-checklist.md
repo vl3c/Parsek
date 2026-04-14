@@ -66,7 +66,7 @@ Agent(
 
     Working directory: C:/Users/vlad3/Documents/Code/Parsek/Parsek-refactor-2/
 
-    1. Read docs/dev/plans/refactor-2-review-checklist.md for the full checklist
+    1. Read docs/dev/done/refactor/refactor-2-review-checklist.md for the full checklist
     2. Run: git show <COMMIT_HASH>
     3. Read every diff hunk. For each change, verify it against the checklist.
     4. For deduplication claims, read BOTH original blocks and verify they were identical.

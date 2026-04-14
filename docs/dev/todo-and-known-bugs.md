@@ -1316,7 +1316,7 @@ sidecars with legacy-text fallback. Current builds also keep a default-on readab
 path for `.prec` / `_vessel.craft` / `_ghost.craft` so binary-comparison debugging can happen
 without unpacking the authoritative files first.
 Remaining high-value work should stay measurement-gated and follow
-`docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
+`docs/dev/done/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
 - snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
