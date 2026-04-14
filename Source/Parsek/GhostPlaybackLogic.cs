@@ -1637,6 +1637,7 @@ namespace Parsek
         /// </summary>
         internal static void StopEngineFxForPart(GhostPlaybackState state, uint partPersistentId)
         {
+            ClearTrackedEnginePowerForPart(state, partPersistentId);
             if (state?.engineInfos == null) return;
             foreach (var info in state.engineInfos.Values)
             {
@@ -1659,6 +1660,7 @@ namespace Parsek
         /// </summary>
         internal static void StopRcsFxForPart(GhostPlaybackState state, uint partPersistentId)
         {
+            ClearTrackedRcsPowerForPart(state, partPersistentId);
             if (state?.rcsInfos == null) return;
             foreach (var info in state.rcsInfos.Values)
             {
@@ -1738,6 +1740,7 @@ namespace Parsek
         /// </summary>
         internal static void StopAudioForPart(GhostPlaybackState state, uint partPersistentId)
         {
+            ClearTrackedAudioPowerForPart(state, partPersistentId);
             if (state?.audioInfos == null) return;
             foreach (var info in state.audioInfos.Values)
             {
@@ -2218,6 +2221,19 @@ namespace Parsek
             return restores;
         }
 
+        internal static void ClearTrackedEnginePowerForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.engineInfos == null)
+                return;
+
+            foreach (var info in state.engineInfos.Values)
+            {
+                if (info != null && info.partPersistentId == partPersistentId)
+                    info.currentPower = 0f;
+            }
+        }
+
         internal static List<(ulong key, float power)> CollectDeferredRcsPowerRestores(
             GhostPlaybackState state)
         {
@@ -2237,6 +2253,19 @@ namespace Parsek
             return restores;
         }
 
+        internal static void ClearTrackedRcsPowerForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.rcsInfos == null)
+                return;
+
+            foreach (var info in state.rcsInfos.Values)
+            {
+                if (info != null && info.partPersistentId == partPersistentId)
+                    info.currentPower = 0f;
+            }
+        }
+
         internal static List<(ulong key, float power)> CollectDeferredAudioPowerRestores(
             GhostPlaybackState state)
         {
@@ -2254,6 +2283,19 @@ namespace Parsek
             }
 
             return restores;
+        }
+
+        internal static void ClearTrackedAudioPowerForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.audioInfos == null)
+                return;
+
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info != null && info.partPersistentId == partPersistentId)
+                    info.currentPower = 0f;
+            }
         }
 
         internal static void RestoreDeferredRuntimeFxState(GhostPlaybackState state)
