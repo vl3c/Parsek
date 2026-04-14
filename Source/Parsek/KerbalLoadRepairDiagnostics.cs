@@ -46,7 +46,6 @@ namespace Parsek
                     || EndStateRewrites > 0
                     || TouristRowsSkipped > 0
                     || RetiredStandInsRecreated > 0
-                    || RetiredStandInsKept > 0
                     || UnusedStandInsDeleted > 0;
             }
         }

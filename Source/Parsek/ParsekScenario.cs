@@ -1110,6 +1110,8 @@ namespace Parsek
                     }
 
                     LedgerOrchestrator.RecalculateAndPatch();
+                    if (KerbalLoadRepairDiagnostics.IsActive)
+                        KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                     ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                     WriteLoadTiming(sw, recordings.Count);

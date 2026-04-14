@@ -395,7 +395,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ApplyToRoster_WrapperPath_WithRetiredStandInOnly_LogsSummaryWithoutSlotData()
+        public void ApplyToRoster_WrapperPath_WithRetiredStandInOnly_DoesNotLogRepairSummary()
         {
             var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
@@ -444,17 +444,9 @@ namespace Parsek.Tests
             KerbalLoadRepairDiagnostics.EmitAndReset();
 
             Assert.True(RosterContains(roster, "Kirrim"));
-
-            string summaryLine = Assert.Single(logLines.FindAll(l =>
-                l.Contains("[KerbalLoad]")
-                && l.Contains("repair summary:")));
-            Assert.Contains("slotSource=none", summaryLine);
-            Assert.Contains("retiredKept=1", summaryLine);
-            Assert.Contains("retiredRecreated=0", summaryLine);
-            Assert.Contains("deletedUnused=0", summaryLine);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[KerbalLoad]")
-                && l.Contains("repair samples:"));
+                && l.Contains("repair summary:"));
         }
 
         private static HashSet<string> CollectRecordingIds()
