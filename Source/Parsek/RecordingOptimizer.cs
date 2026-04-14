@@ -1034,9 +1034,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when a PartEvent is a zero-effect control-state seed that should
+        /// not keep a long boring tail alive. Real positive-throttle / positive-power
+        /// transitions still count as interesting activity.
+        /// </summary>
+        internal static bool IsInertPartEventForTailTrim(PartEvent evt)
+        {
+            switch (evt.eventType)
+            {
+                case PartEventType.EngineIgnited:
+                case PartEventType.EngineThrottle:
+                case PartEventType.RCSActivated:
+                case PartEventType.RCSThrottle:
+                    return evt.value <= 0f;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Finds the UT of the last interesting activity in a recording.
-        /// Interesting = last non-boring TrackSection end, last PartEvent, last SegmentEvent,
-        /// or last FlagEvent — whichever is latest. Returns NaN if nothing interesting found.
+        /// Interesting = last non-boring TrackSection end, last non-inert PartEvent,
+        /// last SegmentEvent, or last FlagEvent — whichever is latest. Returns NaN if
+        /// nothing interesting found.
         /// </summary>
         internal static double FindLastInterestingUT(Recording rec)
         {
@@ -1058,8 +1078,15 @@ namespace Parsek
             // Last PartEvent
             if (rec.PartEvents != null && rec.PartEvents.Count > 0)
             {
-                double evtUT = rec.PartEvents[rec.PartEvents.Count - 1].ut;
-                if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+                for (int i = rec.PartEvents.Count - 1; i >= 0; i--)
+                {
+                    if (IsInertPartEventForTailTrim(rec.PartEvents[i]))
+                        continue;
+
+                    double evtUT = rec.PartEvents[i].ut;
+                    if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+                    break;
+                }
             }
 
             // Last SegmentEvent

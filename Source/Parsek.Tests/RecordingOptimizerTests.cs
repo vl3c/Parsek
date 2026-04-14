@@ -2069,6 +2069,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FindLastInterestingUT_ZeroThrottleEngineSeedInBoringTail_Ignored()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.ExoBallistic, startUT = 200, endUT = 800 });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 790,
+                eventType = PartEventType.EngineIgnited,
+                value = 0f,
+                partPersistentId = 2485666303,
+                partName = "liquidEngineMainsail.v2",
+                moduleIndex = 0
+            });
+
+            Assert.Equal(200, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
         public void FindLastInterestingUT_SegmentEventTakesMaximum()
         {
             var rec = new Recording();
@@ -2583,6 +2604,49 @@ namespace Parsek.Tests
             // Should trim based on event at 17200, not section end at 17050
             Assert.True(rec.EndUT >= 17200);
             Assert.True(rec.EndUT <= 17210 + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_StableOrbitLateZeroThrottleEngineSeed_StillTrims()
+        {
+            var rec = MakeRecordingWithBoringTail(2000, 2042.84, 5000,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 6, boringPointCount: 40);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 2042.84,
+                eventType = PartEventType.EngineThrottle,
+                value = 0f,
+                partPersistentId = 2485666303,
+                partName = "liquidEngineMainsail.v2",
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 2042.84,
+                eventType = PartEventType.EngineShutdown,
+                value = 0f,
+                partPersistentId = 2485666303,
+                partName = "unknown",
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 4995,
+                eventType = PartEventType.EngineIgnited,
+                value = 0f,
+                partPersistentId = 2485666303,
+                partName = "liquidEngineMainsail.v2",
+                moduleIndex = 0
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(rec.EndUT >= 2042.84);
+            Assert.True(rec.EndUT <= 2042.84 + RecordingOptimizer.DefaultTailBufferSeconds + 1,
+                $"Expected stable orbit to trim near entry, got EndUT={rec.EndUT}");
+            Assert.DoesNotContain(rec.PartEvents,
+                e => e.eventType == PartEventType.EngineIgnited && e.value <= 0f && e.ut > rec.EndUT);
         }
 
         /// <summary>
