@@ -577,16 +577,6 @@ namespace Parsek
             HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.FindGroupMainRecordingIndex(descendants, committed);
 
-        internal static int FindGroupWatchRecordingIndex(
-            HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.FindGroupWatchRecordingIndex(descendants, committed);
-
-        internal static int FindGroupWatchRecordingIndex(
-            HashSet<int> descendants,
-            IReadOnlyList<Recording> committed,
-            Func<int, bool> isGhostActive)
-            => RecordingsTableUI.FindGroupWatchRecordingIndex(descendants, committed, isGhostActive);
-
         internal static void GetGroupStatus(HashSet<int> descendants, IReadOnlyList<Recording> committed,
             double now, out string statusText, out int statusOrder)
             => RecordingsTableUI.GetGroupStatus(descendants, committed, now, out statusText, out statusOrder);

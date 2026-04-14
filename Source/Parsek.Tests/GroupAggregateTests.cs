@@ -546,35 +546,5 @@ namespace Parsek.Tests
             var descendants = new HashSet<int> { 0, 1 };
             Assert.Equal(1, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
         }
-
-        [Fact]
-        public void WatchRecording_AllDebris_ReturnsEarliestDebris()
-        {
-            var d1 = MakeRec(17050, 17150, "Stage2"); d1.IsDebris = true;
-            var d2 = MakeRec(17000, 17100, "Stage1"); d2.IsDebris = true;
-            var committed = new List<Recording> { d1, d2 };
-            var descendants = new HashSet<int> { 0, 1 };
-            Assert.Equal(1, ParsekUI.FindGroupWatchRecordingIndex(descendants, committed));
-        }
-
-        [Fact]
-        public void WatchRecording_MixedTypes_PrefersEarliestNonDebris()
-        {
-            var debris = MakeRec(17000, 17100, "Booster"); debris.IsDebris = true;
-            var main = MakeRec(17050, 17200, "Rocket");
-            var committed = new List<Recording> { debris, main };
-            var descendants = new HashSet<int> { 0, 1 };
-            Assert.Equal(1, ParsekUI.FindGroupWatchRecordingIndex(descendants, committed));
-        }
-
-        [Fact]
-        public void WatchRecording_ActiveSiblingBeatsEarlierInactiveDebris()
-        {
-            var earlier = MakeRec(17000, 17100, "Stage1"); earlier.IsDebris = true;
-            var later = MakeRec(17050, 17150, "Stage2"); later.IsDebris = true;
-            var committed = new List<Recording> { earlier, later };
-            var descendants = new HashSet<int> { 0, 1 };
-            Assert.Equal(1, ParsekUI.FindGroupWatchRecordingIndex(descendants, committed, idx => idx == 1));
-        }
     }
 }
