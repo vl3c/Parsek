@@ -1002,14 +1002,6 @@ namespace Parsek
         /// </summary>
         internal const double DefaultTailBufferSeconds = 10.0;
 
-        internal const double StableTailSurfaceLatitudeTolerance = 1e-4;
-        internal const double StableTailSurfaceLongitudeTolerance = 1e-4;
-        internal const double StableTailSurfaceAltitudeTolerance = 5.0;
-        internal const float StableTailSurfaceRotationToleranceDegrees = 1.0f;
-        internal const double StableTailOrbitSemiMajorAxisTolerance = 1000.0;
-        internal const double StableTailOrbitEccentricityTolerance = 1e-4;
-        internal const double StableTailOrbitAngleToleranceDegrees = 0.05;
-
         /// <summary>
         /// Minimum recording duration to be eligible for tail trimming.
         /// Recordings shorter than this are left untouched.
@@ -1124,6 +1116,7 @@ namespace Parsek
             switch (rec.TerminalStateValue.Value)
             {
                 case TerminalState.Orbiting:
+                case TerminalState.SubOrbital:
                 case TerminalState.Docked:
                     return TailMatchesTerminalOrbit(rec, trimUT);
 
@@ -1193,19 +1186,19 @@ namespace Parsek
             if (seg.bodyName != rec.TerminalOrbitBody)
                 return false;
 
-            if (Math.Abs(seg.semiMajorAxis - rec.TerminalOrbitSemiMajorAxis) > StableTailOrbitSemiMajorAxisTolerance)
+            if (seg.semiMajorAxis != rec.TerminalOrbitSemiMajorAxis)
                 return false;
 
-            if (Math.Abs(seg.eccentricity - rec.TerminalOrbitEccentricity) > StableTailOrbitEccentricityTolerance)
+            if (seg.eccentricity != rec.TerminalOrbitEccentricity)
                 return false;
 
-            if (AngleDeltaDegrees(seg.inclination, rec.TerminalOrbitInclination) > StableTailOrbitAngleToleranceDegrees)
+            if (seg.inclination != rec.TerminalOrbitInclination)
                 return false;
 
-            if (AngleDeltaDegrees(seg.longitudeOfAscendingNode, rec.TerminalOrbitLAN) > StableTailOrbitAngleToleranceDegrees)
+            if (seg.longitudeOfAscendingNode != rec.TerminalOrbitLAN)
                 return false;
 
-            if (AngleDeltaDegrees(seg.argumentOfPeriapsis, rec.TerminalOrbitArgumentOfPeriapsis) > StableTailOrbitAngleToleranceDegrees)
+            if (seg.argumentOfPeriapsis != rec.TerminalOrbitArgumentOfPeriapsis)
                 return false;
 
             return true;
@@ -1300,13 +1293,13 @@ namespace Parsek
                     return false;
             }
 
-            if (Math.Abs(pt.latitude - terminalLat) > StableTailSurfaceLatitudeTolerance)
+            if (pt.latitude != terminalLat)
                 return false;
 
-            if (Math.Abs(pt.longitude - terminalLon) > StableTailSurfaceLongitudeTolerance)
+            if (pt.longitude != terminalLon)
                 return false;
 
-            if (Math.Abs(pt.altitude - terminalAlt) > StableTailSurfaceAltitudeTolerance)
+            if (pt.altitude != terminalAlt)
                 return false;
 
             bool pointHasRotation = HasMeaningfulRotation(pt.rotation);
@@ -1315,8 +1308,13 @@ namespace Parsek
                 if (!(hasTerminalRotation && pointHasRotation))
                     return false;
 
-                if (Quaternion.Angle(pt.rotation, terminalRotation) > StableTailSurfaceRotationToleranceDegrees)
+                if (pt.rotation.x != terminalRotation.x
+                    || pt.rotation.y != terminalRotation.y
+                    || pt.rotation.z != terminalRotation.z
+                    || pt.rotation.w != terminalRotation.w)
+                {
                     return false;
+                }
             }
 
             return true;
@@ -1325,12 +1323,6 @@ namespace Parsek
         private static bool HasMeaningfulRotation(Quaternion rotation)
         {
             return rotation.x != 0f || rotation.y != 0f || rotation.z != 0f || rotation.w != 0f;
-        }
-
-        private static double AngleDeltaDegrees(double a, double b)
-        {
-            double delta = Math.Abs(a - b) % 360.0;
-            return delta > 180.0 ? 360.0 - delta : delta;
         }
 
         /// <summary>

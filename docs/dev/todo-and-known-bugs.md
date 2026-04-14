@@ -25,7 +25,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 **Root cause:** `RecordingOptimizer.TrimBoringTail()` only enforced `lastInterestingUT + bufferSeconds`; it never proved that the tail after that trim point already matched the true terminal spawn state. That made it legal to trim while the vessel was still coasting toward a different final orbit or still changing on the surface before its real terminal rest state.
 
-**Fix:** boring-tail trim now requires the post-trim tail to preserve the terminal spawn state. Orbiting/docked recordings only trim when every remaining orbit segment/checkpoint already matches the terminal orbit shape within tolerance, and landed/splashed recordings only trim when all remaining tail points already match the final terminal surface state. Added stable-vs-changing orbit and stable-vs-changing landed regressions.
+**Fix:** boring-tail trim now requires the post-trim tail to preserve the exact terminal spawn state. Orbiting/docked/suborbital recordings only trim when every remaining orbit segment/checkpoint is an exact match for the final terminal orbit shape, and landed/splashed recordings only trim when all remaining tail points exactly match the final terminal surface state. Added stable-vs-changing orbit, suborbital, and landed regressions.
 
 **Status:** ~~Fixed~~
 
