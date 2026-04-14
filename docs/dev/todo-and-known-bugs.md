@@ -7,6 +7,30 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~357. Deferred orbital spawn can switch the live active vessel without Parsek switching its recorder/tree~~
+
+**Observed in:** `logs/2026-04-14_1624_orbital-spawn-bug` (2026-04-14). During watched playback of `Goliath II HLV`, KSP handed control to the newly spawned real vessel, but Parsek still believed the active recorder/tree belonged to the pad-launched `Jumping Flea`. That left a short desync window immediately after spawn where subsequent logic was running against the wrong active vessel.
+
+**Root cause:** the deferred orbital-spawn path could change `FlightGlobals.ActiveVessel` without Parsek seeing either of the normal reconciliation paths in time: the expected `onVesselChange` callback was missed, and the physics-frame recorder path never noticed the mismatch before later tree logic ran. Parsek therefore kept the stale recorder PID until some later transition happened to correct it.
+
+**Fix:** `ParsekFlight.Update()` now runs a narrow missed-switch recovery safety net before the other tree transition handlers. When tree state is stable and the active vessel PID provably diverges from Parsek's active recorder/tree state, it replays the normal `OnVesselSwitchComplete()` handoff. Added regression coverage for the pure guard and the required `Update()` ordering.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~356. Boring-tail trim can cut a recording before the true final spawn state is reached~~
+
+**Observed in:** `logs/2026-04-14_1724_orbital-spawn-bug` (2026-04-14). After merging the `Goliath II HLV` recording, the optimizer shortened the committed exo leaf from `endUT=610217.8` down to `309083.3` even though the eventual spawned state later changed again before the real mission end. Playback therefore finished early and the later spawn no longer represented "the final-final state that never changes again until spawn."
+
+**Root cause:** `RecordingOptimizer.TrimBoringTail()` only enforced `lastInterestingUT + bufferSeconds`; it never proved that the tail after that trim point already matched the true terminal spawn state. That made it legal to trim while the vessel was still coasting toward a different final orbit or still changing on the surface before its real terminal rest state.
+
+**Fix:** boring-tail trim now requires the post-trim tail to preserve the exact terminal spawn state. Orbiting/docked/suborbital recordings only trim when every remaining orbit segment/checkpoint is an exact match for the final terminal orbit shape, and landed/splashed recordings only trim when all remaining tail points exactly match the final terminal surface state. Added stable-vs-changing orbit, suborbital, and landed regressions.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~355. Flight anchor-camera ghost can miss engine plumes until watch mode~~
 
 **Observed in:** `logs/2026-04-14_1354_flight-ghost-engine-off` (2026-04-14). In Flight, the primary `Kerbal X` ghost looked like its engines were off from the normal anchor / in-flight camera view at liftoff even though `Watch Ghost` immediately showed the same ghost with engine plumes, and KSC playback also showed the plumes correctly.
