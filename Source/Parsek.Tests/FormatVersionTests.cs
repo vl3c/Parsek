@@ -439,6 +439,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DeserializeTrajectoryFrom_V1WithMalformedDuplicatedFlatPrefix_HealsFromTrackSectionPrefixAndKeepsTail()
+        {
+            var rec = BuildStaleTrackSectionTailRecording(formatVersion: 1);
+            rec.Points.Insert(2, MakePoint(100.0, 0.0, 0.0, 1000.0));
+            rec.Points.Insert(3, MakePoint(110.0, 0.05, 0.02, 1200.0));
+
+            var node = new ConfigNode("PARSEK_RECORDING");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            logLines.Clear();
+            var restored = new Recording { RecordingId = rec.RecordingId };
+            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+
+            Assert.Equal(new[] { 100.0, 110.0, 120.0 }, restored.Points.Select(p => p.ut).ToArray());
+            Assert.Single(restored.TrackSections);
+            Assert.True(restored.FilesDirty);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("DeserializeTrajectoryFrom") &&
+                l.Contains("healed malformed flat fallback"));
+        }
+
+        [Fact]
         public void DeserializeTrajectoryFrom_InvalidVersion_LogsWarningAndTreatsAsV0()
         {
             var node = new ConfigNode("PARSEK_RECORDING");

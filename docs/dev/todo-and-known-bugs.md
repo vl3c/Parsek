@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~360. Loaded committed recordings can keep a duplicated flat-prefix tail and fail monotonicity checks~~
+
+**Observed in:** `logs/2026-04-14_1836_pr285-ingame-batches` (2026-04-14). Both the KSC-view and FLIGHT-mode in-game batches failed `RuntimeTests.CommittedRecordingsHaveValidData` on committed recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) because the loaded point list jumped backward from `170.92` to `155.84`.
+
+**Root cause:** the committed sidecar on disk was already malformed in a specific flat-fallback shape: top-level `Points` duplicated the exact trajectory payload already represented by nested `TrackSections`, then appended a later monotonic tail. `DeserializeTrajectoryFrom(...)` accepted that stale flat fallback as-is whenever section-authoritative rebuild was unavailable, so runtime validation could still see a non-monotonic committed recording even after the earlier overlap-aware merge fixes.
+
+**Fix:** flat-fallback load now detects the "duplicated track-section prefix plus later monotonic suffix" shape, rebuilds the authoritative prefix from `TrackSections`, appends only the safe monotonic suffix, and marks the recording dirty so the next save rewrites the sidecar cleanly. Added a regression test that serializes/deserializes that malformed v1 payload and pins the healed result.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~359. Background section flushes can duplicate flat tails and leave one-point destroyed debris stubs after merge~~
 
 **Observed in:** the same 2026-04-14 follow-up investigation that found the missing `Rewind` button. The runtime/in-game suite was failing `CommittedRecordingsHaveValidData` and `RecordingStopMetricsValid`, and merged quickload-resume trees could retain non-monotonic flat tails or single-point destroyed debris leaves that were never meant to survive commit.

@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#360` Flat-fallback committed recording loads now heal malformed sidecars whose top-level point/orbit lists start by duplicating the exact `TrackSection` payload and only later resume with a valid tail, so old committed debris/background recordings no longer fail monotonicity validation just because the stale flat fallback survived on disk.
 - `#359` Background `TrackSection` flush/merge paths now dedupe real multi-point overlaps instead of only shaving a single boundary frame, and finalize/revert now prune one-point destroyed debris stubs before they can poison commit metrics, so merged recordings stay structurally monotonic and the related recording-integrity / stop-metrics failures are gone (`PR #285`).
 - `#358` Trees committed after an in-flight `F5`/`F9` quickload-resume now keep the root rewind save, reserved resource budget, and pre-launch baseline across quickload save, vessel-switch/background, split/promotion, and finalize paths, so destroyed-end merged recordings keep a working `Rewind` button instead of silently losing `R` (`PR #285`).
 - `#357` Deferred orbital end-of-playback spawns now recover missed active-vessel handoffs when KSP switches to the spawned vessel without Parsek seeing the normal vessel-switch path, so the live recorder/tree no longer stays attached to the previous vessel through the post-spawn frame sequence.
@@ -101,6 +102,7 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
+- Added regression coverage for malformed flat-fallback committed sidecars whose duplicated `TrackSection` prefix leaves a later monotonic tail, so load-time healing now preserves the real suffix and rewrites the sidecar cleanly on the next save (`#360`).
 - Added regression coverage for quickload-resume rewind metadata propagation and background recording integrity, including root rewind-budget fallback, recorder-backed commit-path wiring, overlap-aware flat-tail preservation, destroyed-stub prune guards, and the refreshed in-game runtime log-contract assertion behind the `#358` / `#359` fallout.
 - Added regression coverage for missed vessel-switch recovery after deferred orbital spawns, including the pure guard cases and the `Update()` ordering requirement that recovery run before other tree transition handlers (`#357`).
 - Added regression coverage for terminal-state-aware boring-tail trim gating, including exact-match orbit/surface stability checks and the `SubOrbital` orbit-tail path so trims only happen once the spawn state has truly stopped changing (`#356`).
