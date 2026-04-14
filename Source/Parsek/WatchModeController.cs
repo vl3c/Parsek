@@ -71,6 +71,10 @@ namespace Parsek
         // Horizon-locked camera mode state
         private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
         private bool userModeOverride;  // true when user pressed toggle; cleared on EnterWatchMode
+        private bool hasRememberedFreeCameraState;
+        private WatchCameraTransitionState rememberedFreeCameraState;
+        private bool hasRememberedHorizonLockedCameraState;
+        private WatchCameraTransitionState rememberedHorizonLockedCameraState;
 
         // Lazy-initialized GUI styles for the watch mode overlay
         private GUIStyle watchOverlayStyle;
@@ -272,6 +276,16 @@ namespace Parsek
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
+        internal static bool IsFiniteVector3(Vector3 value)
+        {
+            return !float.IsNaN(value.x)
+                && !float.IsNaN(value.y)
+                && !float.IsNaN(value.z)
+                && !float.IsInfinity(value.x)
+                && !float.IsInfinity(value.y)
+                && !float.IsInfinity(value.z);
+        }
+
         internal static Vector3 OrbitDirectionFromAngles(float pitch, float heading)
         {
             float pitchRad = pitch * Mathf.Deg2Rad;
@@ -291,6 +305,62 @@ namespace Parsek
                 $"fwd={FormatVector3ForLogs(forward)} " +
                 $"up={FormatVector3ForLogs(up)} " +
                 $"right={FormatVector3ForLogs(right)}";
+        }
+
+        internal static bool TryResolveWorldOrbitDirection(
+            Quaternion cameraFrameRotation,
+            float pitch,
+            float heading,
+            out Vector3 worldOrbitDirection)
+        {
+            worldOrbitDirection = Vector3.zero;
+            Vector3 orbitDirection = RotateVectorByQuaternion(
+                cameraFrameRotation,
+                OrbitDirectionFromAngles(pitch, heading));
+            float sqrMagnitude = orbitDirection.sqrMagnitude;
+            if (sqrMagnitude <= 1e-6f || !IsFiniteVector3(orbitDirection))
+                return false;
+
+            worldOrbitDirection = orbitDirection / Mathf.Sqrt(sqrMagnitude);
+            return true;
+        }
+
+        internal static bool TryGetCurrentFlightCameraPivotRotation(
+            FlightCamera flightCamera,
+            out Quaternion pivotRotation)
+        {
+            pivotRotation = new Quaternion(0f, 0f, 0f, 1f);
+            if (flightCamera == null)
+                return false;
+
+            Quaternion rawPivotRotation;
+            try
+            {
+                rawPivotRotation = flightCamera.pivotRotation;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return false;
+            }
+            catch (MethodAccessException)
+            {
+                return false;
+            }
+
+            float sqrMagnitude =
+                rawPivotRotation.x * rawPivotRotation.x
+                + rawPivotRotation.y * rawPivotRotation.y
+                + rawPivotRotation.z * rawPivotRotation.z
+                + rawPivotRotation.w * rawPivotRotation.w;
+            if (sqrMagnitude <= 1e-12f
+                || float.IsNaN(sqrMagnitude)
+                || float.IsInfinity(sqrMagnitude))
+            {
+                return false;
+            }
+
+            pivotRotation = NormalizeQuaternion(rawPivotRotation);
+            return true;
         }
 
         private static bool TryResolveWorldOrbitDirectionForLogs(
@@ -324,16 +394,28 @@ namespace Parsek
                 return;
 
             Transform sourceTarget = flightCamera.Target;
-            Vector3 orbitCenter = flightCamera.transform.parent != null
-                ? flightCamera.transform.parent.position
-                : sourceTarget != null
-                    ? sourceTarget.position
-                    : Vector3.zero;
-            bool hasWorldOrbitDirection = TryResolveWorldOrbitDirectionForLogs(
+            bool hasCapturedWorldOrbitDirection = TryResolveWorldOrbitDirectionForLogs(
                 cameraState,
-                out var worldOrbitDirection);
+                out var capturedWorldOrbitDirection);
+            bool hasPivotRotation = TryGetCurrentFlightCameraPivotRotation(
+                flightCamera,
+                out var pivotRotation);
+            Vector3 pivotWorldOrbitDirection = Vector3.zero;
+            bool hasPivotWorldOrbitDirection = hasPivotRotation
+                && TryResolveWorldOrbitDirection(
+                    pivotRotation,
+                    cameraState.Pitch,
+                    cameraState.Heading,
+                    out pivotWorldOrbitDirection);
+            bool hasGeometricWorldOrbitDirection = TryGetCurrentFlightCameraGeometricOrbitDirection(
+                flightCamera,
+                out var orbitCenter,
+                out var geometricWorldOrbitDirection);
             string sourceBasis = cameraState.HasTargetRotation
                 ? FormatRotationBasisForLogs(cameraState.TargetRotation)
+                : "basis=?";
+            string pivotBasis = hasPivotRotation
+                ? FormatRotationBasisForLogs(pivotRotation)
                 : "basis=?";
 
             ParsekLog.Info("CameraFollow",
@@ -343,8 +425,12 @@ namespace Parsek
                 $"pitch={cameraState.Pitch.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"hdg={cameraState.Heading.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"mode={cameraState.Mode} override={cameraState.UserModeOverride} " +
-                $"hasWorldOrbit={hasWorldOrbitDirection} worldOrbit={(hasWorldOrbitDirection ? FormatVector3ForLogs(worldOrbitDirection) : "?")} " +
-                $"{sourceBasis}");
+                $"capturedWorldOrbit={(hasCapturedWorldOrbitDirection ? FormatVector3ForLogs(capturedWorldOrbitDirection) : "?")} " +
+                $"pivotWorldOrbit={(hasPivotWorldOrbitDirection ? FormatVector3ForLogs(pivotWorldOrbitDirection) : "?")} " +
+                $"geometricWorldOrbit={(hasGeometricWorldOrbitDirection ? FormatVector3ForLogs(geometricWorldOrbitDirection) : "?")} " +
+                $"targetDir={FormatVector3ForLogs(flightCamera.targetDirection)} " +
+                $"endDir={FormatVector3ForLogs(flightCamera.endDirection)} " +
+                $"pivotBasis={pivotBasis} targetBasis={sourceBasis}");
         }
 
         private void LogAppliedWatchCameraTransfer(
@@ -713,10 +799,35 @@ namespace Parsek
             out Vector3 worldOrbitDirection)
         {
             worldOrbitDirection = Vector3.zero;
+            if (flightCamera == null)
+                return false;
+
+            if (TryGetCurrentFlightCameraPivotRotation(flightCamera, out var pivotRotation)
+                && TryResolveWorldOrbitDirection(
+                    pivotRotation,
+                    flightCamera.camPitch,
+                    flightCamera.camHdg,
+                    out worldOrbitDirection))
+            {
+                return true;
+            }
+
+            return TryGetCurrentFlightCameraGeometricOrbitDirection(
+                flightCamera,
+                out _,
+                out worldOrbitDirection);
+        }
+
+        internal static bool TryGetCurrentFlightCameraGeometricOrbitDirection(
+            FlightCamera flightCamera,
+            out Vector3 orbitCenter,
+            out Vector3 worldOrbitDirection)
+        {
+            orbitCenter = Vector3.zero;
+            worldOrbitDirection = Vector3.zero;
             if (flightCamera?.transform == null)
                 return false;
 
-            Vector3 orbitCenter;
             if (flightCamera.transform.parent != null)
             {
                 orbitCenter = flightCamera.transform.parent.position;
@@ -732,13 +843,7 @@ namespace Parsek
 
             Vector3 orbitVector = flightCamera.transform.position - orbitCenter;
             float sqrMagnitude = orbitVector.sqrMagnitude;
-            if (sqrMagnitude <= 1e-6f
-                || float.IsNaN(orbitVector.x)
-                || float.IsNaN(orbitVector.y)
-                || float.IsNaN(orbitVector.z)
-                || float.IsInfinity(orbitVector.x)
-                || float.IsInfinity(orbitVector.y)
-                || float.IsInfinity(orbitVector.z))
+            if (sqrMagnitude <= 1e-6f || !IsFiniteVector3(orbitVector))
             {
                 return false;
             }
@@ -757,6 +862,81 @@ namespace Parsek
                 currentCameraMode,
                 userModeOverride,
                 out cameraState);
+        }
+
+        private void RememberWatchCameraState(WatchCameraTransitionState cameraState)
+        {
+            switch (cameraState.Mode)
+            {
+                case WatchCameraMode.Free:
+                    rememberedFreeCameraState = cameraState;
+                    hasRememberedFreeCameraState = true;
+                    break;
+
+                case WatchCameraMode.HorizonLocked:
+                    rememberedHorizonLockedCameraState = cameraState;
+                    hasRememberedHorizonLockedCameraState = true;
+                    break;
+            }
+        }
+
+        private bool TryGetRememberedWatchCameraState(
+            WatchCameraMode mode,
+            out WatchCameraTransitionState cameraState)
+        {
+            cameraState = default(WatchCameraTransitionState);
+            switch (mode)
+            {
+                case WatchCameraMode.Free:
+                    if (!hasRememberedFreeCameraState)
+                        return false;
+                    cameraState = rememberedFreeCameraState;
+                    return true;
+
+                case WatchCameraMode.HorizonLocked:
+                    if (!hasRememberedHorizonLockedCameraState)
+                        return false;
+                    cameraState = rememberedHorizonLockedCameraState;
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        private void ClearRememberedWatchCameraStates()
+        {
+            hasRememberedFreeCameraState = false;
+            rememberedFreeCameraState = default(WatchCameraTransitionState);
+            hasRememberedHorizonLockedCameraState = false;
+            rememberedHorizonLockedCameraState = default(WatchCameraTransitionState);
+        }
+
+        private void RememberCurrentWatchCameraState()
+        {
+            if (TryCaptureActiveWatchCameraState(out var cameraState))
+                RememberWatchCameraState(cameraState);
+        }
+
+        private bool TryRestoreRememberedWatchCameraState(
+            GhostPlaybackState state,
+            WatchCameraMode mode,
+            bool modeOverride,
+            string logContext)
+        {
+            if (!TryGetRememberedWatchCameraState(mode, out var cameraState))
+            {
+                if (!string.IsNullOrEmpty(logContext))
+                {
+                    ParsekLog.Verbose("CameraFollow",
+                        $"Watch camera mode restore skipped ({logContext}): mode={mode} hasSavedState=False");
+                }
+                return false;
+            }
+
+            cameraState.Mode = mode;
+            cameraState.UserModeOverride = modeOverride;
+            return TryApplySwitchedWatchCameraState(state, cameraState, logContext);
         }
 
         internal static WatchCameraMode ResolveSwitchCameraMode(
@@ -992,6 +1172,12 @@ namespace Parsek
                         $"Watch camera capture unavailable (fresh-entry-source): rec=#{index} id={rec.RecordingId ?? "null"}");
                 }
             }
+            if (switching && hasSwitchCameraState)
+                RememberWatchCameraState(switchCameraState);
+            bool preservedHasRememberedFreeCameraState = hasRememberedFreeCameraState;
+            WatchCameraTransitionState preservedFreeCameraState = rememberedFreeCameraState;
+            bool preservedHasRememberedHorizonLockedCameraState = hasRememberedHorizonLockedCameraState;
+            WatchCameraTransitionState preservedHorizonLockedCameraState = rememberedHorizonLockedCameraState;
             Vessel preservedCameraVessel = savedCameraVessel;
             float preservedCameraDistance = savedCameraDistance;
             float preservedCameraPitch = savedCameraPitch;
@@ -1004,6 +1190,14 @@ namespace Parsek
 
             if (!TryStartWatchSession(index, rec, gs, out gs))
                 return;
+
+            if (switching)
+            {
+                hasRememberedFreeCameraState = preservedHasRememberedFreeCameraState;
+                rememberedFreeCameraState = preservedFreeCameraState;
+                hasRememberedHorizonLockedCameraState = preservedHasRememberedHorizonLockedCameraState;
+                rememberedHorizonLockedCameraState = preservedHorizonLockedCameraState;
+            }
 
             // Save camera state only when entering fresh (not switching between ghosts)
             if (!switching)
@@ -1057,6 +1251,7 @@ namespace Parsek
                     $"targetPos={(watchTarget != null ? FormatVector3ForLogs(watchTarget.position) : "?")} " +
                     $"targetBasis={(watchTarget != null ? FormatRotationBasisForLogs(watchTarget.rotation) : "basis=?")}");
             }
+            RememberCurrentWatchCameraState();
 
             var activeWatchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
             watchedOverlapCycleIndex = gs.loopCycleIndex; // track which cycle we're following
@@ -1145,6 +1340,7 @@ namespace Parsek
             // Reset camera mode state for new watch session
             userModeOverride = false;
             currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
+            ClearRememberedWatchCameraStates();
             lastLoggedHorizonVectorKey = null;
             (lastMapViewEnabled, pendingMapFocusRestore) =
                 InitializeMapFocusRestoreState(MapView.MapIsEnabled);
@@ -1181,6 +1377,7 @@ namespace Parsek
             watchNoTargetFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
+            ClearRememberedWatchCameraStates();
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
             lastLoggedHorizonVectorKey = null;
@@ -1636,14 +1833,25 @@ namespace Parsek
             var state = FindWatchedGhostState();
             if (state == null) return;
 
-            userModeOverride = true;
-            currentCameraMode = currentCameraMode == WatchCameraMode.Free
+            WatchCameraMode nextMode = currentCameraMode == WatchCameraMode.Free
                 ? WatchCameraMode.HorizonLocked
                 : WatchCameraMode.Free;
+            if (TryCaptureActiveWatchCameraState(out var previousModeState))
+                RememberWatchCameraState(previousModeState);
+            userModeOverride = true;
+            currentCameraMode = nextMode;
             lastLoggedHorizonVectorKey = null;
 
             PrimeWatchTargetOrientation(state);
-            ApplyCameraTarget(state);
+            if (!TryRestoreRememberedWatchCameraState(
+                    state,
+                    nextMode,
+                    modeOverride: true,
+                    logContext: "toggle-restore"))
+            {
+                ApplyCameraTarget(state);
+            }
+            RememberCurrentWatchCameraState();
 
             ParsekLog.Info("CameraFollow",
                 $"Watch camera mode toggled to {currentCameraMode} (user override)");
@@ -1677,9 +1885,19 @@ namespace Parsek
                 var autoMode = shouldLock ? WatchCameraMode.HorizonLocked : WatchCameraMode.Free;
                 if (autoMode != currentCameraMode)
                 {
+                    if (TryCaptureActiveWatchCameraState(out var previousModeState))
+                        RememberWatchCameraState(previousModeState);
                     currentCameraMode = autoMode;
                     lastLoggedHorizonVectorKey = null;
-                    ApplyCameraTarget(state);
+                    if (!TryRestoreRememberedWatchCameraState(
+                            state,
+                            autoMode,
+                            modeOverride: false,
+                            logContext: "auto-mode-restore"))
+                    {
+                        ApplyCameraTarget(state);
+                    }
+                    RememberCurrentWatchCameraState();
                     ParsekLog.Info("CameraFollow",
                         string.Format(CultureInfo.InvariantCulture,
                             "Watch camera auto-switched to {0} (alt={1:F0}m, body={2})",
@@ -1811,6 +2029,14 @@ namespace Parsek
             float preservedDistance = savedCameraDistance;
             float preservedPitch = savedCameraPitch;
             float preservedHeading = savedCameraHeading;
+            WatchCameraTransitionState transferCameraState = default(WatchCameraTransitionState);
+            bool hasTransferCameraState = TryCaptureActiveWatchCameraState(out transferCameraState);
+            if (hasTransferCameraState)
+                RememberWatchCameraState(transferCameraState);
+            bool preservedHasRememberedFreeCameraState = hasRememberedFreeCameraState;
+            WatchCameraTransitionState preservedFreeCameraState = rememberedFreeCameraState;
+            bool preservedHasRememberedHorizonLockedCameraState = hasRememberedHorizonLockedCameraState;
+            WatchCameraTransitionState preservedHorizonLockedCameraState = rememberedHorizonLockedCameraState;
             // Preserve camera mode across chain transfers — user's V toggle should stick
             var preservedCameraMode = currentCameraMode;
             bool preservedModeOverride = userModeOverride;
@@ -1829,12 +2055,23 @@ namespace Parsek
             savedCameraHeading = preservedHeading;
             currentCameraMode = preservedCameraMode;
             userModeOverride = preservedModeOverride;
+            hasRememberedFreeCameraState = preservedHasRememberedFreeCameraState;
+            rememberedFreeCameraState = preservedFreeCameraState;
+            hasRememberedHorizonLockedCameraState = preservedHasRememberedHorizonLockedCameraState;
+            rememberedHorizonLockedCameraState = preservedHorizonLockedCameraState;
             watchedOverlapCycleIndex = gs.loopCycleIndex;
             watchNoTargetFrames = 0;
             if (FlightCamera.fetch != null)
                 FlightCamera.fetch.pivotTranslateSharpness = 0f;
             PrimeWatchTargetOrientation(gs);
-            ApplyCameraTarget(gs);
+            bool restoredTransferCameraState = hasTransferCameraState
+                && TryApplySwitchedWatchCameraState(
+                    gs,
+                    ResolveSwitchCameraStateForGhost(transferCameraState, gs),
+                    logContext: "segment-apply");
+            if (!restoredTransferCameraState)
+                ApplyCameraTarget(gs);
+            RememberCurrentWatchCameraState();
             if (FlightCamera.fetch?.transform?.parent != null && gs.cameraPivot != null)
                 FlightCamera.fetch.transform.parent.position = gs.cameraPivot.position;
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);

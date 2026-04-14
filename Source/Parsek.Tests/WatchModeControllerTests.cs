@@ -461,6 +461,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveWorldOrbitDirection_PivotFrameRotatesForwardIntoWorldSpace()
+        {
+            Quaternion pivotRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+
+            bool result = WatchModeController.TryResolveWorldOrbitDirection(
+                pivotRotation,
+                pitch: 0f,
+                heading: 0f,
+                out var worldOrbitDirection);
+
+            Assert.True(result);
+            Assert.True(
+                Vector3.Dot(Vector3.right, worldOrbitDirection) > 0.999f,
+                $"Expected +X world orbit, got {worldOrbitDirection}");
+        }
+
+        [Fact]
+        public void TryResolveWorldOrbitDirection_PivotFramePreservesPitchComponent()
+        {
+            Quaternion pivotRotation = new Quaternion(0f, 0f, 0f, 1f);
+
+            bool result = WatchModeController.TryResolveWorldOrbitDirection(
+                pivotRotation,
+                pitch: 30f,
+                heading: 0f,
+                out var worldOrbitDirection);
+
+            Assert.True(result);
+            Assert.True(
+                Vector3.Dot(OrbitDirectionFromAngles(30f, 0f), worldOrbitDirection) > 0.999f,
+                $"Expected identity-frame orbit, got {worldOrbitDirection}");
+        }
+
+        [Fact]
         public void InitializeMapFocusRestoreState_MapAlreadyOpen_PrimesOneShotRestore()
         {
             var (lastMapViewEnabled, pendingMapFocusRestore) =
