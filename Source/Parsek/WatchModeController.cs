@@ -272,6 +272,115 @@ namespace Parsek
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
+        internal static Vector3 OrbitDirectionFromAngles(float pitch, float heading)
+        {
+            float pitchRad = pitch * Mathf.Deg2Rad;
+            float headingRad = heading * Mathf.Deg2Rad;
+            return new Vector3(
+                Mathf.Sin(headingRad) * Mathf.Cos(pitchRad),
+                Mathf.Sin(pitchRad),
+                Mathf.Cos(headingRad) * Mathf.Cos(pitchRad));
+        }
+
+        internal static string FormatRotationBasisForLogs(Quaternion rotation)
+        {
+            Vector3 forward = RotateVectorByQuaternion(rotation, Vector3.forward);
+            Vector3 up = RotateVectorByQuaternion(rotation, Vector3.up);
+            Vector3 right = RotateVectorByQuaternion(rotation, Vector3.right);
+            return
+                $"fwd={FormatVector3ForLogs(forward)} " +
+                $"up={FormatVector3ForLogs(up)} " +
+                $"right={FormatVector3ForLogs(right)}";
+        }
+
+        private static bool TryResolveWorldOrbitDirectionForLogs(
+            WatchCameraTransitionState cameraState,
+            out Vector3 worldOrbitDirection)
+        {
+            worldOrbitDirection = Vector3.zero;
+            if (cameraState.HasWorldOrbitDirection)
+            {
+                worldOrbitDirection = cameraState.WorldOrbitDirection.normalized;
+                return true;
+            }
+
+            if (!cameraState.HasTargetRotation)
+                return false;
+
+            worldOrbitDirection = RotateVectorByQuaternion(
+                cameraState.TargetRotation,
+                OrbitDirectionFromAngles(cameraState.Pitch, cameraState.Heading)).normalized;
+            return true;
+        }
+
+        private void LogCapturedWatchCameraState(
+            string context,
+            int targetIndex,
+            string targetRecordingId,
+            WatchCameraTransitionState cameraState)
+        {
+            FlightCamera flightCamera = FlightCamera.fetch;
+            if (flightCamera?.transform == null)
+                return;
+
+            Transform sourceTarget = flightCamera.Target;
+            Vector3 orbitCenter = flightCamera.transform.parent != null
+                ? flightCamera.transform.parent.position
+                : sourceTarget != null
+                    ? sourceTarget.position
+                    : Vector3.zero;
+            bool hasWorldOrbitDirection = TryResolveWorldOrbitDirectionForLogs(
+                cameraState,
+                out var worldOrbitDirection);
+            string sourceBasis = cameraState.HasTargetRotation
+                ? FormatRotationBasisForLogs(cameraState.TargetRotation)
+                : "basis=?";
+
+            ParsekLog.Info("CameraFollow",
+                $"Watch camera capture ({context}): rec=#{targetIndex} id={targetRecordingId ?? "null"} " +
+                $"sourceTarget={sourceTarget?.name ?? "null"} cameraPos={FormatVector3ForLogs(flightCamera.transform.position)} " +
+                $"orbitCenter={FormatVector3ForLogs(orbitCenter)} distance={cameraState.Distance.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"pitch={cameraState.Pitch.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"hdg={cameraState.Heading.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"mode={cameraState.Mode} override={cameraState.UserModeOverride} " +
+                $"hasWorldOrbit={hasWorldOrbitDirection} worldOrbit={(hasWorldOrbitDirection ? FormatVector3ForLogs(worldOrbitDirection) : "?")} " +
+                $"{sourceBasis}");
+        }
+
+        private void LogAppliedWatchCameraTransfer(
+            string context,
+            GhostPlaybackState state,
+            WatchCameraTransitionState cameraState,
+            Transform watchTarget,
+            float pitch,
+            float heading)
+        {
+            Vector3 localOrbitDirection = OrbitDirectionFromAngles(pitch, heading);
+            bool hasSourceWorldOrbit = TryResolveWorldOrbitDirectionForLogs(
+                cameraState,
+                out var sourceWorldOrbit);
+            bool hasResolvedWorldOrbit = watchTarget != null;
+            Vector3 resolvedWorldOrbit = hasResolvedWorldOrbit
+                ? RotateVectorByQuaternion(watchTarget.rotation, localOrbitDirection).normalized
+                : Vector3.zero;
+            string targetBasis = watchTarget != null
+                ? FormatRotationBasisForLogs(watchTarget.rotation)
+                : "basis=?";
+
+            ParsekLog.Info("CameraFollow",
+                $"Watch camera apply ({context}): rec=#{watchedRecordingIndex} id={watchedRecordingId ?? "null"} " +
+                $"target={watchTarget?.name ?? "null"} targetPos={(watchTarget != null ? FormatVector3ForLogs(watchTarget.position) : "?")} " +
+                $"pivotPos={(state?.cameraPivot != null ? FormatVector3ForLogs(state.cameraPivot.position) : "?")} " +
+                $"distance={cameraState.Distance.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"pitch={pitch.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"hdg={heading.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"localOrbit={FormatVector3ForLogs(localOrbitDirection)} " +
+                $"sourceWorldOrbit={(hasSourceWorldOrbit ? FormatVector3ForLogs(sourceWorldOrbit) : "?")} " +
+                $"resolvedWorldOrbit={(hasResolvedWorldOrbit ? FormatVector3ForLogs(resolvedWorldOrbit) : "?")} " +
+                $"mode={cameraState.Mode} override={cameraState.UserModeOverride} " +
+                $"{targetBasis}");
+        }
+
         private string ResolveWatchStateSource(GhostPlaybackState state)
         {
             if (state == null) return "missing";
@@ -735,7 +844,8 @@ namespace Parsek
 
         private bool TryApplySwitchedWatchCameraState(
             GhostPlaybackState state,
-            WatchCameraTransitionState cameraState)
+            WatchCameraTransitionState cameraState,
+            string logContext = null)
         {
             FlightCamera flightCamera = FlightCamera.fetch;
             if (flightCamera == null || state == null)
@@ -759,6 +869,15 @@ namespace Parsek
 
             if (flightCamera.transform?.parent != null && state.cameraPivot != null)
                 flightCamera.transform.parent.position = state.cameraPivot.position;
+
+            if (!string.IsNullOrEmpty(logContext))
+                LogAppliedWatchCameraTransfer(
+                    logContext,
+                    state,
+                    cameraState,
+                    watchTarget,
+                    pitch,
+                    heading);
 
             return true;
         }
@@ -841,6 +960,38 @@ namespace Parsek
                     WatchCameraMode.Free,
                     userModeOverride: false,
                     out freshEntryCameraState);
+            if (switching)
+            {
+                if (hasSwitchCameraState)
+                {
+                    LogCapturedWatchCameraState(
+                        "switch-source",
+                        index,
+                        rec.RecordingId,
+                        switchCameraState);
+                }
+                else
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watch camera capture unavailable (switch-source): rec=#{index} id={rec.RecordingId ?? "null"}");
+                }
+            }
+            else
+            {
+                if (hasFreshEntryCameraState)
+                {
+                    LogCapturedWatchCameraState(
+                        "fresh-entry-source",
+                        index,
+                        rec.RecordingId,
+                        freshEntryCameraState);
+                }
+                else
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watch camera capture unavailable (fresh-entry-source): rec=#{index} id={rec.RecordingId ?? "null"}");
+                }
+            }
             Vessel preservedCameraVessel = savedCameraVessel;
             float preservedCameraDistance = savedCameraDistance;
             float preservedCameraPitch = savedCameraPitch;
@@ -882,12 +1033,14 @@ namespace Parsek
                 && hasSwitchCameraState
                 && TryApplySwitchedWatchCameraState(
                     gs,
-                    ResolveSwitchCameraStateForGhost(switchCameraState, gs));
+                    ResolveSwitchCameraStateForGhost(switchCameraState, gs),
+                    logContext: "switch-apply");
             bool restoredFreshEntryCameraState = !switching
                 && hasFreshEntryCameraState
                 && TryApplySwitchedWatchCameraState(
                     gs,
-                    ResolveFreshWatchCameraStateForGhost(freshEntryCameraState, gs));
+                    ResolveFreshWatchCameraStateForGhost(freshEntryCameraState, gs),
+                    logContext: "fresh-entry-apply");
 
             if (!restoredSwitchCameraState && !restoredFreshEntryCameraState)
             {
@@ -897,6 +1050,12 @@ namespace Parsek
                 if (watchTarget != null)
                     FlightCamera.fetch.SetTargetTransform(watchTarget);
                 FlightCamera.fetch.SetDistance(DefaultWatchEntryDistance);  // override [75,400] entry clamp
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch camera transfer fallback: rec=#{index} id={rec.RecordingId ?? "null"} " +
+                    $"switching={switching} hasSwitchState={hasSwitchCameraState} hasFreshState={hasFreshEntryCameraState} " +
+                    $"target={watchTarget?.name ?? "null"} " +
+                    $"targetPos={(watchTarget != null ? FormatVector3ForLogs(watchTarget.position) : "?")} " +
+                    $"targetBasis={(watchTarget != null ? FormatRotationBasisForLogs(watchTarget.rotation) : "basis=?")}");
             }
 
             var activeWatchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
