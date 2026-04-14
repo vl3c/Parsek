@@ -49,6 +49,7 @@ namespace Parsek
         internal const int MaxActiveExplosions = 30;
         internal const double HiddenGhostVisibleTierPrewarmBufferMeters = 5000.0;
         internal const double HiddenGhostEventPrewarmLookaheadSeconds = 2.0;
+        internal const double InitialVisibleFrameClampWindowSeconds = 0.25;
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
@@ -532,6 +533,8 @@ namespace Parsek
 
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
 
+            double visiblePlaybackUT = ResolveVisiblePlaybackUT(traj, state, ctx.currentUT);
+
             // Position the ghost
             if (hasInterpolatedPoints)
             {
@@ -539,24 +542,24 @@ namespace Parsek
                 bool usedRelative = false;
                 if (traj.TrackSections != null && traj.TrackSections.Count > 0)
                 {
-                    int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ctx.currentUT);
+                    int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, visiblePlaybackUT);
                     if (sectionIdx >= 0 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
                     {
                         positioner.InterpolateAndPositionRelative(i, traj, state,
-                            ctx.currentUT, suppressVisualFx,
+                            visiblePlaybackUT, suppressVisualFx,
                             traj.TrackSections[sectionIdx].anchorVesselId);
                         usedRelative = true;
                     }
                 }
                 if (!usedRelative)
                 {
-                    positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
+                    positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
                 }
             }
             else if (hasPointData)
             {
-                if (ShouldPrimeSinglePointGhostFromOrbit(traj, ctx.currentUT))
-                    positioner.PositionFromOrbit(i, traj, state, ctx.currentUT);
+                if (ShouldPrimeSinglePointGhostFromOrbit(traj, visiblePlaybackUT))
+                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
                 else
                     positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
             }
@@ -566,15 +569,15 @@ namespace Parsek
             }
             else if (hasOrbitData)
             {
-                positioner.PositionFromOrbit(i, traj, state, ctx.currentUT);
+                positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
             }
 
             // Apply visual events
-            ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
+            ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
                 zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
             ActivateGhostVisualsIfNeeded(state);
-            TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: ctx.currentUT,
-                reason: "playback");
+            TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
+                reason: "playback", requestedPlaybackUT: ctx.currentUT);
 
             if (allowEarlyDestroyedDebrisCompletion
                 && TryHandleEarlyDestroyedDebrisCompletion(
@@ -2140,8 +2143,26 @@ namespace Parsek
             return traj.StartUT;
         }
 
+        internal static double ResolveVisiblePlaybackUT(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (traj == null || state == null)
+                return playbackUT;
+
+            if (!state.deferVisibilityUntilPlaybackSync || state.appearanceCount != 0)
+                return playbackUT;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            double activationLead = playbackUT - activationStartUT;
+            if (activationLead <= 0.0 || activationLead > InitialVisibleFrameClampWindowSeconds)
+                return playbackUT;
+
+            return activationStartUT;
+        }
+
         private void TrackGhostAppearance(
-            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, string reason)
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, string reason,
+            double requestedPlaybackUT = double.NaN)
         {
             if (state == null)
                 return;
@@ -2171,6 +2192,8 @@ namespace Parsek
             Vector3d boundsCenter = visibleBounds.center;
             Vector3d boundsRootDelta = boundsCenter - rootPos;
             double activationStartUT = ResolveGhostActivationStartUT(traj);
+            double requestedUT = double.IsNaN(requestedPlaybackUT) ? playbackUT : requestedPlaybackUT;
+            bool firstFrameClamped = Math.Abs(requestedUT - playbackUT) > 1e-6;
 
             Transform firstVisiblePart = FindFirstVisibleGhostPart(state.ghost);
             string firstVisiblePartLabel = "none";
@@ -2225,6 +2248,8 @@ namespace Parsek
                 $"Ghost #{index} \"{traj?.VesselName ?? state.vesselName ?? "unknown"}\" " +
                 $"appearance#{state.appearanceCount} reason={reason} " +
                 $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"requestedUT={requestedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"firstFrameClamped={(firstFrameClamped ? "T" : "F")} " +
                 $"activationStart={activationStartUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"activationLead={(playbackUT - activationStartUT).ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"zone={state.currentZone} dist={state.lastDistance.ToString("F0", CultureInfo.InvariantCulture)}m " +

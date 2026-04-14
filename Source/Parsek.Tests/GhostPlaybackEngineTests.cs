@@ -1214,6 +1214,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveVisiblePlaybackUT_ClampsFreshFirstFrameBackToActivationStart()
+        {
+            var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 217.98);
+
+            Assert.Equal(217.97, visibleUT, 2);
+        }
+
+        [Fact]
+        public void ResolveVisiblePlaybackUT_DoesNotRewindLargeLateFirstAppearance()
+        {
+            var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 218.30);
+
+            Assert.Equal(218.30, visibleUT, 2);
+        }
+
+        [Fact]
+        public void ResolveVisiblePlaybackUT_DoesNotRewindReshownGhost()
+        {
+            var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 1
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 217.98);
+
+            Assert.Equal(217.98, visibleUT, 2);
+        }
+
+        [Fact]
         public void HasRenderableGhostData_SinglePoint_ReturnsTrue()
         {
             var traj = new MockTrajectory();
