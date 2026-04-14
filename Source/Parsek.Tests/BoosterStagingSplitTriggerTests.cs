@@ -126,5 +126,53 @@ namespace Parsek.Tests
 
             Assert.Equal(61.39, branchUT, 3);
         }
+
+        [Fact]
+        public void PrepareRecorderStartCollections_NullCaches_CreateFreshCachesAndRequestSubscription()
+        {
+            List<int> created = null;
+            Dictionary<uint, bool> controllerStatus = null;
+            Dictionary<uint, string> trajectorySeeds = null;
+
+            bool shouldSubscribe = ParsekFlight.PrepareRecorderStartCollections(
+                ref created,
+                ref controllerStatus,
+                ref trajectorySeeds);
+
+            Assert.True(shouldSubscribe);
+            Assert.NotNull(created);
+            Assert.NotNull(controllerStatus);
+            Assert.NotNull(trajectorySeeds);
+            Assert.Empty(created);
+            Assert.Empty(controllerStatus);
+            Assert.Empty(trajectorySeeds);
+        }
+
+        [Fact]
+        public void PrepareRecorderStartCollections_ExistingCaches_AreClearedAndReused()
+        {
+            var created = new List<int> { 1, 2, 3 };
+            var controllerStatus = new Dictionary<uint, bool>
+            {
+                [7u] = true
+            };
+            var trajectorySeeds = new Dictionary<uint, string>
+            {
+                [8u] = "seed"
+            };
+
+            bool shouldSubscribe = ParsekFlight.PrepareRecorderStartCollections(
+                ref created,
+                ref controllerStatus,
+                ref trajectorySeeds);
+
+            Assert.False(shouldSubscribe);
+            Assert.NotNull(created);
+            Assert.NotNull(controllerStatus);
+            Assert.NotNull(trajectorySeeds);
+            Assert.Empty(created);
+            Assert.Empty(controllerStatus);
+            Assert.Empty(trajectorySeeds);
+        }
     }
 }

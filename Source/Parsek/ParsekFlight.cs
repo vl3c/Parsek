@@ -5404,34 +5404,46 @@ namespace Parsek
             pendingSplitTriggerUT = double.NaN;
             preBreakVesselPids = null;
 
-            bool subscribedDecoupleListener = false;
-
-            // onPartDeCoupleNewVesselComplete fires synchronously in Part.decouple()
-            // (FixedUpdate), so the listener must be armed for the whole recording session.
-            if (decoupleCreatedVessels == null)
-            {
-                decoupleCreatedVessels = new List<Vessel>();
+            bool subscribedDecoupleListener = PrepareRecorderStartCollections(
+                ref decoupleCreatedVessels,
+                ref decoupleControllerStatus,
+                ref decoupleCreatedTrajectoryPoints);
+            if (subscribedDecoupleListener)
                 GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
-                subscribedDecoupleListener = true;
-            }
-            else
-            {
-                decoupleCreatedVessels.Clear();
-            }
-
-            if (decoupleControllerStatus == null)
-                decoupleControllerStatus = new Dictionary<uint, bool>();
-            else
-                decoupleControllerStatus.Clear();
-
-            if (decoupleCreatedTrajectoryPoints == null)
-                decoupleCreatedTrajectoryPoints = new Dictionary<uint, TrajectoryPoint>();
-            else
-                decoupleCreatedTrajectoryPoints.Clear();
 
             ParsekLog.Verbose("Flight",
                 $"PrepareSessionStateForRecorderStart: reason={reason}, " +
                 $"decoupleListener={(subscribedDecoupleListener ? "subscribed" : "reused")}");
+        }
+
+        internal static bool PrepareRecorderStartCollections<TCapturedVessel, TTrajectorySeed>(
+            ref List<TCapturedVessel> createdVessels,
+            ref Dictionary<uint, bool> controllerStatus,
+            ref Dictionary<uint, TTrajectorySeed> trajectorySeeds)
+        {
+            bool shouldSubscribeDecoupleListener = false;
+
+            if (createdVessels == null)
+            {
+                createdVessels = new List<TCapturedVessel>();
+                shouldSubscribeDecoupleListener = true;
+            }
+            else
+            {
+                createdVessels.Clear();
+            }
+
+            if (controllerStatus == null)
+                controllerStatus = new Dictionary<uint, bool>();
+            else
+                controllerStatus.Clear();
+
+            if (trajectorySeeds == null)
+                trajectorySeeds = new Dictionary<uint, TTrajectorySeed>();
+            else
+                trajectorySeeds.Clear();
+
+            return shouldSubscribeDecoupleListener;
         }
 
         /// <summary>
