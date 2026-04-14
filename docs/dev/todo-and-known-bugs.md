@@ -7,6 +7,84 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 389. Time-range filter for Timeline window and Recordings table (scroll-limit mitigation for long careers)
+
+**Source:** maintenance request `2026-04-15`. As a career progresses, both the Timeline window and the Recordings table accumulate entries linearly. A mature career (100+ missions) becomes painful to navigate — scrolling dozens of screenfuls to find a specific flight is not sustainable. The user wants a time-interval filter ("show entries from UT A to UT B") that limits both windows to a user-chosen slice.
+
+**Concern:** Neither window has a time-range filter today. Current filter surfaces:
+
+- `Source/Parsek/UI/TimelineWindowUI.cs` has `DrawFilterBar` at line `281`-`331` with only four toggles: Overview/Detail tier selector + Recordings/Actions/Events source toggles. `IsEntryVisible` at line `405`-`415` gates rows on `Tier` + `Source`. No UT check.
+- `Source/Parsek/UI/RecordingsTableUI.cs` supports sort via `sortColumn` (line `85`) but has no filter bar at all — every committed recording draws every frame, gated only by chain/group expand state.
+
+For a 200-mission career the Timeline window could have 1000+ entries and the Recordings table 200+ top-level rows plus debris children. Scroll performance and human navigation both degrade past a few hundred rows.
+
+**Desired behavior:**
+
+1. Add a time-range filter that both windows share (same state, so filtering in one window applies to the other — or at least they read the same underlying settings so "Year 2, Day 40 to Day 60" behaves consistently).
+2. Default: no range filter (current behavior). Empty state = show everything.
+3. When a range is set:
+   - Timeline window: `IsEntryVisible` additionally checks `entry.UT` (or equivalent) is inside `[rangeStartUT, rangeEndUT]`.
+   - Recordings table: skip any recording whose `[StartUT, EndUT]` window has zero overlap with `[rangeStartUT, rangeEndUT]`. Default to "overlap any" rather than "fully contained" so a mission spanning the boundary still shows.
+   - Chain segments / tree children: keep visible if any descendant's window overlaps the range — otherwise a range that cuts a chain mid-flight would confusingly hide part of it.
+   - Debris children: same rule as parents. If the parent recording is in range, its debris stays visible in the expand view.
+4. Clear filter: single button / Clear-X in the filter UI that resets to unlimited.
+5. Visual indicator: when a range is active, the window title bar (or a small label near the filter) shows the active range and total matched count, e.g. `"Year 2, Day 40 - Day 60 (14 matches)"`.
+
+**UI surface — the actual "idk exactly how" question:**
+
+Three options, ranked by recommended order:
+
+1. **Two-slider range control with quick presets.** In the Timeline filter bar, add a second row (or an expand/collapse "Time range" disclosure): min-UT slider + max-UT slider over `[earliest committed UT, current UT + some future headroom]`, plus preset buttons: "Last day", "Last 7 days", "Last 30 days", "This year", "All time (clear)". The sliders are IMGUI `GUILayout.HorizontalSlider` — simple, matches existing visual language. Preset buttons cover 90% of real use. Full manual slider for the 10% edge case.
+2. **Two text fields with KSP-date parsing.** Two `GUILayout.TextField`s accepting KSP date strings (`Y2 D40`, or UT seconds, or whatever `KSPUtil.PrintDateCompact` round-trips to). Parse + validate on commit. Harder to use (you have to know the format) but more precise for power users. Consider as a v2 addition if users ask for exact dates.
+3. **Click-on-timeline drag-to-select.** Let the user draw a range directly in the timeline window by click-and-dragging across visible rows. Most intuitive but the most work to implement — the timeline window today is a plain vertical `GUILayout` of rows, not a horizontal time axis. Out of scope for v1.
+
+Start with **option 1** (sliders + presets). Simplest path to a working filter, matches the existing filter-bar visual language.
+
+**Shared state:**
+
+- New singleton-ish struct `TimeRangeFilter` with `double? MinUT` / `double? MaxUT` fields (null = unbounded), exposed from `ParsekUI` or a new small class `TimeRangeFilterState`. Both windows read from it. Both update `filterDirty` flags (existing `TimelineWindowUI.filterDirty` pattern — `RecordingsTableUI` would need an equivalent if it doesn't have one).
+- Optional: persist across sessions in `ParsekSettings` so the user's range survives save/load. Low stakes either way — the user may *want* it reset on load. Default: don't persist.
+
+**Pure helper methods (testable without Unity):**
+
+- `static bool IsEntryInRange(double entryUT, double? minUT, double? maxUT)` — core predicate.
+- `static bool IsRecordingInRange(double startUT, double endUT, double? minUT, double? maxUT)` — overlap check.
+- `static bool IsGroupInRange(HashSet<int> descendants, IReadOnlyList<Recording> committed, double? minUT, double? maxUT)` — "any descendant overlaps" check.
+- Put in a new `UI/TimeRangeFilterLogic.cs` or extend an existing logic file. Unit tests cover empty range, one-sided (min only / max only), no-overlap, partial overlap, fully-contained.
+
+**Wiring:**
+
+- `TimelineWindowUI.IsEntryVisible` (line `405`) — add `if (!TimeRangeFilterLogic.IsEntryInRange(entry.UT, state.MinUT, state.MaxUT)) return false;`.
+- `TimelineWindowUI.DrawFilterBar` (line `281`) — add second row with sliders + clear button.
+- `RecordingsTableUI` (line `85`+) — add filter dirty flag + skip recordings/groups where the range predicate fails. Add the same filter UI (or a compact version) at the top of the table.
+- Existing group expand/collapse state (`expandedGroups` HashSet in `ParsekUI`) is independent of filtering — don't force-expand filtered groups, just hide rows.
+
+**Performance:**
+
+- Both windows already rebuild filter state from scratch when `filterDirty` is set (Timeline: line `243`-`265`). Time-range filtering adds one float comparison per entry — O(n) same as existing path. No perf concern for realistic career sizes.
+- For truly huge careers (thousands of entries) the bottleneck is row drawing, not filtering. Filtering *helps* here because hidden rows don't draw. This TODO is the right direction.
+
+**Interaction with #385 (Kerbals Status window):** the Kerbals window will have its own summary of crew-end-state events per recording. Those should also respect the range filter so a "show me what happened in the last 30 days" slice of the Kerbals window makes sense. Out of scope for v1 — note as a followup.
+
+**Open questions:**
+
+- Should the range be UT-based (raw seconds) or calendar-based (Year/Day)? UT under the hood, UI displays via `KSPUtil.PrintDateCompact`. Sliders operate on UT, labels show formatted dates.
+- Max-UT slider end: current UT, or current UT + some future window (for planned missions)? Use `max(currentUT, latest committed EndUT) + 10% headroom`. Future-dated entries are rare but exist.
+- What happens if the user scrolls to an entry that's later filtered out? The scroll position should snap back to the top on filter change. Log the snap.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/TimeRangeFilterLogic.cs` (new, pure static helpers)
+- `Source/Parsek/UI/TimelineWindowUI.cs` — `DrawFilterBar` + `IsEntryVisible` + shared-state plumbing
+- `Source/Parsek/UI/RecordingsTableUI.cs` — new filter bar + skip logic in the draw loop
+- `Source/Parsek/ParsekUI.cs` — owns the shared `TimeRangeFilterState` singleton (or wherever the other cross-window state lives)
+- `Source/Parsek.Tests/` — unit tests for `TimeRangeFilterLogic` predicates
+- `CHANGELOG.md` under Unreleased: "Timeline and Recordings windows now support a time-range filter (UT interval) with quick presets (Last day / Last 7 days / Last 30 days / This year / Clear). Useful for navigating long careers with many missions."
+
+**Status:** TODO. Size: M. Not urgent today, but the scale problem is real and will bite hard in any career-mode playtest past ~50 missions. Worth implementing before the next playtest pass with a mature save. Size is mostly RecordingsTableUI integration — it currently has no filter bar at all, so this adds a new visual element to a busy table.
+
+---
+
 ## 388. Tracking station: add a Ghost visibility toggle alongside the stock type filters
 
 **Source:** maintenance request `2026-04-14`. Stock KSP's tracking station has a row of show/hide toggles (asteroids, debris, probes, rovers, landers, ships, stations, bases, EVAs, planes, relays, flags). Parsek adds a *new* category of entries — "ghosts" — but there's no user control to hide them in bulk. Users need a single toggle that collapses all Parsek ghosts out of both the vessel list and the map view simultaneously.
