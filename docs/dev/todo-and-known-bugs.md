@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## ~~356. First ghost watch entry can flip the camera to the opposite side of the launch pad~~
+## ~~360. First ghost watch entry can flip the camera to the opposite side of the launch pad~~
 
 **Observed in:** user repro on 2026-04-14 while watching a launch-pad vessel from the anchor camera. From the right side of the pad (`water on the right`), pressing `Watch Ghost` could spawn the watch camera on the opposite side (`water on the left`) even though the vessel/body context had not changed.
 
@@ -16,6 +16,54 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 **Fix:** fresh watch entry now snapshots the current `FlightCamera` target rotation/pitch/heading before watch starts, resolves the ghost's initial watch mode (`Free` vs `HorizonLocked`) immediately, and reapplies the entry camera through the same target-rotation compensation path already used for manual watch retargets. The default `50 m` watch-entry distance stays the same, but the initial world-facing orientation now stays on the same pad/body side. Added focused regression coverage for fresh-entry mode/distance state prep.
 
 **Status:** ~~Fixed~~ in PR `#288`
+
+---
+
+## ~~359. Background section flushes can duplicate flat tails and leave one-point destroyed debris stubs after merge~~
+
+**Observed in:** the same 2026-04-14 follow-up investigation that found the missing `Rewind` button. The runtime/in-game suite was failing `CommittedRecordingsHaveValidData` and `RecordingStopMetricsValid`, and merged quickload-resume trees could retain non-monotonic flat tails or single-point destroyed debris leaves that were never meant to survive commit.
+
+**Root cause:** loaded background recordings could already hold data in both top-level `Points`/`OrbitSegments` and nested `TrackSections`. Later flushes appended the same section payload again using only a single-boundary-element dedupe, so multi-point overlaps produced duplicated / non-monotonic flat tails that survived session merge. Separately, the crash/continuation coalescer could leave one-point destroyed debris leaf recordings in the tree, which then polluted stop-metric expectations unless pruned.
+
+**Fix:** background append/merge now performs suffix/prefix overlap matching and refuses to preserve flat extensions that are not monotonic past the authoritative section payload. Finalize/revert also prune single-point destroyed debris leaves while explicitly protecting the tree root and active recording IDs. The stale in-game runtime-log assertion was updated to the current logging contract.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~358. Quickload-resumed destroyed-end merged recordings can lose the Rewind button and rewind baseline~~
+
+**Observed in:** local 2026-04-14 follow-up after the revert/finalize regression fix. A tree recording was quicksaved/quickloaded in flight, ended `Destroyed`, merged into the timeline, and the Recordings window showed no `R` button even though the mission should still rewind to the original launch save.
+
+**Root cause:** quickload resume preserved `resumeRewindSave` on the live recorder, but committed trees resolve rewind through the root recording. `SaveActiveTreeIfAny()` initially failed to mirror that metadata to the root, and several other recorder-backed commit paths (vessel-switch/background/finalize) still hand-wired only the save filename without the reserved-budget / pre-launch fallback fields. A resumed tree could therefore keep the save hint but lose the rewind baseline once the active recorder changed or the tree finalized.
+
+**Fix:** root rewind propagation is now centralized through `CopyRewindSaveToRoot(RecordingTree, FlightRecorder, ...)` and used by quickload save, split, vessel-switch/background, stash/finalize, and revert commit paths. The helper now copies the rewind save, reserved resource budget, and pre-launch baseline from `CaptureAtStop` when available or from the live recorder fallback fields otherwise. Added focused regression coverage for both the helper behavior and the critical call-site wiring.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~357. Deferred orbital spawn can switch the live active vessel without Parsek switching its recorder/tree~~
+
+**Observed in:** `logs/2026-04-14_1624_orbital-spawn-bug` (2026-04-14). During watched playback of `Goliath II HLV`, KSP handed control to the newly spawned real vessel, but Parsek still believed the active recorder/tree belonged to the pad-launched `Jumping Flea`. That left a short desync window immediately after spawn where subsequent logic was running against the wrong active vessel.
+
+**Root cause:** the deferred orbital-spawn path could change `FlightGlobals.ActiveVessel` without Parsek seeing either of the normal reconciliation paths in time: the expected `onVesselChange` callback was missed, and the physics-frame recorder path never noticed the mismatch before later tree logic ran. Parsek therefore kept the stale recorder PID until some later transition happened to correct it.
+
+**Fix:** `ParsekFlight.Update()` now runs a narrow missed-switch recovery safety net before the other tree transition handlers. When tree state is stable and the active vessel PID provably diverges from Parsek's active recorder/tree state, it replays the normal `OnVesselSwitchComplete()` handoff. Added regression coverage for the pure guard and the required `Update()` ordering.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~356. Boring-tail trim can cut a recording before the true final spawn state is reached~~
+
+**Observed in:** `logs/2026-04-14_1724_orbital-spawn-bug` (2026-04-14). After merging the `Goliath II HLV` recording, the optimizer shortened the committed exo leaf from `endUT=610217.8` down to `309083.3` even though the eventual spawned state later changed again before the real mission end. Playback therefore finished early and the later spawn no longer represented "the final-final state that never changes again until spawn."
+
+**Root cause:** `RecordingOptimizer.TrimBoringTail()` only enforced `lastInterestingUT + bufferSeconds`; it never proved that the tail after that trim point already matched the true terminal spawn state. That made it legal to trim while the vessel was still coasting toward a different final orbit or still changing on the surface before its real terminal rest state.
+
+**Fix:** boring-tail trim now requires the post-trim tail to preserve the exact terminal spawn state. Orbiting/docked/suborbital recordings only trim when every remaining orbit segment/checkpoint is an exact match for the final terminal orbit shape, and landed/splashed recordings only trim when all remaining tail points exactly match the final terminal surface state. Added stable-vs-changing orbit, suborbital, and landed regressions.
+
+**Status:** ~~Fixed~~
 
 ---
 
@@ -1328,7 +1376,7 @@ sidecars with legacy-text fallback. Current builds also keep a default-on readab
 path for `.prec` / `_vessel.craft` / `_ghost.craft` so binary-comparison debugging can happen
 without unpacking the authoritative files first.
 Remaining high-value work should stay measurement-gated and follow
-`docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
+`docs/dev/done/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
 - snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
@@ -1443,6 +1491,25 @@ PR `#288` fixed the first `Watch Ghost` transition so it preserves the active-ve
 **Priority:** Medium — the core fix is in, but only live KSP can prove the exact first-entry camera handoff end-to-end
 
 **Status:** Open
+
+---
+
+### ~~T65. Revert-finalized active non-leaf recordings can keep `terminal=null` and default ghost-only~~
+
+**Observed in:** `logs/2026-04-14_1449_booster-separation-improved-check/` on the validated `fix/booster-separation-seed-timing` package (`cf5e6dac`). The booster separation seed-timing fix itself is validated in that bundle; the follow-up regression is the separate revert path:
+
+- `KSP.log:10757` classified the load as a real revert
+- `KSP.log:10771` finalized active recording `Kerbal X` as `terminal=none`, `leaf=False`
+- `KSP.log:10967-10968` merge dialog treated that active non-leaf as `canPersist=False` / `spawnable=0`
+- `KSP.log:11012` applied `ghost-only` to the main recording
+
+**Root cause:** `FinalizePendingLimboTreeForRevert()` finalized the pending tree during `OnLoad`, after the scene reset but before the active non-leaf helper had any scene-exit fallback. Leaf recordings already handled "live vessel unavailable during scene exit" by inferring a terminal from trajectory data; `EnsureActiveRecordingTerminalState()` only tried `FindVesselByPid(...)` and otherwise left the active recording at `TerminalStateValue = null`. That made the merge dialog suppress the main recording even though the stashed recording already had a valid end snapshot/trajectory.
+
+**Fix:** `EnsureActiveRecordingTerminalState()` now accepts scene-exit semantics and reuses the same trajectory-based fallback the leaf finalizer uses when the live vessel is unavailable. On the revert/finalize path it now infers the active non-leaf terminal from recorded end data instead of leaving it null. Added focused regression coverage in `Bug278FinalizeLimboTests.cs` for both the scene-exit inference case and the non-scene-exit no-op case.
+
+**Priority:** Medium — the bug only hits revert/finalize on breakup-continuous active recordings, but it blocks the main vessel from being spawnable in the merge dialog and cascades into ghost-only ledger state
+
+**Status:** ~~Fixed~~
 
 ---
 

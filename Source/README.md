@@ -145,14 +145,17 @@ The script exits non-zero if required log contracts fail.
 2. Open the Parsek window from the toolbar button
 
 **Controls:**
-- **F9** - Start/Stop recording
-- **F10** - Preview playback (plays current recording from now)
-- **F11** - Stop preview
 - **Toolbar button** - Show/hide the Parsek window
+- **Parsek window buttons** - Start/Stop recording and Preview Playback
+- **Ctrl+Shift+T** - Toggle the diagnostics / in-game test runner
+- **[** or **]** - Exit watch mode
+- **V** - Toggle watch camera mode while watching a ghost
+
+Parsek does not bind `F5` or `F9`. Those remain stock KSP quicksave/quickload keys only.
 
 ### Timeline Test (core flow)
 
-1. Press F9, fly for 30-60s, press F9 to stop
+1. Start recording from the Parsek window (or let auto-record start on liftoff), fly for 30-60s, then stop recording from the Parsek window
 2. Revert to Launch (Esc > Revert to Launch)
 3. Context-aware merge dialog appears with recommended action
 4. Wait on the pad - when UT reaches the original timestamps, an opaque ghost vessel replays the flight
@@ -161,7 +164,7 @@ The script exits non-zero if required log contracts fail.
 ### Vessel Persistence Tests
 
 **Persist in orbit:**
-1. Launch to orbit, F9 record, revert to launch
+1. Launch to orbit, stop the recording from the Parsek window, revert to launch
 2. Dialog defaults to "Merge to Timeline" - click it
 3. Go to Tracking Station - vessel should appear in orbit
 

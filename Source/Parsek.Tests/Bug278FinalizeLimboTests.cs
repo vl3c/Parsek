@@ -212,6 +212,140 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var active = new Recording
+            {
+                RecordingId = "active-non-leaf",
+                VesselPersistentId = 42,
+                ChildBranchPointId = "branch-1",
+            };
+            active.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.0,
+                epoch = 10.0,
+                startUT = 10.0,
+                endUT = 11.0,
+            });
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 12.0,
+                altitude = 18.0,
+                bodyName = "Kerbin",
+                latitude = 0.1,
+                longitude = 0.2,
+            });
+            tree.Recordings[active.RecordingId] = active;
+            tree.ActiveRecordingId = active.RecordingId;
+
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
+
+            Assert.Equal(TerminalState.Landed, active.TerminalStateValue);
+            Assert.True(active.TerminalPosition.HasValue);
+            Assert.Equal(SurfaceSituation.Landed, active.TerminalPosition.Value.situation);
+            Assert.Equal(GhostExtensionStrategy.Surface, GhostExtender.ChooseStrategy(active));
+            Assert.Contains(logLines, l =>
+                l.Contains("active recording 'active-non-leaf'") &&
+                l.Contains("not found on scene exit") &&
+                l.Contains("inferred Landed from trajectory"));
+        }
+
+        [Fact]
+        public void EnsureActiveRecordingTerminalState_NoLiveVesselOutsideSceneExit_LeavesTerminalUnset()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var active = new Recording
+            {
+                RecordingId = "active-non-leaf",
+                VesselPersistentId = 42,
+                ChildBranchPointId = "branch-1",
+            };
+            active.Points.Add(new TrajectoryPoint { ut = 12.0, altitude = 18.0 });
+            tree.Recordings[active.RecordingId] = active;
+            tree.ActiveRecordingId = active.RecordingId;
+
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: false);
+
+            Assert.False(active.TerminalStateValue.HasValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("active recording 'active-non-leaf'") &&
+                l.Contains("not found before terminal-state assignment") &&
+                l.Contains("isSceneExit=False"));
+        }
+
+        [Fact]
+        public void SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "Kerbal X",
+                RootRecordingId = "active",
+                ActiveRecordingId = "active"
+            };
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 42,
+                ChildBranchPointId = "bp-1",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            active.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.0,
+                epoch = 10.0,
+                startUT = 10.0,
+                endUT = 11.0,
+            });
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 12.0,
+                altitude = 18.0,
+                bodyName = "Kerbin",
+                latitude = 0.1,
+                longitude = 0.2,
+            });
+
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X Debris",
+                VesselPersistentId = 100,
+                ParentBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                IsDebris = true
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.Breakup,
+                UT = 10.0
+            };
+            bp.ParentRecordingIds.Add("active");
+            bp.ChildRecordingIds.Add("debris");
+
+            tree.Recordings[active.RecordingId] = active;
+            tree.Recordings[debris.RecordingId] = debris;
+            tree.BranchPoints.Add(bp);
+
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+
+            Assert.True(active.TerminalPosition.HasValue);
+            Assert.True(decisions["active"]);
+            Assert.False(decisions["debris"]);
+        }
+
+        [Fact]
         public void ShouldRefreshActiveEffectiveLeafSnapshot_StableTerminalBreakupContinuous_ReturnsTrue()
         {
             var tree = new RecordingTree { TreeName = "Test", Id = "tree-1" };
@@ -315,6 +449,85 @@ namespace Parsek.Tests
             Assert.False(tree.Recordings.ContainsKey("empty-placeholder"));
             Assert.Contains(logLines, l =>
                 l.Contains("PruneZeroPointLeaves: removed 1 zero-point"));
+        }
+
+        [Fact]
+        public void PruneSinglePointDestroyedDebrisLeaves_RemovesDestroyedDebrisStub()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "keep",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 75.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 50.0 });
+            keep.Points.Add(new TrajectoryPoint { ut = 75.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            var stub = new Recording
+            {
+                RecordingId = "destroyed-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 50.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            stub.Points.Add(new TrajectoryPoint { ut = 50.0 });
+            tree.Recordings[stub.RecordingId] = stub;
+
+            ParsekFlight.PruneSinglePointDestroyedDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("keep"));
+            Assert.False(tree.Recordings.ContainsKey("destroyed-stub"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDestroyedDebrisLeaves: removed 1 single-point destroyed debris stub"));
+        }
+
+        [Fact]
+        public void CollectSinglePointDestroyedDebrisLeafIds_SkipsRootAndActiveIds()
+        {
+            var tree = new RecordingTree
+            {
+                TreeName = "Test",
+                RootRecordingId = "root-stub",
+                ActiveRecordingId = "active-stub"
+            };
+
+            tree.Recordings["root-stub"] = new Recording
+            {
+                RecordingId = "root-stub",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 10.0 } }
+            };
+
+            tree.Recordings["active-stub"] = new Recording
+            {
+                RecordingId = "active-stub",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 20.0 } }
+            };
+
+            tree.Recordings["ordinary-stub"] = new Recording
+            {
+                RecordingId = "ordinary-stub",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 30.0 } }
+            };
+
+            var ids = ParsekFlight.CollectSinglePointDestroyedDebrisLeafIds(tree);
+
+            Assert.Single(ids);
+            Assert.Equal("ordinary-stub", ids[0]);
         }
 
         #region InferTerminalStateFromTrajectory

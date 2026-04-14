@@ -7,9 +7,9 @@ Use career mode for all tests (resource tracking requires it).
 ## Recording + Timeline (core flow)
 
 1. Launch any vessel from the pad
-2. Recording auto-starts on liftoff (or press F9 manually)
+2. Recording auto-starts on liftoff if enabled, or click `Start Recording` in the Parsek window
 3. Fly around for 30-60 seconds
-4. Press F9 to stop recording
+4. Click `Stop Recording` in the Parsek window
 5. Revert to Launch (Esc → Revert to Launch)
 6. Merge dialog appears - pick any option
 7. Wait on the pad until UT reaches the recording's timestamps
@@ -24,7 +24,7 @@ Use career mode for all tests (resource tracking requires it).
 3. Pick "Merge to Timeline" - ghost plays back, no vessel spawns
 
 ### Vessel intact
-1. Launch to orbit, F9 stop, revert
+1. Launch to orbit, stop the recording from the Parsek window, revert
 2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
 3. Pick "Merge to Timeline" - vessel appears in Tracking Station after ghost finishes
 
@@ -41,7 +41,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ### Basic swap (regression test for crew-not-swapped bug)
 1. Launch a vessel with Jeb as pilot
-2. F9 start recording, fly around briefly, F9 stop
+2. Start recording from the Parsek window, fly around briefly, then stop recording from the Parsek window
 3. Revert to Launch
 4. Merge dialog appears - pick "Merge to Timeline"
 5. **Verify on the pad:** the vessel's crew portrait should show a REPLACEMENT kerbal, NOT Jeb
@@ -77,16 +77,16 @@ Use career mode for all tests (resource tracking requires it).
 
 ## Manual Preview
 
-1. Record a flight, press F9 to stop (do NOT revert)
-2. Press F10 - ghost replays your flight in real time
-3. Press F11 to stop the preview
+1. Record a flight, then stop the recording from the Parsek window (do NOT revert)
+2. Click `Preview Playback` - ghost replays your flight in real time
+3. Click `Stop Preview`
 4. Verify: ghost disappears cleanly
 
 ## Recording Safeguards
 
 ### Paused game
 1. Pause the game (Esc)
-2. Press F9 - should show "Cannot record while paused"
+2. Click `Start Recording` in the Parsek window - should show "Cannot record while paused"
 
 ### Vessel change stops recording
 1. Start recording on one vessel

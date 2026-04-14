@@ -2,7 +2,7 @@
 
 **Bug:** #326  
 **Branch:** `fix/phase-11-5-bug-investigation`  
-**Status:** Investigation complete, implementation not started
+**Status:** Implemented and archived after merge
 
 ## Problem
 

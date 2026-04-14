@@ -252,7 +252,7 @@ Primary files to touch during implementation:
 
 Supporting docs:
 
-- `docs/dev/plans/phase-11-5-distance-threshold-centralization.md`
+- `docs/dev/done/plans/phase-11-5-distance-threshold-centralization.md`
 - `docs/dev/todo-and-known-bugs.md`
 - `docs/roadmap.md`
 

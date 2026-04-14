@@ -29,7 +29,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** Investigate how much of KSP's `Contract` internal state (completion conditions, parameters, waypoints) can be serialized and restored during patching.
 **Why deferred:** Complex investigation with unknown scope. Contract patching may require storing a serialized contract snapshot at accept time.
 **Revisit when:** Starting Contracts module KSP state patching.
-**Status:** Done — Full contract restoration implemented in `KspStatePatcher.PatchContracts`. Uses `Contract.Load(contract, configNode)` which sets state directly via enum parsing (no `SetState` side effects). Contract snapshots captured at accept time via `GameStateStore.AddContractSnapshot`. Type lookup uses `ContractSystem.GetContractType(typeName)` + `Activator.CreateInstance`. ConfigNode cloned before load (Contract.Load mutates input). Active contracts re-registered for parameter event subscriptions. See research report `docs/dev/research/contract-type-registry-api.md`.
+**Status:** Done — Full contract restoration implemented in `KspStatePatcher.PatchContracts`. Uses `Contract.Load(contract, configNode)` which sets state directly via enum parsing (no `SetState` side effects). Contract snapshots captured at accept time via `GameStateStore.AddContractSnapshot`. Type lookup uses `ContractSystem.GetContractType(typeName)` + `Activator.CreateInstance`. ConfigNode cloned before load (Contract.Load mutates input). Active contracts re-registered for parameter event subscriptions. See research report `docs/dev/done/research/contract-type-registry-api.md`.
 
 ---
 

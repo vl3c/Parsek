@@ -457,6 +457,15 @@ namespace Parsek
                 $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
                 $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed");
 
+            // Quickload resume restores the recorder's rewind save hint from
+            // resumeRewindSave, but the committed tree's Rewind button resolves through the
+            // root recording. Mirror the live recorder rewind metadata onto the root before
+            // serializing so an F5/F9 tree keeps its rewind affordance after merge.
+            ParsekFlight.CopyRewindSaveToRoot(
+                activeTree,
+                recorder,
+                logTag: "SaveActiveTreeIfAny");
+
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
             activeTree.Save(treeNode);
             treeNode.AddValue("isActive", "True");
@@ -2146,8 +2155,9 @@ namespace Parsek
                 else if (rec.TerminalStateValue.HasValue)
                     newlySet++;
             }
-            ParsekFlight.EnsureActiveRecordingTerminalState(tree);
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
             ParsekFlight.PruneZeroPointLeaves(tree);
+            ParsekFlight.PruneSinglePointDestroyedDebrisLeaves(tree);
 
             RecordingStore.MarkPendingTreeFinalized();
             ParsekLog.Info("Scenario",

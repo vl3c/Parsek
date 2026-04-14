@@ -3244,6 +3244,12 @@ namespace Parsek
                     return false;
             }
 
+            if (!TrajectoryPointListIsMonotonicNonDecreasing(flatPoints)
+                || !OrbitSegmentListIsMonotonicNonDecreasing(flatOrbitSegments))
+            {
+                return false;
+            }
+
             return flatPoints.Count > rebuiltPoints.Count
                 || flatOrbitSegments.Count > rebuiltOrbitSegments.Count;
         }
@@ -3309,26 +3315,13 @@ namespace Parsek
             if (tracks == null || tracks.Count == 0 || points == null)
                 return 0;
 
-            int dedupedBoundaryCopies = 0;
-            for (int t = 0; t < tracks.Count; t++)
-            {
-                if (tracks[t].referenceFrame == ReferenceFrame.OrbitalCheckpoint || tracks[t].frames == null)
-                    continue;
+            var rebuiltPoints = new List<TrajectoryPoint>();
+            int dedupedBoundaryCopies = RebuildPointsFromTrackSections(tracks, rebuiltPoints);
+            int overlapCopies = FindTrajectoryPointSuffixPrefixOverlap(points, rebuiltPoints);
+            for (int i = overlapCopies; i < rebuiltPoints.Count; i++)
+                points.Add(rebuiltPoints[i]);
 
-                for (int i = 0; i < tracks[t].frames.Count; i++)
-                {
-                    var pt = tracks[t].frames[i];
-                    if (points.Count > 0 && TrajectoryPointEquals(points[points.Count - 1], pt))
-                    {
-                        dedupedBoundaryCopies++;
-                        continue;
-                    }
-
-                    points.Add(pt);
-                }
-            }
-
-            return dedupedBoundaryCopies;
+            return dedupedBoundaryCopies + overlapCopies;
         }
 
         internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
@@ -3431,6 +3424,20 @@ namespace Parsek
             return true;
         }
 
+        private static bool TrajectoryPointListIsMonotonicNonDecreasing(List<TrajectoryPoint> points)
+        {
+            if (points == null)
+                return true;
+
+            for (int i = 1; i < points.Count; i++)
+            {
+                if (points[i].ut < points[i - 1].ut)
+                    return false;
+            }
+
+            return true;
+        }
+
         private static bool OrbitSegmentListsEqual(List<OrbitSegment> a, List<OrbitSegment> b)
         {
             if (ReferenceEquals(a, b))
@@ -3441,6 +3448,20 @@ namespace Parsek
             for (int i = 0; i < a.Count; i++)
             {
                 if (!OrbitSegmentEquals(a[i], b[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool OrbitSegmentListIsMonotonicNonDecreasing(List<OrbitSegment> orbitSegments)
+        {
+            if (orbitSegments == null)
+                return true;
+
+            for (int i = 1; i < orbitSegments.Count; i++)
+            {
+                if (orbitSegments[i].startUT < orbitSegments[i - 1].startUT)
                     return false;
             }
 
@@ -3480,26 +3501,69 @@ namespace Parsek
             if (tracks == null || tracks.Count == 0 || orbitSegments == null)
                 return 0;
 
-            int dedupedCopies = 0;
-            for (int t = 0; t < tracks.Count; t++)
+            var rebuiltOrbitSegments = new List<OrbitSegment>();
+            int dedupedCopies = RebuildOrbitSegmentsFromTrackSections(tracks, rebuiltOrbitSegments);
+            int overlapCopies = FindOrbitSegmentSuffixPrefixOverlap(orbitSegments, rebuiltOrbitSegments);
+            for (int i = overlapCopies; i < rebuiltOrbitSegments.Count; i++)
+                orbitSegments.Add(rebuiltOrbitSegments[i]);
+
+            return dedupedCopies + overlapCopies;
+        }
+
+        private static int FindTrajectoryPointSuffixPrefixOverlap(
+            List<TrajectoryPoint> existing,
+            List<TrajectoryPoint> incoming)
+        {
+            if (existing == null || incoming == null || existing.Count == 0 || incoming.Count == 0)
+                return 0;
+
+            int maxOverlap = Math.Min(existing.Count, incoming.Count);
+            for (int overlap = maxOverlap; overlap > 0; overlap--)
             {
-                if (tracks[t].referenceFrame != ReferenceFrame.OrbitalCheckpoint || tracks[t].checkpoints == null)
-                    continue;
-
-                for (int i = 0; i < tracks[t].checkpoints.Count; i++)
+                bool matches = true;
+                int existingStart = existing.Count - overlap;
+                for (int i = 0; i < overlap; i++)
                 {
-                    var seg = tracks[t].checkpoints[i];
-                    if (orbitSegments.Count > 0 && OrbitSegmentEquals(orbitSegments[orbitSegments.Count - 1], seg))
+                    if (!TrajectoryPointEquals(existing[existingStart + i], incoming[i]))
                     {
-                        dedupedCopies++;
-                        continue;
+                        matches = false;
+                        break;
                     }
-
-                    orbitSegments.Add(seg);
                 }
+
+                if (matches)
+                    return overlap;
             }
 
-            return dedupedCopies;
+            return 0;
+        }
+
+        private static int FindOrbitSegmentSuffixPrefixOverlap(
+            List<OrbitSegment> existing,
+            List<OrbitSegment> incoming)
+        {
+            if (existing == null || incoming == null || existing.Count == 0 || incoming.Count == 0)
+                return 0;
+
+            int maxOverlap = Math.Min(existing.Count, incoming.Count);
+            for (int overlap = maxOverlap; overlap > 0; overlap--)
+            {
+                bool matches = true;
+                int existingStart = existing.Count - overlap;
+                for (int i = 0; i < overlap; i++)
+                {
+                    if (!OrbitSegmentEquals(existing[existingStart + i], incoming[i]))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if (matches)
+                    return overlap;
+            }
+
+            return 0;
         }
 
         private static bool TrajectoryPointEquals(TrajectoryPoint a, TrajectoryPoint b)
