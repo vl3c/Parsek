@@ -1380,7 +1380,7 @@ Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open on
 
 ## TODO — Ghost Visuals
 
-### T63. Ghost audio suppression still logs disabled-source warnings on first appearance
+### T65. Ghost audio suppression still logs disabled-source warnings on first appearance
 
 The plume regression is fixed, but the fresh smoke bundle still shows a follow-up issue in the ghost audio suppression path. In `logs/2026-04-14_1459_ghost-engine-fix-smoke/KSP.log`, the main `Kerbal X` ghost now correctly starts engine state before its first visible Flight appearance (`GhostAudio` start lines at `15228`, `15230`, `15232`; appearance at `15235`; watch mode only later at `15244`), yet KSP still logs `Can not play a disabled audio source` immediately beforehand at `15227`, `15229`, and `15231`. The same pattern repeats earlier in the session at `11904-11908` and `15135-15139`.
 
