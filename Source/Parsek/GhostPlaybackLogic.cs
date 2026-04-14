@@ -779,7 +779,8 @@ namespace Parsek
                         {
                             kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
                             kvp.Value.audioSource.loop = true;
-                            kvp.Value.audioSource.Play();
+                            if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
+                                kvp.Value.audioSource.Play();
                         }
                         ParsekLog.Verbose("GhostAudio",
                             $"Auto-started audio for orphan engine key={kvp.Key} " +
@@ -1715,6 +1716,12 @@ namespace Parsek
                 if (!info.audioSource.isPlaying)
                 {
                     info.audioSource.clip = info.clip;
+                    // Fresh ghosts stay inactive until they've been positioned at the
+                    // current playback UT. Defer looped audio start until the hierarchy
+                    // is active; RestoreDeferredRuntimeFxState will replay tracked power.
+                    if (!CanStartLoopedGhostAudio(info.audioSource))
+                        return;
+
                     info.audioSource.Play();
                     ParsekLog.VerboseRateLimited("GhostAudio",
                         $"audio-start-{evt.partPersistentId}-{evt.moduleIndex}",
@@ -1732,6 +1739,18 @@ namespace Parsek
                         $"Engine audio stopped: pid={evt.partPersistentId} midx={evt.moduleIndex}", 5.0);
                 }
             }
+        }
+
+        internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)
+        {
+            return sourceExists && sourceIsActiveAndEnabled;
+        }
+
+        internal static bool CanStartLoopedGhostAudio(AudioSource audioSource)
+        {
+            return CanStartLoopedGhostAudio(
+                sourceExists: audioSource != null,
+                sourceIsActiveAndEnabled: audioSource != null && audioSource.isActiveAndEnabled);
         }
 
         /// <summary>
