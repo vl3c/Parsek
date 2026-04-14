@@ -7,7 +7,7 @@ It captures what is expensive in the current on-disk format and defines the repr
 recording corpus that guards the staged optimization plan.
 
 Related plan:
-- `docs/dev/plans/phase-11-5-recording-storage-optimization.md`
+- `docs/dev/done/plans/phase-11-5-recording-storage-optimization.md`
 
 ## Current Measurements
 

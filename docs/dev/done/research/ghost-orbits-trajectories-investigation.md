@@ -3,7 +3,7 @@
 ## Status: Complete — Investigation → Design → Implementation (Phases 1–3 done)
 
 ### Companion Documents
-- **KSP API Decompilation Reference**: `docs/dev/research/ksp-map-presence-api-decompilation.md` — decompiled ProtoVessel, OrbitRenderer, MapObject, SpaceTracking, FlightGlobals, GameEvents, VesselType, ITargetable. Includes minimal ConfigNode template and runtime creation/cleanup sequences.
+- **KSP API Decompilation Reference**: `docs/dev/done/research/ksp-map-presence-api-decompilation.md` — decompiled ProtoVessel, OrbitRenderer, MapObject, SpaceTracking, FlightGlobals, GameEvents, VesselType, ITargetable. Includes minimal ConfigNode template and runtime creation/cleanup sequences.
 - **KSPTrajectories Architecture Analysis**: `docs/mods-references/KSPTrajectories-architecture-analysis.md` — procedural mesh ribbon rendering, coordinate transforms, GL utilities, NavBall marker cloning, camera integration patterns. Useful for custom ghost orbit line styling (Phase 2).
 
 ## Problem
@@ -727,7 +727,7 @@ A clean Opus agent reviewed the investigation and found:
 
 ## KSP API Decompilation Results
 
-Full decompilation reference in `docs/dev/research/ksp-map-presence-api-decompilation.md`. Key findings summarized below.
+Full decompilation reference in `docs/dev/done/research/ksp-map-presence-api-decompilation.md`. Key findings summarized below.
 
 ### ProtoVessel Creation — Verified Path
 

@@ -2,7 +2,7 @@
 
 **Bug:** #321
 **Branch:** `investigate/321-anchor-vessel-camera-recovery`
-**Status:** Reviewed draft
+**Status:** Implemented and archived after merge
 
 ## Revision History
 

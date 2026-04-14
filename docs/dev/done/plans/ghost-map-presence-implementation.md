@@ -1,6 +1,6 @@
 # Ghost Map Presence — Implementation Plan
 
-**Design doc:** `docs/dev/research/ghost-map-presence-design.md`
+**Design doc:** `docs/dev/done/research/ghost-map-presence-design.md`
 **Branch:** `claude/ghost-orbits-trajectories-JrKkc`
 
 ---
