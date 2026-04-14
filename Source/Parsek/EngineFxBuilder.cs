@@ -23,6 +23,12 @@ namespace Parsek
             };
         private static readonly string[] EngineModelNodeTypes =
             { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
+        private const double HotPathLogIntervalSeconds = 5.0;
+
+        private static void LogHotPathVerbose(string rateLimitKey, string message)
+        {
+            ParsekLog.VerboseRateLimited("EngineFx", rateLimitKey, message, HotPathLogIntervalSeconds);
+        }
 
         private static bool TryGetFxModelFallbackRotation(string modelName, out Quaternion result)
         {
@@ -110,7 +116,8 @@ namespace Parsek
                             {
                                 if (TryGetFxModelFallbackRotation(modelName, out mmpLocalRot))
                                 {
-                                    ParsekLog.Verbose("EngineFx", $"model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
+                                    LogHotPathVerbose($"model-rotation-fallback-{modelName}",
+                                        $"model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
                                 }
                             }
 
@@ -222,7 +229,8 @@ namespace Parsek
                         t, modelRoot, selectedVariantGameObjects, out _, out _));
                 if (legacyAnchors.Count < preFilter)
                 {
-                    ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                    LogHotPathVerbose($"variant-legacy-anchor-filter-{partName}-{moduleIndex}",
+                        $"'{partName}' midx={moduleIndex}: " +
                         $"variant filter removed {preFilter - legacyAnchors.Count} of {preFilter} " +
                         $"legacy thrust anchors");
                     if (legacyAnchors.Count == 0)
@@ -346,7 +354,8 @@ namespace Parsek
                         !GhostVisualBuilder.IsRendererEnabledByVariantRule(
                             t, modelRoot, selectedVariantGameObjects, out _, out _));
                     if (fxTransforms.Count < preFilter)
-                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                        LogHotPathVerbose($"variant-model-filter-{partName}-{moduleIndex}-{transformName}",
+                            $"'{partName}' midx={moduleIndex}: " +
                             $"variant filter removed {preFilter - fxTransforms.Count} of {preFilter} " +
                             $"'{transformName}' model FX transforms");
                 }
@@ -358,7 +367,8 @@ namespace Parsek
                         srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                     if (ghostFxParent == null)
                     {
-                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
+                        LogHotPathVerbose($"model-parent-miss-{partName}-{moduleIndex}-{transformName}",
+                            $"'{partName}' midx={moduleIndex} " +
                             $"transform='{transformName}' parent resolution failed");
                         continue;
                     }
@@ -384,20 +394,25 @@ namespace Parsek
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
                                     modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                                     fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
-                                ParsekLog.Verbose("EngineFx", $"cloned: '{partName}' midx={moduleIndex} " +
+                                LogHotPathVerbose($"model-cloned-{partName}-{moduleIndex}-{groupName}-{transformName}-{modelName}",
+                                    $"cloned: '{partName}' midx={moduleIndex} " +
                                     $"group='{groupName}' type={nodeType} transform='{transformName}' model='{modelName}' " +
                                     $"systems={addedSystems} cfgRot={mmpLocalRot.eulerAngles}");
                                 LogFxDirection(partName, moduleIndex, nodeType, transformName, modelName, fxInstance.transform);
                             }
                             else
                             {
-                                ParsekLog.Verbose("EngineFx", $"model has no ParticleSystem: '{modelName}' for '{partName}'");
+                                LogHotPathVerbose($"model-empty-{partName}-{moduleIndex}-{modelName}",
+                                    $"model has no ParticleSystem: '{modelName}' for '{partName}'");
                                 Object.Destroy(fxInstance);
                             }
                         }
                         else
                         {
-                            ParsekLog.Verbose("GhostVisual", $"    Engine FX model not found: '{modelName}' for '{partName}'");
+                            ParsekLog.VerboseRateLimited("GhostVisual",
+                                $"engine-fx-model-missing-{partName}-{moduleIndex}-{modelName}",
+                                $"    Engine FX model not found: '{modelName}' for '{partName}'",
+                                HotPathLogIntervalSeconds);
                         }
                     }
                 }
@@ -427,7 +442,8 @@ namespace Parsek
                 GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
                 if (fxPrefab == null)
                 {
-                    ParsekLog.Verbose("EngineFx", $"prefab not found: '{prefabName}' for '{partName}'");
+                    LogHotPathVerbose($"prefab-missing-{partName}-{moduleIndex}-{prefabName}",
+                        $"prefab not found: '{prefabName}' for '{partName}'");
                     continue;
                 }
 
@@ -440,13 +456,15 @@ namespace Parsek
                         !GhostVisualBuilder.IsRendererEnabledByVariantRule(
                             t, modelRoot, selectedVariantGameObjects, out _, out _));
                     if (fxTransforms.Count < preFilter)
-                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                        LogHotPathVerbose($"variant-prefab-filter-{partName}-{moduleIndex}-{transformName}",
+                            $"'{partName}' midx={moduleIndex}: " +
                             $"variant filter removed {preFilter - fxTransforms.Count} of {preFilter} " +
                             $"'{transformName}' prefab FX transforms");
                 }
                 if (fxTransforms.Count == 0)
                 {
-                    ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
+                    LogHotPathVerbose($"prefab-transform-miss-{partName}-{moduleIndex}-{transformName}",
+                        $"'{partName}' midx={moduleIndex} " +
                         $"transform '{transformName}' not found on prefab");
                     continue;
                 }
@@ -461,7 +479,8 @@ namespace Parsek
                         srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                     if (ghostFxParent == null)
                     {
-                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
+                        LogHotPathVerbose($"prefab-parent-miss-{partName}-{moduleIndex}-{transformName}",
+                            $"'{partName}' midx={moduleIndex} " +
                             $"transform='{transformName}' (prefab) parent resolution failed");
                         continue;
                     }
@@ -508,14 +527,16 @@ namespace Parsek
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
-                        ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
+                        LogHotPathVerbose($"prefab-cloned-{partName}-{moduleIndex}-{groupName}-{transformName}-{prefabName}",
+                            $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"group='{groupName}' transform='{transformName}' prefab='{prefabName}' " +
                             $"systems={addedSystems} cfgRot={localRot.eulerAngles} hasCfgRot={hasLocalRot}");
                         LogFxDirection(partName, moduleIndex, "PREFAB_PARTICLE", transformName, prefabName, fxInstance.transform);
                     }
                     else
                     {
-                        ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
+                        LogHotPathVerbose($"prefab-empty-{partName}-{moduleIndex}-{prefabName}",
+                            $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"prefab '{prefabName}' has no ParticleSystem");
                         Object.Destroy(fxInstance);
                     }
@@ -615,7 +636,8 @@ namespace Parsek
                         }
                         effectGroups = filtered.Count > 0 ? filtered.ToArray() : allGroups;
                         effectGroupNames = filtered.Count > 0 ? filteredNames.ToArray() : allGroupNames;
-                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                        LogHotPathVerbose($"effects-filter-{partName}-{moduleIndex}",
+                            $"'{partName}' midx={moduleIndex}: " +
                             $"filtered {allGroups.Length} EFFECTS groups to {effectGroups.Length} " +
                             $"by module effects=[{string.Join(",", moduleGroups)}]");
                     }
@@ -654,7 +676,8 @@ namespace Parsek
                     int preFilter = found.Count;
                     found.RemoveAll(t => !IsTransformEnabledByVariant(t));
                     if (found.Count < preFilter)
-                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                        LogHotPathVerbose($"variant-named-transform-filter-{partName}-{moduleIndex}-{transformName}",
+                            $"'{partName}' midx={moduleIndex}: " +
                             $"variant filter removed {preFilter - found.Count} of {preFilter} " +
                             $"'{transformName}' transforms in FindNamedTransformsCached");
                     namedTransformCache[transformName] = found;
@@ -748,7 +771,8 @@ namespace Parsek
 
                     prefabFxEntries.Add((prefabName, fallbackTransform, fallbackOffset, localRotation, hasLocalRotation, "fallback"));
                     string rotationSuffix = hasLocalRotation ? $" rot={localRotation.eulerAngles}" : "";
-                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
+                    LogHotPathVerbose($"fallback-add-{partName}-{moduleIndex}-{prefabName}-{fallbackTransform}",
+                        $"fallback: '{partName}' midx={moduleIndex} " +
                         $"added {description} on '{fallbackTransform}' offset={fallbackOffset}{rotationSuffix}");
                 }
 
@@ -850,7 +874,8 @@ namespace Parsek
                         kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true, "fallback"));
                     prefabFxEntries.Add(("fx_exhaustFlame_yellow",
                         kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true, "fallback"));
-                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
+                    LogHotPathVerbose($"fallback-kickback-{partName}-{moduleIndex}",
+                        $"fallback: '{partName}' midx={moduleIndex} " +
                         $"forced Thumper-style plume on '{kickbackTransform}' offset={kickbackOffset} " +
                         $"rot={kickbackThumperLocalRot.eulerAngles} hasRot=true " +
                         $"(removed MODEL={removedKickbackModelFx}, PREFAB={removedKickbackPrefabs})");
@@ -914,7 +939,8 @@ namespace Parsek
 
                     prefabFxEntries.Add(("fx_smokeTrail_light", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true, "fallback"));
                     prefabFxEntries.Add(("fx_exhaustFlame_yellow_medium", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true, "fallback"));
-                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
+                    LogHotPathVerbose($"fallback-rhino-{partName}-{moduleIndex}",
+                        $"fallback: '{partName}' midx={moduleIndex} " +
                         $"forced compact Mainsail-like plume on '{rhinoTransform}' offset={rhinoOffset} " +
                         $"(removed MODEL={removedRhinoModelFx}, PREFAB={removedRhinoPrefabs})");
                 }
@@ -1000,7 +1026,8 @@ namespace Parsek
                         }
 
                         prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation, fallbackHasLocalRotation, "fallback"));
-                        ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
+                        LogHotPathVerbose($"fallback-vector-blue-{partName}-{moduleIndex}-{fallbackTransform}",
+                            $"fallback: '{partName}' midx={moduleIndex} " +
                             $"added Skipper-style blue flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
                     }
                 }
@@ -1057,7 +1084,8 @@ namespace Parsek
 
                     prefabFxEntries.Add(("fx_smokeTrail_large", rapierSmokeTransform, rapierSmokeOffset,
                         rapierSmokeRotation, rapierSmokeHasLocalRotation, "fallback"));
-                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
+                    LogHotPathVerbose($"fallback-rapier-smoke-{partName}-{moduleIndex}-{rapierSmokeTransform}",
+                        $"fallback: '{partName}' midx={moduleIndex} " +
                         $"replaced {removedRapierSmoke} smoke entries with Vector-style smoke on '{rapierSmokeTransform}' " +
                         $"offset={rapierSmokeOffset} rot={rapierSmokeRotation.eulerAngles}");
 
@@ -1092,7 +1120,8 @@ namespace Parsek
 
                         Quaternion flameRotation = Quaternion.Euler(-90f, 0f, 0f);
                         prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, flameOffset, flameRotation, true, "fallback"));
-                        ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
+                        LogHotPathVerbose($"fallback-rapier-flame-{partName}-{moduleIndex}-{flameTransform}",
+                            $"fallback: '{partName}' midx={moduleIndex} " +
                             $"added Vector-style white flame on '{flameTransform}' offset={flameOffset} rot={flameRotation.eulerAngles}");
                     }
                 }
@@ -1104,7 +1133,10 @@ namespace Parsek
                     // Only process once per part — legacy FX are shared, not per-module.
                     if (moduleIndex > 0)
                     {
-                        ParsekLog.Verbose("GhostVisual", $"    Engine '{partName}' midx={moduleIndex}: legacy FX already handled by midx=0");
+                        ParsekLog.VerboseRateLimited("GhostVisual",
+                            $"engine-legacy-handled-{partName}-{moduleIndex}",
+                            $"    Engine '{partName}' midx={moduleIndex}: legacy FX already handled by midx=0",
+                            HotPathLogIntervalSeconds);
                         continue;
                     }
 
@@ -1114,7 +1146,10 @@ namespace Parsek
                     if (legacyAdded)
                         result.Add(info);
                     else
-                        ParsekLog.Verbose("GhostVisual", $"    Engine '{partName}' midx={moduleIndex}: no legacy fx_* children found");
+                        ParsekLog.VerboseRateLimited("GhostVisual",
+                            $"engine-no-legacy-{partName}-{moduleIndex}",
+                            $"    Engine '{partName}' midx={moduleIndex}: no legacy fx_* children found",
+                            HotPathLogIntervalSeconds);
                     continue;
                 }
 

@@ -103,6 +103,7 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
+- Verbose ghost FX/audio/visual diagnostics in hot rebuild paths now use shared rate-limited keys, so repeated engine/RCS ghost rebuilds no longer flood `KSP.log` every cycle and instead roll up into periodic `suppressed=N` summaries.
 - Added regression coverage for fresh watch-entry camera-state prep, pinning the atmospheric/orbital initial-mode resolution and the default entry-distance behavior behind `#360` / `PR #288`.
 - Added regression coverage for malformed flat-fallback committed sidecars whose duplicated `TrackSection` prefix leaves a later monotonic tail, so load-time healing now preserves the real suffix and rewrites the sidecar cleanly on the next save (`#361`).
 - Added regression coverage for quickload-resume rewind metadata propagation and background recording integrity, including root rewind-budget fallback, recorder-backed commit-path wiring, overlap-aware flat-tail preservation, destroyed-stub prune guards, and the refreshed in-game runtime log-contract assertion behind the `#358` / `#359` fallout.
