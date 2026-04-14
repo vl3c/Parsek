@@ -141,7 +141,7 @@ Two paths if it bites:
 
 ---
 
-## 374. PR #263 follow-up: `KerbalAssignmentActionsMatch` UT comparator inconsistent literal types
+## ~~374. PR #263 follow-up: `KerbalAssignmentActionsMatch` UT comparator inconsistent literal types~~
 
 **Source:** light review of PRs `#256`-`#265` after `v0.8.0` ship.
 
@@ -149,7 +149,9 @@ Two paths if it bites:
 
 `FindTraitForKerbal` is also worth a glance: it walks `GameStateStore.Baselines` from the end on every call, O(`baselines * crew`). Fine for current baseline counts (few per session) but if anything ever adds baselines on a per-recording or per-vessel cadence it becomes hot. Note for the kerbal subsystem watch list.
 
-**Status:** TODO. Cosmetic + a hot-path note. No correctness issue.
+**Status:** ~~No-op — premise incorrect.~~
+
+**Fix:** Investigated and confirmed no change is needed. The literals are already type-matched to the field types — `GameAction.UT` is `double` (compared with `0.1`), `GameAction.StartUT` and `GameAction.EndUT` are `float` (compared with `0.1f`). The "inconsistency" is the bug entry author mistakenly assuming all three fields shared one type. The sibling comparator `FindMatchingExistingAction` in the same file (`LedgerOrchestrator.cs`) uses the identical literal-style-to-field-type mapping at lines `775` / `777` / `779`, so the pattern is the established convention for this file. Standardizing the literal would actively break that convention, not fix it. The `FindTraitForKerbal` hot-path note remains tracked elsewhere as a watch-list item, not a fix target.
 
 ---
 
