@@ -1214,6 +1214,160 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CollectDeferredEnginePowerRestores_ReturnsOnlyActiveEngineModules()
+        {
+            ulong activeKey = FlightRecorder.EncodeEngineKey(42u, 0);
+            ulong inactiveKey = FlightRecorder.EncodeEngineKey(99u, 1);
+            var state = new GhostPlaybackState
+            {
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    [activeKey] = new EngineGhostInfo
+                    {
+                        partPersistentId = 42u,
+                        moduleIndex = 0,
+                        currentPower = 0.75f
+                    },
+                    [inactiveKey] = new EngineGhostInfo
+                    {
+                        partPersistentId = 99u,
+                        moduleIndex = 1,
+                        currentPower = 0f
+                    }
+                }
+            };
+
+            var restores = GhostPlaybackLogic.CollectDeferredEnginePowerRestores(state);
+
+            Assert.Single(restores);
+            Assert.Equal(activeKey, restores[0].key);
+            Assert.Equal(0.75f, restores[0].power);
+        }
+
+        [Fact]
+        public void CollectDeferredRuntimePowerRestores_SeparatesEngineRcsAndAudioTrackedPower()
+        {
+            ulong engineKey = FlightRecorder.EncodeEngineKey(42u, 0);
+            ulong rcsKey = FlightRecorder.EncodeEngineKey(77u, 1);
+            var engineInfo = new EngineGhostInfo
+            {
+                partPersistentId = 42u,
+                moduleIndex = 0,
+                currentPower = 0.75f
+            };
+            var rcsInfo = new RcsGhostInfo
+            {
+                partPersistentId = 77u,
+                moduleIndex = 1,
+                currentPower = 0.35f
+            };
+            var audioInfo = new AudioGhostInfo
+            {
+                partPersistentId = 42u,
+                moduleIndex = 0,
+                currentPower = 0.75f
+            };
+            var state = new GhostPlaybackState
+            {
+                atmosphereFactor = 1f,
+                engineInfos = new Dictionary<ulong, EngineGhostInfo> { [engineKey] = engineInfo },
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo> { [rcsKey] = rcsInfo },
+                audioInfos = new Dictionary<ulong, AudioGhostInfo> { [engineKey] = audioInfo }
+            };
+
+            var engineRestores = GhostPlaybackLogic.CollectDeferredEnginePowerRestores(state);
+            var rcsRestores = GhostPlaybackLogic.CollectDeferredRcsPowerRestores(state);
+            var audioRestores = GhostPlaybackLogic.CollectDeferredAudioPowerRestores(state);
+
+            Assert.Single(engineRestores);
+            Assert.Equal((engineKey, 0.75f), engineRestores[0]);
+            Assert.Single(rcsRestores);
+            Assert.Equal((rcsKey, 0.35f), rcsRestores[0]);
+            Assert.Single(audioRestores);
+            Assert.Equal((engineKey, 0.75f), audioRestores[0]);
+        }
+
+        [Theory]
+        [InlineData(false, false, false)]
+        [InlineData(false, true, false)]
+        [InlineData(true, true, false)]
+        [InlineData(true, false, true)]
+        public void ShouldRestoreDeferredRuntimeFxState_RequiresFirstActivationAndUnsuppressedFx(
+            bool activatedDeferredState, bool suppressVisualFx, bool expected)
+        {
+            bool shouldRestore = GhostPlaybackEngine.ShouldRestoreDeferredRuntimeFxState(
+                activatedDeferredState, suppressVisualFx);
+
+            Assert.Equal(expected, shouldRestore);
+        }
+
+        [Fact]
+        public void ClearTrackedEnginePowerForPart_ClearsTrackedCurrentPower()
+        {
+            var info = new EngineGhostInfo
+            {
+                partPersistentId = 42u,
+                moduleIndex = 0,
+                currentPower = 0.75f
+            };
+            var state = new GhostPlaybackState
+            {
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    [FlightRecorder.EncodeEngineKey(42u, 0)] = info
+                }
+            };
+
+            GhostPlaybackLogic.ClearTrackedEnginePowerForPart(state, 42u);
+
+            Assert.Equal(0f, info.currentPower);
+        }
+
+        [Fact]
+        public void ClearTrackedRcsPowerForPart_ClearsTrackedCurrentPower()
+        {
+            var info = new RcsGhostInfo
+            {
+                partPersistentId = 77u,
+                moduleIndex = 1,
+                currentPower = 0.35f
+            };
+            var state = new GhostPlaybackState
+            {
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo>
+                {
+                    [FlightRecorder.EncodeEngineKey(77u, 1)] = info
+                }
+            };
+
+            GhostPlaybackLogic.ClearTrackedRcsPowerForPart(state, 77u);
+
+            Assert.Equal(0f, info.currentPower);
+        }
+
+        [Fact]
+        public void ClearTrackedAudioPowerForPart_ClearsTrackedCurrentPower()
+        {
+            var info = new AudioGhostInfo
+            {
+                partPersistentId = 42u,
+                moduleIndex = 0,
+                currentPower = 0.75f
+            };
+            var state = new GhostPlaybackState
+            {
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    [FlightRecorder.EncodeEngineKey(42u, 0)] = info
+                }
+            };
+
+            GhostPlaybackLogic.ClearTrackedAudioPowerForPart(state, 42u);
+
+            Assert.Equal(0f, info.currentPower);
+        }
+
+        [Fact]
         public void ResolveVisiblePlaybackUT_ClampsFreshFirstFrameBackToActivationStart()
         {
             var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
