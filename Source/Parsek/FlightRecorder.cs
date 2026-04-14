@@ -126,6 +126,7 @@ namespace Parsek
 
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
+        public double PendingJointBreakUT { get; private set; } = double.NaN;
 
         // Exact terminal events appended by the most recent FinalizeRecordingState call with
         // emitTerminalEvents=true. ResumeAfterFalseAlarm uses this list to remove the orphaned
@@ -138,10 +139,12 @@ namespace Parsek
         /// <summary>
         /// Consumes the pending joint break flag, returning whether a check was pending.
         /// </summary>
-        public bool ConsumePendingJointBreakCheck()
+        public bool ConsumePendingJointBreakCheck(out double jointBreakUT)
         {
             bool was = HasPendingJointBreakCheck;
+            jointBreakUT = PendingJointBreakUT;
             HasPendingJointBreakCheck = false;
+            PendingJointBreakUT = double.NaN;
             return was;
         }
 
@@ -382,9 +385,11 @@ namespace Parsek
             }
             decoupledPartIds.Add(joint.Child.persistentId);
 
+            double jointBreakUT = Planetarium.GetUniversalTime();
+
             PartEvents.Add(new PartEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = jointBreakUT,
                 partPersistentId = joint.Child.persistentId,
                 eventType = PartEventType.Decoupled,
                 partName = joint.Child.partInfo?.name ?? "unknown"
@@ -392,6 +397,8 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
 
             // Signal potential vessel split for deferred check by ParsekFlight
+            if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
+                PendingJointBreakUT = jointBreakUT;
             HasPendingJointBreakCheck = true;
         }
 

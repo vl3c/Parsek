@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -81,6 +82,49 @@ namespace Parsek.Tests
                 originalVesselPid: 2708531065u);
 
             Assert.False(capture);
+        }
+
+        [Fact]
+        public void ResolveDeferredSplitBranchUT_PrefersCapturedDecoupleSeedUT()
+        {
+            var captured = new Dictionary<uint, TrajectoryPoint>
+            {
+                [1079957709u] = new TrajectoryPoint { ut = 25.38 },
+                [1789849836u] = new TrajectoryPoint { ut = 25.39 },
+                [999u] = new TrajectoryPoint { ut = 12.00 }
+            };
+
+            double branchUT = ParsekFlight.ResolveDeferredSplitBranchUT(
+                fallbackUT: 25.40,
+                exactTriggerUT: double.NaN,
+                newVesselPids: new[] { 1079957709u, 1789849836u },
+                capturedTrajectoryPoints: captured);
+
+            Assert.Equal(25.38, branchUT, 3);
+        }
+
+        [Fact]
+        public void ResolveDeferredSplitBranchUT_UsesExactTriggerUTWhenNoCapturedSeedExists()
+        {
+            double branchUT = ParsekFlight.ResolveDeferredSplitBranchUT(
+                fallbackUT: 41.33,
+                exactTriggerUT: 41.25,
+                newVesselPids: new[] { 3027027466u, 2130796824u },
+                capturedTrajectoryPoints: new Dictionary<uint, TrajectoryPoint>());
+
+            Assert.Equal(41.25, branchUT, 3);
+        }
+
+        [Fact]
+        public void ResolveDeferredSplitBranchUT_FallsBackToDeferredCheckUTWithoutExactSignals()
+        {
+            double branchUT = ParsekFlight.ResolveDeferredSplitBranchUT(
+                fallbackUT: 61.39,
+                exactTriggerUT: double.NaN,
+                newVesselPids: new[] { 3271565278u, 633147235u },
+                capturedTrajectoryPoints: null);
+
+            Assert.Equal(61.39, branchUT, 3);
         }
     }
 }

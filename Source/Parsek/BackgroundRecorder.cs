@@ -387,7 +387,8 @@ namespace Parsek
                 }
                 preBreakVesselPidSnapshots[vesselPid] = snapshot;
                 TrajectoryPoint? parentBoundaryPoint = joint.Child.vessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(joint.Child.vessel, branchUT)
+                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
+                        joint.Child.vessel, branchUT, preferRootPartSurfacePose: true)
                     : null;
                 pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
 
@@ -574,7 +575,8 @@ namespace Parsek
                 if (!parentInitialPoint.HasValue && parentVessel != null)
                 {
                     double sampleUT = Planetarium.GetUniversalTime();
-                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(parentVessel, sampleUT);
+                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(
+                        parentVessel, sampleUT, preferRootPartSurfacePose: true);
                 }
                 OnVesselBackgrounded(parentPid, parentEngineState,
                     initialTrajectoryPoint: parentInitialPoint);
@@ -699,7 +701,8 @@ namespace Parsek
                 // must use the actual sample UT rather than the earlier branchUT.
                 double sampleUT = Planetarium.GetUniversalTime();
                 TrajectoryPoint? childInitialPoint = childVessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(childVessel, sampleUT)
+                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
+                        childVessel, sampleUT, preferRootPartSurfacePose: true)
                     : null;
                 OnVesselBackgrounded(child.VesselPersistentId, inherited,
                     initialTrajectoryPoint: childInitialPoint);
@@ -2141,20 +2144,53 @@ namespace Parsek
                 $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName}");
         }
 
+        private static bool TryResolveRootPartSurfacePose(
+            Vessel v,
+            out double latitude,
+            out double longitude,
+            out double altitude,
+            out Quaternion rotation)
+        {
+            latitude = v != null ? v.latitude : 0.0;
+            longitude = v != null ? v.longitude : 0.0;
+            altitude = v != null ? v.altitude : 0.0;
+            rotation = v != null ? v.srfRelRotation : Quaternion.identity;
+
+            if (v?.mainBody == null || v.rootPart == null || v.rootPart.transform == null || v.mainBody.bodyTransform == null)
+                return false;
+
+            Vector3d worldPos = v.rootPart.transform.position;
+            latitude = v.mainBody.GetLatitude(worldPos);
+            longitude = v.mainBody.GetLongitude(worldPos);
+            altitude = v.mainBody.GetAltitude(worldPos);
+            rotation = Quaternion.Inverse(v.mainBody.bodyTransform.rotation) * v.rootPart.transform.rotation;
+            return true;
+        }
+
         internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(
-            Vessel v, double ut, Vector3? explicitVelocity = null)
+            Vessel v,
+            double ut,
+            Vector3? explicitVelocity = null,
+            bool preferRootPartSurfacePose = false)
         {
             Vector3 velocity = explicitVelocity ?? (v.packed
                 ? (Vector3)v.obt_velocity
                 : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity()));
 
+            double latitude = v.latitude;
+            double longitude = v.longitude;
+            double altitude = v.altitude;
+            Quaternion rotation = v.srfRelRotation;
+            if (preferRootPartSurfacePose)
+                TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
+
             return new TrajectoryPoint
             {
                 ut = ut,
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
-                rotation = v.srfRelRotation,
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude,
+                rotation = rotation,
                 velocity = velocity,
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,

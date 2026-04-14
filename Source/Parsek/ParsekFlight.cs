@@ -308,6 +308,7 @@ namespace Parsek
         private bool pendingSplitInProgress;
         private FlightRecorder pendingSplitRecorder;
         private DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
+        private double pendingSplitTriggerUT = double.NaN;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         private HashSet<uint> preBreakVesselPids;
         // Vessels created by decouple during recording (caught via onPartDeCoupleNewVesselComplete
@@ -316,6 +317,9 @@ namespace Parsek
         private List<Vessel> decoupleCreatedVessels;
         // Controller status captured at creation time (vessel parts may be cleared before deferred check)
         private Dictionary<uint, bool> decoupleControllerStatus;
+        // Exact split-time seed points captured from onPartDeCoupleNewVesselComplete.
+        // Used to avoid seeding breakup children from the later deferred-check frame.
+        private Dictionary<uint, TrajectoryPoint> decoupleCreatedTrajectoryPoints;
 
         // Crash coalescer: groups rapid structural splits into single BREAKUP events
         private CrashCoalescer crashCoalescer = new CrashCoalescer();
@@ -857,8 +861,10 @@ namespace Parsek
                 GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnDecoupleNewVesselDuringSplitCheck);
                 decoupleCreatedVessels = null;
                 decoupleControllerStatus = null;
+                decoupleCreatedTrajectoryPoints = null;
             }
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
+            pendingSplitTriggerUT = double.NaN;
 
             // Clean up background recorder if active
             if (backgroundRecorder != null)
@@ -2578,7 +2584,7 @@ namespace Parsek
                     yield break;
                 }
 
-                double branchUT = Planetarium.GetUniversalTime();
+                double currentUT = Planetarium.GetUniversalTime();
 
                 // Scan for NEW vessels created by the joint break.
                 // Only consider vessels whose PID was NOT in the pre-break snapshot,
@@ -2666,6 +2672,12 @@ namespace Parsek
                 var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                     recordedPid, newVesselPids, anyNewVesselHasController);
 
+                double branchUT = ResolveDeferredSplitBranchUT(
+                    currentUT,
+                    pendingSplitTriggerUT,
+                    newVesselPids,
+                    decoupleCreatedTrajectoryPoints);
+
                 ParsekLog.Info("Coalescer",
                     $"Deferred split classified: source={splitCheckSource}, result={classification}, " +
                     $"newVessels={newVesselPids.Count}, hasController={anyNewVesselHasController}, " +
@@ -2718,17 +2730,37 @@ namespace Parsek
                         // By coalescer emission time (0.5s later), debris may be destroyed.
                         ConfigNode preSnapshot = null;
                         TrajectoryPoint? preTrajectoryPoint = null;
+                        string trajectoryPointSource = "none";
                         Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
                         if (childVessel != null)
-                        {
                             preSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                        TrajectoryPoint capturedPoint = default;
+                        bool hasCapturedPoint = decoupleCreatedTrajectoryPoints != null
+                            && decoupleCreatedTrajectoryPoints.TryGetValue(newPid, out capturedPoint);
+                        if (hasCapturedPoint)
+                        {
+                            preTrajectoryPoint = capturedPoint;
+                            trajectoryPointSource = "decouple-callback";
+                        }
+                        else if (childVessel != null)
+                        {
                             preTrajectoryPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                childVessel, branchUT);
+                                childVessel, currentUT, preferRootPartSurfacePose: true);
+                            trajectoryPointSource = "deferred-live-sample";
+                        }
+                        else if (childVessel == null)
+                        {
+                            trajectoryPointSource = "destroyed-before-capture";
                         }
 
                         ParsekLog.Info("Coalescer",
                             $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
-                            $", preSnapshot={preSnapshot != null}");
+                            $", preSnapshot={preSnapshot != null}, preTrajectoryPoint={preTrajectoryPoint.HasValue} " +
+                            $"pointSource={trajectoryPointSource} " +
+                            $"branchUT={branchUT.ToString("F2", CultureInfo.InvariantCulture)}" +
+                            (preTrajectoryPoint.HasValue
+                                ? $" seedUT={preTrajectoryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}"
+                                : string.Empty));
                         crashCoalescer.OnSplitEvent(
                             branchUT, newPid, hasController,
                             preSnapshot: preSnapshot,
@@ -2769,10 +2801,12 @@ namespace Parsek
                 pendingSplitInProgress = false;
                 pendingSplitRecorder = null;
                 pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
+                pendingSplitTriggerUT = double.NaN;
                 preBreakVesselPids = null;
                 // Clear consumed decouple vessels (list stays alive for session, just emptied)
                 decoupleCreatedVessels?.Clear();
                 decoupleControllerStatus?.Clear();
+                decoupleCreatedTrajectoryPoints?.Clear();
             }
         }
 
@@ -2967,6 +3001,71 @@ namespace Parsek
             return childRec;
         }
 
+        private static string DescribeBreakupChildSeedPose(
+            TrajectoryPoint? seedPoint,
+            Vessel liveVessel,
+            double liveUT)
+        {
+            if (!seedPoint.HasValue)
+                return "seedPoint=none";
+
+            var ic = CultureInfo.InvariantCulture;
+            TrajectoryPoint point = seedPoint.Value;
+            string summary =
+                $"seedPoint@{point.ut.ToString("F2", ic)} body={point.bodyName} " +
+                $"lla=({point.latitude.ToString("F2", ic)}," +
+                $"{point.longitude.ToString("F2", ic)}," +
+                $"{point.altitude.ToString("F2", ic)}) " +
+                $"vel={FormatVector3(point.velocity)}";
+
+            Part rootPart = liveVessel?.rootPart;
+            if (rootPart == null)
+                return summary;
+
+            CelestialBody body = liveVessel.mainBody;
+            if ((body == null || !string.Equals(body.name, point.bodyName, StringComparison.Ordinal))
+                && FlightGlobals.Bodies != null)
+            {
+                body = FlightGlobals.Bodies.Find(b =>
+                    b != null && string.Equals(b.name, point.bodyName, StringComparison.Ordinal));
+            }
+
+            if (body == null || rootPart.transform == null)
+                return summary;
+
+            Vector3d seedWorld = body.GetWorldSurfacePosition(
+                point.latitude,
+                point.longitude,
+                point.altitude);
+            Vector3d rootWorld = rootPart.transform.position;
+            Vector3d seedRootDelta = seedWorld - rootWorld;
+
+            return summary + " " +
+                $"liveRootUT={liveUT.ToString("F2", ic)} " +
+                $"rootPart={rootPart.partInfo?.name ?? rootPart.name} pid={rootPart.persistentId} " +
+                $"rootLla=({body.GetLatitude(rootWorld).ToString("F2", ic)}," +
+                $"{body.GetLongitude(rootWorld).ToString("F2", ic)}," +
+                $"{body.GetAltitude(rootWorld).ToString("F2", ic)}) " +
+                $"seed-liveRoot={FormatVector3d(seedRootDelta)} " +
+                $"seedLiveRootDist={seedRootDelta.magnitude.ToString("F2", ic)}m";
+        }
+
+        private static string FormatVector3(Vector3 value)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return $"({value.x.ToString("F2", ic)}," +
+                   $"{value.y.ToString("F2", ic)}," +
+                   $"{value.z.ToString("F2", ic)})";
+        }
+
+        private static string FormatVector3d(Vector3d value)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return $"({value.x.ToString("F2", ic)}," +
+                   $"{value.y.ToString("F2", ic)}," +
+                   $"{value.z.ToString("F2", ic)})";
+        }
+
         /// <summary>
         /// Processes a BREAKUP branch point emitted by the crash coalescer.
         /// Adds the BREAKUP event as a branch point on the active tree recording and
@@ -3059,7 +3158,7 @@ namespace Parsek
                         {
                             double sampleUT = Planetarium.GetUniversalTime();
                             initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                childVessel, sampleUT);
+                                childVessel, sampleUT, preferRootPartSurfacePose: true);
                         }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
@@ -3071,7 +3170,8 @@ namespace Parsek
                     ParsekLog.Info("Coalescer",
                         $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
-                        $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null}");
+                        $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null} " +
+                        $"{DescribeBreakupChildSeedPose(breakupChildPoint, childVessel, Planetarium.GetUniversalTime())}");
                 }
             }
 
@@ -3107,7 +3207,7 @@ namespace Parsek
                         {
                             double sampleUT = Planetarium.GetUniversalTime();
                             initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                debrisVessel, sampleUT);
+                                debrisVessel, sampleUT, preferRootPartSurfacePose: true);
                         }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
@@ -3120,7 +3220,8 @@ namespace Parsek
                     ParsekLog.Info("Coalescer",
                         $"ProcessBreakupEvent: debris child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
-                        $"alive={debrisVessel != null}");
+                        $"alive={debrisVessel != null} " +
+                        $"{DescribeBreakupChildSeedPose(breakupChildPoint, debrisVessel, Planetarium.GetUniversalTime())}");
                 }
             }
 
@@ -4908,12 +5009,36 @@ namespace Parsek
             return recordedVesselPid != 0 && originalVesselPid == recordedVesselPid;
         }
 
+        internal static double ResolveDeferredSplitBranchUT(
+            double fallbackUT,
+            double exactTriggerUT,
+            IEnumerable<uint> newVesselPids,
+            IReadOnlyDictionary<uint, TrajectoryPoint> capturedTrajectoryPoints)
+        {
+            double branchUT = !double.IsNaN(exactTriggerUT) ? exactTriggerUT : fallbackUT;
+            if (newVesselPids == null || capturedTrajectoryPoints == null)
+                return branchUT;
+
+            foreach (uint pid in newVesselPids)
+            {
+                TrajectoryPoint point;
+                if (!capturedTrajectoryPoints.TryGetValue(pid, out point) || double.IsNaN(point.ut))
+                    continue;
+
+                if (double.IsNaN(branchUT) || point.ut < branchUT)
+                    branchUT = point.ut;
+            }
+
+            return double.IsNaN(branchUT) ? fallbackUT : branchUT;
+        }
+
         private void HandleJointBreakDeferredCheck()
         {
             if (pendingSplitInProgress || recorder == null || !recorder.IsRecording)
                 return;
 
-            bool jointBreakPending = recorder.ConsumePendingJointBreakCheck();
+            double pendingJointBreakUT;
+            bool jointBreakPending = recorder.ConsumePendingJointBreakCheck(out pendingJointBreakUT);
             bool decoupleCreatedVesselsPending =
                 pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel
                 && decoupleCreatedVessels != null
@@ -4929,6 +5054,7 @@ namespace Parsek
                 return;
 
             pendingDeferredSplitCheckTrigger = trigger;
+            pendingSplitTriggerUT = jointBreakPending ? pendingJointBreakUT : double.NaN;
 
             // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels.
             // This only makes sense for true joint-break-triggered checks.
@@ -4990,10 +5116,20 @@ namespace Parsek
             bool hasController = IsTrackableVessel(newVessel);
             if (decoupleControllerStatus != null)
                 decoupleControllerStatus[newVessel.persistentId] = hasController;
+            double splitUT = Planetarium.GetUniversalTime();
+            if (decoupleCreatedTrajectoryPoints != null
+                && !decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
+            {
+                decoupleCreatedTrajectoryPoints[newVessel.persistentId] =
+                    BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                        newVessel, splitUT, preferRootPartSurfacePose: true);
+            }
             ParsekLog.Info("Flight",
                 $"Decouple created vessel during recording: pid={newVessel.persistentId} " +
                 $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
-                $"parts={newVessel.parts?.Count ?? 0} hasController={hasController}");
+                $"parts={newVessel.parts?.Count ?? 0} hasController={hasController} " +
+                $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"capturedSeed={(decoupleCreatedTrajectoryPoints != null && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId) ? "T" : "F")}");
         }
 
         /// <summary>
@@ -5179,7 +5315,9 @@ namespace Parsek
             // window (Update) misses the initial decouple because FixedUpdate runs before Update.
             decoupleCreatedVessels = new List<Vessel>();
             decoupleControllerStatus = new Dictionary<uint, bool>();
+            decoupleCreatedTrajectoryPoints = new Dictionary<uint, TrajectoryPoint>();
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
+            pendingSplitTriggerUT = double.NaN;
             GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
@@ -5292,8 +5430,10 @@ namespace Parsek
                 GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnDecoupleNewVesselDuringSplitCheck);
                 decoupleCreatedVessels = null;
                 decoupleControllerStatus = null;
+                decoupleCreatedTrajectoryPoints = null;
             }
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
+            pendingSplitTriggerUT = double.NaN;
             recorder?.StopRecording();
 
             // Tag the final segment with chain metadata if in a chain
