@@ -32,7 +32,22 @@ namespace Parsek
                 return GhostExtensionStrategy.None;
             }
 
-            // 1. Orbital: terminal orbit body and SMA present
+            bool surfaceTerminal = rec.TerminalStateValue == TerminalState.Landed
+                || rec.TerminalStateValue == TerminalState.Splashed;
+
+            // 1. Surface terminals must prefer terminal surface position over any stale
+            // orbital metadata from earlier in the recording.
+            if (surfaceTerminal && rec.TerminalPosition.HasValue)
+            {
+                var tp = rec.TerminalPosition.Value;
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "ChooseStrategy: Surface (surface terminal, body={0} lat={1:F4} lon={2:F4} alt={3:F1})",
+                        tp.body, tp.latitude, tp.longitude, tp.altitude));
+                return GhostExtensionStrategy.Surface;
+            }
+
+            // 2. Orbital: terminal orbit body and SMA present
             if (!string.IsNullOrEmpty(rec.TerminalOrbitBody) &&
                 rec.TerminalOrbitSemiMajorAxis > 0)
             {
@@ -43,7 +58,7 @@ namespace Parsek
                 return GhostExtensionStrategy.Orbital;
             }
 
-            // 2. Surface: terminal position available
+            // 3. Surface: terminal position available
             if (rec.TerminalPosition.HasValue)
             {
                 var tp = rec.TerminalPosition.Value;
@@ -54,7 +69,7 @@ namespace Parsek
                 return GhostExtensionStrategy.Surface;
             }
 
-            // 3. LastRecordedPosition: has trajectory points
+            // 4. LastRecordedPosition: has trajectory points
             if (rec.Points != null && rec.Points.Count > 0)
             {
                 var last = rec.Points[rec.Points.Count - 1];
@@ -65,7 +80,7 @@ namespace Parsek
                 return GhostExtensionStrategy.LastRecordedPosition;
             }
 
-            // 4. None
+            // 5. None
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
                     "ChooseStrategy: None (no terminal orbit, no surface position, no trajectory points for rec={0})",

@@ -212,6 +212,140 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var active = new Recording
+            {
+                RecordingId = "active-non-leaf",
+                VesselPersistentId = 42,
+                ChildBranchPointId = "branch-1",
+            };
+            active.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.0,
+                epoch = 10.0,
+                startUT = 10.0,
+                endUT = 11.0,
+            });
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 12.0,
+                altitude = 18.0,
+                bodyName = "Kerbin",
+                latitude = 0.1,
+                longitude = 0.2,
+            });
+            tree.Recordings[active.RecordingId] = active;
+            tree.ActiveRecordingId = active.RecordingId;
+
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
+
+            Assert.Equal(TerminalState.Landed, active.TerminalStateValue);
+            Assert.True(active.TerminalPosition.HasValue);
+            Assert.Equal(SurfaceSituation.Landed, active.TerminalPosition.Value.situation);
+            Assert.Equal(GhostExtensionStrategy.Surface, GhostExtender.ChooseStrategy(active));
+            Assert.Contains(logLines, l =>
+                l.Contains("active recording 'active-non-leaf'") &&
+                l.Contains("not found on scene exit") &&
+                l.Contains("inferred Landed from trajectory"));
+        }
+
+        [Fact]
+        public void EnsureActiveRecordingTerminalState_NoLiveVesselOutsideSceneExit_LeavesTerminalUnset()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var active = new Recording
+            {
+                RecordingId = "active-non-leaf",
+                VesselPersistentId = 42,
+                ChildBranchPointId = "branch-1",
+            };
+            active.Points.Add(new TrajectoryPoint { ut = 12.0, altitude = 18.0 });
+            tree.Recordings[active.RecordingId] = active;
+            tree.ActiveRecordingId = active.RecordingId;
+
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: false);
+
+            Assert.False(active.TerminalStateValue.HasValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("active recording 'active-non-leaf'") &&
+                l.Contains("not found before terminal-state assignment") &&
+                l.Contains("isSceneExit=False"));
+        }
+
+        [Fact]
+        public void SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "Kerbal X",
+                RootRecordingId = "active",
+                ActiveRecordingId = "active"
+            };
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 42,
+                ChildBranchPointId = "bp-1",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            active.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.0,
+                epoch = 10.0,
+                startUT = 10.0,
+                endUT = 11.0,
+            });
+            active.Points.Add(new TrajectoryPoint
+            {
+                ut = 12.0,
+                altitude = 18.0,
+                bodyName = "Kerbin",
+                latitude = 0.1,
+                longitude = 0.2,
+            });
+
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X Debris",
+                VesselPersistentId = 100,
+                ParentBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                IsDebris = true
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.Breakup,
+                UT = 10.0
+            };
+            bp.ParentRecordingIds.Add("active");
+            bp.ChildRecordingIds.Add("debris");
+
+            tree.Recordings[active.RecordingId] = active;
+            tree.Recordings[debris.RecordingId] = debris;
+            tree.BranchPoints.Add(bp);
+
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+
+            Assert.True(active.TerminalPosition.HasValue);
+            Assert.True(decisions["active"]);
+            Assert.False(decisions["debris"]);
+        }
+
+        [Fact]
         public void ShouldRefreshActiveEffectiveLeafSnapshot_StableTerminalBreakupContinuous_ReturnsTrue()
         {
             var tree = new RecordingTree { TreeName = "Test", Id = "tree-1" };

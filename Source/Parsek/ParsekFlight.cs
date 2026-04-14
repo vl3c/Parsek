@@ -6291,7 +6291,7 @@ namespace Parsek
             // In tree mode, the active recording may have debris branches (non-leaf)
             // so FinalizeIndividualRecording skips its terminalState. The optimizer
             // will propagate this to the chain tip via SplitAtSection.
-            EnsureActiveRecordingTerminalState(tree);
+            EnsureActiveRecordingTerminalState(tree, isSceneExit);
             RefreshActiveEffectiveLeafSnapshot(tree, isSceneExit);
 
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
@@ -6312,9 +6312,11 @@ namespace Parsek
         /// <summary>
         /// Sets terminal state on the active recording even if it is a non-leaf node.
         /// FinalizeIndividualRecording skips non-leaves, but the active recording needs
-        /// terminal state for the optimizer's SplitAtSection propagation.
+        /// terminal state for the optimizer's SplitAtSection propagation. On scene-exit
+        /// paths, falls back to trajectory-based inference when the live vessel is no
+        /// longer available.
         /// </summary>
-        internal static void EnsureActiveRecordingTerminalState(RecordingTree tree)
+        internal static void EnsureActiveRecordingTerminalState(RecordingTree tree, bool isSceneExit = false)
         {
             if (string.IsNullOrEmpty(tree.ActiveRecordingId))
                 return;
@@ -6342,7 +6344,30 @@ namespace Parsek
                     $"FinalizeTreeRecordings: set terminalState=" +
                     $"{activeRec.TerminalStateValue} on active recording " +
                     $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
+                return;
             }
+
+            if (isSceneExit)
+            {
+                var inferredState = InferTerminalStateFromTrajectory(activeRec);
+                activeRec.TerminalStateValue = inferredState;
+                ParsekLog.Info("Flight",
+                    $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
+                    $"vessel pid={activeRec.VesselPersistentId} not found on scene exit — " +
+                    $"inferred {inferredState} from trajectory");
+                PopulateTerminalOrbitFromLastSegment(activeRec);
+                if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+                {
+                    PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
+                    TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
+                }
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
+                $"vessel pid={activeRec.VesselPersistentId} not found before terminal-state " +
+                $"assignment (isSceneExit={isSceneExit})");
         }
 
         internal static bool ShouldRefreshActiveEffectiveLeafSnapshot(
@@ -6466,26 +6491,10 @@ namespace Parsek
                     // Without this, TerrainHeightAtEnd stays NaN and the spawn safety net
                     // uses PQS terrain height, which is below KSP static structures (runway,
                     // launchpad), causing the spawned vessel to clip through and explode.
-                    if ((inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
-                        && rec.Points.Count > 0)
+                    if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
                     {
-                        var lastPt = rec.Points[rec.Points.Count - 1];
-                        try
-                        {
-                            CelestialBody body = FlightGlobals.GetBodyByName(lastPt.bodyName);
-                            if (body != null)
-                            {
-                                rec.TerrainHeightAtEnd = body.TerrainAltitude(lastPt.latitude, lastPt.longitude);
-                                ParsekLog.Verbose("TerrainCorrect",
-                                    $"Captured terrain height from trajectory for unloaded vessel: " +
-                                    $"{rec.TerrainHeightAtEnd:F1}m (lastPt alt={lastPt.altitude:F1}m, " +
-                                    $"rec={rec.RecordingId})");
-                            }
-                        }
-                        catch
-                        {
-                            // FlightGlobals not available (unit tests)
-                        }
+                        PopulateTerminalPositionFromLastPoint(rec, inferredState);
+                        TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
                     }
                 }
                 else
@@ -6652,6 +6661,51 @@ namespace Parsek
 
             // Default: vessel was in flight (atmospheric descent, suborbital, etc.)
             return TerminalState.SubOrbital;
+        }
+
+        static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
+        {
+            if (rec?.Points == null || rec.Points.Count == 0)
+                return;
+            if (inferredState != TerminalState.Landed && inferredState != TerminalState.Splashed)
+                return;
+
+            var lastPt = rec.Points[rec.Points.Count - 1];
+            rec.TerminalPosition = new SurfacePosition
+            {
+                body = string.IsNullOrEmpty(lastPt.bodyName) ? "Kerbin" : lastPt.bodyName,
+                latitude = lastPt.latitude,
+                longitude = lastPt.longitude,
+                altitude = lastPt.altitude,
+                rotation = lastPt.rotation,
+                situation = inferredState == TerminalState.Splashed
+                    ? SurfaceSituation.Splashed
+                    : SurfaceSituation.Landed
+            };
+        }
+
+        static void TryCaptureTerrainHeightFromLastTrajectoryPoint(Recording rec)
+        {
+            if (rec?.Points == null || rec.Points.Count == 0)
+                return;
+
+            var lastPt = rec.Points[rec.Points.Count - 1];
+            try
+            {
+                CelestialBody body = FlightGlobals.GetBodyByName(lastPt.bodyName);
+                if (body != null)
+                {
+                    rec.TerrainHeightAtEnd = body.TerrainAltitude(lastPt.latitude, lastPt.longitude);
+                    ParsekLog.Verbose("TerrainCorrect",
+                        $"Captured terrain height from trajectory for unloaded vessel: " +
+                        $"{rec.TerrainHeightAtEnd:F1}m (lastPt alt={lastPt.altitude:F1}m, " +
+                        $"rec={rec.RecordingId})");
+                }
+            }
+            catch
+            {
+                // FlightGlobals not available (unit tests)
+            }
         }
 
         private static bool IsStableSpawnTerminal(TerminalState state)
