@@ -1736,6 +1736,8 @@ namespace Parsek
                 return;
             }
 
+            PrepareSessionStateForRecorderStart("PromoteRecordingFromBackground");
+
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
             ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
@@ -2185,6 +2187,10 @@ namespace Parsek
                 ParsekLog.Warn("Flight", $"CreateSplitBranch: StartRecording failed for active child");
                 recorder = null;
             }
+            else
+            {
+                PrepareSessionStateForRecorderStart("CreateSplitBranch");
+            }
 
             ParsekLog.Info("Flight", $"Tree branch created: type={branchType}, " +
                 $"bp={bp.Id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
@@ -2315,6 +2321,10 @@ namespace Parsek
             {
                 ParsekLog.Warn("Flight", "CreateMergeBranch: StartRecording failed for merged child");
                 recorder = null;
+            }
+            else
+            {
+                PrepareSessionStateForRecorderStart("CreateMergeBranch");
             }
 
             // 11. Log
@@ -5368,7 +5378,17 @@ namespace Parsek
                 return;
             }
 
-            // Reset crash coalescer on new recording start to clear any stale state
+            PrepareSessionStateForRecorderStart("StartRecording");
+
+            uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
+            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={chainManager.ActiveChainId != null}, tree={activeTree != null}");
+            ParsekLog.RecState("StartRecording:post", CaptureRecorderState());
+        }
+
+        private void PrepareSessionStateForRecorderStart(string reason)
+        {
+            // Reset crash coalescer on every recorder start so a fresh recorder cannot
+            // inherit a stale coalescing window from the previous segment or scene.
             if (crashCoalescer != null)
             {
                 crashCoalescer.Reset();
@@ -5379,20 +5399,39 @@ namespace Parsek
             // to be detected as vessel splits and recorded as background vessels.
             EnforceMinDebrisPersistence();
 
-            // Subscribe to decouple events for the entire recording session.
-            // onPartDeCoupleNewVesselComplete fires synchronously in Part.decouple() (FixedUpdate),
-            // which is the same frame as the joint break. Subscribing only during the split check
-            // window (Update) misses the initial decouple because FixedUpdate runs before Update.
-            decoupleCreatedVessels = new List<Vessel>();
-            decoupleControllerStatus = new Dictionary<uint, bool>();
-            decoupleCreatedTrajectoryPoints = new Dictionary<uint, TrajectoryPoint>();
+            // A newly-started recorder owns split detection from a clean slate.
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
             pendingSplitTriggerUT = double.NaN;
-            GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
+            preBreakVesselPids = null;
 
-            uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
-            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={chainManager.ActiveChainId != null}, tree={activeTree != null}");
-            ParsekLog.RecState("StartRecording:post", CaptureRecorderState());
+            bool subscribedDecoupleListener = false;
+
+            // onPartDeCoupleNewVesselComplete fires synchronously in Part.decouple()
+            // (FixedUpdate), so the listener must be armed for the whole recording session.
+            if (decoupleCreatedVessels == null)
+            {
+                decoupleCreatedVessels = new List<Vessel>();
+                GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
+                subscribedDecoupleListener = true;
+            }
+            else
+            {
+                decoupleCreatedVessels.Clear();
+            }
+
+            if (decoupleControllerStatus == null)
+                decoupleControllerStatus = new Dictionary<uint, bool>();
+            else
+                decoupleControllerStatus.Clear();
+
+            if (decoupleCreatedTrajectoryPoints == null)
+                decoupleCreatedTrajectoryPoints = new Dictionary<uint, TrajectoryPoint>();
+            else
+                decoupleCreatedTrajectoryPoints.Clear();
+
+            ParsekLog.Verbose("Flight",
+                $"PrepareSessionStateForRecorderStart: reason={reason}, " +
+                $"decoupleListener={(subscribedDecoupleListener ? "subscribed" : "reused")}");
         }
 
         /// <summary>
@@ -5862,6 +5901,8 @@ namespace Parsek
                     $"'{targetName}' — restore incomplete");
                 yield break;
             }
+
+            PrepareSessionStateForRecorderStart("RestoreActiveTreeFromPending");
 
             // Re-attach the BackgroundRecorder for the tree
             if (backgroundRecorder == null)

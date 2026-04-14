@@ -475,6 +475,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RestoreActiveTreeFromPending_RearmsRecorderSessionHooks_AfterRecorderStart_BugKerbalXF5F9()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string flightSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
+
+            int methodStart = flightSrc.IndexOf(
+                "IEnumerator RestoreActiveTreeFromPending()",
+                StringComparison.Ordinal);
+            Assert.True(methodStart >= 0,
+                "RestoreActiveTreeFromPending() method signature not found");
+
+            int methodEnd = flightSrc.IndexOf(
+                "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()",
+                methodStart,
+                StringComparison.Ordinal);
+            Assert.True(methodEnd > methodStart,
+                "RestoreActiveTreeFromPending() method end not found");
+
+            string methodSrc = flightSrc.Substring(methodStart, methodEnd - methodStart);
+
+            int startIdx = methodSrc.IndexOf(
+                "recorder.StartRecording(isPromotion: true);",
+                StringComparison.Ordinal);
+            int hookIdx = methodSrc.IndexOf(
+                "PrepareSessionStateForRecorderStart(\"RestoreActiveTreeFromPending\")",
+                StringComparison.Ordinal);
+            int resumeIdx = methodSrc.IndexOf(
+                "RestoreActiveTreeFromPending: resumed recording tree",
+                StringComparison.Ordinal);
+
+            Assert.True(startIdx >= 0,
+                "RestoreActiveTreeFromPending() no longer starts the resumed recorder");
+            Assert.True(hookIdx >= 0,
+                "RestoreActiveTreeFromPending() must re-arm recorder session hooks after quickload resume");
+            Assert.True(resumeIdx >= 0,
+                "RestoreActiveTreeFromPending() resumed-recording log not found");
+            Assert.True(startIdx < hookIdx,
+                "RestoreActiveTreeFromPending() must re-arm recorder session hooks after recorder.StartRecording()");
+            Assert.True(hookIdx < resumeIdx,
+                "RestoreActiveTreeFromPending() must arm recorder session hooks before reporting resume success");
+        }
+
+        [Fact]
         public void TryRestoreActiveTreeNode_DoesNotWriteDeadBoundaryAnchorUT()
         {
             // BoundaryAnchor can't round-trip (needs full TrajectoryPoint, not just UT),
