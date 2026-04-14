@@ -20,7 +20,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#360` Fresh ghost watch entry now preserves the current active-vessel camera basis before resolving the ghost's initial watch target/mode, so entering watch from a pad-side anchor view no longer flips the camera to the opposite side of the vessel on the first frame (`PR #288`).
+- `#360` Fresh ghost watch entry now lands on a canonical behind-the-ghost framing (`pitch 12°, heading 0°, 50 m`) instead of copying the active vessel's camera angles, so pad-side watch entries keep the default KSC-side view and the `V` camera-mode toggle no longer drifts the camera around the ghost on repeated presses (`PR #293`).
 - `#361` Flat-fallback committed recording loads now heal malformed sidecars whose top-level point/orbit lists start by duplicating the exact `TrackSection` payload and only later resume with a valid tail, so old committed debris/background recordings no longer fail monotonicity validation just because the stale flat fallback survived on disk.
 - `#359` Background `TrackSection` flush/merge paths now dedupe real multi-point overlaps instead of only shaving a single boundary frame, and finalize/revert now prune one-point destroyed debris stubs before they can poison commit metrics, so merged recordings stay structurally monotonic and the related recording-integrity / stop-metrics failures are gone (`PR #285`).
 - `#358` Trees committed after an in-flight `F5`/`F9` quickload-resume now keep the root rewind save, reserved resource budget, and pre-launch baseline across quickload save, vessel-switch/background, split/promotion, and finalize paths, so destroyed-end merged recordings keep a working `Rewind` button instead of silently losing `R` (`PR #285`).

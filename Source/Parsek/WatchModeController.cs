@@ -44,6 +44,8 @@ namespace Parsek
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
         internal const float DefaultWatchEntryDistance = 50f;
+        internal const float DefaultWatchEntryPitch = 12f;
+        internal const float DefaultWatchEntryHeading = 0f;
         internal static Func<float> RealtimeNow = GetRealtimeSafe;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
         internal static Func<float> CurrentWarpRateNow = GetCurrentWarpRateSafe;
@@ -914,8 +916,21 @@ namespace Parsek
 
         private void RememberCurrentWatchCameraState()
         {
-            if (TryCaptureActiveWatchCameraState(out var cameraState))
-                RememberWatchCameraState(cameraState);
+            if (!TryCaptureActiveWatchCameraState(out var cameraState))
+                return;
+
+            // Remember only target-frame angles for V-toggle restore. Storing the
+            // captured world-orbit direction is wrong here: the ghost and its
+            // horizon proxy rotate continuously, so a "world direction" snapshot
+            // becomes stale within a frame and restoring it on the next toggle
+            // snaps the camera to wherever the stored world vector now lies in
+            // the rotated basis. Raw (pitch, hdg) relative to the current target
+            // stay meaningful because the target transform tracks the ghost.
+            cameraState.HasTargetRotation = false;
+            cameraState.TargetRotation = Quaternion.identity;
+            cameraState.HasWorldOrbitDirection = false;
+            cameraState.WorldOrbitDirection = Vector3.zero;
+            RememberWatchCameraState(cameraState);
         }
 
         private bool TryRestoreRememberedWatchCameraState(
@@ -973,21 +988,37 @@ namespace Parsek
                 currentState.Heading);
         }
 
+        /// <summary>
+        /// Builds the canonical framing used when the player enters watch mode on
+        /// a ghost for the first time (not a W->W switch). We intentionally do not
+        /// transfer angles from the active vessel — an on-pad rocket's camera
+        /// basis has nothing to do with the ghost's horizon basis, and decomposing
+        /// one into the other produces arbitrary off-axis framings. Instead place
+        /// the camera behind the ghost at a fixed default pitch/heading/distance,
+        /// which matches the expected "default KSC-side orientation".
+        /// </summary>
         internal static WatchCameraTransitionState PrepareFreshWatchCameraState(
             WatchCameraTransitionState currentState,
             bool hasAtmosphere,
             double atmosphereDepth,
             double altitude)
         {
-            currentState.UserModeOverride = false;
-            currentState.Mode = ResolveSwitchCameraMode(
+            var mode = ResolveSwitchCameraMode(
                 currentState.Mode,
-                currentState.UserModeOverride,
+                userModeOverride: false,
                 hasAtmosphere,
                 atmosphereDepth,
                 altitude);
-            currentState.Distance = DefaultWatchEntryDistance;
-            return currentState;
+            return new WatchCameraTransitionState
+            {
+                Distance = DefaultWatchEntryDistance,
+                Pitch = DefaultWatchEntryPitch,
+                Heading = DefaultWatchEntryHeading,
+                Mode = mode,
+                UserModeOverride = false,
+                HasTargetRotation = false,
+                HasWorldOrbitDirection = false
+            };
         }
 
         private WatchCameraTransitionState ResolveSwitchCameraStateForGhost(
@@ -1007,8 +1038,7 @@ namespace Parsek
             return currentState;
         }
 
-        private WatchCameraTransitionState ResolveFreshWatchCameraStateForGhost(
-            WatchCameraTransitionState currentState,
+        private WatchCameraTransitionState BuildCanonicalFreshWatchCameraState(
             GhostPlaybackState state)
         {
             CelestialBody body = ResolveBody(state);
@@ -1016,7 +1046,7 @@ namespace Parsek
             double atmosphereDepth = body != null ? body.atmosphereDepth : 0.0;
             double altitude = state != null ? state.lastInterpolatedAltitude : 0.0;
             return PrepareFreshWatchCameraState(
-                currentState,
+                default(WatchCameraTransitionState),
                 hasAtmosphere,
                 atmosphereDepth,
                 altitude);
@@ -1134,12 +1164,6 @@ namespace Parsek
             bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;
             WatchCameraTransitionState switchCameraState = default(WatchCameraTransitionState);
             bool hasSwitchCameraState = switching && TryCaptureActiveWatchCameraState(out switchCameraState);
-            WatchCameraTransitionState freshEntryCameraState = default(WatchCameraTransitionState);
-            bool hasFreshEntryCameraState = !switching
-                && TryCaptureCurrentFlightCameraState(
-                    WatchCameraMode.Free,
-                    userModeOverride: false,
-                    out freshEntryCameraState);
             if (switching)
             {
                 if (hasSwitchCameraState)
@@ -1158,19 +1182,17 @@ namespace Parsek
             }
             else
             {
-                if (hasFreshEntryCameraState)
-                {
-                    LogCapturedWatchCameraState(
-                        "fresh-entry-source",
-                        index,
-                        rec.RecordingId,
-                        freshEntryCameraState);
-                }
-                else
-                {
-                    ParsekLog.Warn("CameraFollow",
-                        $"Watch camera capture unavailable (fresh-entry-source): rec=#{index} id={rec.RecordingId ?? "null"}");
-                }
+                // Fresh entry intentionally does NOT capture the active vessel's
+                // camera orientation. The player-vessel frame (upright on the pad,
+                // for example) is meaningless relative to the ghost's horizon
+                // basis, so decomposing one into the other produces arbitrary
+                // side-of-vessel framings that flip with velocity direction.
+                ParsekLog.Info("CameraFollow",
+                    $"Watch camera capture (fresh-entry-source): rec=#{index} id={rec.RecordingId ?? "null"} " +
+                    $"using canonical framing (no active-vessel transfer) " +
+                    $"pitch={DefaultWatchEntryPitch.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"hdg={DefaultWatchEntryHeading.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"distance={DefaultWatchEntryDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
             if (switching && hasSwitchCameraState)
                 RememberWatchCameraState(switchCameraState);
@@ -1230,10 +1252,9 @@ namespace Parsek
                     ResolveSwitchCameraStateForGhost(switchCameraState, gs),
                     logContext: "switch-apply");
             bool restoredFreshEntryCameraState = !switching
-                && hasFreshEntryCameraState
                 && TryApplySwitchedWatchCameraState(
                     gs,
-                    ResolveFreshWatchCameraStateForGhost(freshEntryCameraState, gs),
+                    BuildCanonicalFreshWatchCameraState(gs),
                     logContext: "fresh-entry-apply");
 
             if (!restoredSwitchCameraState && !restoredFreshEntryCameraState)
@@ -1246,7 +1267,7 @@ namespace Parsek
                 FlightCamera.fetch.SetDistance(DefaultWatchEntryDistance);  // override [75,400] entry clamp
                 ParsekLog.Warn("CameraFollow",
                     $"Watch camera transfer fallback: rec=#{index} id={rec.RecordingId ?? "null"} " +
-                    $"switching={switching} hasSwitchState={hasSwitchCameraState} hasFreshState={hasFreshEntryCameraState} " +
+                    $"switching={switching} hasSwitchState={hasSwitchCameraState} " +
                     $"target={watchTarget?.name ?? "null"} " +
                     $"targetPos={(watchTarget != null ? FormatVector3ForLogs(watchTarget.position) : "?")} " +
                     $"targetBasis={(watchTarget != null ? FormatRotationBasisForLogs(watchTarget.rotation) : "basis=?")}");
@@ -1837,7 +1858,18 @@ namespace Parsek
                 ? WatchCameraMode.HorizonLocked
                 : WatchCameraMode.Free;
             if (TryCaptureActiveWatchCameraState(out var previousModeState))
+            {
+                // Strip the captured world-orbit data — we want the remembered
+                // mode state to preserve (pitch, hdg) relative to the live
+                // target transform, not a world-space snapshot that drifts as
+                // the ghost moves. See RememberCurrentWatchCameraState for
+                // the rationale.
+                previousModeState.HasTargetRotation = false;
+                previousModeState.TargetRotation = Quaternion.identity;
+                previousModeState.HasWorldOrbitDirection = false;
+                previousModeState.WorldOrbitDirection = Vector3.zero;
                 RememberWatchCameraState(previousModeState);
+            }
             userModeOverride = true;
             currentCameraMode = nextMode;
             lastLoggedHorizonVectorKey = null;

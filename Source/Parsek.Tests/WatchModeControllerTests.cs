@@ -384,15 +384,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndDefaultEntryDistance()
+        public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndCanonicalFraming()
         {
             var currentState = new WatchCameraTransitionState
             {
                 Distance = 123f,
-                Pitch = 12f,
-                Heading = 34f,
+                Pitch = -37f,
+                Heading = 210f,
                 Mode = WatchCameraMode.Free,
-                UserModeOverride = false
+                UserModeOverride = true,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(1f, 0f, 0f)
             };
 
             WatchCameraTransitionState result = WatchModeController.PrepareFreshWatchCameraState(
@@ -403,12 +407,15 @@ namespace Parsek.Tests
 
             Assert.Equal(WatchCameraMode.HorizonLocked, result.Mode);
             Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
-            Assert.Equal(12f, result.Pitch);
-            Assert.Equal(34f, result.Heading);
+            Assert.Equal(WatchModeController.DefaultWatchEntryPitch, result.Pitch);
+            Assert.Equal(WatchModeController.DefaultWatchEntryHeading, result.Heading);
+            Assert.False(result.UserModeOverride);
+            Assert.False(result.HasTargetRotation);
+            Assert.False(result.HasWorldOrbitDirection);
         }
 
         [Fact]
-        public void PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndDefaultEntryDistance()
+        public void PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndCanonicalFraming()
         {
             var currentState = new WatchCameraTransitionState
             {
@@ -427,8 +434,32 @@ namespace Parsek.Tests
 
             Assert.Equal(WatchCameraMode.Free, result.Mode);
             Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
-            Assert.Equal(-5f, result.Pitch);
-            Assert.Equal(170f, result.Heading);
+            Assert.Equal(WatchModeController.DefaultWatchEntryPitch, result.Pitch);
+            Assert.Equal(WatchModeController.DefaultWatchEntryHeading, result.Heading);
+            Assert.False(result.HasTargetRotation);
+            Assert.False(result.HasWorldOrbitDirection);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_NoRotationOrWorldDirection_ReturnsRawAngles()
+        {
+            // Canonical fresh-entry state: the remembered V-toggle state should also
+            // have no rotation/world-orbit data, so the restore path must fall through
+            // to raw (pitch, hdg) without trying to re-project a stale world direction.
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = 12f,
+                Heading = 0f,
+                HasTargetRotation = false,
+                HasWorldOrbitDirection = false
+            };
+
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                state,
+                new Quaternion(0f, 0.7071068f, 0f, 0.7071068f));
+
+            Assert.Equal(12f, newPitch);
+            Assert.Equal(0f, newHeading);
         }
 
         [Fact]
