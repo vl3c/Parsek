@@ -384,15 +384,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndDefaultEntryDistance()
+        public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndCanonicalFraming()
         {
             var currentState = new WatchCameraTransitionState
             {
                 Distance = 123f,
-                Pitch = 12f,
-                Heading = 34f,
+                Pitch = -37f,
+                Heading = 210f,
                 Mode = WatchCameraMode.Free,
-                UserModeOverride = false
+                UserModeOverride = true,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(1f, 0f, 0f)
             };
 
             WatchCameraTransitionState result = WatchModeController.PrepareFreshWatchCameraState(
@@ -403,12 +407,15 @@ namespace Parsek.Tests
 
             Assert.Equal(WatchCameraMode.HorizonLocked, result.Mode);
             Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
-            Assert.Equal(12f, result.Pitch);
-            Assert.Equal(34f, result.Heading);
+            Assert.Equal(WatchModeController.DefaultWatchEntryPitch, result.Pitch);
+            Assert.Equal(WatchModeController.DefaultWatchEntryHeading, result.Heading);
+            Assert.False(result.UserModeOverride);
+            Assert.False(result.HasTargetRotation);
+            Assert.False(result.HasWorldOrbitDirection);
         }
 
         [Fact]
-        public void PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndDefaultEntryDistance()
+        public void PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndCanonicalFraming()
         {
             var currentState = new WatchCameraTransitionState
             {
@@ -427,8 +434,57 @@ namespace Parsek.Tests
 
             Assert.Equal(WatchCameraMode.Free, result.Mode);
             Assert.Equal(WatchModeController.DefaultWatchEntryDistance, result.Distance);
-            Assert.Equal(-5f, result.Pitch);
-            Assert.Equal(170f, result.Heading);
+            Assert.Equal(WatchModeController.DefaultWatchEntryPitch, result.Pitch);
+            Assert.Equal(WatchModeController.DefaultWatchEntryHeading, result.Heading);
+            Assert.False(result.HasTargetRotation);
+            Assert.False(result.HasWorldOrbitDirection);
+        }
+
+        [Fact]
+        public void DefaultWatchEntryConstants_AreInDegreeConvention_ProduceExpectedOrbitDirection()
+        {
+            // Pins the canonical fresh-entry constants to the degree convention that
+            // Parsek's OrbitDirectionFromAngles / CompensateCameraAngles expect.
+            // KSP's FlightCamera.camPitch / camHdg are in radians; all boundary
+            // accesses in WatchModeController.cs convert on read/write. If a future
+            // regression drops a Deg2Rad conversion or reinterprets these constants
+            // as radians, sin(12 rad) ≈ -0.5366 would break this assertion.
+            Vector3 orbit = WatchModeController.OrbitDirectionFromAngles(
+                WatchModeController.DefaultWatchEntryPitch,
+                WatchModeController.DefaultWatchEntryHeading);
+
+            // 12° pitch, 0° heading → (sin(0°)*cos(12°), sin(12°), cos(0°)*cos(12°))
+            Assert.InRange(orbit.x, -0.0001f, 0.0001f);
+            Assert.InRange(orbit.y, 0.2079f - 0.0001f, 0.2079f + 0.0001f);   // sin(12°)
+            Assert.InRange(orbit.z, 0.9781f - 0.0001f, 0.9781f + 0.0001f);   // cos(12°)
+
+            // Extra belt-and-suspenders: the constants must be in degree range,
+            // not radian range. A 12-radian pitch constant slipping through would
+            // be ~687° — way outside any sane camera angle.
+            Assert.InRange(WatchModeController.DefaultWatchEntryPitch, -90f, 90f);
+            Assert.InRange(WatchModeController.DefaultWatchEntryHeading, -180f, 180f);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_NoRotationOrWorldDirection_ReturnsRawAngles()
+        {
+            // Canonical fresh-entry state: the remembered V-toggle state should also
+            // have no rotation/world-orbit data, so the restore path must fall through
+            // to raw (pitch, hdg) without trying to re-project a stale world direction.
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = 12f,
+                Heading = 0f,
+                HasTargetRotation = false,
+                HasWorldOrbitDirection = false
+            };
+
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                state,
+                new Quaternion(0f, 0.7071068f, 0f, 0.7071068f));
+
+            Assert.Equal(12f, newPitch);
+            Assert.Equal(0f, newHeading);
         }
 
         [Fact]
@@ -458,6 +514,40 @@ namespace Parsek.Tests
             Assert.True(
                 Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
                 $"Expected preserved orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
+        }
+
+        [Fact]
+        public void TryResolveWorldOrbitDirection_PivotFrameRotatesForwardIntoWorldSpace()
+        {
+            Quaternion pivotRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+
+            bool result = WatchModeController.TryResolveWorldOrbitDirection(
+                pivotRotation,
+                pitch: 0f,
+                heading: 0f,
+                out var worldOrbitDirection);
+
+            Assert.True(result);
+            Assert.True(
+                Vector3.Dot(Vector3.right, worldOrbitDirection) > 0.999f,
+                $"Expected +X world orbit, got {worldOrbitDirection}");
+        }
+
+        [Fact]
+        public void TryResolveWorldOrbitDirection_PivotFramePreservesPitchComponent()
+        {
+            Quaternion pivotRotation = new Quaternion(0f, 0f, 0f, 1f);
+
+            bool result = WatchModeController.TryResolveWorldOrbitDirection(
+                pivotRotation,
+                pitch: 30f,
+                heading: 0f,
+                out var worldOrbitDirection);
+
+            Assert.True(result);
+            Assert.True(
+                Vector3.Dot(OrbitDirectionFromAngles(30f, 0f), worldOrbitDirection) > 0.999f,
+                $"Expected identity-frame orbit, got {worldOrbitDirection}");
         }
 
         [Fact]
