@@ -10,22 +10,15 @@ All notable changes to Parsek are documented here.
 
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.
 
-
 ### Bug Fixes
 
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
-
-### Bug Fixes
-
 - `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
+- `#380` `scripts/release.py` now runs end-to-end and packages the release zip without aborting on a pre-existing unit-test failure.
 
 ### Maintenance
 
 - `#372` Removed orphaned synthetic-scenario test helpers left behind after the live FLIGHT save/load round-trip test infrastructure was reverted.
-
-### Bug Fixes
-
-- `#380` `scripts/release.py` now runs end-to-end without the `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` xUnit failure aborting the test gate.
 
 ---
 
