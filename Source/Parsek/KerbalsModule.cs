@@ -974,6 +974,10 @@ namespace Parsek
                         if (!IsDisplacedChainEntry(slot, i) || isReserved || !usedInRecording)
                             continue;
 
+                        ProtoCrewMember.RosterStatus currentStatus;
+                        if (!roster.TryGetStatus(standIn, out currentStatus))
+                            continue;
+
                         if (recreatedNames.Contains(standIn))
                             KerbalLoadRepairDiagnostics.RecordRetiredStandInRecreated(standIn);
                         else

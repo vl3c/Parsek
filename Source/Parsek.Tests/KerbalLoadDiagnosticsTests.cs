@@ -119,6 +119,150 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnKspLoad_WithSequenceOnlyRepair_DoesNotLogFalseRemapSamples()
+        {
+            var scenarioNode = new ConfigNode("SCENARIO");
+            var slotsNode = scenarioNode.AddNode("KERBAL_SLOTS");
+
+            var jebSlot = slotsNode.AddNode("SLOT");
+            jebSlot.AddValue("owner", "Jebediah Kerman");
+            jebSlot.AddValue("trait", "Pilot");
+            var jebChain = jebSlot.AddNode("CHAIN_ENTRY");
+            jebChain.AddValue("name", "Hanley Kerman");
+
+            var billSlot = slotsNode.AddNode("SLOT");
+            billSlot.AddValue("owner", "Bill Kerman");
+            billSlot.AddValue("trait", "Engineer");
+            var billChain = billSlot.AddNode("CHAIN_ENTRY");
+            billChain.AddValue("name", "Kirrim Kerman");
+
+            var reorderRecording = MakeSnapshotRecording(
+                "rec-reorder",
+                "Two Crew Ship",
+                new[] { "Jebediah Kerman", "Bill Kerman" },
+                TerminalState.Recovered,
+                20);
+            RecordingStore.AddRecordingWithTreeForTesting(reorderRecording);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-reorder",
+                KerbalName = "Bill Kerman",
+                KerbalRole = "Pilot",
+                StartUT = 0,
+                EndUT = 20,
+                KerbalEndStateField = KerbalEndState.Recovered,
+                Sequence = 2
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-reorder",
+                KerbalName = "Jebediah Kerman",
+                KerbalRole = "Pilot",
+                StartUT = 0,
+                EndUT = 20,
+                KerbalEndStateField = KerbalEndState.Recovered,
+                Sequence = 1
+            });
+
+            KerbalLoadRepairDiagnostics.Begin();
+            InvokeLoadCrewAndGroupState(scenarioNode, initialLoadDoneValue: false);
+            LedgerOrchestrator.OnKspLoad(CollectRecordingIds(), 100.0);
+
+            string summaryLine = Assert.Single(logLines.FindAll(l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("repair summary:")));
+            Assert.Contains("slotSource=KERBAL_SLOTS", summaryLine);
+            Assert.Contains("oldRows=2", summaryLine);
+            Assert.Contains("newRows=2", summaryLine);
+            Assert.Contains("remappedRows=0", summaryLine);
+            Assert.Contains("endStateRewrites=0", summaryLine);
+            Assert.Contains("touristRowsSkipped=0", summaryLine);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("repair samples:"));
+        }
+
+        [Fact]
+        public void OnKspLoad_WithNestedReservations_LogsChainExtensionSample()
+        {
+            var scenarioNode = new ConfigNode("SCENARIO");
+            var slotsNode = scenarioNode.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jebediah Kerman");
+            slotNode.AddValue("trait", "Pilot");
+            var chainEntry = slotNode.AddNode("CHAIN_ENTRY");
+            chainEntry.AddValue("name", "Hanley Kerman");
+
+            var nestedSlotNode = slotsNode.AddNode("SLOT");
+            nestedSlotNode.AddValue("owner", "Hanley Kerman");
+            nestedSlotNode.AddValue("trait", "Pilot");
+            var nestedChainEntry = nestedSlotNode.AddNode("CHAIN_ENTRY");
+            nestedChainEntry.AddValue("name", "Leia Kerman");
+
+            var ownerRec = MakeSnapshotRecording(
+                "rec-owner",
+                "Owner Ship",
+                new[] { "Jebediah Kerman" },
+                TerminalState.Recovered,
+                20);
+            RecordingStore.AddRecordingWithTreeForTesting(ownerRec);
+
+            var standInRec = MakeSnapshotRecording(
+                "rec-standin",
+                "Stand-In Ship",
+                new[] { "Hanley Kerman" },
+                TerminalState.Recovered,
+                20);
+            RecordingStore.AddRecordingWithTreeForTesting(standInRec);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-owner",
+                KerbalName = "Jebediah Kerman",
+                KerbalRole = "Pilot",
+                StartUT = 0,
+                EndUT = 20,
+                KerbalEndStateField = KerbalEndState.Recovered,
+                Sequence = 1
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-standin",
+                KerbalName = "Hanley Kerman",
+                KerbalRole = "Pilot",
+                StartUT = 0,
+                EndUT = 20,
+                KerbalEndStateField = KerbalEndState.Recovered,
+                Sequence = 1
+            });
+
+            KerbalLoadRepairDiagnostics.Begin();
+            InvokeLoadCrewAndGroupState(scenarioNode, initialLoadDoneValue: false);
+            LedgerOrchestrator.RecalculateAndPatch();
+            KerbalLoadRepairDiagnostics.EmitAndReset();
+
+            string summaryLine = Assert.Single(logLines.FindAll(l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("repair summary:")));
+            Assert.Contains("slotSource=KERBAL_SLOTS", summaryLine);
+            Assert.Contains("chainExtensions=1", summaryLine);
+
+            string samplesLine = Assert.Single(logLines.FindAll(l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("repair samples:")));
+            Assert.Contains("chain Jebediah Kerman depth=1", samplesLine);
+        }
+
+        [Fact]
         public void ApplyToRoster_FacadePath_RecordsRetiredRecreated_AndDeletedUnused()
         {
             var module = new KerbalsModule();
@@ -194,6 +338,60 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalLoad]")
                 && l.Contains("deleted-unused Padme"));
+        }
+
+        [Fact]
+        public void ApplyToRoster_FacadePath_WithFailedHistoricalRecreate_DoesNotLogFalseKeep()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var jebSlot = slotsNode.AddNode("SLOT");
+            jebSlot.AddValue("owner", "Jeb");
+            jebSlot.AddValue("trait", "Pilot");
+            var jebFirst = jebSlot.AddNode("CHAIN_ENTRY");
+            jebFirst.AddValue("name", "Hanley");
+            var jebSecond = jebSlot.AddNode("CHAIN_ENTRY");
+            jebSecond.AddValue("name", "Kirrim");
+
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            var ownerRec = MakeSnapshotRecording("rec-owner", "Owner", new[] { "Jeb" },
+                TerminalState.Recovered, 20);
+            RecordingStore.AddRecordingWithTreeForTesting(ownerRec);
+
+            var historicalStandIn = MakeGhostOnlyRepairRecording(
+                "rec-standin",
+                "Stand-In Ship",
+                "Kirrim",
+                "Jeb",
+                KerbalEndState.Recovered);
+            RecordingStore.AddRecordingWithTreeForTesting(historicalStandIn);
+
+            var actions = new List<GameAction>();
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-owner", 0.0, 20.0));
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-standin", 0.0, 20.0));
+
+            module.Reset();
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+            module.PostWalk();
+
+            var fakeRoster = new FakeRoster(allowRecreateStandIns: false);
+            fakeRoster.Add("Hanley", ProtoCrewMember.RosterStatus.Assigned);
+
+            logLines.Clear();
+            KerbalLoadRepairDiagnostics.Begin();
+            module.ApplyToRoster(fakeRoster);
+            KerbalLoadRepairDiagnostics.EmitAndReset();
+
+            Assert.False(fakeRoster.Contains("Kirrim"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("repair summary:"));
         }
 
         [Fact]
@@ -433,9 +631,17 @@ namespace Parsek.Tests
 
         private sealed class FakeRoster : KerbalsModule.IKerbalRosterFacade
         {
+            private readonly bool allowGeneratedStandIns;
+            private readonly bool allowRecreateStandIns;
             private readonly Dictionary<string, ProtoCrewMember.RosterStatus> members
                 = new Dictionary<string, ProtoCrewMember.RosterStatus>();
             private int generatedCounter;
+
+            public FakeRoster(bool allowGeneratedStandIns = true, bool allowRecreateStandIns = true)
+            {
+                this.allowGeneratedStandIns = allowGeneratedStandIns;
+                this.allowRecreateStandIns = allowRecreateStandIns;
+            }
 
             public void Add(string name, ProtoCrewMember.RosterStatus status)
             {
@@ -454,6 +660,12 @@ namespace Parsek.Tests
 
             public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
             {
+                if (!allowGeneratedStandIns)
+                {
+                    generatedName = null;
+                    return false;
+                }
+
                 generatedCounter++;
                 generatedName = "Generated-" + generatedCounter;
                 members[generatedName] = ProtoCrewMember.RosterStatus.Available;
@@ -462,6 +674,9 @@ namespace Parsek.Tests
 
             public bool TryRecreateStandIn(string desiredName, string trait)
             {
+                if (!allowRecreateStandIns)
+                    return false;
+
                 members[desiredName] = ProtoCrewMember.RosterStatus.Available;
                 return true;
             }
