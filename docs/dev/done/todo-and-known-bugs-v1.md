@@ -142,9 +142,9 @@ Added 5 tests covering ORBITING(32) and ESCAPING(64) with thrust/no-thrust and a
 
 ## TODO — Refactor Deferred Items
 
-Items identified during refactor-2 (March 2026) but deferred because they require architectural changes beyond mechanical extraction. Full details in [refactor-2-deferred.md](plans/refactor-2-deferred.md).
+Items identified during refactor-2 (March 2026) but deferred because they require architectural changes beyond mechanical extraction. Full details in [refactor-2-deferred.md](refactor/refactor-2-deferred.md).
 
-A broader refactor-3 audit (March 2026) identified additional structural opportunities beyond these deferred items. Full analysis in [refactor-3-audit.md](plans/refactor-3-audit.md).
+A broader refactor-3 audit (March 2026) identified additional structural opportunities beyond these deferred items. Full analysis in [refactor-3-audit-old.md](refactor/refactor-3-audit-old.md).
 
 ### ~~T25. ParsekFlight TimelinePlaybackController extraction (D20)~~ DONE
 

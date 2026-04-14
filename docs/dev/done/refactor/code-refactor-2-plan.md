@@ -16,8 +16,8 @@ Second-pass structural refactoring of ~52,000 lines across 68 C# source files. S
 ## Setup Phase
 
 1. **Worktree created:** `Parsek-refactor-2` branch `refactor-2` off `main` at `3055a29`
-2. **Research doc:** `docs/dev/plans/code-refactor-2-inventory.md` — exhaustive per-file inventory of everything needing work
-3. **Review checklist:** `docs/dev/plans/refactor-2-review-checklist.md` — 13-item checklist (R1's 12 items + new #13: Conflict Resolution Principle)
+2. **Research doc:** `docs/dev/done/refactor/code-refactor-2-inventory.md` — exhaustive per-file inventory of everything needing work
+3. **Review checklist:** `docs/dev/done/refactor/refactor-2-review-checklist.md` — 13-item checklist (R1's 12 items + new #13: Conflict Resolution Principle)
 
 ## Scope
 
