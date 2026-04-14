@@ -1190,7 +1190,7 @@ namespace Parsek.Tests
             Assert.Equal(0, engine.GhostCount);
         }
 
-        [Fact]
+        [Fact(Skip = "Unity GameObject instantiation requires runtime - covered by the in-game runtime suite (InGameTests/RuntimeTests.cs).")]
         public void SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT()
         {
             var positioner = new SpawnPrimingPositioner();
