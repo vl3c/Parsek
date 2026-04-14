@@ -7,6 +7,16 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 354. Orbital end-of-playback spawns can use the wrong vessel snapshot even when the orbit is correct
+
+**Observed in:** `logs/2026-04-14_0419_high-warp-orbit-wrong-real-orbit` (2026-04-14). After the `#353` orbit-source fixes, the real vessel for `Kerbal X` spawned onto the expected last stable Kerbin orbit instead of dying or inheriting a nonsense orbit, but the spawned vessel state still did not match the expected final recorded vessel snapshot.
+
+**Current understanding:** the orbital spawn path now appears to be sourcing the correct last stable orbit seed, but it still reuses a vessel snapshot whose part/module state does not line up with the final stable-recording state that the user expects to materialize at end of playback. The exact stale fields and whether the bad source is the saved vessel snapshot, snapshot repair, or spawn-time mutation are still unknown.
+
+**Next investigation:** compare the final trimmed recording state against the spawned vessel snapshot node after `SpawnAtPosition()` / `ProtoVessel.Load()`, then identify which vessel-level or part/module fields need to be refreshed from the final stable recording state instead of the earlier snapshot.
+
+---
+
 ## ~~353. High-warp orbital end-of-playback spawns can immediately die to on-rails pressure despite a valid rebuilt orbit~~
 
 **Observed in:** `logs/2026-04-14_0301_high-warp-orbit-spawn-missing` and `logs/2026-04-14_0359_high-warp-orbit-stable-orbit-trim` (2026-04-14). During deferred high-time-warp orbital playback for `Kerbal X`, Parsek reported a successful real-vessel spawn but nothing materialized in orbit. The newer bundle also showed the ghost replaying a long stable orbital coast all the way to the original recording end instead of trimming to the normal boring-state buffer after orbit insertion.
