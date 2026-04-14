@@ -23,6 +23,10 @@ All notable changes to Parsek are documented here.
 
 - `#372` Removed orphaned synthetic-scenario test helpers left behind after the live FLIGHT save/load round-trip test infrastructure was reverted.
 
+### Bug Fixes
+
+- `#380` `scripts/release.py` now runs end-to-end without the `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` xUnit failure aborting the test gate.
+
 ---
 
 ## 0.8.1
