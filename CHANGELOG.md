@@ -20,6 +20,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#359` Background `TrackSection` flush/merge paths now dedupe real multi-point overlaps instead of only shaving a single boundary frame, and finalize/revert now prune one-point destroyed debris stubs before they can poison commit metrics, so merged recordings stay structurally monotonic and the related recording-integrity / stop-metrics failures are gone (`PR #285`).
+- `#358` Trees committed after an in-flight `F5`/`F9` quickload-resume now keep the root rewind save, reserved resource budget, and pre-launch baseline across quickload save, vessel-switch/background, split/promotion, and finalize paths, so destroyed-end merged recordings keep a working `Rewind` button instead of silently losing `R` (`PR #285`).
 - `#357` Deferred orbital end-of-playback spawns now recover missed active-vessel handoffs when KSP switches to the spawned vessel without Parsek seeing the normal vessel-switch path, so the live recorder/tree no longer stays attached to the previous vessel through the post-spawn frame sequence.
 - `#356` Optimizer boring-tail trims now require the tail after `lastInterestingUT + buffer` to already be the exact final spawn state, so orbiting/docked/suborbital and landed/splashed recordings are only shortened when nothing changes again before the real spawn.
 - `#355` Flight anchor-camera ghost playback now restores deferred engine/RCS runtime FX state on the first visible frame after deferred activation, so launch ghosts no longer appear to have their engines off until `Watch Ghost` or KSC playback reapplies the same runtime state (`PR #281`).
@@ -99,6 +101,7 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
+- Added regression coverage for quickload-resume rewind metadata propagation and background recording integrity, including root rewind-budget fallback, recorder-backed commit-path wiring, overlap-aware flat-tail preservation, destroyed-stub prune guards, and the refreshed in-game runtime log-contract assertion behind the `#358` / `#359` fallout.
 - Added regression coverage for missed vessel-switch recovery after deferred orbital spawns, including the pure guard cases and the `Update()` ordering requirement that recovery run before other tree transition handlers (`#357`).
 - Added regression coverage for terminal-state-aware boring-tail trim gating, including exact-match orbit/surface stability checks and the `SubOrbital` orbit-tail path so trims only happen once the spawn state has truly stopped changing (`#356`).
 - Added regression coverage for deferred ghost runtime FX restore, including tracked current-power collection/clearing and first-activation restore gating so anchor-camera launch ghosts keep their engine plume/audio state on the first visible frame (`#355`).

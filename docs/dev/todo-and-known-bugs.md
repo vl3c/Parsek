@@ -7,6 +7,30 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~359. Background section flushes can duplicate flat tails and leave one-point destroyed debris stubs after merge~~
+
+**Observed in:** the same 2026-04-14 follow-up investigation that found the missing `Rewind` button. The runtime/in-game suite was failing `CommittedRecordingsHaveValidData` and `RecordingStopMetricsValid`, and merged quickload-resume trees could retain non-monotonic flat tails or single-point destroyed debris leaves that were never meant to survive commit.
+
+**Root cause:** loaded background recordings could already hold data in both top-level `Points`/`OrbitSegments` and nested `TrackSections`. Later flushes appended the same section payload again using only a single-boundary-element dedupe, so multi-point overlaps produced duplicated / non-monotonic flat tails that survived session merge. Separately, the crash/continuation coalescer could leave one-point destroyed debris leaf recordings in the tree, which then polluted stop-metric expectations unless pruned.
+
+**Fix:** background append/merge now performs suffix/prefix overlap matching and refuses to preserve flat extensions that are not monotonic past the authoritative section payload. Finalize/revert also prune single-point destroyed debris leaves while explicitly protecting the tree root and active recording IDs. The stale in-game runtime-log assertion was updated to the current logging contract.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~358. Quickload-resumed destroyed-end merged recordings can lose the Rewind button and rewind baseline~~
+
+**Observed in:** local 2026-04-14 follow-up after the revert/finalize regression fix. A tree recording was quicksaved/quickloaded in flight, ended `Destroyed`, merged into the timeline, and the Recordings window showed no `R` button even though the mission should still rewind to the original launch save.
+
+**Root cause:** quickload resume preserved `resumeRewindSave` on the live recorder, but committed trees resolve rewind through the root recording. `SaveActiveTreeIfAny()` initially failed to mirror that metadata to the root, and several other recorder-backed commit paths (vessel-switch/background/finalize) still hand-wired only the save filename without the reserved-budget / pre-launch fallback fields. A resumed tree could therefore keep the save hint but lose the rewind baseline once the active recorder changed or the tree finalized.
+
+**Fix:** root rewind propagation is now centralized through `CopyRewindSaveToRoot(RecordingTree, FlightRecorder, ...)` and used by quickload save, split, vessel-switch/background, stash/finalize, and revert commit paths. The helper now copies the rewind save, reserved resource budget, and pre-launch baseline from `CaptureAtStop` when available or from the live recorder fallback fields otherwise. Added focused regression coverage for both the helper behavior and the critical call-site wiring.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~357. Deferred orbital spawn can switch the live active vessel without Parsek switching its recorder/tree~~
 
 **Observed in:** `logs/2026-04-14_1624_orbital-spawn-bug` (2026-04-14). During watched playback of `Goliath II HLV`, KSP handed control to the newly spawned real vessel, but Parsek still believed the active recorder/tree belonged to the pad-launched `Jumping Flea`. That left a short desync window immediately after spawn where subsequent logic was running against the wrong active vessel.
