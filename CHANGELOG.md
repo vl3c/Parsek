@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fresh ghost watch entry now preserves the current active-vessel camera basis before resolving the ghost's initial watch target/mode, so entering watch from a pad-side anchor view no longer flips the camera to the opposite side of the vessel on the first frame (`PR #288`).
 - `#355` Flight anchor-camera ghost playback now restores deferred engine/RCS runtime FX state on the first visible frame after deferred activation, so launch ghosts no longer appear to have their engines off until `Watch Ghost` or KSC playback reapplies the same runtime state (`PR #281`).
 - Fresh first-appearance ghost engine audio now waits until the ghost hierarchy is actually active before calling Unity `AudioSource.Play()`, so the retained engine sources no longer emit `Can not play a disabled audio source` warnings on the same deferred first frame that `#355` restored runtime FX/audio state (`PR #282`).
 - `#354` Active breakup-continuous tree recordings that end in a stable spawned state now get a fresh terminal snapshot during tree finalization, so effective-leaf orbital end-of-playback spawns no longer reuse the old post-breakup `_vessel.craft` node after the orbit itself has already been corrected.
@@ -97,6 +98,7 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
+- Added regression coverage for fresh watch-entry camera-state prep, pinning the atmospheric/orbital initial-mode resolution and the default entry-distance behavior behind `PR #288`.
 - Added regression coverage for deferred ghost runtime FX restore, including tracked current-power collection/clearing and first-activation restore gating so anchor-camera launch ghosts keep their engine plume/audio state on the first visible frame (`#355`).
 - Added regression coverage for high-warp orbital spawn hardening and stable-orbit tail trimming: terminal-orbit spawn-state selection, top-level and per-part orbital metadata normalization, and zero-throttle engine-seed filtering in boring-tail trim so stable orbital coasts resolve on the normal 10-second buffer instead of replaying their full tail (`#353`).
 - Expanded ghost-visual frame coverage so breakup child ghosts stay anchored to split-time snapshots without a duplicate debris center-of-mass offset (`PR #271`).

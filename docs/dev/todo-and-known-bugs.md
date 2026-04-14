@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~356. First ghost watch entry can flip the camera to the opposite side of the launch pad~~
+
+**Observed in:** user repro on 2026-04-14 while watching a launch-pad vessel from the anchor camera. From the right side of the pad (`water on the right`), pressing `Watch Ghost` could spawn the watch camera on the opposite side (`water on the left`) even though the vessel/body context had not changed.
+
+**Root cause:** fresh watch entry did not preserve the current active-vessel `FlightCamera` basis. `EnterWatchMode()` only compensated target-basis changes for ghost-to-ghost watch retargets; the first active-vessel -> ghost transition rebound directly to the ghost `cameraPivot` / `horizonProxy` target at the default entry distance without projecting the existing pitch/heading through the new target rotation. On pad-relative views, that left the first watch frame mirrored to the wrong side of the vessel.
+
+**Fix:** fresh watch entry now snapshots the current `FlightCamera` target rotation/pitch/heading before watch starts, resolves the ghost's initial watch mode (`Free` vs `HorizonLocked`) immediately, and reapplies the entry camera through the same target-rotation compensation path already used for manual watch retargets. The default `50 m` watch-entry distance stays the same, but the initial world-facing orientation now stays on the same pad/body side. Added focused regression coverage for fresh-entry mode/distance state prep.
+
+**Status:** ~~Fixed~~ in PR `#288`
+
+---
+
 ## ~~355. Flight anchor-camera ghost can miss engine plumes until watch mode~~
 
 **Observed in:** `logs/2026-04-14_1354_flight-ghost-engine-off` (2026-04-14). In Flight, the primary `Kerbal X` ghost looked like its engines were off from the normal anchor / in-flight camera view at liftoff even though `Watch Ghost` immediately showed the same ghost with engine plumes, and KSC playback also showed the plumes correctly.
