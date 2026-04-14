@@ -108,5 +108,33 @@ namespace Parsek.Tests
         // Body-dependent tests (with real CelestialBody) require Unity runtime — in-game tests.
 
         #endregion
+
+        #region Deferred Audio Start
+
+        [Fact]
+        public void CanStartLoopedGhostAudio_MissingSource_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.CanStartLoopedGhostAudio(
+                sourceExists: false,
+                sourceIsActiveAndEnabled: false));
+        }
+
+        [Fact]
+        public void CanStartLoopedGhostAudio_InactiveOrDisabledSource_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.CanStartLoopedGhostAudio(
+                sourceExists: true,
+                sourceIsActiveAndEnabled: false));
+        }
+
+        [Fact]
+        public void CanStartLoopedGhostAudio_ActiveEnabledSource_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.CanStartLoopedGhostAudio(
+                sourceExists: true,
+                sourceIsActiveAndEnabled: true));
+        }
+
+        #endregion
     }
 }
