@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~360. First ghost watch entry can flip the camera to the opposite side of the launch pad~~
+
+**Observed in:** user repro on 2026-04-14 while watching a launch-pad vessel from the anchor camera. From the right side of the pad (`water on the right`), pressing `Watch Ghost` could spawn the watch camera on the opposite side (`water on the left`) even though the vessel/body context had not changed.
+
+**Root cause:** fresh watch entry did not preserve the current active-vessel `FlightCamera` basis. `EnterWatchMode()` only compensated target-basis changes for ghost-to-ghost watch retargets; the first active-vessel -> ghost transition rebound directly to the ghost `cameraPivot` / `horizonProxy` target at the default entry distance without projecting the existing pitch/heading through the new target rotation. On pad-relative views, that left the first watch frame mirrored to the wrong side of the vessel.
+
+**Fix:** fresh watch entry now snapshots the current `FlightCamera` target rotation/pitch/heading before watch starts, resolves the ghost's initial watch mode (`Free` vs `HorizonLocked`) immediately, and reapplies the entry camera through the same target-rotation compensation path already used for manual watch retargets. The default `50 m` watch-entry distance stays the same, but the initial world-facing orientation now stays on the same pad/body side. Added focused regression coverage for fresh-entry mode/distance state prep.
+
+**Status:** ~~Fixed~~ in PR `#288`
+
+---
+
 ## ~~359. Background section flushes can duplicate flat tails and leave one-point destroyed debris stubs after merge~~
 
 **Observed in:** the same 2026-04-14 follow-up investigation that found the missing `Rewind` button. The runtime/in-game suite was failing `CommittedRecordingsHaveValidData` and `RecordingStopMetricsValid`, and merged quickload-resume trees could retain non-monotonic flat tails or single-point destroyed debris leaves that were never meant to survive commit.
@@ -1470,6 +1482,18 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
+### T66. Add an in-game regression for fresh active-vessel -> ghost watch entry orientation
+
+PR `#288` fixed the first `Watch Ghost` transition so it preserves the active-vessel camera basis and no longer flips the camera to the opposite side of the pad on entry. The current automated coverage only pins the fresh-entry mode/distance state prep plus the shared target-basis compensation math; it does not execute the exact stock `FlightCamera` capture -> ghost retarget path in a live KSP scene.
+
+**Follow-up:** add an in-game/runtime repro that starts from a known pad-side anchor-camera view, enters watch mode on a same-body ghost, and asserts the watched first frame preserves the same world-side orientation relative to the vessel/body instead of mirroring to the opposite side.
+
+**Priority:** Medium — the core fix is in, but only live KSP can prove the exact first-entry camera handoff end-to-end
+
+**Status:** Open
+
+---
+
 ### ~~T65. Revert-finalized active non-leaf recordings can keep `terminal=null` and default ghost-only~~
 
 **Observed in:** `logs/2026-04-14_1449_booster-separation-improved-check/` on the validated `fix/booster-separation-seed-timing` package (`cf5e6dac`). The booster separation seed-timing fix itself is validated in that bundle; the follow-up regression is the separate revert path:
@@ -1669,6 +1693,16 @@ The R button never appears in the recordings table because `RewindSaveFileName` 
 ---
 
 ## TODO — Nice to have
+
+### T67. Investigate the unrelated full-suite `GhostPlaybackEngineTests` Unity-host `SecurityException`
+
+The current `Parsek.Tests` full-suite run still has a pre-existing unrelated failure in `GhostPlaybackEngineTests.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`, throwing `System.Security.SecurityException: ECall methods must be packaged into a system module.` The focused watch-camera slices pass, so this did not block PR `#288`, but the failure still weakens the normal full-suite signal.
+
+**Follow-up:** reproduce the failing test in isolation, identify which Unity-native call path is escaping the current test harness assumptions, and either move that assertion behind an in-game/runtime test or harden the unit test so `dotnet test Source\\Parsek.Tests\\Parsek.Tests.csproj` can run cleanly again.
+
+**Priority:** Low — unrelated to the watch-camera fix, but worth cleaning up so the normal full suite becomes trustworthy again
+
+**Status:** Open
 
 ### ~~T53. Watch camera mode selection~~
 
