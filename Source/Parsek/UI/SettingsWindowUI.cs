@@ -279,7 +279,9 @@ namespace Parsek
             GUILayout.Label("Looping", GUI.skin.box);
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Auto-launch every",
-                "Default launch-to-launch period (seconds) for recordings set to 'auto' unit. Overlap occurs naturally when the period is shorter than the recording duration."), GUILayout.Width(100));
+                "Default launch-to-launch period (seconds) for recordings set to 'auto' unit. Overlap occurs naturally when the period is shorter than the recording duration."),
+                GUILayout.ExpandWidth(false));
+            GUILayout.FlexibleSpace();
             {
                 if (!settingsAutoLoopEditing)
                 {
