@@ -275,6 +275,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryComputeLoopUT_JustPastBoundaryWithinEpsilon_StaysInPlayback()
+        {
+            var rec = MakeKerbinRecording(
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 110.0);
+            double loopUT;
+            long cycleIndex;
+            bool inPauseWindow;
+
+            bool result = ParsekKSC.TryComputeLoopUT(rec, 200.0000005,
+                out loopUT, out cycleIndex, out inPauseWindow);
+
+            Assert.True(result);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPauseWindow);
+            Assert.Equal(200, loopUT, 3);
+        }
+
+        [Fact]
         public void TryComputeLoopUT_SecondCycle_ReturnsCorrectCycleIndex()
         {
             // #381: duration=100, period=110 → cycleDuration=110.

@@ -716,7 +716,7 @@ namespace Parsek
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
             // Pause window only when period strictly exceeds duration.
-            if (intervalSeconds > duration && cycleTime > duration)
+            if (intervalSeconds > duration && cycleTime > duration + GhostPlaybackLogic.BoundaryEpsilon)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;

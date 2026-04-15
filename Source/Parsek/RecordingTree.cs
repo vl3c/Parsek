@@ -688,26 +688,6 @@ namespace Parsek
                     rec.LoopPlayback = loopPlayback;
             }
 
-            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
-            if (loopIntervalStr != null)
-            {
-                double loopIntervalSeconds;
-                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
-                {
-                    rec.LoopIntervalSeconds = loopIntervalSeconds;
-                    // #381: pre-fix saves may have negative intervals (old "gap after cycle"
-                    // semantics). The engine defensively clamps these at resolve time; warn
-                    // once on load so users can re-enter their intended period.
-                    if (loopIntervalSeconds < 0)
-                    {
-                        ParsekLog.Warn("Loop",
-                            $"RecordingTree: loaded recording '{rec.VesselName}' with negative " +
-                            $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} (pre-#381 save). " +
-                            "Defensive clamp will apply at playback; consider re-entering the period in the UI.");
-                    }
-                }
-            }
-
             string loopStartUTStr = recNode.GetValue("loopStartUT");
             if (loopStartUTStr != null)
             {
@@ -722,6 +702,32 @@ namespace Parsek
                 double loopEndUT;
                 if (double.TryParse(loopEndUTStr, inv, ic, out loopEndUT))
                     rec.LoopEndUT = loopEndUT;
+            }
+
+            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
+            if (loopIntervalStr != null)
+            {
+                double loopIntervalSeconds;
+                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
+                {
+                    if (loopIntervalSeconds < 0)
+                    {
+                        double effectiveLoopDuration;
+                        double migratedLoopIntervalSeconds =
+                            GhostPlaybackEngine.ConvertLegacyGapToLoopPeriodSeconds(
+                                rec, loopIntervalSeconds, out effectiveLoopDuration);
+                        rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+                        ParsekLog.Warn("Loop",
+                            $"RecordingTree: migrated recording '{rec.VesselName}' from legacy " +
+                            $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
+                            $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", ic)}s " +
+                            $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s (pre-#381 save).");
+                    }
+                    else
+                    {
+                        rec.LoopIntervalSeconds = loopIntervalSeconds;
+                    }
+                }
             }
 
             string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");

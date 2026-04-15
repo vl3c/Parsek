@@ -1243,6 +1243,24 @@ namespace Parsek
             return EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj);
         }
 
+        /// <summary>
+        /// Converts a pre-#381 legacy "gap after cycle" value into the current launch-to-launch
+        /// period. If the reconstructed period underflows or the trajectory bounds are not
+        /// available, clamps defensively to MinCycleDuration.
+        /// </summary>
+        internal static double ConvertLegacyGapToLoopPeriodSeconds(
+            IPlaybackTrajectory traj,
+            double legacyGapSeconds,
+            out double effectiveLoopDuration)
+        {
+            effectiveLoopDuration = EffectiveLoopDuration(traj);
+            double migratedPeriod = effectiveLoopDuration + legacyGapSeconds;
+            if (double.IsNaN(migratedPeriod) || double.IsInfinity(migratedPeriod)
+                || migratedPeriod < GhostPlaybackLogic.MinCycleDuration)
+                return GhostPlaybackLogic.MinCycleDuration;
+            return migratedPeriod;
+        }
+
         /// <summary>Whether the trajectory should loop (has enough points and duration).</summary>
         internal static bool ShouldLoopPlayback(IPlaybackTrajectory traj)
         {
@@ -1311,7 +1329,7 @@ namespace Parsek
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
             // Pause window only exists when period strictly exceeds duration (there's a gap).
-            if (intervalSeconds > duration && cycleTime > duration)
+            if (intervalSeconds > duration && cycleTime > duration + GhostPlaybackLogic.BoundaryEpsilon)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;

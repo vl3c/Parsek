@@ -483,6 +483,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryComputeLoopPlaybackUT_JustPastBoundaryWithinEpsilon_StaysInPlayback()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 200.0000005, 110,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPause);
+            Assert.Equal(200, loopUT, 6);
+        }
+
+        [Fact]
         public void TryComputeLoopPlaybackUT_PeriodEqualsDuration_NoPauseWindow()
         {
             var engine = new GhostPlaybackEngine(null);

@@ -100,6 +100,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LoopRange_Scenario_Load_LegacyNegativeInterval_MigratesToLaunchPeriod()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-scenario-loop");
+            node.AddValue("loopPlayback", true);
+            node.AddValue("loopStartUT", 120.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopEndUT", 180.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", (-20.0).ToString("R", CultureInfo.InvariantCulture));
+
+            var loaded = new Recording { VesselName = "LegacyScenario" };
+            loaded.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            loaded.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Equal(40.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(120.0, loaded.LoopStartUT);
+            Assert.Equal(180.0, loaded.LoopEndUT);
+            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyScenario'"));
+        }
+
+        [Fact]
         public void LoopRange_Scenario_SaveLoad_NaN_NotWritten()
         {
             var source = new Recording
@@ -189,6 +219,27 @@ namespace Parsek.Tests
 
             Assert.Equal(150.0, loaded.LoopStartUT);
             Assert.Equal(200.0, loaded.LoopEndUT);
+        }
+
+        [Fact]
+        public void LoopRange_Tree_Load_LegacyNegativeInterval_MigratesToLaunchPeriod()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-tree-loop");
+            node.AddValue("vesselName", "LegacyTree");
+            node.AddValue("explicitStartUT", 0.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("explicitEndUT", 300.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", (-20.0).ToString("R", CultureInfo.InvariantCulture));
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(80.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(100.0, loaded.LoopStartUT);
+            Assert.Equal(200.0, loaded.LoopEndUT);
+            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyTree'"));
         }
 
         [Fact]
