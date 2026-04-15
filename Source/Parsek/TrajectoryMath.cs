@@ -964,6 +964,14 @@ namespace Parsek
         ///   - any recorded trajectory point has velocity magnitude at or above
         ///     <see cref="ReentryPotentialSpeedFloor"/>.
         ///
+        /// <b>Velocity frame:</b> <see cref="TrajectoryPoint.velocity"/> is the
+        /// Krakensbane-corrected `rb_velocityD + Krakensbane.GetFrameVelocity()` captured
+        /// at sample time. In KSP's body-co-rotating world frame this is effectively the
+        /// vessel's inertial speed, so a landed/stationary vessel reads ≈0 and the 400 m/s
+        /// floor safely excludes showcases, walks, rovers, and low-speed suborbital hops
+        /// while preserving every supersonic / orbital trajectory. NaN components in a
+        /// point fail the ≥ comparison harmlessly and do not throw.
+        ///
         /// Pure function — no Unity dependencies, no side effects. O(n) in trajectory
         /// point count; called once per ghost build, not per frame.
         /// </summary>
@@ -980,6 +988,8 @@ namespace Parsek
             float floorSq = ReentryPotentialSpeedFloor * ReentryPotentialSpeedFloor;
             for (int i = 0; i < points.Count; i++)
             {
+                // sqrMagnitude with a NaN component yields NaN; `NaN >= floorSq` is false,
+                // so malformed points cannot produce a false positive.
                 if (points[i].velocity.sqrMagnitude >= floorSq)
                     return true;
             }

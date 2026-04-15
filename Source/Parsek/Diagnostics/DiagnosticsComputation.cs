@@ -488,14 +488,16 @@ namespace Parsek
                 hitRateStr = "N/A";
             }
             sb.AppendFormat(Inv,
-                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}",
+                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8}",
                 hitRateStr,
                 h.waypointCacheMisses,
                 totalLookups,
                 h.snapshotRefreshSpikes,
                 h.spawnFailures,
                 h.ghostBuildsThisSession,
-                h.ghostDestroysThisSession);
+                h.ghostDestroysThisSession,
+                h.reentryFxBuildsThisSession,
+                h.reentryFxSkippedThisSession);
             sb.AppendLine();
 
             // GC gen0

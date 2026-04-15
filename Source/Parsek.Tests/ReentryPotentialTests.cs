@@ -204,5 +204,52 @@ namespace Parsek.Tests
             // guaranteeing no false negatives on reentry heating.
             Assert.Equal(400f, TrajectoryMath.ReentryPotentialSpeedFloor);
         }
+
+        [Fact]
+        public void NanVelocityComponent_DoesNotThrow_ReturnsFalse()
+        {
+            // Malformed point with a NaN component — sqrMagnitude yields NaN and
+            // `NaN >= floorSq` is false, so the gate conservatively returns false
+            // without crashing. Protects against any upstream bug that leaks a
+            // degenerate velocity vector into the trajectory.
+            var traj = new MockTrajectory();
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 0, bodyName = "Kerbin",
+                velocity = new Vector3(float.NaN, 0f, 0f),
+                rotation = Quaternion.identity
+            });
+            bool result = false;
+            var ex = Record.Exception(() => result = TrajectoryMath.HasReentryPotential(traj));
+            Assert.Null(ex);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void InfinityVelocityComponent_ReturnsTrue()
+        {
+            // Infinity passes the floor comparison (Infinity >= floorSq), so the gate
+            // plays it safe and builds reentry FX. Again, this is not expected in
+            // production — the test just locks in the behavior so a later refactor
+            // that adds input sanitization is a conscious choice, not an accident.
+            var traj = new MockTrajectory();
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 0, bodyName = "Kerbin",
+                velocity = new Vector3(float.PositiveInfinity, 0f, 0f),
+                rotation = Quaternion.identity
+            });
+            Assert.True(TrajectoryMath.HasReentryPotential(traj));
+        }
+
+        [Fact]
+        public void NullPointsList_ReturnsFalse()
+        {
+            // IPlaybackTrajectory.Points is not nominally null, but the helper
+            // defensively handles it (we have no ProtoVessel-sourced trajectories
+            // that might return null today, but the guard is cheap insurance).
+            var traj = new MockTrajectory { Points = null };
+            Assert.False(TrajectoryMath.HasReentryPotential(traj));
+        }
     }
 }
