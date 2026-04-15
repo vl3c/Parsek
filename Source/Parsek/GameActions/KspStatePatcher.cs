@@ -86,6 +86,15 @@ namespace Parsek
             }
             else
             {
+                // #402 parity: WARN when science drawdown >10% of a non-trivial pool.
+                if (IsSuspiciousDrawdown(delta, currentScience))
+                {
+                    ParsekLog.Warn(Tag,
+                        $"PatchScience: suspicious drawdown delta={delta.ToString("F1", IC)} " +
+                        $"from current={currentScience.ToString("F1", IC)} " +
+                        $"(>10% of pool, target={targetScience.ToString("F1", IC)}) — " +
+                        $"earning channel may be missing. HasSeed={science.HasSeed}");
+                }
                 ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
 
                 float afterScience = ResearchAndDevelopment.Instance.Science;
@@ -136,6 +145,19 @@ namespace Parsek
                     $"PatchFunds: no change needed (current={currentFunds.ToString("F1", IC)}, " +
                     $"target={targetFunds.ToString("F1", IC)})");
                 return;
+            }
+
+            // #402: defensive WARN when a single recalculation drops more than 10% of
+            // the live funds pool. Legitimate walks can subtract large amounts after a
+            // revert, so this is log-only (never aborts the patch) — but a >10% drop
+            // alongside a small pool (>1000F) is the shape of missing-earnings bugs.
+            if (IsSuspiciousDrawdown(delta, currentFunds))
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchFunds: suspicious drawdown delta={delta.ToString("F1", IC)} " +
+                    $"from current={currentFunds.ToString("F1", IC)} " +
+                    $"(>10% of pool, target={targetFunds.ToString("F1", IC)}) — " +
+                    $"earning channel may be missing. HasSeed={funds.HasSeed}");
             }
 
             Funding.Instance.AddFunds(delta, TransactionReasons.None);
@@ -856,6 +878,19 @@ namespace Parsek
                 else
                     toRemove.Add(entry.Id);
             }
+        }
+
+        /// <summary>
+        /// Pure threshold check for #402: returns true when a negative delta removes
+        /// more than 10% of a non-trivial pool (&gt;1000). Below the pool-floor threshold
+        /// the warning is noisy and useless, so we stay silent. Positive deltas and
+        /// small percentage drops are always allowed.
+        /// </summary>
+        internal static bool IsSuspiciousDrawdown(double delta, double currentPool)
+        {
+            if (delta >= 0) return false;
+            if (currentPool <= 1000.0) return false;
+            return Math.Abs(delta) > 0.10 * currentPool;
         }
 
         internal static void ResetForTesting()
