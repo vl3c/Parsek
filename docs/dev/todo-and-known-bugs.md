@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc
+## ~~405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc~~
 
 **Source:** c1 career-mode playtest `2026-04-15` (logs `logs/2026-04-15_0005_c1-career-bugs/`). Player accepted 2 contracts at UT ≈ 412.9 (`Test RT-5 "Flea"` and `Test LV-T45 "Swivel"` at launch site), both captured by `GameStateRecorder.OnContractAccepted` and written to `events.pgse`, both unconditionally destroyed by the next `PatchContracts` pass. Ledger at end of session has **zero** `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, or `FundsSpending (PartPurchased)` actions.
 
@@ -42,18 +42,13 @@ Log evidence (c1 session, the smoking gun):
 
 c1 `events.pgse` has **47 ContractOffered + 2 ContractAccepted + 8 PartPurchased** events; c1 `ledger.pgld` has **zero** of the corresponding actions. This is the same "store says yes, ledger says no, patcher drags KSP to match ledger" anti-pattern as `#397` but for the KSC event pipeline instead of the `PendingScienceSubjects` pipeline.
 
-**Fix direction (paired with `#404`):**
+**Fix:** Added `if (!IsFlightScene()) LedgerOrchestrator.OnKscSpending(evt);` to `OnContractAccepted`, `OnContractCompleted`, `OnContractFailed`, `OnContractCancelled`, and `OnPartPurchased` in `Source/Parsek/GameStateRecorder.cs`. Contract events now flow through the existing `GameStateEventConverter.ConvertContractAccepted/Completed/Failed/Cancelled` dispatch, and `OnPartPurchased` relies on the new `DedupKey` field (see §F of `career-earnings-bundle.md`) to avoid collisions between multiple part purchases at similar UTs. Regression tests in `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
 
-1. Add `if (!IsFlightScene()) LedgerOrchestrator.OnKscSpending(evt);` to `OnContractAccepted`, `OnContractCompleted`, `OnContractFailed`, `OnContractCancelled`, and `OnPartPurchased`. One-line addition per handler.
-2. Verify `LedgerOrchestrator.OnKscSpending` dispatches the contract event types correctly (`GameStateEventConverter.ConvertContractAccepted/Completed/Failed/Cancelled` already exist and work — lines 319, 372, 407, 432).
-3. Regression test: integration test that (a) mocks a `ContractAccepted` event with a known contract id, (b) calls `GameStateRecorder.OnContractAccepted` (or a test-visible wrapper), (c) asserts the ledger gained a `ContractAccept` action with the matching id. Same shape for the other four handlers.
-4. Consider: should `PatchContracts` also *warn* when it's about to clear KSP contracts that have no matching ledger action, so the next time this happens the log shouts instead of whispers `VERBOSE`?
-
-**Status:** TODO. **Critical — blocks career-mode saves.** Depends on nothing; should ship in the same PR as `#397`, `#403`, and `#404` as a "career-mode earnings pipeline" fix bundle.
+**Status:** ~~Fixed~~
 
 ---
 
-## 404. `PatchContracts` unconditionally clears KSP's `ContractsFinished` list and `Offered` contracts, neither of which the ledger tracks
+## ~~404. `PatchContracts` unconditionally clears KSP's `ContractsFinished` list and `Offered` contracts, neither of which the ledger tracks~~
 
 **Source:** same c1 playtest as `#405`.
 
@@ -80,17 +75,13 @@ Then step 3 only restores contracts whose IDs come from `ContractsModule.GetActi
 
 Log evidence — same 7 offered contracts appear at 3 different UTs (lines 9369-9382 at ut=52.6; 9829-9842 at ut=204.0; 10974-10987 at ut=395.6; 11744-11761 at ut=420.5) — that's not 28 unique contracts, it's 7 unique contracts that `ContractSystem` kept regenerating after each `PatchContracts` wipe.
 
-**Fix direction:**
+**Fix:** Replaced the destructive `currentContracts.Clear()` + `ContractsFinished.Clear()` in `Source/Parsek/GameActions/KspStatePatcher.cs` `PatchContracts` with a filtered partition. Only Active contracts whose id is NOT in the ledger's active set are removed; non-Active entries (Offered/Declined/Cancelled/Failed/Completed) stay untouched, and `ContractsFinished` is never mutated. Active contracts already in the ledger are preserved in place (no unregister/recreate cycle), which also closes the `ContractOffered` regeneration loop that caused #398. Filtering extracted into the testable `KspStatePatcher.PartitionContractsForPatch` helper. Tests in `Source/Parsek.Tests/PatchContractsPreservationTests.cs`.
 
-1. **Minimal:** in step 2, change `currentContracts.Clear()` to a filtered remove that only touches `Contract.State.Active` entries; leave `Offered` / `Declined` / `Failed` / `Cancelled` states alone. The subsequent restore still repopulates the Active bucket from ledger snapshots.
-2. **`ContractsFinished`:** do not clear. KSP's own `Clear() + Load()` path for finished contracts is a save-file concern, not a Parsek-walk concern. Parsek should treat `ContractsFinished` as append-only game history that Parsek does not mutate, at least until `#405` is fixed and a matching module walk can reason about it.
-3. Add a log-assertion test that after `PatchContracts` runs on a freshly-loaded career save with 7 offered contracts, the offered list still contains 7 entries (or equivalently, `Offered` state count is unchanged).
-
-**Status:** TODO. **Critical** when paired with `#405`. Fix in the same bundle.
+**Status:** ~~Fixed~~
 
 ---
 
-## 403. Career-mode `FundsEarning` and `ReputationEarning` actions are never emitted — running totals stuck at seed for the entire timeline
+## ~~403. Career-mode `FundsEarning` and `ReputationEarning` actions are never emitted — running totals stuck at seed for the entire timeline~~
 
 **Source:** same c1 playtest as `#405`.
 
@@ -104,17 +95,13 @@ The `FundsModule.totalEarnings` field (`FundsModule.cs:49`) stays at `0` for the
 
 The `ScienceChanged` channel has a partial parallel path (`OnScienceReceived → PendingScienceSubjects → ConvertScienceSubjects → ScienceEarning`), but that path is broken by `#397`. The `FundsChanged` and `ReputationChanged` channels have no parallel path at all.
 
-**Fix direction:**
+**Fix:** No code change — the missing earnings were a composite symptom of #405 (contract events not reaching the ledger), #404 (contracts destroyed on recalc), #400 (milestones hardcoded to zero rewards), and the existing `CreateVesselCostActions` recovery path not being misdiagnosed after all. The review (§1.3) verified `CreateVesselCostActions` correctly emits `FundsEarning(Recovery)` whenever `TerminalStateValue == Recovered`; the todo's "silently bails" claim was wrong. Regression guard added in `Source/Parsek.Tests/VesselCostRecoveryRegressionTests.cs` so future refactors can't drop the recovery emission without a red test. The drop block in `GameStateEventConverter.cs:121-130` stays as-is; re-emitting `FundsChanged` would double-count against recovery + contract + milestone channels (see `career-earnings-bundle-review.md` §5.1). The new `LedgerOrchestrator.ReconcileEarningsWindow` diagnostic (#394) surfaces any future regressions loudly at commit time.
 
-1. **Capture-side:** replace the hardcoded `0` in `OnProgressComplete` with a pre/post delta on `Funding.Instance.Funds` and `Reputation.Instance.reputation`. A `GameEvents.Contract.onRewardsCollected` or equivalent prefix/postfix hook may be needed since `OnProgressComplete` fires *after* KSP applies the reward; a simpler alternative is to snapshot `Funding.Instance.Funds` inside `OnScienceReceived`-style prefix and read it again in the postfix.
-2. **Convert-side for recovery:** the existing `CreateVesselCostActions` in `LedgerOrchestrator.cs:220+` is supposed to inject `FundsEarning (Recovery)` and `FundsSpending (VesselBuild)` from recording point data. Confirm it runs for the committed recordings and emits actions; c1's ledger has no `FundsEarning` or `FundsSpending (VesselBuild)` entries, which suggests it's silently bailing (possibly `rec.Points.Count == 0` guard at line 232, or `PreLaunchFunds` not set).
-3. **Contract rewards:** covered by `#405`'s fix — once `ContractComplete` actions enter the ledger, `ConvertContractCompleted` extracts `fundsReward`/`repReward`/`sciReward` from the event detail correctly.
-
-**Status:** TODO. **Critical** — second-order consequence of `#397` / `#405`, but with distinct root causes in its own right. Must ship in the same PR bundle.
+**Status:** ~~Fixed~~
 
 ---
 
-## 402. `PatchFunds` drags KSP's fund balance down to 0 every recalc (visible symptom of `#403`)
+## ~~402. `PatchFunds` drags KSP's fund balance down to 0 every recalc (visible symptom of `#403`)~~
 
 **Source:** same c1 playtest as `#405`. The player-facing symptom: **funds slider reads 0 within seconds of any scene transition or commit**.
 
@@ -131,13 +118,13 @@ Log evidence:
 
 The `affordable=False` on every kerbal hire (lines 11718-11724) is a cascading diagnostic — the `KerbalsModule` / `FundsModule` reservation check thinks the player couldn't afford the seven kerbals they demonstrably did hire, because the walk starts from a running balance that's already negative due to missing `FundsEarning` actions.
 
-**Fix direction:** same as `#397` for the science side — `PatchFunds` should be a no-op (not a "correct to match ledger") call when the ledger's running funds total is less than the current KSP funds value *and* `FundsModule.HasSeed` is true. Alternatively, once `#403` is fixed the ledger will actually have correct earnings and the clamp-to-zero will stop firing. Defensive option: add a sanity check before `AddFunds(delta)` — if `delta < 0 && Math.Abs(delta) > 0.1 * current` (i.e., Parsek wants to remove more than 10% of the pool in a single call), log a `WARN` before applying, and consider requiring explicit `HasEarnings` confirmation.
+**Fix:** Added a defensive WARN to `Source/Parsek/GameActions/KspStatePatcher.cs` `PatchFunds` and `PatchScience` that fires when a single recalc removes more than 10% of a non-trivial resource pool (>1000). This is log-only — legitimate revert walks can subtract large amounts — but the shape of a missing earning channel always produces a >10% drop, so the diagnostic is a cheap tripwire. The threshold check is extracted into `KspStatePatcher.IsSuspiciousDrawdown` for unit testing. The underlying symptom is resolved by the #405/#404/#400 fixes landing in this bundle. Tests in `Source/Parsek.Tests/PatchFundsSanityTests.cs`.
 
-**Status:** TODO. Will be fixed incidentally when `#403` is fixed, but the defensive-sanity warning is a cheap addition worth shipping independently.
+**Status:** ~~Fixed~~
 
 ---
 
-## 401. c1 career save needs one-shot funds/contract recovery after `#403`/`#405` land
+## ~~401. c1 career save needs one-shot funds/contract recovery after `#403`/`#405` land~~
 
 **Source:** same playtest as `#405`. The c1 save (`saves/c1/Parsek/GameState/{events.pgse, ledger.pgld}`) is in a broken state that fixing the code forward will not repair.
 
@@ -154,17 +141,13 @@ c1 `ledger.pgld` has only 14 actions: `FundsInitial(25000)`, `ScienceInitial(11.
 
 Once `#403`/`#405` are fixed forward, loading the c1 save will still see `FundsModule.totalEarnings = 0` and `Contract` list as empty, because `OnKspLoad` doesn't re-synthesize missing actions from the store. The funds pool will still be dragged to 0 on the first `PatchFunds` call and the player's accepted contracts will still be missing from Mission Control.
 
-**Fix direction:** see `#396` (the sci1 recovery proposal) — same shape. `LedgerOrchestrator.OnKspLoad` should detect the "store has events that would have produced actions but ledger has zero matching actions" divergence and synthesize the missing actions on load. For c1 specifically, this means:
+**Fix:** Added `LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad` which walks `GameStateStore.Events` and synthesizes missing `ContractAccept/Complete/Fail/Cancel` and `FundsSpending(PartPurchased)` actions for any event that has no matching ledger action. Called from `ParsekScenario.OnLoad` after the epoch is restored from the save file, and only when not rewinding. Respects `MilestoneStore.CurrentEpoch` (per `career-earnings-bundle-review.md` §5.6) so old-branch events don't leak into the new epoch. Idempotent via `LedgerOrchestrator.LedgerHasMatchingAction`. Automatic recalc runs after recovery so the derived state heals. Tests in `Source/Parsek.Tests/LedgerRecoveryMigrationTests.cs`.
 
-- For each `ContractAccepted` event in the store with no matching `ContractAccept` action in the ledger, emit one `ContractAccept` via `ConvertContractAccepted` (using the stored contract snapshot for the `KspStatePatcher` restore path).
-- Same for `ContractCompleted`/`Failed`/`Cancelled` and `PartPurchased`.
-- Milestone rewards (`#400`): use stored `milestoneFundsAwarded`/`milestoneRepAwarded` if populated; otherwise leave as 0 and accept the funds drain as historical.
-
-**Status:** TODO. Depends on `#405`, `#403` being fixed first. Blocks c1 player.
+**Status:** ~~Fixed~~
 
 ---
 
-## 400. `OnProgressComplete` hardcodes milestone funds/rep rewards to 0, causing permanent career-mode funds drain via `PatchFunds`
+## ~~400. `OnProgressComplete` hardcodes milestone funds/rep rewards to 0, causing permanent career-mode funds drain via `PatchFunds`~~
 
 **Source:** same c1 playtest as `#405`. Identified from in-code comment at `GameStateRecorder.cs:687-698` and confirmed in c1 `ledger.pgld`.
 
@@ -182,13 +165,9 @@ Once `#403`/`#405` are fixed forward, loading the c1 save will still see `FundsM
 
 The c1 ledger confirms the effect: every `MilestoneAchievement` action has `milestoneFundsAwarded = 0` and `milestoneRepAwarded = 0`, so `FundsModule` / `ReputationModule` never sees the reward even though KSP's pool received it in real time. Over a full career, this drains hundreds of thousands of funds silently — every `FirstLaunch`, `FirstOrbit`, `Kerbin/Flyby`, etc. contributes to the gap that `#403`/`#402` then close by dragging funds back down.
 
-**Fix direction:** three options of increasing coverage:
+**Fix:** Two-phase capture. `OnProgressComplete` in `Source/Parsek/GameStateRecorder.cs` emits the `MilestoneAchieved` event with zero-reward detail and stores the `ProgressNode` reference in `PendingMilestoneEventByNode`. Then the new `Source/Parsek/Patches/ProgressRewardPatch.cs` (Harmony postfix on the protected `ProgressNode.AwardProgress(string, float, float, float, CelestialBody)`) reads the real funds/science/rep values from the method parameters and calls `GameStateRecorder.EnrichPendingMilestoneRewards`, which patches the stored event in place (`GameStateStore.UpdateEventDetail` helper) and updates any matching ledger `MilestoneAchievement` action. The plan's preferred `GameVariables.GetProgressFunds/Rep/Science` does NOT exist in stock KSP (verified via decompile) — the review's `AwardProgress`-postfix fallback was the only stable option. Tests in `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs`.
 
-1. **Pre-snapshot** via a Harmony prefix on `ProgressNode.Complete` or a `GameEvents.OnProgressAchieved` `Add` callback that caches `Funding.Instance.Funds` + `Reputation.Instance.reputation` before KSP applies the reward, then reads them again in `OnProgressComplete` and writes the delta into the event detail.
-2. **Best-effort via GameVariables:** call `GameVariables.Instance.GetProgressFunds(node)` / `GetProgressRep(node)` / `GetProgressSci(node)` and write the computed reward into the event detail. The in-code comment calls this "too fragile" — revisit whether KSP 1.12's API is stable enough after 4 years of the API not changing.
-3. **Store-only:** capture the delta into `GameStateStore` via a separate `MilestoneReward` event type decoupled from `MilestoneAchieved`, so the conversion can fail independently and existing saves still work.
-
-**Status:** TODO. Blocked on `#403` prioritization — this is one of the three earning-side holes. Tracked in deferred items `D17`/`D18` per the in-code comment (verify those entries still exist in `deferred-items.md` or archive).
+**Status:** ~~Fixed~~
 
 ---
 
@@ -218,11 +197,11 @@ Line 11762's `Coalesced ScienceChanged event at ut=420.54` hints that `GameState
 
 **Fix direction:** read `Source/Parsek/GameActions/ScienceModule.cs` around `ComputeTotalSpendings` and `ProcessSpending`, look for a dedup keyed on `(ut, cost)` or `(ut, nodeId)` that drops one of the two actions. Add a unit test with two `ScienceSpending` actions at the same UT with different `nodeId`s, assert both are walked. Likely a one-line fix, but the cascade matters — if this drops one tech research, the running balance is off by the cost of that tech node, which compounds into the `#403` funds-drain chain.
 
-**Status:** TODO. Suspect, unverified. Low-ish priority compared to `#405`/`#403`/`#402` — but easy to verify once those are cleared.
+**Status:** TODO. Suspect, unverified. **Unblocked by the career-earnings-bundle PR (#394-#405) — the ledger is now accurate enough that this same-UT walk bug should be reproducible and fixable in isolation.** Low-ish priority compared to `#405`/`#403`/`#402` — but easy to verify now that those are cleared.
 
 ---
 
-## 398. `GameStateStore` accumulates `ContractOffered` events forever — c1 session bloated to 78+ within 8 minutes of play
+## ~~398. `GameStateStore` accumulates `ContractOffered` events forever — c1 session bloated to 78+ within 8 minutes of play~~
 
 **Source:** same c1 playtest as `#405`. Distinct from `#390` (perf/size concern about `outOfRange` accumulation in general) — this is specifically about `ContractOffered` volume caused by the `#404` clear-and-regenerate loop.
 
@@ -230,13 +209,13 @@ Line 11762's `Coalesced ScienceChanged event at ut=420.54` hints that `GameState
 
 Once `#404` is fixed, the clear-regenerate loop stops and this bloat stops accumulating. Until then, every few seconds adds another 5-9 events to the store, every save writes them to disk, every future `ConvertEvents` re-walks them as `outOfRange`.
 
-**Fix direction:** stop dropping `ContractOffered` into the store at all — `GameStateEventConverter.ConvertEvent` already skips them (line 127). Either (a) don't write `ContractOffered` to the store in the first place (delete the `GameStateStore.AddEvent` call in `OnContractOffered`, keep the diagnostic log), or (b) write it to a separate diagnostic-only channel that isn't serialized. Option (a) is the minimal diff.
+**Fix:** `OnContractOffered` in `Source/Parsek/GameStateRecorder.cs` no longer calls `GameStateStore.AddEvent`. Offered contracts are transient advertisements generated on every ContractSystem tick; keeping the handler subscribed preserves the diagnostic log only. The converter already dropped `ContractOffered`, and no UI/module reads the events from the store, so the removal is safe. `#404`'s preservation of surviving Active contracts also closes the clear-and-regenerate loop upstream. Tests in `Source/Parsek.Tests/OnContractOfferedStoreTests.cs` (including an IL-scan regression guard against re-adding an `AddEvent` call).
 
-**Status:** TODO. Low priority once `#404` is fixed. Fold into the `#405`/`#404` fix PR if easy.
+**Status:** ~~Fixed~~
 
 ---
 
-## 397. CRITICAL: science-career earnings silently dropped — `PatchScience` resets R&D back to seed after every commit
+## ~~397. CRITICAL: science-career earnings silently dropped — `PatchScience` resets R&D back to seed after every commit~~
 
 **Source:** sci1 science-career playtest `2026-04-14` (logs `logs/2026-04-14_2340_sci1-science-bug/`). Player collected ~16 science across multiple recovered flights; sci1 `ledger.pgld` contains zero `ScienceEarning` actions; in-game R&D pool stayed pinned at the starting seed value of `2.712`.
 
@@ -274,24 +253,13 @@ The ledger loses 7.7 + 3.3 + 2.1 + 0.6 = **13.7 science points** across one play
 
 **Scope:** all science-mode and career-mode saves on `main` since `b19c9de9` (2026-03-31). The symptom only appears in career/science mode — sandbox saves are unaffected because `ResearchAndDevelopment.Instance` is null there. Funds and reputation flow through the same `OnRecordingCommitted → ConvertEvents` path but do **not** use a parallel `PendingX + CommitX + Clear` staging list, so they are unaffected.
 
-**Fix options (pick one, smallest diff first):**
+**Fix:** Removed the premature `PendingScienceSubjects.Clear()` inside `RecordingStore.CommitRecordingDirect:348-349` and `RecordingStore.FinalizeTreeCommit:823-824`. Added `try/finally` clear points at the authoritative upstream sites that read the list — `LedgerOrchestrator.NotifyLedgerTreeCommitted` (after the foreach so every recording in a tree sees the same non-empty list), `ChainSegmentManager.CommitSegmentCore:527` (for chain segments), and `ParsekFlight.FallbackCommitSplitRecorder` (direct commit path). The `try/finally` guarantees the list is cleared even if `OnRecordingCommitted` throws. Discard paths (ClearCommitted, CommitTree duplicate guard, DiscardPendingTree, ResetForTesting, Quickload) keep their clears — they drop orphaned pending subjects. Tests in `Source/Parsek.Tests/PendingScienceSubjectsClearTests.cs`.
 
-1. **Smallest diff:** remove the four `.Clear()` calls after `CommitScienceSubjects(...)` in `RecordingStore` (lines 349, 824, and the guard clears at 420 / 911). Move a single `GameStateRecorder.PendingScienceSubjects.Clear()` into the tail of `LedgerOrchestrator.OnRecordingCommitted` after `ConvertScienceSubjects` runs. Also add the clear to the failure path inside `DeduplicateAgainstLedger` so a throw can't leak a growing list.
-2. **Snapshot-param:** make `OnRecordingCommitted` take an `IReadOnlyList<PendingScienceSubject>` parameter, have `RecordingStore` snapshot `PendingScienceSubjects` and pass the snapshot *before* clearing. Cleanest separation but touches every call site of `OnRecordingCommitted` (3 call sites: `ChainSegmentManager.cs:527`, `LedgerOrchestrator.cs:1091`, `ParsekFlight.cs:2419`).
-3. **Source-of-truth flip:** change `ConvertScienceSubjects` to read from `GameStateStore.committedScienceSubjects` (the persisted store), with per-commit delta tracking so we don't double-count across commits. Most work, but removes the static-list dependency entirely.
-
-Option 1 is the minimal fix. Option 3 is the right long-term direction and would naturally close `#398` below.
-
-**Regression test plan (must ship with the fix):**
-
-- Log-assertion integration test for `RecordingStore.CommitTree` → `LedgerOrchestrator.NotifyLedgerTreeCommitted` flow: seed a fake `PendingScienceSubjects` entry, call the full commit chain (not just `ConvertScienceSubjects` in isolation), assert the resulting `Ledger.Actions` contains at least one `ScienceEarning` with the expected subject id and value. Assert the `ConvertScienceSubjects: converted=N (N>0)` log line.
-- Negative test: if the above test had run against the current buggy `main`, it would have logged `ConvertScienceSubjects: empty or null subjects list` and the assertion would have failed. The existing unit tests pass because they bypass `CommitTree` entirely.
-
-**Status:** TODO. **Critical — blocks science/career-mode saves.** See `#396` for the user-facing save recovery migration and `#395` for the display-layer masking.
+**Status:** ~~Fixed~~
 
 ---
 
-## 396. sci1 save file needs one-shot science recovery after #397 fix
+## ~~396. sci1 save file needs one-shot science recovery after #397 fix~~
 
 **Source:** same playtest as `#397`. The collected sci1 save (`saves/sci1/Parsek/GameState/events.pgse` + `ledger.pgld`) is in a broken state that simply fixing `#397` will not un-brick.
 
@@ -304,20 +272,13 @@ Option 1 is the minimal fix. Option 3 is the right long-term direction and would
 
 Even after `#397` is fixed, loading this save runs `OnKspLoad → RecalculateAndPatch → PatchScience`, which still sees `GetAvailableScience() = 2.712` (no earnings in ledger) and drags R&D back to 2.712. The science sitting in `events.pgse` is orphaned — nothing reads it back into the ledger.
 
-**Fix options:**
+**Fix:** Covered by the same `LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad` added for `#401` — the second half of the migration walks `GameStateStore.GetCommittedScienceSubjectIds()` and synthesizes a `ScienceEarning` action for any subject with a positive committed value but no matching ledger action (via `LedgerOrchestrator.LedgerHasMatchingScienceEarning`). Respects epoch isolation and is idempotent. Tests in `Source/Parsek.Tests/LedgerRecoveryMigrationTests.cs`.
 
-1. **One-shot recovery in `LedgerOrchestrator.OnKspLoad`:** detect the divergence (`committedScienceSubjects.Count > 0` but no `ScienceEarning` in ledger), synthesize `ScienceEarning` actions from the store entries, and mark the ledger dirty so the recovery persists on next save. Gated on a single version bump or a one-time scenario flag so repeat loads don't re-synthesize.
-2. **Manual recovery script:** add a `scripts/` utility that reads `events.pgse` and writes corresponding `GAME_ACTION { type = N ... }` nodes into `ledger.pgld`. User runs it once against the sci1 save folder. Simpler, keeps repair logic out of production code.
-
-Option 1 is more user-friendly and catches any future saves that slipped through other bugs. Option 2 is safer because it doesn't run on every load forever.
-
-**Handling the sci1 save specifically:** the player is currently stuck. Either (a) ship `#397` + option 1 above in the same release and tell them to load once, or (b) hand-edit `ledger.pgld` to add 9 `ScienceEarning` entries backdated to `ut=0` with seq numbers 10..18 and `subjectId`, `scienceAwarded`, `subjectMaxValue` from the store.
-
-**Status:** TODO. Blocks this player's sci1 career. Depends on `#397` being fixed first.
+**Status:** ~~Fixed~~
 
 ---
 
-## 395. `ScienceSubjectPatch` Harmony postfix masks the broken ledger at the Science Archive display layer
+## ~~395. `ScienceSubjectPatch` Harmony postfix masks the broken ledger at the Science Archive display layer~~
 
 **Source:** same investigation as `#397`. Made the main bug much harder to detect in-game.
 
@@ -331,13 +292,13 @@ In the `#397` bug scenario the store has the subjects (persisted to `events.pgse
 
 The contradiction makes the bug look like "the number at the top is wrong but my experiments are fine" instead of "the entire pipeline from OnScienceReceived to ledger is broken."
 
-**Fix direction:** after `#397` is fixed and the ledger is the authoritative source again, decide whether this patch should read from ledger-module state (`ScienceModule.GetSubjectCreditedTotal`) instead of the store, so the two display paths (archive + pool) can never disagree. Leaving it reading from the store is defensible as long as the store is only populated via the same `CommitScienceSubjects` entry that feeds the ledger — verify after the fix.
+**Fix:** `Source/Parsek/Patches/ScienceSubjectPatch.cs` now resolves committed science via `LedgerOrchestrator.Science.GetSubjectCredited(subjectId)` (the same `ScienceModule` the R&D pool patcher reads from) instead of `GameStateStore.TryGetCommittedSubjectScience`. If the module has zero credited for a subject, the Archive no longer shows a stale store value — a broken ledger can't mask itself with a correct-looking Archive display. Falls back to the store path only when `LedgerOrchestrator` is uninitialized (sandbox / pre-init loads). Decision logic extracted into `ScienceSubjectPatch.TryResolveCommittedScience` for unit testing. Tests in `Source/Parsek.Tests/ScienceSubjectPatchHardeningTests.cs`.
 
-**Status:** TODO. Low priority once `#397` is fixed, but worth a hardening pass.
+**Status:** ~~Fixed~~
 
 ---
 
-## 394. `GameStateEventConverter` silently drops `ScienceChanged` events while `GameStateRecorder` keeps capturing them
+## ~~394. `GameStateEventConverter` silently drops `ScienceChanged` events while `GameStateRecorder` keeps capturing them~~
 
 **Source:** same investigation as `#397`.
 
@@ -355,12 +316,9 @@ Log evidence from the sci1 session (5 distinct `ScienceChanged` events captured 
 
 The `5.4 → 4.1` regression on line `14063` is a direct visible symptom of `#397` — `PatchScience` dragged R&D down between two recovery events.
 
-**Two concerns:**
+**Fix:** Added `LedgerOrchestrator.ReconcileEarningsWindow`, called from the tail of `OnRecordingCommitted`, which sums dropped `FundsChanged/ReputationChanged/ScienceChanged` event deltas against the effective emitted earning/spending actions in the same UT window and logs WARN when they disagree beyond tolerance. This is the log-level cross-check the review (§5.1) called out: it would have caught `#397`, `#400`, and `#405` on day one without needing to re-emit the Changed events (re-emitting would double-count against recovery + contract + milestone channels). The drop block in `GameStateEventConverter.cs:121-130` stays — now with an expanded comment explaining WHY so a future engineer can't "fix" it into double-counting. Tests in `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
 
-1. **Dead path:** if the events have no `GameAction` equivalent by design (science earnings flow via `OnScienceReceived → PendingScienceSubjects`), then capturing them bloats the store for no reason. They are serialized to `events.pgse` and re-scanned on every future commit as `outOfRange`. Either stop capturing them, or document why they are kept (diagnostics? sanity cross-check?).
-2. **Lost sanity check:** if they *were* intended as a cross-check ("the delta I saw on `OnScienceChanged` should equal the sum of `OnScienceReceived` subjects for the same commit window") that cross-check was never wired up, and having it wired up would have caught `#397` on day one. Adding it as a log-level assertion — not an `AddAction` — is low-cost insurance.
-
-**Status:** TODO. Tie into the `#397` hardening pass — either delete the capture or turn it into a diagnostic gate. Low priority.
+**Status:** ~~Fixed~~
 
 ---
 

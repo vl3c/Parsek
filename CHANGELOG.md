@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#394`, `#395`, `#396`, `#397`, `#398`, `#400`, `#401`, `#402`, `#403`, `#404`, `#405` Fixed a cascade of career-mode ledger bugs that drained funds to zero, lost accepted contracts on scene transition, pinned science at the starting seed, and zeroed out milestone funds/rep rewards. Broken sci1/c1 saves are repaired automatically on first load.
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
 - `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
 - `#380` `scripts/release.py` now runs end-to-end and packages the release zip without aborting on a pre-existing unit-test failure.
