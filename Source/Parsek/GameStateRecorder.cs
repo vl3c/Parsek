@@ -184,13 +184,14 @@ namespace Parsek
                 $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractAccepted,
                 key = guid,
                 detail = detail
-            });
+            };
+            GameStateStore.AddEvent(evt);
 
             // Store full contract snapshot for reversal
             try
@@ -207,6 +208,13 @@ namespace Parsek
                 ParsekLog.Warn("GameStateRecorder",
                     $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
             }
+
+            // Write directly to ledger when at KSC (not during a flight recording).
+            // Flight-scene contracts flow through the normal commit-time ConvertEvents path.
+            // #405: without this, accepted contracts at KSC never reached the ledger and
+            // PatchContracts had no active contracts to preserve on next recalc.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnContractCompleted(Contract contract)
@@ -214,14 +222,20 @@ namespace Parsek
             if (contract == null) return;
             var title = contract.Title ?? "";
             var detail = $"title={title};fundsReward={contract.FundsCompletion};repReward={contract.ReputationCompletion};sciReward={contract.ScienceCompletion}";
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractCompleted,
                 key = contract.ContractGuid.ToString(),
                 detail = detail
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}' (funds={contract.FundsCompletion}, rep={contract.ReputationCompletion}, sci={contract.ScienceCompletion})");
+
+            // #405: route to ledger immediately when at KSC (contract completions in flight
+            // go through the normal commit-time ConvertEvents path).
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnContractFailed(Contract contract)
@@ -229,14 +243,19 @@ namespace Parsek
             if (contract == null) return;
             var title = contract.Title ?? "";
             var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractFailed,
                 key = contract.ContractGuid.ToString(),
                 detail = detail
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
+
+            // #405: route to ledger immediately when at KSC.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnContractCancelled(Contract contract)
@@ -244,14 +263,19 @@ namespace Parsek
             if (contract == null) return;
             var title = contract.Title ?? "";
             var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractCancelled,
                 key = contract.ContractGuid.ToString(),
                 detail = detail
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
+
+            // #405: route to ledger immediately when at KSC.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnContractDeclined(Contract contract)
@@ -326,7 +350,7 @@ namespace Parsek
             if (part == null) return;
             var partName = part.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.PartPurchased,
@@ -334,8 +358,14 @@ namespace Parsek
                 detail = $"cost={part.cost}",
                 valueBefore = Funding.Instance != null ? Funding.Instance.Funds + part.cost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={part.cost})");
+
+            // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
+            // to disambiguate part-name collisions.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         #endregion
