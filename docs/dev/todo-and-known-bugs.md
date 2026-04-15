@@ -158,6 +158,33 @@ Watch mode enters via one code path, UT resolution uses the other — positionin
 
 ---
 
+## 406. CRITICAL: map-view framerate collapses with many looping showcase ghosts because every loop-cycle rebuild runs the full reentry FX build pipeline even for stationary part showcases
+
+**Source:** `test career` playtest `2026-04-15` (logs `logs/2026-04-15_2034_showcase-loop-perf/`). Player opened flight map view with ~260 active showcase loops; FPS tanked. The `[Parsek][WARN][Diagnostics] Playback frame budget exceeded: 12.3ms (259 ghosts, warp: 1x) | suppressed=106` line proves the `GhostPlaybackEngine.UpdatePlayback` path alone was blowing the 8 ms budget on most frames, *before* any map OnGUI/icon render. 265 primary ghost audio sources paused on ESC (`PauseAllGhostAudio: paused 265 primary + 0 overlap`) confirms the active ghost count. `PauseAllGhostAudio`-scale log spam of `combined 7 meshes into emission shape (4346 verts) for ghost #N | suppressed=839` confirms the reentry FX mesh-combine was firing many hundreds of times per rate-limit window.
+
+**Root cause:** `GhostPlaybackEngine.TryPopulateGhostVisuals` (call site was `GhostPlaybackEngine.cs:1949`) called `GhostVisualBuilder.TryBuildReentryFx` unconditionally on every ghost build. Ghost builds happen on loop-cycle boundaries because the engine destroys + respawns the ghost (`DestroyGhost(reason: "loop cycle boundary")` followed by `SpawnGhost`, triggered by `HasLoopCycleChanged`). `TryBuildReentryFx` per call allocates:
+
+1. Combined emission `Mesh` (`CombineMeshes` on every MeshFilter in the ghost hierarchy),
+2. A `ParticleSystem` (`ReentryFire`) with runtime-generated soft-circle texture + additive material,
+3. Fire shell overlay `MaterialPropertyBlock` + material clone,
+4. Cloned glow materials for every renderer on the ghost via `CollectReentryGlowMaterials`.
+
+For stationary part showcases (lights, solar panels, antennae sitting on KSC ground), reentry is physically impossible — `ComputeReentryIntensity` requires Mach ≥ 2.5 and density ≥ 0.0015 kg/m³. The build work is pure waste, and it was being paid hundreds of times per second across the looping fleet.
+
+**Fix (PR #309):**
+
+1. New pure static helper `TrajectoryMath.HasReentryPotential(IPlaybackTrajectory)` — returns `true` iff the trajectory has any orbit segments OR any recorded trajectory point has velocity magnitude at or above `TrajectoryMath.ReentryPotentialSpeedFloor` (`400 m/s`). 400 m/s is well under Mach 1.5 on every stock body, so the gate cannot hide any real reentry heating. Orbit segments are always considered high-speed because de-orbit happens at ~2300 m/s.
+2. `GhostPlaybackEngine.TryPopulateGhostVisuals` now gates the `TryBuildReentryFx` call behind `HasReentryPotential`. When skipped, `state.reentryFxInfo` stays `null`; all downstream paths already null-guard (`UpdateReentryFx` early-returns at `GhostPlaybackEngine.cs:1395`, `RebuildReentryMeshes` early-returns at `GhostVisualBuilder.cs:6311`, `DestroyReentryFxResources` early-returns at `GhostPlaybackEngine.cs:2577`, `ParsekKSC.cs:519` already documents this pattern).
+3. Matching gate in the `ParsekFlight` preview path (`ParsekFlight.cs:7407`) so manual preview playback gets the same savings.
+4. New session counters `DiagnosticsState.health.reentryFxBuildsThisSession` / `reentryFxSkippedThisSession` make the gate visible in the live diagnostics stream, and a rate-limited `ReentryFx` `Verbose` log line announces each skip with the ghost index, vessel name, and reason.
+5. Unit tests `ReentryPotentialTests` (15 cases) cover: null trajectory, empty, stationary showcase, EVA walk, 200 m/s Flea hop, just-below-floor, at-floor, fast suborbital point, diagonal magnitude, orbit-segment-only recordings, speed floor constant, and the NaN / +Infinity / null-`Points` input edges added in the Opus review follow-up.
+
+**Expected impact:** for the 259-ghost showcase scenario in the smoking-gun logs, ~250 of those ghosts are stationary KSC showcases whose `reentryFxInfo` now stays `null` permanently. The mesh-combine + ParticleSystem + cloned-material allocation is skipped on every loop-cycle rebuild, eliminating the dominant cost in `UpdatePlayback` and taking the playback frame cost back below the 8 ms budget threshold. Only genuine flight recordings (Suborbital Arc, Orbit-1, Kerbin Ascent, etc.) still pay the build cost, and they pay it correctly.
+
+**Status:** fix landed on branch `investigate-showcase-loop-perf`. Follow-up candidates (not in this PR): reuse ghost GameObject across loop cycles instead of destroy/rebuild (would eliminate the remaining per-cycle material/audio clone cost); gate hidden-tier prewarm by reentry potential too.
+
+---
+
 ## 405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc
 
 **Source:** c1 career-mode playtest `2026-04-15` (logs `logs/2026-04-15_0005_c1-career-bugs/`). Player accepted 2 contracts at UT ≈ 412.9 (`Test RT-5 "Flea"` and `Test LV-T45 "Swivel"` at launch site), both captured by `GameStateRecorder.OnContractAccepted` and written to `events.pgse`, both unconditionally destroyed by the next `PatchContracts` pass. Ledger at end of session has **zero** `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, or `FundsSpending (PartPurchased)` actions.
@@ -1033,7 +1060,9 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 - `Source/Parsek.Tests/SyntheticRecordingTests.cs` (add `vesselName = Learstar A1` assertion near line `5518`-`5535`)
 - `CHANGELOG.md` (Dev / internal section — not user-facing): "test career injector now includes a far-away / map-view smoke-test recording (Learstar A1 from S16 campaign)"
 
-**Status:** TODO. Size: S. Pure fixture plumbing, no runtime code changes. Main friction is the manual brace-matched copy of the RECORDING_TREE block and deciding whether to include all debris children or just the root.
+**Status:** DONE (PR #304). Size: S. Required a small runtime code change: `AddRealCareerRecordings` was extended to iterate `scenarioNode.GetNodes("RECORDING_TREE")` and forward trees via `ScenarioWriter.AddTree` (previously only standalone RECORDINGs were read, and standalone format is blocked by the T56 filter). All 5 Learstar recordings retained (root `1bbb50cf98654a23a60b3248848b0301` + 4 debris children) along with the `parsek_rw_0a74d6.sfs` rewind save placed under the new `DefaultCareer/Parsek/Saves/` subdirectory (the existing `CopyRealRecordingFiles` loop reads rewind saves from `sourceCareerDir/Parsek/Saves/`, not from the fixture root). `InjectAllRecordings` gained three assertions (`vesselName = Learstar A1`, `vesselName = Learstar A1 Debris`, `treeName = Learstar A1`). Fixture size: 1.1M → 1.7M (`du -sh`; +577098 bytes, dominated by the 385 KB rewind save and the 74 KB root `.prec`). Follow-up: nested the `Learstar A1 / Debris` group under the main `Learstar A1` group by adding a `GROUP_HIERARCHY` node to the fixture ParsekScenario and extending `ScenarioWriter` with `AddGroupHierarchyEntry(child, parent)` + emission in `BuildScenarioNode`; `AddRealCareerRecordings` now forwards every `GROUP_HIERARCHY/ENTRY` from the fixture so the UI shows debris as a collapsible sub-group of the main mission group instead of a flat sibling.
+
+**Reinjection gotcha:** running `dotnet test --filter InjectAllRecordings` from a sibling git worktree silently short-circuits (xUnit reports Passed in ~100 ms) because `ResolveKspRoot()` probes relative to `ProjectRoot` and does not find `Kerbal Space Program/` outside the worktree. The MSBuild `-p:KSPDir=...` property only wires up DLL references at build time. To actually reinject, set the `KSPDIR` environment variable for the test process: `KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program" dotnet test --filter InjectAllRecordings -p:KSPDir=...`.
 
 ---
 
@@ -1087,7 +1116,7 @@ Start with option 1. Add the field to the engine FX info payload (`GhostTypes.cs
 
 ---
 
-## 382. Group "W" button should cycle to the next watchable vessel on each press
+## ~~382. Group "W" button should cycle to the next watchable vessel on each press~~
 
 **Source:** maintenance request `2026-04-14`. Today the group `W` button only ever resolves to one target (the group's "main" recording), so repeated presses toggle watch on/off for that single vessel. The user wants a **watch-next** semantics instead.
 
@@ -1130,7 +1159,9 @@ Start with option 1. Dictionary keyed by group name → last-entered `RecordingI
 - Tests covering the new cursor advancement logic (empty eligible set, single-entry rotation, wrap, cursor-stale-recovery).
 - `CHANGELOG.md` under Unreleased: "Group `W` button now cycles to the next watchable vessel in the group on each press instead of always toggling the same target."
 
-**Status:** TODO. Size: S-M. No immediate blocker, but a high-visibility UX improvement for groups with multiple simultaneous ghosts.
+**Status:** ~~Fixed~~. High-visibility UX improvement for groups with multiple simultaneous ghosts.
+
+**Fix:** Added `GhostPlaybackLogic.AdvanceGroupWatchCursor` (new pure-static helper + `GroupWatchAdvanceResult` struct) that returns the next watchable descendant in stable `(StartUT, RecordingId)` order, skipping the currently-watched target so repeat presses advance the rotation. `UI/RecordingsTableUI.cs` group W button now stores a transient per-group cursor (`groupWatchCursorByGroupName`, keyed by group name, valued by the last-entered RecordingId) and wires it to the helper. Single-eligible-and-watched groups toggle off cleanly; stale cursors fall back to the first eligible entry; an eligibility-set fingerprint replaces the per-target value in the bug `#279` transition log so cursor advances no longer spam the log. `PruneStaleWatchEntries` gained a fifth `groupWatchCursorByGroupName` overload and now drops cursor entries whose stored RecordingId has left the committed list (or clears the whole dict when the committed list is empty). Covered by new `GroupWatchCursorTests` (16 cases) and an extended `PruneStaleWatchEntries_StaleGroupCursorEntries_Removed` test.
 
 ---
 
@@ -1521,7 +1552,7 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 
 ---
 
-## 362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch
+## ~~362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch~~
 
 **Observed in:** `logs/2026-04-14_1954_kerbal-x-f5f9-fix-verify` (2026-04-14) while re-validating the `Kerbal X` mid-flight `F5/F9` fix. Near the very end of the resumed run, the active vessel was already being destroyed but `onPartDeCouple` still reported two late fragments (`parachuteLarge`, `HeatShield2`). The deferred split pass then classified that event as `WithinSegment newVessels=0` instead of creating one more debris branch.
 
@@ -1540,7 +1571,9 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 
 **Desired policy:** decide explicitly whether terminal crash-end transient fragments should ever become recorded debris branches. If yes, the deferred split path likely needs a terminal-safe capture rule for those last fragments. If no, this should stay documented as intentional and non-blocking.
 
-**Status:** TODO for future check; not blocking the `Kerbal X` `F5/F9` fix in PR `#290`
+**Fix:** `DeferredJointBreakCheck` no longer iterates `decoupleCreatedVessels` (a `List<Vessel>`) when collecting new-vessel PIDs from the synchronous `onPartDeCoupleNewVesselComplete` capture. At terminal crash time, KSP has already destroyed the fragment `GameObject`s, so Unity's overloaded `UnityEngine.Object ==` makes `v == null` true for every fragment and the filter drops them all, leaving `newVesselPids.Count == 0` and collapsing the classification to `WithinSegment`. The deferred check now iterates the PID-keyed `decoupleControllerStatus` dictionary (which is populated in the same synchronous callback and survives terminal destruction because its keys are plain managed `uint`s), routing the fragments through `SegmentBoundaryLogic.ClassifyJointBreakResult` as a real `DebrisSplit`. The rest of the pipeline is already null-safe for destroyed debris: `FindVesselByPid` returns null, `preSnapshot` stays null, `preTrajectoryPoint` falls back to the synchronously-captured `decoupleCreatedTrajectoryPoints[pid]`, and `CreateBreakupChildRecording`'s destroyed-vessel branch produces a `TerminalState.Destroyed` debris leaf stamped at the split UT. Extracted the PID-collection filter to `SegmentBoundaryLogic.CollectSynchronouslyCapturedNewVesselPids` with unit coverage in `Bug362TerminalCrashDebrisTests`. Also added a per-fragment Verbose log so future terminal-crash repros show the PID-only classification breadcrumb in KSP.log.
+
+**Status:** ~~Fixed~~
 
 ---
 

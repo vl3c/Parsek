@@ -3820,7 +3820,131 @@ namespace Parsek
             return -1;
         }
 
-        private static int FindRecordingIndexById(
+        /// <summary>
+        /// Bug #382: result of advancing a group's watch-rotation cursor. Returned by
+        /// <see cref="AdvanceGroupWatchCursor"/>. When <see cref="NextRecordingId"/> is
+        /// null there are no eligible descendants in the group (button should be
+        /// disabled). When <see cref="IsToggleOff"/> is true the only eligible
+        /// descendant is the one currently being watched, and the caller should call
+        /// ExitWatchMode rather than re-enter the same target.
+        /// </summary>
+        internal readonly struct GroupWatchAdvanceResult
+        {
+            public readonly string NextRecordingId;   // null == empty eligible set
+            public readonly int Position;             // 1-based index in eligible list (0 when NextRecordingId is null)
+            public readonly int TotalEligible;        // count of eligible descendants
+            public readonly bool IsToggleOff;         // single-entry rotation where that entry IS currently watched
+            public readonly bool IsWrap;              // advance wrapped past the end of the eligible list
+
+            public GroupWatchAdvanceResult(string nextId, int pos, int total, bool toggleOff, bool wrap)
+            {
+                NextRecordingId = nextId;
+                Position = pos;
+                TotalEligible = total;
+                IsToggleOff = toggleOff;
+                IsWrap = wrap;
+            }
+
+            public static GroupWatchAdvanceResult Empty => new GroupWatchAdvanceResult(null, 0, 0, false, false);
+        }
+
+        /// <summary>
+        /// Bug #382: advances the rotation cursor for a group's W button. Builds a
+        /// stable eligible list from <paramref name="descendants"/> (sorted by
+        /// <c>StartUT</c> ascending, with <c>RecordingId</c> ordinal ascending as
+        /// a deterministic tiebreaker), locates <paramref name="cursorRecordingId"/>
+        /// in that list, and advances one step forward (wrapping) to the first entry
+        /// whose <c>RecordingId</c> differs from <paramref name="currentlyWatchedRecId"/>.
+        ///
+        /// The <paramref name="isEligible"/> predicate is the single source of truth
+        /// for "watchable" — callers are expected to fold
+        /// <c>hasGhost &amp;&amp; sameBody &amp;&amp; inRange &amp;&amp; !IsDebris</c>
+        /// (plus any non-null RecordingId filter they need) into it.
+        ///
+        /// If every eligible entry equals <paramref name="currentlyWatchedRecId"/>
+        /// (only possible when the rotation reduces to a single entry and that entry
+        /// is already the watched one), the result has
+        /// <see cref="GroupWatchAdvanceResult.IsToggleOff"/> = true and
+        /// <see cref="GroupWatchAdvanceResult.NextRecordingId"/> set to the watched
+        /// id, so the caller can detect the identity and invoke ExitWatchMode.
+        /// </summary>
+        internal static GroupWatchAdvanceResult AdvanceGroupWatchCursor(
+            HashSet<int> descendants,
+            IReadOnlyList<Recording> committed,
+            Func<int, bool> isEligible,
+            string cursorRecordingId,
+            string currentlyWatchedRecId)
+        {
+            if (descendants == null || committed == null || isEligible == null || descendants.Count == 0)
+                return GroupWatchAdvanceResult.Empty;
+
+            // 1. Build eligible list. Only Recording refs are needed from here on;
+            // the UI re-resolves index by RecordingId after the call.
+            var eligible = new List<Recording>(descendants.Count);
+            foreach (int idx in descendants)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec == null) continue;
+                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!isEligible(idx)) continue;
+                eligible.Add(rec);
+            }
+
+            if (eligible.Count == 0)
+                return GroupWatchAdvanceResult.Empty;
+
+            // 2. Stable sort: StartUT asc, then RecordingId ordinal asc.
+            eligible.Sort((a, b) =>
+            {
+                int c = a.StartUT.CompareTo(b.StartUT);
+                return c != 0 ? c : string.CompareOrdinal(a.RecordingId, b.RecordingId);
+            });
+            int count = eligible.Count;
+
+            // 3. Locate cursor by RecordingId. -1 means "before-first".
+            int cursorPos = -1;
+            if (!string.IsNullOrEmpty(cursorRecordingId))
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    if (eligible[i].RecordingId == cursorRecordingId)
+                    {
+                        cursorPos = i;
+                        break;
+                    }
+                }
+            }
+
+            // 4. Walk forward, wrapping, skipping the currently-watched id.
+            for (int step = 1; step <= count; step++)
+            {
+                // (((cursorPos + step) % count) + count) % count handles the
+                // cursorPos=-1 "before-first" sentinel: with step=1 the first
+                // probe is 0 (first eligible entry). The double-mod is
+                // defensive against any future negative inputs.
+                int probe = ((cursorPos + step) % count + count) % count;
+                var candidate = eligible[probe];
+                if (candidate.RecordingId != currentlyWatchedRecId)
+                {
+                    // stepping wrapped past end: probe index is at or before cursorPos.
+                    bool wrap = cursorPos >= 0 && probe <= cursorPos;
+                    return new GroupWatchAdvanceResult(candidate.RecordingId, probe + 1, count, toggleOff: false, wrap: wrap);
+                }
+            }
+
+            // 5. All eligible entries equal currentlyWatchedRecId → single-entry rotation
+            //    that IS watched. Return the watched id with IsToggleOff = true.
+            //    Because step 1's filter rejects rows with null/empty RecordingId, every
+            //    candidate.RecordingId in the loop is a non-null string. If
+            //    currentlyWatchedRecId is null, every iteration's inequality check is true
+            //    and the loop returns on the first probe. So this trailing return only
+            //    fires when currentlyWatchedRecId is a non-null string equal to every
+            //    eligible entry — guaranteed-safe toggle-off.
+            return new GroupWatchAdvanceResult(currentlyWatchedRecId, 1, count, toggleOff: true, wrap: false);
+        }
+
+        internal static int FindRecordingIndexById(
             IReadOnlyList<Recording> committed,
             string recordingId)
         {

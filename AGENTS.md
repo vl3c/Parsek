@@ -11,29 +11,6 @@ dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into t
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
-**Always verify the deployed DLL after building**, especially when working from a worktree or when multiple worktrees exist side-by-side. The post-build copy can silently fail (KSP holding the file, MSBuild reporting "up-to-date" and skipping the copy target, or a concurrent build from a sibling worktree clobbering `GameData/Parsek/Plugins/Parsek.dll` with a different branch's output). When the user reports "I don't see my change in game," the first thing to check is whether the deployed DLL is actually the one you just built.
-
-**Verification recipe:**
-
-```bash
-# 1. File size + mtime should match your worktree bin/Debug/Parsek.dll
-ls -la "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
-ls -la Source/Parsek/bin/Debug/Parsek.dll
-
-# 2. Grep the deployed DLL for a distinctive new UTF-16 string from your change
-python -c "
-with open(r'...GameData/Parsek/Plugins/Parsek.dll','rb') as f: d=f.read()
-for s in ['NewLabel','OldLabel']: print(s, d.count(s.encode('utf-16-le')))
-"
-
-# 3. If mismatch, force-copy manually
-cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
-```
-
-From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `Kerbal Space Program/` probe only walks parent directories of the csproj — a sibling-of-the-worktree layout at `C:/Users/vlad3/Documents/Code/Parsek/Kerbal Space Program/` is NOT reachable from `C:/Users/vlad3/Documents/Code/Parsek-<branch>/Source/Parsek/` via ancestor walking.
-
-**If multiple worktrees exist**, any of them can overwrite the shared `GameData/Parsek/Plugins/Parsek.dll`. The deployed file belongs to whichever worktree built most recently. Re-verify after every build if you're switching between worktrees or if a sibling session is also building.
-
 ## Release
 
 ```bash
@@ -191,11 +168,15 @@ Before every commit that changes behavior (not just the first one in a PR), chec
 
 - `CHANGELOG.md` — add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale.
 - `docs/dev/todo-and-known-bugs.md` — mark completed items as ~~done~~, add newly discovered items, and update the "Fix:" description on follow-up commits when the approach changes.
-- This file (`.claude/CLAUDE.md`) — update only when file layout, build commands, workflow, or key patterns change.
+- This file (`AGENTS.md`) and `.claude/CLAUDE.md` — update when file layout, build commands, workflow, or key patterns change.
 
 **Follow-up commit trap:** When a review comment lands on an open PR and changes the fix approach, the CHANGELOG and todo entries written for the first commit become stale. The reviewer reads those docs as authoritative — they must match the code in the current HEAD. Before pushing the follow-up commit, re-read the existing doc entries for the bug/feature and update them to match the new approach.
 
 **Practical check:** after `git add`, run `git diff --cached` and ask: "does any of this contradict or supersede existing wording in CHANGELOG.md or todo-and-known-bugs.md?" If yes, stage the doc updates in the same commit.
+
+## Code Review Follow-Ups
+
+When a reviewer flags fixes on an open PR, re-review only the changed fixes and any directly affected code paths. Do not restart a full-PR review from scratch on every follow-up unless the new changes actually broaden the risk surface.
 
 ## Workflow
 

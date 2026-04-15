@@ -143,6 +143,12 @@ namespace Parsek
         private Dictionary<string, bool> lastCanWatchByGroup = new Dictionary<string, bool>();
         private Dictionary<string, string> lastResolvedWatchTargetByGroup = new Dictionary<string, string>();
 
+        // Bug #382: transient per-group rotation cursor. Group name → RecordingId most
+        // recently entered via the group W button. Cleared when the stored RecordingId
+        // no longer exists in committed (via PruneStaleWatchEntries). Not serialized;
+        // resets naturally when the player opens a different save.
+        private Dictionary<string, string> groupWatchCursorByGroupName = new Dictionary<string, string>();
+
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
         private GUIStyle statusStyleActive;
@@ -366,6 +372,7 @@ namespace Parsek
                 lastCanWatchByRecId,
                 lastCanWatchByGroup,
                 lastResolvedWatchTargetByGroup,
+                groupWatchCursorByGroupName,
                 committed);
         }
 
@@ -387,6 +394,7 @@ namespace Parsek
                 lastCanWatchByRecId,
                 lastCanWatchByGroup,
                 null,
+                null,
                 committed);
         }
 
@@ -396,11 +404,27 @@ namespace Parsek
             Dictionary<string, string> lastResolvedWatchTargetByGroup,
             IReadOnlyList<Recording> committed)
         {
+            PruneStaleWatchEntries(
+                lastCanWatchByRecId,
+                lastCanWatchByGroup,
+                lastResolvedWatchTargetByGroup,
+                null,
+                committed);
+        }
+
+        internal static void PruneStaleWatchEntries(
+            Dictionary<string, bool> lastCanWatchByRecId,
+            Dictionary<string, bool> lastCanWatchByGroup,
+            Dictionary<string, string> lastResolvedWatchTargetByGroup,
+            Dictionary<string, string> groupWatchCursorByGroupName,
+            IReadOnlyList<Recording> committed)
+        {
             if (committed == null || committed.Count == 0)
             {
                 lastCanWatchByRecId?.Clear();
                 lastCanWatchByGroup?.Clear();
                 lastResolvedWatchTargetByGroup?.Clear();
+                groupWatchCursorByGroupName?.Clear();
                 return;
             }
 
@@ -452,6 +476,26 @@ namespace Parsek
                         lastCanWatchByGroup.Remove(stale[i]);
                         lastResolvedWatchTargetByGroup?.Remove(stale[i]);
                     }
+            }
+
+            // Bug #382: per-group rotation cursor. Keys are group names,
+            // values are RecordingIds. Drop entries whose RecordingId is
+            // no longer live — the rotation naturally falls back to the
+            // first eligible entry on the next press.
+            if (groupWatchCursorByGroupName != null && groupWatchCursorByGroupName.Count > 0)
+            {
+                List<string> stale = null;
+                foreach (var kv in groupWatchCursorByGroupName)
+                {
+                    if (string.IsNullOrEmpty(kv.Value) || !liveIds.Contains(kv.Value))
+                    {
+                        if (stale == null) stale = new List<string>();
+                        stale.Add(kv.Key);
+                    }
+                }
+                if (stale != null)
+                    for (int i = 0; i < stale.Count; i++)
+                        groupWatchCursorByGroupName.Remove(stale[i]);
             }
         }
 
@@ -1335,49 +1379,66 @@ namespace Parsek
             // Find the "main" (earliest non-debris) recording for group-level W and R/FF buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
 
-            // Watch button (flight only) — follows the group's current live continuation
+            // Watch button (flight only) — Bug #382: cycles through eligible
+            // descendants on repeated presses instead of toggling a single main.
             if (parentUI.InFlightMode)
             {
+                // Bug #382: build the rotation and let the W button cycle through
+                // eligible descendants. The helper is pure — we pass a closure
+                // capturing the live eligibility probes; cursorRecId comes from
+                // groupWatchCursorByGroupName (null on the first press or after prune).
+                Func<int, bool> isEligibleForWatch = idx =>
+                {
+                    if (idx < 0 || idx >= committed.Count) return false;
+                    var r = committed[idx];
+                    if (r == null || r.IsDebris) return false;
+                    if (!flight.HasActiveGhost(idx)) return false;
+                    if (!flight.IsGhostOnSameBody(idx)) return false;
+                    if (!flight.IsGhostWithinVisualRange(idx)) return false;
+                    return true;
+                };
+
+                // W* indicator: any descendant currently under watch → W*.
+                int watchedIdx = flight.WatchedRecordingIndex;
+                bool anyDescendantWatched =
+                    watchedIdx >= 0
+                    && descendants.Contains(watchedIdx)
+                    && watchedIdx < committed.Count
+                    && committed[watchedIdx] != null;
+                string watchedDescendantRecId = anyDescendantWatched ? committed[watchedIdx].RecordingId : null;
+
+                string cursorRecId;
+                groupWatchCursorByGroupName.TryGetValue(groupName, out cursorRecId);
+                GhostPlaybackLogic.GroupWatchAdvanceResult rotation = GhostPlaybackLogic.AdvanceGroupWatchCursor(
+                    descendants, committed, isEligibleForWatch, cursorRecId, watchedDescendantRecId);
+
+                int nextTargetIdx = rotation.NextRecordingId != null
+                    ? GhostPlaybackLogic.FindRecordingIndexById(committed, rotation.NextRecordingId)
+                    : -1;
+
+                // nextTargetIdx can legitimately be -1 even if rotation.NextRecordingId != null
+                // when the recording has been removed between draws — treat as empty rotation.
+                if (nextTargetIdx < 0)
+                    rotation = GhostPlaybackLogic.GroupWatchAdvanceResult.Empty;
+
+                bool canWatch = rotation.NextRecordingId != null && nextTargetIdx >= 0 && !rotation.IsToggleOff;
+                bool isToggleOffPress = rotation.IsToggleOff && anyDescendantWatched;
+                bool isWatching = anyDescendantWatched;
+
+                // Bug #279 transition logging. Key by groupName + mainRecId (unchanged).
+                // To keep this log silent on cursor rotations (would otherwise spam
+                // once per press), log the eligibility-set fingerprint as
+                // resolvedTargetId instead of an individual target id — the set only
+                // changes when a vessel enters/leaves eligibility, not on cursor
+                // advance. Fingerprint is the sorted, comma-joined RecordingIds.
                 if (mainIdx >= 0)
                 {
-                    int resolvedWatchIdx = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                        mainIdx,
-                        committed,
-                        RecordingStore.CommittedTrees,
-                        flight.HasActiveGhost);
-                    bool hasGhost = resolvedWatchIdx >= 0 && flight.HasActiveGhost(resolvedWatchIdx);
-                    bool sameBody = hasGhost && flight.IsGhostOnSameBody(resolvedWatchIdx);
-                    bool inRange = hasGhost && flight.IsGhostWithinVisualRange(resolvedWatchIdx);
-                    bool isWatching = resolvedWatchIdx >= 0 && flight.WatchedRecordingIndex == resolvedWatchIdx;
-                    // No IsDebris check needed: FindGroupMainRecordingIndex
-                    // (RecordingsTableUI.cs:~2021) already excludes debris from
-                    // the candidate set, so mainIdx is never a debris row.
-                    bool canWatch = hasGhost && sameBody && inRange;
-
-                    // Bug #279: log enabled/disabled transitions for the group W
-                    // button at INFO level. Group key combines group name + the
-                    // RecordingId of the current main recording. RecordingId is
-                    // stable across rewind/truncate index reuse, so a group whose
-                    // main recording is replaced (e.g., truncate followed by a
-                    // new launch) doesn't carry over the previous main's cached
-                    // canWatch and emit a spurious transition.
-                    //
-                    // Skip the cache+log entirely if the main recording has a
-                    // null/empty RecordingId. Mirrors the per-row guard above.
-                    // Without this, the group dict would cache "{groupName}/",
-                    // log once, get pruned by PruneStaleWatchEntries on the
-                    // next draw (empty trailing recId → stale), and re-add on
-                    // the draw after that — a spam loop. RecordingId being
-                    // null/empty shouldn't happen in practice (all recordings
-                    // get a GUID at construction), but the defensive guard is
-                    // free and matches the per-row site for consistency.
                     string mainRecId = committed[mainIdx].RecordingId;
                     if (!string.IsNullOrEmpty(mainRecId))
                     {
                         string groupWatchKey = groupName + "/" + mainRecId;
-                        string resolvedTargetId = resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count
-                            ? committed[resolvedWatchIdx].RecordingId
-                            : null;
+                        string resolvedTargetId = BuildEligibleSetFingerprint(
+                            descendants, committed, isEligibleForWatch);
                         bool prevGroupCanWatch;
                         string prevResolvedTargetId;
                         if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
@@ -1387,37 +1448,73 @@ namespace Parsek
                         {
                             lastCanWatchByGroup[groupWatchKey] = canWatch;
                             lastResolvedWatchTargetByGroup[groupWatchKey] = resolvedTargetId;
-                            string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, isDebris: false);
+                            string reason = GetWatchButtonReason(canWatch,
+                                hasGhost: nextTargetIdx >= 0,
+                                sameBody: nextTargetIdx >= 0,
+                                inRange: nextTargetIdx >= 0,
+                                isDebris: false);
                             ParsekLog.Info("UI",
                                 $"Group Watch button '{groupName}' source=#{mainIdx} \"{committed[mainIdx].VesselName}\" " +
-                                $"resolved={(resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} {reason} " +
-                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange}) " +
-                                $"{BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)}");
+                                $"next={(nextTargetIdx >= 0 ? "#" + nextTargetIdx + " \"" + committed[nextTargetIdx].VesselName + "\"" : "<none>")} " +
+                                $"pos={rotation.Position}/{rotation.TotalEligible} eligibleSet=[{resolvedTargetId}] {reason} " +
+                                $"{BuildWatchObservabilitySuffix(flight, mainIdx, nextTargetIdx)}");
                         }
                     }
+                }
 
-                    GUI.enabled = canWatch;
-                    string watchLabel = isWatching ? "W*" : "W";
-                    string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, isDebris: false);
-                    if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
-                    {
-                        string beforeFocus = flight.DescribeWatchFocusForLogs();
-                        string beforeEligibility = BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx);
-                        if (isWatching)
-                            flight.ExitWatchMode();
-                        else
-                            flight.EnterWatchMode(resolvedWatchIdx);
-                        ParsekLog.Info("UI",
-                            $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on source #{mainIdx} " +
-                            $"resolved {(resolvedWatchIdx >= 0 && resolvedWatchIdx < committed.Count ? "#" + resolvedWatchIdx + " \"" + committed[resolvedWatchIdx].VesselName + "\"" : "<none>")} " +
-                            $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
-                    }
-                    GUI.enabled = true;
-                }
+                GUI.enabled = canWatch || isToggleOffPress;
+                string watchLabel = isWatching ? "W*" : "W";
+                string watchTooltip;
+                if (rotation.TotalEligible == 0)
+                    watchTooltip = "no watchable vessels in this group";
+                else if (isWatching && nextTargetIdx >= 0 && rotation.NextRecordingId != watchedDescendantRecId)
+                    watchTooltip = $"switch to {committed[nextTargetIdx].VesselName}";
+                else if (isWatching && rotation.IsToggleOff)
+                    watchTooltip = "exit watch (no other watchable vessels)";
+                else if (nextTargetIdx >= 0)
+                    watchTooltip = $"enter watch on {committed[nextTargetIdx].VesselName}";
                 else
+                    watchTooltip = GetWatchButtonTooltip(isWatching, false, false, false, false);
+
+                if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
                 {
-                    GUILayout.Label("", GUILayout.Width(ColW_Watch));
+                    string beforeFocus = flight.DescribeWatchFocusForLogs();
+                    string beforeEligibility = BuildWatchObservabilitySuffix(flight, mainIdx, nextTargetIdx);
+                    string pressKind;
+                    if (isToggleOffPress)
+                    {
+                        flight.ExitWatchMode();
+                        groupWatchCursorByGroupName.Remove(groupName);
+                        pressKind = "toggle-off";
+                    }
+                    else if (nextTargetIdx >= 0)
+                    {
+                        flight.EnterWatchMode(nextTargetIdx);
+                        groupWatchCursorByGroupName[groupName] = rotation.NextRecordingId;
+                        pressKind = string.IsNullOrEmpty(cursorRecId)
+                            ? "enter"
+                            : (rotation.IsWrap ? "wrap" : "advance");
+                    }
+                    else
+                    {
+                        // Unreachable: GUI.enabled is canWatch || isToggleOffPress,
+                        // and canWatch==true implies nextTargetIdx>=0. If this branch
+                        // ever fires, the enable-gate has drifted — log a warning so
+                        // the regression surfaces instead of silently no-opping.
+                        ParsekLog.Warn("UI",
+                            $"Group '{groupName}' W button press reached unreachable branch " +
+                            $"(canWatch={canWatch} isToggleOffPress={isToggleOffPress} nextTargetIdx={nextTargetIdx}) — " +
+                            "enable-gate and press-dispatch are out of sync");
+                        pressKind = "no-op";
+                    }
+                    ParsekLog.Info("UI",
+                        $"Group '{groupName}' W button: {pressKind} " +
+                        $"next={(nextTargetIdx >= 0 ? "#" + nextTargetIdx + " \"" + committed[nextTargetIdx].VesselName + "\"" : "<none>")} " +
+                        $"pos={rotation.Position}/{rotation.TotalEligible} " +
+                        $"cursorBefore={cursorRecId ?? "<null>"} " +
+                        $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                 }
+                GUI.enabled = true;
             }
 
             // Rewind / Fast-forward button — targets main recording
@@ -2493,6 +2590,31 @@ namespace Parsek
                 if (dur > 0) total += dur;
             }
             return total;
+        }
+
+        /// <summary>
+        /// Bug #382: builds a stable fingerprint of the eligible descendant set
+        /// for the group W button transition log. The fingerprint is the sorted,
+        /// comma-joined RecordingIds of eligible descendants, so the bug #279
+        /// transition log only fires when the eligibility set itself changes
+        /// (vessel comes into range, goes out of range, etc.) — cursor advances
+        /// within a steady set do not retrigger the log.
+        /// </summary>
+        private static string BuildEligibleSetFingerprint(
+            HashSet<int> descendants, IReadOnlyList<Recording> committed, Func<int, bool> isEligible)
+        {
+            if (descendants == null || committed == null || isEligible == null) return string.Empty;
+            var ids = new List<string>(descendants.Count);
+            foreach (int idx in descendants)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var r = committed[idx];
+                if (r == null || string.IsNullOrEmpty(r.RecordingId)) continue;
+                if (!isEligible(idx)) continue;
+                ids.Add(r.RecordingId);
+            }
+            ids.Sort(StringComparer.Ordinal);
+            return string.Join(",", ids);
         }
 
         /// <summary>
