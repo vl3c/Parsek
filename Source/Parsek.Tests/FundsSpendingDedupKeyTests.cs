@@ -184,5 +184,54 @@ namespace Parsek.Tests
             Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
             Assert.Equal(300f, action.FundsSpent);
         }
+
+        [Fact]
+        public void FundsSpending_DedupKey_RoundTripsThroughConfigNode()
+        {
+            // Regression for codex review [P1]: DedupKey was not persisted, so reloads
+            // collapsed all KSC part-purchase actions to the same "" key and the recovery
+            // migration re-synthesized them on every load.
+            var original = new GameAction
+            {
+                UT = 42.0,
+                Type = GameActionType.FundsSpending,
+                RecordingId = null,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 300f,
+                DedupKey = "liquidFuelTank"
+            };
+
+            var parent = new ConfigNode("LEDGER");
+            original.SerializeInto(parent);
+            var actionNode = parent.GetNode("GAME_ACTION");
+            var reloaded = GameAction.DeserializeFrom(actionNode);
+
+            Assert.NotNull(reloaded);
+            Assert.Equal("liquidFuelTank", reloaded.DedupKey);
+            Assert.Equal(300f, reloaded.FundsSpent);
+            Assert.Equal(FundsSpendingSource.Other, reloaded.FundsSpendingSource);
+        }
+
+        [Fact]
+        public void FundsSpending_DedupKeyNull_RoundTripsAsNull()
+        {
+            // VesselBuild path leaves DedupKey null — must not round-trip as "" either.
+            var original = new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FundsSpending,
+                RecordingId = "rec-A",
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 5000f,
+                DedupKey = null
+            };
+
+            var parent = new ConfigNode("LEDGER");
+            original.SerializeInto(parent);
+            var actionNode = parent.GetNode("GAME_ACTION");
+            var reloaded = GameAction.DeserializeFrom(actionNode);
+
+            Assert.Null(reloaded.DedupKey);
+        }
     }
 }

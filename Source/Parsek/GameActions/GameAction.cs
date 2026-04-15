@@ -180,8 +180,10 @@ namespace Parsek
         /// natural key (<see cref="RecordingId"/>) collides at KSC when multiple entries
         /// share the same null/empty RecordingId at near-identical UT — notably
         /// <see cref="FundsSpendingSource.Other"/> part purchases, where the part name
-        /// disambiguates. NOT serialized: this is a dedup-only hint that can be
-        /// recomputed from other fields if needed. See <see cref="LedgerOrchestrator.GetActionKey"/>.
+        /// disambiguates. Serialized for <see cref="FundsSpending"/> so save/load and
+        /// the load-time recovery migration (<see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/>)
+        /// can still match historical part-purchase actions against their source events.
+        /// See <see cref="LedgerOrchestrator.GetActionKey"/>.
         /// </summary>
         public string DedupKey;
 
@@ -602,12 +604,17 @@ namespace Parsek
         {
             n.AddValue("fundsSpent", FundsSpent.ToString("R", IC));
             n.AddValue("fundsSpendingSource", ((int)FundsSpendingSource).ToString(IC));
+            // DedupKey disambiguates same-UT KSC spendings (e.g. multiple part purchases
+            // with recordingId=null) — must round-trip so reload doesn't re-collapse them.
+            if (!string.IsNullOrEmpty(DedupKey))
+                n.AddValue("dedupKey", DedupKey);
         }
 
         private static void DeserializeFundsSpending(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "fundsSpent", out a.FundsSpent);
             TryParseEnum(n, "fundsSpendingSource", out a.FundsSpendingSource);
+            a.DedupKey = n.GetValue("dedupKey");
         }
 
         private void SerializeMilestone(ConfigNode n)
