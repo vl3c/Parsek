@@ -113,6 +113,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AdvanceOverlapBridgeWaitFrames_SameFrame_DoesNotIncrementTwice()
+        {
+            int waitFrames = WatchModeController.AdvanceOverlapBridgeWaitFrames(
+                currentWaitFrames: 1,
+                currentFrame: 42,
+                lastRetryFrame: 42);
+
+            Assert.Equal(1, waitFrames);
+        }
+
+        [Fact]
+        public void AdvanceOverlapBridgeWaitFrames_NewFrame_IncrementsBudget()
+        {
+            int waitFrames = WatchModeController.AdvanceOverlapBridgeWaitFrames(
+                currentWaitFrames: 1,
+                currentFrame: 43,
+                lastRetryFrame: 42);
+
+            Assert.Equal(2, waitFrames);
+        }
+
+        [Fact]
         public void ProcessWatchEndHoldTimer_DebrisOnlyChild_DoesNotAutoFollowDuringHold()
         {
             RecordingStore.ResetForTesting();
