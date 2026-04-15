@@ -172,6 +172,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneStaleWatchEntries_StaleGroupCursorEntries_Removed()
+        {
+            // Bug #382: the per-group rotation cursor dict (keyed by group
+            // name, valued by last-entered RecordingId) must drop entries
+            // whose stored RecordingId is no longer live. Without this, a
+            // group whose previously-watched vessel is rewound away would
+            // keep probing a dead id and fall back to first-eligible on
+            // every draw, breaking the advance semantics.
+            var cursor = new Dictionary<string, string>
+            {
+                ["Alpha"] = "live-id",
+                ["Beta"] = "dead-id"
+            };
+            var committed = new List<Recording> { MakeRecWithId("live-id", "A") };
+            RecordingsTableUI.PruneStaleWatchEntries(
+                new Dictionary<string, bool>(),
+                new Dictionary<string, bool>(),
+                new Dictionary<string, string>(),
+                cursor,
+                committed);
+            Assert.Single(cursor);
+            Assert.Equal("live-id", cursor["Alpha"]);
+            Assert.False(cursor.ContainsKey("Beta"));
+        }
+
+        [Fact]
+        public void PruneStaleWatchEntries_EmptyCommitted_ClearsGroupCursor()
+        {
+            // Edge: empty committed list also clears the rotation cursor dict.
+            var cursor = new Dictionary<string, string> { ["Alpha"] = "x" };
+            RecordingsTableUI.PruneStaleWatchEntries(
+                new Dictionary<string, bool>(),
+                new Dictionary<string, bool>(),
+                new Dictionary<string, string>(),
+                cursor,
+                new List<Recording>());
+            Assert.Empty(cursor);
+        }
+
+        [Fact]
         public void WatchTransitionLogging_BothCallSitesGuardNullRecordingId_PinnedBySourceInspection()
         {
             // Bug #279 follow-up review: the per-row site already guards
@@ -273,14 +313,27 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
+            // Per-row site still uses (flight, ri).
             Assert.Contains("BuildWatchObservabilitySuffix(flight, ri)", uiSrc);
-            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx, resolvedWatchIdx)", uiSrc);
+            // Bug #382: group site now passes nextTargetIdx (the cycle's next
+            // vessel) instead of resolvedWatchIdx, but the 3-arg observability
+            // helper signature (flight, sourceIndex, resolvedOrNextIndex) is
+            // unchanged so the log still names the watched/source/next pair.
+            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx, nextTargetIdx)", uiSrc);
             Assert.Contains("beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}", uiSrc);
         }
 
         [Fact]
-        public void GroupWatchUsesResolvedTargetWhileRowsStayExact_PinnedBySourceInspection()
+        public void GroupWatchUsesRotationCursor_PinnedBySourceInspection()
         {
+            // Bug #382: group W button no longer routes through a single
+            // ResolveEffectiveWatchTargetIndex call — it builds a per-press
+            // rotation via GhostPlaybackLogic.AdvanceGroupWatchCursor and
+            // stores the cursor in groupWatchCursorByGroupName. Pin that
+            // contract so a future refactor can't silently fall back to the
+            // old "always resolve the main index" behavior. The per-row W
+            // button continues to use the exact row index (no resolve) and
+            // that invariant is pinned below.
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
@@ -294,13 +347,14 @@ namespace Parsek.Tests
             Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", rowWatchBlock);
             Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
 
-            int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — follows the group's current live continuation", StringComparison.Ordinal);
+            int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
             int groupWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
             string groupWatchBlock = uiSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
 
-            Assert.Contains("ResolveEffectiveWatchTargetIndex", groupWatchBlock);
-            Assert.Contains("flight.WatchedRecordingIndex == resolvedWatchIdx", groupWatchBlock);
-            Assert.Contains("resolvedWatchIdx", groupWatchBlock);
+            Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
+            Assert.Contains("groupWatchCursorByGroupName", groupWatchBlock);
+            Assert.Contains("rotation.NextRecordingId", groupWatchBlock);
+            Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", groupWatchBlock);
         }
 
         // ── GetRecordingSortKey ──
