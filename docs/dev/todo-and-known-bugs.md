@@ -1359,7 +1359,7 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 
 ---
 
-## 362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch
+## ~~362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch~~
 
 **Observed in:** `logs/2026-04-14_1954_kerbal-x-f5f9-fix-verify` (2026-04-14) while re-validating the `Kerbal X` mid-flight `F5/F9` fix. Near the very end of the resumed run, the active vessel was already being destroyed but `onPartDeCouple` still reported two late fragments (`parachuteLarge`, `HeatShield2`). The deferred split pass then classified that event as `WithinSegment newVessels=0` instead of creating one more debris branch.
 
@@ -1378,7 +1378,9 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 
 **Desired policy:** decide explicitly whether terminal crash-end transient fragments should ever become recorded debris branches. If yes, the deferred split path likely needs a terminal-safe capture rule for those last fragments. If no, this should stay documented as intentional and non-blocking.
 
-**Status:** TODO for future check; not blocking the `Kerbal X` `F5/F9` fix in PR `#290`
+**Fix:** `DeferredJointBreakCheck` no longer iterates `decoupleCreatedVessels` (a `List<Vessel>`) when collecting new-vessel PIDs from the synchronous `onPartDeCoupleNewVesselComplete` capture. At terminal crash time, KSP has already destroyed the fragment `GameObject`s, so Unity's overloaded `UnityEngine.Object ==` makes `v == null` true for every fragment and the filter drops them all, leaving `newVesselPids.Count == 0` and collapsing the classification to `WithinSegment`. The deferred check now iterates the PID-keyed `decoupleControllerStatus` dictionary (which is populated in the same synchronous callback and survives terminal destruction because its keys are plain managed `uint`s), routing the fragments through `SegmentBoundaryLogic.ClassifyJointBreakResult` as a real `DebrisSplit`. The rest of the pipeline is already null-safe for destroyed debris: `FindVesselByPid` returns null, `preSnapshot` stays null, `preTrajectoryPoint` falls back to the synchronously-captured `decoupleCreatedTrajectoryPoints[pid]`, and `CreateBreakupChildRecording`'s destroyed-vessel branch produces a `TerminalState.Destroyed` debris leaf stamped at the split UT. Extracted the PID-collection filter to `SegmentBoundaryLogic.CollectSynchronouslyCapturedNewVesselPids` with unit coverage in `Bug362TerminalCrashDebrisTests`. Also added a per-fragment Verbose log so future terminal-crash repros show the PID-only classification breadcrumb in KSP.log.
+
+**Status:** ~~Fixed~~
 
 ---
 

@@ -2636,32 +2636,43 @@ namespace Parsek
                 bool anyNewVesselHasController = false;
 
                 // First, include vessels caught by onPartDeCoupleNewVesselComplete during recording.
-                // These may have been destroyed by KSP's debris cleanup before this scan,
-                // so we use the controller status captured at creation time (parts may be cleared).
-                if (decoupleCreatedVessels != null && decoupleCreatedVessels.Count > 0)
+                // Iterate the PID-keyed decoupleControllerStatus dict rather than the
+                // decoupleCreatedVessels List<Vessel>, because at terminal crash time
+                // KSP has already destroyed those GameObjects and Unity's overloaded ==
+                // makes every element compare equal to null — the old path filtered
+                // out every fragment and classified the event as WithinSegment (#362).
+                if (decoupleControllerStatus != null && decoupleControllerStatus.Count > 0)
                 {
                     ParsekLog.Info("Flight",
-                        $"DeferredJointBreakCheck: {decoupleCreatedVessels.Count} vessel(s) caught by onPartDeCouple");
+                        $"DeferredJointBreakCheck: {decoupleControllerStatus.Count} vessel(s) caught by onPartDeCouple");
 
-                    for (int i = 0; i < decoupleCreatedVessels.Count; i++)
+                    SegmentBoundaryLogic.CollectSynchronouslyCapturedNewVesselPids(
+                        recordedPid,
+                        decoupleControllerStatus,
+                        activeTree?.BackgroundMap,
+                        newVesselPids,
+                        newVesselHasController,
+                        out bool anyNewFromDecouple);
+
+                    if (anyNewFromDecouple)
+                        anyNewVesselHasController = true;
+
+                    // Log per-fragment when the live Vessel reference is gone — the fragment
+                    // was captured synchronously but terminal destruction already wiped the
+                    // GameObject. Classification continues on PID-only data for #362.
+                    foreach (var kvp in decoupleControllerStatus)
                     {
-                        Vessel v = decoupleCreatedVessels[i];
-                        if (v == null || v.persistentId == recordedPid) continue;
-
-                        if (activeTree != null && activeTree.BackgroundMap.ContainsKey(v.persistentId))
+                        uint pid = kvp.Key;
+                        if (pid == recordedPid) continue;
+                        if (activeTree != null && activeTree.BackgroundMap.ContainsKey(pid))
                             continue;
 
-                        if (!newVesselPids.Contains(v.persistentId))
+                        Vessel live = FlightRecorder.FindVesselByPid(pid);
+                        if (live == null)
                         {
-                            newVesselPids.Add(v.persistentId);
-
-                            // Use pre-captured controller status (vessel parts may be gone now)
-                            bool hasController = decoupleControllerStatus != null
-                                && decoupleControllerStatus.ContainsKey(v.persistentId)
-                                && decoupleControllerStatus[v.persistentId];
-                            newVesselHasController[v.persistentId] = hasController;
-                            if (hasController)
-                                anyNewVesselHasController = true;
+                            ParsekLog.Verbose("Flight",
+                                $"DeferredJointBreakCheck: pid={pid} captured synchronously but Vessel reference " +
+                                $"is destroyed at deferred-check frame — using PID-only classification (#362)");
                         }
                     }
                 }

@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#362` Terminal crash-end decouple fragments (parachutes, heat shields, late shrapnel) now become proper debris branches at the very end of a recording instead of being silently dropped when the parent vessel is already in its destruction frame.
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
 - `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
 - `#380` `scripts/release.py` now runs end-to-end and packages the release zip without aborting on a pre-existing unit-test failure.

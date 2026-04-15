@@ -129,6 +129,61 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Collects PIDs of new vessels that were captured synchronously by
+        /// <c>onPartDeCoupleNewVesselComplete</c> during recording, reading them from a
+        /// PID-keyed controller-status dictionary instead of from a <c>List&lt;Vessel&gt;</c>.
+        ///
+        /// Iterating the original <c>List&lt;Vessel&gt;</c> is unsafe at terminal crash time:
+        /// KSP has already destroyed the fragment <c>GameObject</c>s, so Unity's overloaded
+        /// <c>UnityEngine.Object ==</c> returns <c>true</c> when compared against <c>null</c>
+        /// for every fragment, the filter drops them all, and the classifier collapses to
+        /// <see cref="JointBreakResult.WithinSegment"/> with zero new vessels. See bug #362.
+        ///
+        /// The PID-keyed dictionary's keys are plain managed <c>uint</c>s, so it survives
+        /// terminal destruction and gives us an authoritative list of the synchronously
+        /// captured fragments to feed into <see cref="ClassifyJointBreakResult"/>.
+        ///
+        /// This helper is pure — it does not call into Unity, KSP, or <c>ParsekLog</c>.
+        /// </summary>
+        /// <param name="recordedPid">PersistentId of the vessel being recorded (skipped if present).</param>
+        /// <param name="decoupleControllerStatus">PID-keyed controller-status dict captured synchronously during recording.</param>
+        /// <param name="backgroundMap">Optional background-map of tree-tracked PIDs to skip; may be null.</param>
+        /// <param name="newVesselPids">In/out list: PIDs collected by this helper are appended to it (dedup against existing entries).</param>
+        /// <param name="newVesselHasController">In/out dict: controller status is written for each collected PID.</param>
+        /// <param name="anyNewVesselHasController">Output flag: true if any newly collected PID has a controller.</param>
+        internal static void CollectSynchronouslyCapturedNewVesselPids(
+            uint recordedPid,
+            IReadOnlyDictionary<uint, bool> decoupleControllerStatus,
+            IReadOnlyDictionary<uint, string> backgroundMap,
+            List<uint> newVesselPids,
+            Dictionary<uint, bool> newVesselHasController,
+            out bool anyNewVesselHasController)
+        {
+            anyNewVesselHasController = false;
+
+            if (decoupleControllerStatus == null || decoupleControllerStatus.Count == 0)
+                return;
+            if (newVesselPids == null || newVesselHasController == null)
+                return;
+
+            foreach (var kvp in decoupleControllerStatus)
+            {
+                uint pid = kvp.Key;
+
+                if (pid == recordedPid) continue;
+                if (backgroundMap != null && backgroundMap.ContainsKey(pid)) continue;
+                if (newVesselPids.Contains(pid)) continue;
+
+                newVesselPids.Add(pid);
+
+                bool hasController = kvp.Value;
+                newVesselHasController[pid] = hasController;
+                if (hasController)
+                    anyNewVesselHasController = true;
+            }
+        }
+
+        /// <summary>
         /// Checks whether a part provides command authority (has ModuleCommand).
         /// ModuleCommand is the KSP module for command pods and probe cores.
         /// </summary>
