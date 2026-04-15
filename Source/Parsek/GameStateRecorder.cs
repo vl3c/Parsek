@@ -714,32 +714,134 @@ namespace Parsek
                 return;
             }
 
-            // Funds and rep rewards are not directly available on the ProgressNode.
-            // They are applied separately by KSP's ProgressTracking system via
-            // Funding/Reputation callbacks. We capture 0 here; the MilestonesModule
-            // sets Effective flags correctly regardless.
+            // #400: KSP's reward pipeline is:
+            //   subclass handler -> ProgressNode.Complete() -> OnProgressComplete.Fire()
+            //                    -> [this handler runs here, rewards NOT yet applied]
+            //                    -> subclass calls AwardProgressStandard() -> AwardProgress(..funds, sci, rep..)
             //
-            // OnProgressComplete fires AFTER KSP has already applied the reward via
-            // Funding.Instance.AddFunds / Reputation.Instance.AddReputation. In theory
-            // we could compute the delta by comparing pre/post values, but we don't have
-            // a pre-event snapshot (no prefix hook). The reward amounts come from
-            // GameVariables.Instance.GetProgressFunds/Rep/Science() which vary by
-            // body, milestone type, and difficulty settings — too fragile to replicate.
-            // See deferred items D17/D18 for earning-side capture plans.
+            // Because rewards land AFTER this subscriber fires, we emit the event with
+            // zeros as defaults and rely on the AwardProgressPatch Harmony postfix to
+            // update the detail in place once it has the real reward values. For non-
+            // career modes the zeros are correct (no rewards apply).
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = milestoneId,
-                detail = ""
+                detail = BuildMilestoneDetail(0.0, 0f, 0.0)
             };
             GameStateStore.AddEvent(evt);
-            ParsekLog.Info("GameStateRecorder", $"Game state: MilestoneAchieved '{milestoneId}'");
+
+            // Tag the node -> event association so the AwardProgress postfix can find
+            // and enrich the right entry. The key is the ProgressNode instance reference,
+            // which is unique per milestone within the current stack frame.
+            PendingMilestoneEventByNode[node] = evt;
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: MilestoneAchieved '{milestoneId}' (awaiting reward enrichment)");
 
             // Milestones can fire at KSC (e.g., facility-related) or in flight.
             // Write directly to ledger when outside flight to avoid waiting for commit.
             if (!IsFlightScene())
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Formats milestone reward values into the detail string format that
+        /// <see cref="GameStateEventConverter.ConvertMilestoneAchieved"/> parses.
+        /// Internal static for testability.
+        /// </summary>
+        internal static string BuildMilestoneDetail(double funds, float rep, double sci)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return $"funds={funds.ToString("R", ic)};" +
+                   $"rep={rep.ToString("R", ic)};" +
+                   $"sci={sci.ToString("R", ic)}";
+        }
+
+        /// <summary>
+        /// Short-lived map of ProgressNode -> pending MilestoneAchieved event. Populated
+        /// by <see cref="OnProgressComplete"/> when the event is emitted with zero
+        /// rewards, and read by <see cref="EnrichPendingMilestoneRewards"/> (called from
+        /// the Harmony postfix on <c>ProgressNode.AwardProgress</c>) to update the detail
+        /// string in place with the real funds/rep/sci values from the award parameters.
+        ///
+        /// Entries are removed immediately after enrichment. Stale entries (if AwardProgress
+        /// never fires for a node) don't survive beyond the save session — on load the map
+        /// is empty.
+        /// </summary>
+        internal static readonly Dictionary<ProgressNode, GameStateEvent> PendingMilestoneEventByNode
+            = new Dictionary<ProgressNode, GameStateEvent>();
+
+        /// <summary>
+        /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c>. Looks
+        /// up the pending MilestoneAchieved event for the given node and updates its
+        /// detail string with the real funds/rep/sci values. If no pending event is
+        /// found (e.g., non-career mode where the subscriber didn't run), this is a
+        /// no-op. Also updates any matching ledger action that was already written via
+        /// <see cref="LedgerOrchestrator.OnKscSpending"/> — otherwise KSC milestones would
+        /// have zero rewards in the ledger.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void EnrichPendingMilestoneRewards(
+            ProgressNode node, double funds, float rep, double sci)
+        {
+            if (node == null) return;
+            if (!PendingMilestoneEventByNode.TryGetValue(node, out var evt))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"EnrichPendingMilestoneRewards: no pending event for node '{node.Id ?? "<null>"}' — skip");
+                return;
+            }
+
+            // Build the new detail string and patch the store's copy in place.
+            // GameStateEvent is a value type; the cached `evt` is a separate copy that
+            // we must also update for the test hooks and downstream observers.
+            string newDetail = BuildMilestoneDetail(funds, rep, sci);
+            GameStateStore.UpdateEventDetail(evt.ut, evt.eventType, evt.key, evt.epoch, newDetail);
+            evt.detail = newDetail;
+            PendingMilestoneEventByNode.Remove(node);
+
+            // If the event was already forwarded to the ledger via OnKscSpending, the
+            // ledger has a zero-reward MilestoneAchievement action we need to update.
+            // Find it by matching type + UT + milestoneId.
+            if (LedgerOrchestrator.IsInitialized)
+            {
+                var ledgerActions = Ledger.Actions;
+                for (int i = ledgerActions.Count - 1; i >= 0; i--)
+                {
+                    var a = ledgerActions[i];
+                    if (a.Type != GameActionType.MilestoneAchievement) continue;
+                    if (System.Math.Abs(a.UT - evt.ut) > 0.1) continue;
+                    if (a.MilestoneId != evt.key) continue;
+
+                    a.MilestoneFundsAwarded = (float)funds;
+                    a.MilestoneRepAwarded = rep;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"EnrichPendingMilestoneRewards: updated ledger action for '{evt.key}' " +
+                        $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+                    break;
+                }
+            }
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+        }
+
+        /// <summary>
+        /// Reflection helper: extracts the private "body" CelestialBody field from
+        /// body-specific ProgressNode subclasses (CelestialBodyLanding, CelestialBodyOrbit,
+        /// CelestialBodyFlyby, etc.). Returns null for top-level nodes that have no body.
+        /// Internal static for testability.
+        /// </summary>
+        internal static CelestialBody ExtractNodeBody(ProgressNode node)
+        {
+            if (node == null) return null;
+            var bodyField = node.GetType().GetField("body",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (bodyField == null) return null;
+            return bodyField.GetValue(node) as CelestialBody;
         }
 
         /// <summary>

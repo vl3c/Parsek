@@ -150,6 +150,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Updates the <c>detail</c> field of the first event matching the given
+        /// ut/eventType/key/epoch. Returns true if an entry was found and updated.
+        /// GameStateEvent is a value type, so callers can't just mutate their copy —
+        /// this helper rewrites the underlying list slot. Used by the milestone reward
+        /// enrichment path (#400), which emits the event first with zero-reward detail
+        /// and then, when the Harmony postfix on ProgressNode.AwardProgress has the
+        /// real values, patches the stored event in place.
+        /// </summary>
+        internal static bool UpdateEventDetail(
+            double ut, GameStateEventType eventType, string key, uint epoch, string newDetail)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut == ut && e.eventType == eventType &&
+                    e.key == key && e.epoch == epoch)
+                {
+                    e.detail = newDetail;
+                    events[i] = e;
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Updated event detail: {eventType} key='{key}' ut={ut:F1}");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Removes an event by matching ut, eventType, and key.
         /// Returns true if the event was found and removed.
         /// </summary>
