@@ -29,7 +29,7 @@ namespace Parsek
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKB");
         private const int LegacyBinaryVersion = 2;
-        // #408 follow-up: the binary sidecar layout last changed at v3 (sparse point lists).
+        // #411 follow-up: the binary sidecar layout last changed at v3 (sparse point lists).
         // The v4 bump is metadata-only (loopIntervalSeconds semantic change, see
         // RecordingStore.LaunchToLaunchLoopIntervalFormatVersion), so the on-disk bytes are
         // byte-identical between v3 and v4. SparsePointBinaryVersion pins the format feature
@@ -200,7 +200,7 @@ namespace Parsek
                 ReadSegmentEventList(reader, rec.SegmentEvents, stringTable);
                 ReadTrackSections(reader, rec.TrackSections, stringTable, probe.FormatVersion, ref stats);
 
-                // #408 follow-up: promote-only. Never demote rec.RecordingFormatVersion from a
+                // #411 follow-up: promote-only. Never demote rec.RecordingFormatVersion from a
                 // higher in-memory value (e.g. a v4 stamp set by the tree/scenario legacy loop
                 // migration before sidecars were hydrated) back down to the on-disk binary
                 // version. Demotion would cause MigrateLegacyLoopIntervalAfterHydration to fire

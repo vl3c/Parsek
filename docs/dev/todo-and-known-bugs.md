@@ -7,9 +7,9 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## ~~408. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
+## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
 
-**Source:** `#406` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#406` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
+**Source:** `#409` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#409` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
 
 **Concern:** for recordings that use a custom loop subrange (`LoopStartUT` / `LoopEndUT` narrower than `StartUT` / `EndUT`), three dispatch sites disagree with each other and with `WatchModeController`:
 
@@ -19,22 +19,22 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 | `GhostPlaybackEngine.UpdateOverlapPlayback` (`GhostPlaybackEngine.cs:907`) | `GetActiveCycles(..., loopStartUT, traj.EndUT, ...)` via the hybrid parent | **hybrid** (inherited from parent + raw `traj.EndUT` in the GetActiveCycles bounds) |
 | `ParsekKSC` main dispatcher (`ParsekKSC.cs:175`) | `rec.EndUT - rec.StartUT` | **raw full range** |
 | `ParsekKSC.TryComputeLoopUT` (`ParsekKSC.cs:699-703`) | `EffectiveLoopEndUT - EffectiveLoopStartUT` | effective (correct) |
-| `WatchModeController.TryStartWatchSession` / `ResolveWatchPlaybackUT` (post-`#406`) | `EffectiveLoopDuration(rec)` | effective (correct) |
+| `WatchModeController.TryStartWatchSession` / `ResolveWatchPlaybackUT` (post-`#409`) | `EffectiveLoopDuration(rec)` | effective (correct) |
 
 Concrete divergence: take a 300s recording with loop subrange `[100, 200]` (effective duration = 100s) and `LoopIntervalSeconds = 80`.
 
 - `UpdateLoopingPlayback` sees `duration = 300 - 100 = 200`. `IsOverlapLoop(80, 200)` → **overlap** path.
 - `TryComputeLoopUT` (KSC single-ghost path) sees `duration = 100`. Pause-window check uses `100`.
-- `WatchModeController` (post-`#406`) sees `duration = 100`. `IsOverlapLoop(80, 100)` → **overlap** path.
+- `WatchModeController` (post-`#409`) sees `duration = 100`. `IsOverlapLoop(80, 100)` → **overlap** path.
 - `ParsekKSC` main dispatcher sees `duration = 300 - 0 = 300`. `IsOverlapLoop(80, 300)` → **overlap** path.
 
 The flight engine's overlap-vs-single decision and its pause-window/phase clamp are computed from a hybrid that silently lets playback run past the loop subrange's end into the post-loop portion of the recording. `UpdateOverlapPlayback` then calls `GetActiveCycles(..., loopStartUT, traj.EndUT, ...)` — which computes cycle bounds over the half-range — so the number of simultaneously active cycles is wrong whenever `EffectiveLoopEndUT < traj.EndUT`. `ParsekKSC`'s main dispatcher uses the raw full range, which flips to the overlap path even when the subrange makes `period >= effectiveDuration` and the single-ghost path would be correct.
 
-**Why it didn't get caught under `#381`:** loop subranges are a niche feature. The `#381` fix pass touched every call site's formula but kept the "which start/end fields to use" semantics identical to pre-`#381` — only the arithmetic on those fields changed. The raw-vs-effective asymmetry predates both `#381` and `#406`.
+**Why it didn't get caught under `#381`:** loop subranges are a niche feature. The `#381` fix pass touched every call site's formula but kept the "which start/end fields to use" semantics identical to pre-`#381` — only the arithmetic on those fields changed. The raw-vs-effective asymmetry predates both `#381` and `#409`.
 
 **Proposed fix:**
 
-1. Centralize "effective loop duration" via the existing `GhostPlaybackEngine.EffectiveLoopDuration` helper (already added for `#406`). No new API.
+1. Centralize "effective loop duration" via the existing `GhostPlaybackEngine.EffectiveLoopDuration` helper (already added for `#409`). No new API.
 2. Rewrite `UpdateLoopingPlayback` line 717-718:
    ```csharp
    double loopStartUT = EffectiveLoopStartUT(traj);
@@ -64,13 +64,13 @@ The flight engine's overlap-vs-single decision and its pause-window/phase clamp 
 - `Source/Parsek.Tests/KscGhostPlaybackTests.cs` — loop-subrange dispatch tests.
 - `CHANGELOG.md` and this entry on completion.
 
-**Status:** ~~Fixed~~. Size: S-M. Not a regression — the behavior predates `#381`. `#406` fixed the watch-mode half of the same drift; this closes out the remaining flight/KSC range math.
+**Status:** ~~Fixed~~. Size: S-M. Not a regression — the behavior predates `#381`. `#409` fixed the watch-mode half of the same drift; this closes out the remaining flight/KSC range math.
 
 **Fix:** Initial landing in `eba44b1b` rewrote the three core dispatch sites (`GhostPlaybackEngine.UpdateLoopingPlayback` now branches on `EffectiveLoopDuration(traj)`; `UpdateOverlapPlayback` bounds `GetActiveCycles` on `EffectiveLoopEndUT(traj)`; `ParsekKSC` main dispatcher uses `EffectiveLoopDuration(rec)`) and completed the KSC audit by anchoring `UpdateOverlapKsc`'s activation, cycle starts, phase clamping, and active-cycle selection on `EffectiveLoopStartUT`/`EffectiveLoopEndUT` instead of raw `rec.StartUT`/`rec.EndUT`.
 
 In-game and review-driven follow-ups then closed out the rest of the raw-vs-effective drift across the entire loop subsystem:
 
-- **`14ae6ba3` Legacy loop migration + runtime epsilon.** Added `GhostPlaybackEngine.ConvertLegacyGapToLoopPeriodSeconds` (later renamed `TryConvertLegacyGapToLoopPeriodSeconds`) to upgrade pre-`#381` negative-gap saves to `effectiveDuration + legacyGap`. Fixed the load order in both `ParsekScenario.LoadRecordingMetadata` and `RecordingTree.LoadRecordingFrom` so `loopStartUT`/`loopEndUT` parse before `loopIntervalSeconds` (the migration needs the subrange). Extended `GhostPlaybackLogic.BoundaryEpsilon` to the live `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (instance) and `ParsekKSC.TryComputeLoopUT` — the original `#407` fix only touched the static helpers, missing the runtime schedulers that the playback engine actually calls each frame.
+- **`14ae6ba3` Legacy loop migration + runtime epsilon.** Added `GhostPlaybackEngine.ConvertLegacyGapToLoopPeriodSeconds` (later renamed `TryConvertLegacyGapToLoopPeriodSeconds`) to upgrade pre-`#381` negative-gap saves to `effectiveDuration + legacyGap`. Fixed the load order in both `ParsekScenario.LoadRecordingMetadata` and `RecordingTree.LoadRecordingFrom` so `loopStartUT`/`loopEndUT` parse before `loopIntervalSeconds` (the migration needs the subrange). Extended `GhostPlaybackLogic.BoundaryEpsilon` to the live `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (instance) and `ParsekKSC.TryComputeLoopUT` — the original `#410` fix only touched the static helpers, missing the runtime schedulers that the playback engine actually calls each frame.
 - **`1df9d119` Loop-end teardown for subrange playback.** New `GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(traj) = EffectiveLoopEndUT(traj)` helper and new `PositionGhostAtLoopEndpoint` (flight + KSC versions). Every pause-window / cycle-change / overlap-expire / destroyed-explosion position path that used to position at the raw `rec.Points[last]` now positions at the effective loop end, so ghosts no longer play past the subrange into the post-loop portion of the recording.
 - **`1c0c5339` Loop destruction timing.** New shared `GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(traj, playbackUT)` helper unifies the "should we fire the destroyed-vessel explosion at this UT?" decision across six duplicated call sites in the flight engine and KSC dispatcher, using `ResolveLoopPlaybackEndpointUT` instead of raw `traj.EndUT`. Fixes a timing bug where loop-subrange recordings with `TerminalState.Destroyed` were exploding at the wrong UT.
 - **`33371d4b` Legacy tree migration + quiet overlap handoff.** Introduced `RecordingStore.LaunchToLaunchLoopIntervalFormatVersion = 4`; bumped `CurrentRecordingFormatVersion` from 3 → 4. `ConvertLegacy...` became `TryConvertLegacy...` (returns false when duration isn't hydrated). Deferred migration via new `RecordingStore.MigrateLegacyLoopIntervalAfterHydration` fires after sidecar load with the real duration. `UpdateExpireAndPositionOverlaps` now fires `ExplosionHoldEnd` instead of `ExplosionHoldStart` for non-destroyed overlap cycle expiries, so the watch camera bridge doesn't stall waiting for an explosion that never comes.
@@ -84,7 +84,7 @@ Targeted verification across all follow-ups: `dotnet test Source\Parsek.Tests\Pa
 
 ---
 
-## ~~407. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary~~
+## ~~410. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary~~
 
 **Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — the inconsistency predates the refactor, but both helpers now share the same cycleDuration formula, so the divergence is easier to reason about.
 
@@ -116,7 +116,7 @@ An existing test `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` locks in th
 
 ---
 
-## ~~406. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision~~
+## ~~409. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision~~
 
 **Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — both sites predate the refactor — but `#381` makes the mismatch matter because both dispatches now depend on `IsOverlapLoop(interval, duration)`, so the `duration` value they compute is load-bearing.
 
@@ -154,7 +154,7 @@ Watch mode enters via one code path, UT resolution uses the other — positionin
 
 **Fix:** Added a shared `GhostPlaybackEngine.EffectiveLoopDuration(traj) = EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj)` helper. Added a pure-static `GhostPlaybackLogic.ComputeOverlapCycleLoopUT(currentUT, loopStartUT, duration, intervalSeconds, loopCycleIndex)` that encapsulates the overlap-cycle UT math with phase clamping, so the watch sites no longer duplicate it inline. Rewrote `WatchModeController.ResolveWatchPlaybackUT` to use `EffectiveLoopStartUT` + `EffectiveLoopDuration` as the cycle reference frame (was `rec.StartUT` + raw full-range duration) and to delegate the arithmetic to the new helper. Updated `WatchModeController.TryStartWatchSession` to call the shared `EffectiveLoopDuration` too, so both sites read the same formula. Added tests `EffectiveLoopDuration_NoSubrange_EqualsFullRange`, `_WithSubrange_EqualsSubrange`, `_SubrangeAndFullRange_OverlapDecisionDiffers` (the regression guard — asserts that a 50s subrange + 80s period would disagree between the raw-range and effective-range dispatch), and five `ComputeOverlapCycleLoopUT_*` tests covering cycle 0, higher cycles, phase clamping (both ends), and defensive negative-interval clamping.
 
-**Out of scope (follow-up):** tracked as `#408`. The playback engine's `UpdateLoopingPlayback` / `UpdateOverlapPlayback` and `ParsekKSC`'s main dispatcher still compute "duration" from raw/hybrid ranges instead of `EffectiveLoopDuration`. Predates `#381`, closes out the drift engine-wide, needs in-game validation on a save with a real loop subrange.
+**Out of scope (follow-up):** tracked as `#411`. The playback engine's `UpdateLoopingPlayback` / `UpdateOverlapPlayback` and `ParsekKSC`'s main dispatcher still compute "duration" from raw/hybrid ranges instead of `EffectiveLoopDuration`. Predates `#381`, closes out the drift engine-wide, needs in-game validation on a save with a real loop subrange.
 
 ---
 

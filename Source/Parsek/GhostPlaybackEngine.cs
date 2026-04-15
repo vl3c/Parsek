@@ -1253,7 +1253,7 @@ namespace Parsek
         /// overlap phase clamping, watch-mode single-vs-overlap choice — should use this
         /// instead of `traj.EndUT - traj.StartUT` or the half-hybrid `traj.EndUT - effStart`,
         /// so recordings with a custom loop subrange get consistent duration everywhere.
-        /// #406: was duplicated inline at the watch-mode sites with inconsistent formulas.
+        /// #409: was duplicated inline at the watch-mode sites with inconsistent formulas.
         /// </summary>
         internal static double EffectiveLoopDuration(IPlaybackTrajectory traj)
         {
@@ -1276,7 +1276,7 @@ namespace Parsek
             if (double.IsNaN(effectiveLoopDuration) || double.IsInfinity(effectiveLoopDuration)
                 || effectiveLoopDuration <= 0.0)
                 return false;
-            // #408 follow-up: reject NaN/Inf gap defensively so the caller doesn't store a
+            // #411 follow-up: reject NaN/Inf gap defensively so the caller doesn't store a
             // poisoned period on the recording. All real load paths parse via double.TryParse
             // and never hand NaN in, but hand-edited saves can.
             if (double.IsNaN(legacyGapSeconds) || double.IsInfinity(legacyGapSeconds))

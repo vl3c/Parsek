@@ -52,7 +52,7 @@ namespace Parsek.Tests
         [Fact]
         public void AtRecordingEnd_ExactBoundary_StaysInPlayback()
         {
-            // #407: at phaseInCycle == duration exactly, ComputeLoopPhaseFromUT now reports
+            // #410: at phaseInCycle == duration exactly, ComputeLoopPhaseFromUT now reports
             // isInPause=false (matching TryComputeLoopPlaybackUT's epsilon-tolerant check).
             // Ghost visual lands at endUT either way, but the isInPause flag must agree with
             // the playback-UT helper to avoid a one-frame "playing → paused → playing" flicker.
@@ -68,7 +68,7 @@ namespace Parsek.Tests
         [Fact]
         public void AtRecordingEnd_JustPastBoundary_StaysInPlaybackWithinEpsilon()
         {
-            // #407: within BoundaryEpsilon of duration, still playing. 0.5e-6 << epsilon=1e-6.
+            // #410: within BoundaryEpsilon of duration, still playing. 0.5e-6 << epsilon=1e-6.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 200.0000005, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
@@ -80,7 +80,7 @@ namespace Parsek.Tests
         [Fact]
         public void AtRecordingEnd_BeyondEpsilon_EntersPause()
         {
-            // #407: at phase > duration + BoundaryEpsilon (pause branch fires for real).
+            // #410: at phase > duration + BoundaryEpsilon (pause branch fires for real).
             // elapsed=100.01, phase=100.01 > 100 + 1e-6 → paused.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 200.01, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
@@ -250,7 +250,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_Cycle0_ReturnsLoopStartPlusElapsed()
         {
-            // #406: cycle 0 starts at loopStartUT. After 25s elapsed, phase=25.
+            // #409: cycle 0 starts at loopStartUT. After 25s elapsed, phase=25.
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 125.0, loopStartUT: 100.0, duration: 50.0,
                 intervalSeconds: 30.0, loopCycleIndex: 0);
@@ -260,7 +260,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_HigherCycle_UsesPeriodAsCycleDuration()
         {
-            // #406: cycle 2 starts at loopStartUT + 2*period=160. At currentUT=170, phase=10.
+            // #409: cycle 2 starts at loopStartUT + 2*period=160. At currentUT=170, phase=10.
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 170.0, loopStartUT: 100.0, duration: 50.0,
                 intervalSeconds: 30.0, loopCycleIndex: 2);
@@ -270,7 +270,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_PhasePastDuration_ClampsToDuration()
         {
-            // #406: cycle 0, currentUT=200 (100s after start), duration=50 → clamp to 50.
+            // #409: cycle 0, currentUT=200 (100s after start), duration=50 → clamp to 50.
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 200.0, loopStartUT: 100.0, duration: 50.0,
                 intervalSeconds: 30.0, loopCycleIndex: 0);
@@ -280,7 +280,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_NegativePhase_ClampsToZero()
         {
-            // #406: currentUT before cycleStartUT (shouldn't normally happen, but defensive).
+            // #409: currentUT before cycleStartUT (shouldn't normally happen, but defensive).
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 110.0, loopStartUT: 100.0, duration: 50.0,
                 intervalSeconds: 30.0, loopCycleIndex: 2); // cycleStartUT = 160
@@ -290,7 +290,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_NegativeInterval_DefensivelyClamped()
         {
-            // #406 × #381: defensive negative-interval clamp. Period clamps to MinCycleDuration=1.
+            // #409 × #381: defensive negative-interval clamp. Period clamps to MinCycleDuration=1.
             // cycle 3: cycleStartUT = 100 + 3*1 = 103. currentUT=120 → phase=17, clamp to 50 no, phase=17 < 50.
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 120.0, loopStartUT: 100.0, duration: 50.0,
@@ -301,7 +301,7 @@ namespace Parsek.Tests
         [Fact]
         public void BoundaryConsistency_WithTryComputeLoopPlaybackUT()
         {
-            // #407: ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT must agree on the
+            // #410: ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT must agree on the
             // isInPause flag at phase == duration exactly. Before the fix the former used
             // strict `phase < duration` (pause) while the latter used `phase > duration +
             // epsilon` (not pause), producing a one-frame playing→paused→playing flicker.

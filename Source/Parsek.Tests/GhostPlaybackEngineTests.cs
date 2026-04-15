@@ -309,7 +309,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region EffectiveLoopDuration — #406
+        #region EffectiveLoopDuration — #409
 
         [Fact]
         public void EffectiveLoopDuration_NoSubrange_EqualsFullRange()
@@ -322,7 +322,7 @@ namespace Parsek.Tests
         [Fact]
         public void EffectiveLoopDuration_WithSubrange_EqualsSubrange()
         {
-            // #406: a recording with a loop subrange [125, 175] inside [100, 200] must
+            // #409: a recording with a loop subrange [125, 175] inside [100, 200] must
             // report duration=50, not 100. Previously WatchModeController had two sites
             // computing "duration" two different ways — this test is the shared source of
             // truth that both sites now use.
@@ -345,7 +345,7 @@ namespace Parsek.Tests
         [Fact]
         public void EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers()
         {
-            // #406 regression guard: for a recording with a 50s loop subrange and a 80s
+            // #409 regression guard: for a recording with a 50s loop subrange and a 80s
             // period, raw-range dispatch (100s) would say OVERLAP (80 < 100) while
             // subrange dispatch (50s) says SINGLE (80 >= 50). Before the fix, the two
             // watch-mode sites could disagree on which path to take.
@@ -363,7 +363,7 @@ namespace Parsek.Tests
         [Fact]
         public void EffectiveLoopDuration_SubrangeAndHybridRange_OverlapDecisionDiffers()
         {
-            // #408 regression guard: UpdateLoopingPlayback used `traj.EndUT - effStart`,
+            // #411 regression guard: UpdateLoopingPlayback used `traj.EndUT - effStart`,
             // which turns a [100, 200] loop subrange inside [0, 300] into a fake 200s
             // duration. A 150s period should therefore be SINGLE under the effective
             // subrange, not OVERLAP under the hybrid parent range.
@@ -382,7 +382,7 @@ namespace Parsek.Tests
         [Fact]
         public void EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToHybridRange()
         {
-            // #408 regression guard: overlap cycle selection must stop at EffectiveLoopEndUT,
+            // #411 regression guard: overlap cycle selection must stop at EffectiveLoopEndUT,
             // not raw EndUT, otherwise an expired older cycle lingers one extra period.
             var traj = new MockTrajectory().WithTimeRange(0, 300).WithLoop(80);
             traj.LoopStartUT = 100;

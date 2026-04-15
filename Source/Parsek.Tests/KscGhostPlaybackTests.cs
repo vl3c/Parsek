@@ -494,7 +494,7 @@ namespace Parsek.Tests
         [Fact]
         public void EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers()
         {
-            // #408 regression guard: the KSC dispatcher must branch on the effective loop
+            // #411 regression guard: the KSC dispatcher must branch on the effective loop
             // subrange, not the recording's full [StartUT, EndUT] span.
             var rec = MakeKerbinRecording(
                 startUT: 0, endUT: 300, loopPlayback: true, loopInterval: 150.0);
@@ -522,7 +522,7 @@ namespace Parsek.Tests
         [Fact]
         public void EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToFullRange()
         {
-            // #408 regression guard: UpdateOverlapKsc must anchor both active-cycle bounds
+            // #411 regression guard: UpdateOverlapKsc must anchor both active-cycle bounds
             // and phase math to the effective loop range, otherwise cycles start from the
             // recording's raw StartUT and stale overlap ghosts linger too long.
             var rec = MakeKerbinRecording(

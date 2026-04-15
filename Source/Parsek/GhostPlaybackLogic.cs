@@ -19,7 +19,7 @@ namespace Parsek
         internal const double DefaultLoopIntervalSeconds = 10.0;
         internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
-        // #407: shared boundary tolerance for loop-phase comparisons. Used by
+        // #410: shared boundary tolerance for loop-phase comparisons. Used by
         // ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT to keep both helpers in sync
         // on whether the ghost is "still playing the final frame" vs "entered the pause
         // window" at exact cycle-boundary UTs.
@@ -150,7 +150,7 @@ namespace Parsek
         /// Given the cycle's index and the loop's effective start UT, returns the UT within
         /// [loopStartUT, loopStartUT + duration] that the ghost for that cycle should be at.
         /// Phase is clamped to [0, duration] so callers don't have to special-case boundary
-        /// conditions. #406: extracted so WatchModeController.ResolveWatchPlaybackUT and
+        /// conditions. #409: extracted so WatchModeController.ResolveWatchPlaybackUT and
         /// TryStartWatchSession agree on the reference frame (effective loop start + effective
         /// loop duration), independent of the recording's full [StartUT, EndUT] range.
         /// </summary>
@@ -187,7 +187,7 @@ namespace Parsek
             double phase = elapsed - (cycleIndex * cycleDuration);
 
             // Pause window only when the period exceeds the duration (gap between cycles).
-            // #407: use shared BoundaryEpsilon so ComputeLoopPhaseFromUT stays in sync.
+            // #410: use shared BoundaryEpsilon so ComputeLoopPhaseFromUT stays in sync.
             if (intervalSeconds > duration)
             {
                 if (phase > duration + BoundaryEpsilon)
@@ -395,7 +395,7 @@ namespace Parsek
             long cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
-            // #407: epsilon-tolerant boundary. At phaseInCycle == duration (exact cycle end)
+            // #410: epsilon-tolerant boundary. At phaseInCycle == duration (exact cycle end)
             // we treat the ghost as still playing its final frame — the visual is at endUT
             // either way, but reporting isInPause=false here keeps us consistent with
             // TryComputeLoopPlaybackUT (which uses `phase > duration + epsilon`) and avoids

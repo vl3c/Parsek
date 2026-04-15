@@ -430,7 +430,7 @@ namespace Parsek.Tests
         [Fact]
         public void LoopRange_Tree_Load_LegacyWithExplicitBoundsAndSidecar_MigratesOnceNotTwice()
         {
-            // #408 follow-up regression: a tree node that carries explicitStartUT/explicitEndUT
+            // #411 follow-up regression: a tree node that carries explicitStartUT/explicitEndUT
             // (real flight saves from BackgroundRecorder / split / merge / breakup / fallback
             // commits all do) lets EffectiveLoopDuration resolve at tree-load time — so the
             // migration fires immediately, stamping RecordingFormatVersion=4 on the in-memory

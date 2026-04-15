@@ -1442,7 +1442,7 @@ namespace Parsek
                 ? host.GetLoopIntervalSecondsForWatch(rec)
                 : 0.0;
             // #381: overlap dispatch is period < duration, not interval < 0.
-            // #406: share the effective-loop-duration helper with ResolveWatchPlaybackUT.
+            // #409: share the effective-loop-duration helper with ResolveWatchPlaybackUT.
             double watchRecDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
             bool usesOverlapLooping = shouldLoopPlayback
                 && GhostPlaybackLogic.IsOverlapLoop(loopIntervalSeconds, watchRecDuration);
@@ -2806,7 +2806,7 @@ namespace Parsek
                 return fallbackUT;
 
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
-            // #406: use the same (effective loop start, effective loop duration) frame that
+            // #409: use the same (effective loop start, effective loop duration) frame that
             // TryStartWatchSession uses, so the overlap-vs-single dispatch and the cycle-UT
             // reference both agree for recordings with a custom loop subrange.
             double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
