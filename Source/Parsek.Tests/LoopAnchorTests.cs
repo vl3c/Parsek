@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -100,6 +102,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LoopRange_Scenario_Load_LegacyNegativeInterval_MigratesToLaunchPeriod()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-scenario-loop");
+            node.AddValue("recordingFormatVersion", "3");
+            node.AddValue("loopPlayback", true);
+            node.AddValue("loopStartUT", 120.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopEndUT", 180.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", (-20.0).ToString("R", CultureInfo.InvariantCulture));
+
+            var loaded = new Recording { VesselName = "LegacyScenario" };
+            loaded.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            loaded.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Equal(40.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(120.0, loaded.LoopStartUT);
+            Assert.Equal(180.0, loaded.LoopEndUT);
+            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyScenario'"));
+        }
+
+        [Fact]
+        public void LoopRange_Scenario_Load_LegacyPositiveGap_MigratesToLaunchPeriod()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-scenario-positive-gap");
+            node.AddValue("recordingFormatVersion", "3");
+            node.AddValue("loopPlayback", true);
+            node.AddValue("loopStartUT", 120.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopEndUT", 180.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
+
+            var loaded = new Recording { VesselName = "LegacyScenarioPositive" };
+            loaded.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            loaded.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Equal(70.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyScenarioPositive'"));
+        }
+
+        [Fact]
         public void LoopRange_Scenario_SaveLoad_NaN_NotWritten()
         {
             var source = new Recording
@@ -189,6 +252,289 @@ namespace Parsek.Tests
 
             Assert.Equal(150.0, loaded.LoopStartUT);
             Assert.Equal(200.0, loaded.LoopEndUT);
+        }
+
+        [Fact]
+        public void LoopRange_Tree_Load_LegacyNegativeInterval_MigratesToLaunchPeriod()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-tree-loop");
+            node.AddValue("recordingFormatVersion", "3");
+            node.AddValue("vesselName", "LegacyTree");
+            node.AddValue("explicitStartUT", 0.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("explicitEndUT", 300.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", (-20.0).ToString("R", CultureInfo.InvariantCulture));
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(80.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(100.0, loaded.LoopStartUT);
+            Assert.Equal(200.0, loaded.LoopEndUT);
+            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyTree'"));
+        }
+
+        [Fact]
+        public void LoopRange_Tree_Load_LegacyNegativeInterval_DefersUntilSidecarHydration()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "parsek-legacy-loop-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string precPath = Path.Combine(tempDir, "legacy-tree-sidecar.prec");
+                string vesselPath = Path.Combine(tempDir, "legacy-tree-sidecar_vessel.craft");
+                string ghostPath = Path.Combine(tempDir, "legacy-tree-sidecar_ghost.craft");
+
+                var source = new Recording
+                {
+                    RecordingId = "legacy-tree-sidecar",
+                    VesselName = "LegacyTreeSidecar",
+                    RecordingFormatVersion = 3,
+                    ExplicitStartUT = 0.0,
+                    ExplicitEndUT = 300.0
+                };
+                source.Points.Add(new TrajectoryPoint
+                {
+                    ut = 0.0, latitude = 0, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                });
+                source.Points.Add(new TrajectoryPoint
+                {
+                    ut = 300.0, latitude = 0, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                });
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    source, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+                var node = new ConfigNode("RECORDING");
+                node.AddValue("recordingId", source.RecordingId);
+                node.AddValue("recordingFormatVersion", "3");
+                node.AddValue("vesselName", source.VesselName);
+                node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopIntervalSeconds", (-20.0).ToString("R", CultureInfo.InvariantCulture));
+
+                var loaded = new Recording();
+                RecordingTree.LoadRecordingFrom(node, loaded);
+
+                Assert.Equal(-20.0, loaded.LoopIntervalSeconds);
+                Assert.Contains(logLines, line => line.Contains("deferred migration"));
+
+                logLines.Clear();
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    loaded, precPath, vesselPath, ghostPath));
+                Assert.Equal(80.0, loaded.LoopIntervalSeconds);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Contains(logLines, line => line.Contains("RecordingStore: migrated recording 'LegacyTreeSidecar'"));
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                        Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        [Fact]
+        public void LoopRange_Tree_Load_LegacyPositiveGap_DefersUntilSidecarHydration_AndDoesNotRemigrateAfterSave()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "parsek-legacy-loop-positive-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string precPath = Path.Combine(tempDir, "legacy-tree-positive-sidecar.prec");
+                string vesselPath = Path.Combine(tempDir, "legacy-tree-positive-sidecar_vessel.craft");
+                string ghostPath = Path.Combine(tempDir, "legacy-tree-positive-sidecar_ghost.craft");
+
+                var source = new Recording
+                {
+                    RecordingId = "legacy-tree-positive-sidecar",
+                    VesselName = "LegacyTreePositiveSidecar",
+                    RecordingFormatVersion = 3,
+                    ExplicitStartUT = 0.0,
+                    ExplicitEndUT = 300.0
+                };
+                source.Points.Add(new TrajectoryPoint
+                {
+                    ut = 0.0, latitude = 0, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                });
+                source.Points.Add(new TrajectoryPoint
+                {
+                    ut = 300.0, latitude = 0, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                });
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    source, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+                var node = new ConfigNode("RECORDING");
+                node.AddValue("recordingId", source.RecordingId);
+                node.AddValue("recordingFormatVersion", "3");
+                node.AddValue("vesselName", source.VesselName);
+                node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
+
+                var loaded = new Recording();
+                RecordingTree.LoadRecordingFrom(node, loaded);
+
+                Assert.Equal(10.0, loaded.LoopIntervalSeconds);
+                Assert.Equal(3, loaded.RecordingFormatVersion);
+                Assert.Contains(logLines, line => line.Contains("deferred migration"));
+
+                logLines.Clear();
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    loaded, precPath, vesselPath, ghostPath));
+                Assert.Equal(110.0, loaded.LoopIntervalSeconds);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Contains(logLines, line => line.Contains("RecordingStore: migrated recording 'LegacyTreePositiveSidecar'"));
+
+                var roundTripNode = new ConfigNode("RECORDING");
+                RecordingTree.SaveRecordingInto(roundTripNode, loaded);
+                Assert.Equal(
+                    RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                    roundTripNode.GetValue("recordingFormatVersion"));
+
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    loaded, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+                logLines.Clear();
+                var reloaded = new Recording();
+                RecordingTree.LoadRecordingFrom(roundTripNode, reloaded);
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    reloaded, precPath, vesselPath, ghostPath));
+                Assert.Equal(110.0, reloaded.LoopIntervalSeconds);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, reloaded.RecordingFormatVersion);
+                Assert.DoesNotContain(logLines, line => line.Contains("migrated recording 'LegacyTreePositiveSidecar'"));
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                        Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        [Fact]
+        public void LoopRange_Tree_Load_LegacyWithExplicitBoundsAndSidecar_MigratesOnceNotTwice()
+        {
+            // #411 follow-up regression: a tree node that carries explicitStartUT/explicitEndUT
+            // (real flight saves from BackgroundRecorder / split / merge / breakup / fallback
+            // commits all do) lets EffectiveLoopDuration resolve at tree-load time — so the
+            // migration fires immediately, stamping RecordingFormatVersion=4 on the in-memory
+            // recording. The subsequent sidecar load must NOT demote that stamp back to v3,
+            // or MigrateLegacyLoopIntervalAfterHydration fires a second time against the
+            // already-migrated value and the period doubles.
+            string tempDir = Path.Combine(Path.GetTempPath(), "parsek-legacy-loop-explicit-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string precPath = Path.Combine(tempDir, "legacy-tree-explicit.prec");
+                string vesselPath = Path.Combine(tempDir, "legacy-tree-explicit_vessel.craft");
+                string ghostPath = Path.Combine(tempDir, "legacy-tree-explicit_ghost.craft");
+
+                var source = new Recording
+                {
+                    RecordingId = "legacy-tree-explicit",
+                    VesselName = "LegacyTreeExplicit",
+                    RecordingFormatVersion = 3,
+                    ExplicitStartUT = 0.0,
+                    ExplicitEndUT = 300.0
+                };
+                source.Points.Add(new TrajectoryPoint
+                {
+                    ut = 0.0, latitude = 0, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                });
+                source.Points.Add(new TrajectoryPoint
+                {
+                    ut = 300.0, latitude = 0, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                });
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    source, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
+                // Tree node carries BOTH explicit bounds and loop subrange, mimicking a real
+                // flight-originated tree save. The loop subrange is [100, 200] inside a
+                // [0, 300] recording → EffectiveLoopDuration = 100.
+                var node = new ConfigNode("RECORDING");
+                node.AddValue("recordingId", source.RecordingId);
+                node.AddValue("recordingFormatVersion", "3");
+                node.AddValue("vesselName", source.VesselName);
+                node.AddValue("explicitStartUT", 0.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("explicitEndUT", 300.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
+                node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
+
+                var loaded = new Recording();
+                RecordingTree.LoadRecordingFrom(node, loaded);
+
+                // Explicit bounds make EffectiveLoopDuration available at tree-load time,
+                // so the migration fires immediately and is NOT deferred.
+                Assert.Equal(110.0, loaded.LoopIntervalSeconds);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.Contains(logLines, line => line.Contains("RecordingTree: migrated recording 'LegacyTreeExplicit'"));
+                Assert.DoesNotContain(logLines, line => line.Contains("deferred migration"));
+
+                // Sidecar hydration — this is the pre-fix failure mode. The sidecar on disk
+                // is v3, and TrajectorySidecarBinary.Read used to unconditionally stamp
+                // rec.RecordingFormatVersion = probe.FormatVersion, demoting the in-memory
+                // v4 back to v3. MigrateLegacyLoopIntervalAfterHydration would then fire a
+                // second time against the already-migrated 110 and produce 100 + 110 = 210.
+                logLines.Clear();
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    loaded, precPath, vesselPath, ghostPath));
+
+                Assert.Equal(110.0, loaded.LoopIntervalSeconds);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.DoesNotContain(logLines, line => line.Contains("RecordingStore: migrated recording 'LegacyTreeExplicit'"));
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                        Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        [Fact]
+        public void LoopRange_Tree_Load_CurrentFormat_PreservesLaunchPeriod()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "current-tree-loop");
+            node.AddValue("recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("vesselName", "CurrentTree");
+            node.AddValue("explicitStartUT", 0.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("explicitEndUT", 300.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(10.0, loaded.LoopIntervalSeconds);
+            Assert.DoesNotContain(logLines, line => line.Contains("migrated recording 'CurrentTree'"));
+            Assert.DoesNotContain(logLines, line => line.Contains("deferred migration"));
         }
 
         [Fact]

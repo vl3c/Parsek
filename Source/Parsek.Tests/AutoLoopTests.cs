@@ -118,11 +118,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveLoopInterval_AutoMode_ClampsNonNegative()
+        public void ResolveLoopInterval_AutoMode_NegativeGlobal_ClampsToMin()
         {
+            // #381: Auto-mode historically clamped negative globals to 0. Under the new
+            // semantics a negative global is an illegal period, so we clamp all the way to
+            // MinCycleDuration (1s) and emit a Warn.
             var rec = MakeRec(unit: LoopTimeUnit.Auto);
             double result = GhostPlaybackLogic.ResolveLoopInterval(rec, -5.0, 10.0, 1.0);
-            Assert.Equal(0.0, result);
+            Assert.Equal(1.0, result);
         }
 
         [Fact]
@@ -142,12 +145,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveLoopInterval_ManualMode_NegativePreserved()
+        public void ResolveLoopInterval_ManualMode_NegativeClampsToMin()
         {
-            var rec = MakeRec(unit: LoopTimeUnit.Min, loopInterval: -30.0);
-            // duration=100, so clamp is Max(-100+0.001, -30) = -30
+            // #381: negative intervals no longer preserve; they clamp to MinCycleDuration
+            // and emit a Warn log on the "Loop" category.
+            var captured = new System.Collections.Generic.List<string>();
+            ParsekLog.TestSinkForTesting = captured.Add;
+            try
+            {
+                var rec = MakeRec(unit: LoopTimeUnit.Min, loopInterval: -30.0);
+                double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+                Assert.Equal(1.0, result);
+                Assert.Contains(captured, line => line.Contains("ResolveLoopInterval") && line.Contains("MinCycleDuration"));
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ResolveLoopInterval_ManualMode_PeriodShorterThanDuration_Preserved()
+        {
+            // #381: period can be less than duration (overlap) — not clamped against duration.
+            var rec = MakeRec(startUT: 100, endUT: 200, loopInterval: 30.0, unit: LoopTimeUnit.Sec);
             double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
-            Assert.Equal(-30.0, result);
+            Assert.Equal(30.0, result);
+        }
+
+        [Fact]
+        public void ResolveLoopInterval_ManualMode_BelowMin_Clamps()
+        {
+            var rec = MakeRec(unit: LoopTimeUnit.Sec, loopInterval: 0.1);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            Assert.Equal(1.0, result);
+        }
+
+        [Fact]
+        public void ResolveLoopInterval_ManualMode_Zero_Clamps()
+        {
+            var rec = MakeRec(unit: LoopTimeUnit.Sec, loopInterval: 0.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            Assert.Equal(1.0, result);
         }
 
         [Fact]
@@ -271,22 +310,16 @@ namespace Parsek.Tests
         // --- ResolveLoopInterval log assertions ---
 
         [Fact]
-        public void ResolveLoopInterval_AutoMode_ShortDuration_Clamps()
+        public void ResolveLoopInterval_AutoMode_Independent_Of_Duration()
         {
-            // Recording only 5s long, global interval is 0 → clamp to -duration + minCycleDuration
-            var rec = MakeRec(startUT: 100, endUT: 105, unit: LoopTimeUnit.Auto);
-            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 0.0, 10.0, 1.0);
-            Assert.Equal(0.0, result); // auto always >= 0
-        }
-
-        [Fact]
-        public void ResolveLoopInterval_ManualMode_ShortDuration_Clamps()
-        {
-            // 5s recording, -10s interval → clamp to -(5 - 1.0) = -4.0
-            var rec = MakeRec(startUT: 100, endUT: 105, loopInterval: -10.0,
-                unit: LoopTimeUnit.Sec);
-            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
-            Assert.Equal(-4.0, result, 6);
+            // #381: auto-mode returns globalAutoInterval (clamped to MinCycleDuration)
+            // regardless of recording duration. 5s, 50s and 5000s recordings all get 10s.
+            var shortRec = MakeRec(startUT: 100, endUT: 105, unit: LoopTimeUnit.Auto);
+            var midRec   = MakeRec(startUT: 100, endUT: 150, unit: LoopTimeUnit.Auto);
+            var longRec  = MakeRec(startUT: 100, endUT: 5100, unit: LoopTimeUnit.Auto);
+            Assert.Equal(10.0, GhostPlaybackLogic.ResolveLoopInterval(shortRec, 10.0, 10.0, 1.0));
+            Assert.Equal(10.0, GhostPlaybackLogic.ResolveLoopInterval(midRec,   10.0, 10.0, 1.0));
+            Assert.Equal(10.0, GhostPlaybackLogic.ResolveLoopInterval(longRec,  10.0, 10.0, 1.0));
         }
 
         [Fact]

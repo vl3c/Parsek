@@ -169,21 +169,21 @@ namespace Parsek
                     continue;
                 }
 
-                // Branch: looping recordings check interval sign for overlap support
+                // Branch: looping recordings — #381 dispatch on period < duration (overlap).
                 if (rec.LoopPlayback)
                 {
-                    double duration = rec.EndUT - rec.StartUT;
+                    double duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
                     if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) continue;
 
                     double intervalSeconds = GetLoopIntervalSeconds(rec);
-                    if (intervalSeconds < 0)
+                    if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
                     {
-                        // Negative interval: multi-ghost overlap path
+                        // Period < duration: successive launches overlap, multi-ghost path.
                         UpdateOverlapKsc(i, rec, currentUT, intervalSeconds, duration, suppressVisualFx);
                         continue;
                     }
 
-                    // Positive/zero interval: single-ghost path — clean up any leftover overlaps
+                    // Period >= duration: single-ghost path — clean up any leftover overlaps
                     DestroyAllKscOverlapGhosts(i);
 
                     double targetUT;
@@ -222,7 +222,12 @@ namespace Parsek
                 if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
                 {
                     long oldCycle = state.loopCycleIndex;
-                    TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    PositionGhostAtLoopEndpoint(recIdx, rec, state);
+                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                    {
+                        TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    }
                     DestroyKscGhost(state, recIdx);
                     kscGhosts.Remove(recIdx);
                     ghostActive = false;
@@ -267,12 +272,7 @@ namespace Parsek
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(state);
 
-                bool shouldTriggerExplosion = targetUT >= rec.EndUT;
-                if (!shouldTriggerExplosion
-                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT))
-                {
-                    shouldTriggerExplosion = targetUT >= earlyExplosionUT;
-                }
+                bool shouldTriggerExplosion = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, targetUT);
 
                 if (!state.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -281,8 +281,13 @@ namespace Parsek
             {
                 if (inPauseWindow)
                 {
-                    if (!state.explosionFired)
+                    PositionGhostAtLoopEndpoint(recIdx, rec, state);
+                    if (!state.explosionFired
+                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                    {
                         TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    }
                     if (!state.pauseHidden)
                     {
                         state.pauseHidden = true;
@@ -323,19 +328,21 @@ namespace Parsek
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
             bool primaryActive = primaryState != null && primaryState.ghost != null;
+            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            double loopEndUT = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
 
-            if (currentUT < rec.StartUT)
+            if (currentUT < loopStartUT)
             {
                 if (primaryActive) { DestroyKscGhost(primaryState, recIdx); kscGhosts.Remove(recIdx); }
                 DestroyAllKscOverlapGhosts(recIdx);
                 return;
             }
 
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration) cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+            // #381: cycleDuration = launch-to-launch period (clamped).
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
+            GhostPlaybackLogic.GetActiveCycles(currentUT, loopStartUT, loopEndUT,
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
@@ -373,11 +380,11 @@ namespace Parsek
 
             // Position and animate primary (SpawnKscGhost above guarantees non-null)
             {
-                double cycleStartUT = rec.StartUT + lastCycle * cycleDuration;
+                double cycleStartUT = loopStartUT + lastCycle * cycleDuration;
                 double phase = currentUT - cycleStartUT;
                 if (phase < 0) phase = 0;
                 if (phase > duration) phase = duration;
-                double loopUT = rec.StartUT + phase;
+                double loopUT = loopStartUT + phase;
 
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
                     ref primaryState.playbackIndex, loopUT);
@@ -392,12 +399,7 @@ namespace Parsek
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
 
-                bool shouldTriggerExplosion = phase >= duration;
-                if (!shouldTriggerExplosion
-                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT))
-                {
-                    shouldTriggerExplosion = loopUT >= earlyExplosionUT;
-                }
+                bool shouldTriggerExplosion = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, loopUT);
 
                 if (!primaryState.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
@@ -414,16 +416,18 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double cycleStart = rec.StartUT + cycle * cycleDuration;
+                double cycleStart = loopStartUT + cycle * cycleDuration;
                 double phase = currentUT - cycleStart;
 
                 if (phase > duration)
                 {
                     // Cycle expired — position at end, explode, destroy
-                    if (rec.Points.Count > 0)
-                        PositionGhostAtPoint(ovState.ghost,
-                            rec.Points[rec.Points.Count - 1]);
-                    TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+                    PositionGhostAtLoopEndpoint(recIdx, rec, ovState);
+                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                    {
+                        TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+                    }
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} overlap cycle={cycle} expired, destroying");
                     DestroyKscGhost(ovState, recIdx);
@@ -432,7 +436,7 @@ namespace Parsek
                 }
 
                 if (phase < 0) phase = 0;
-                double loopUT = rec.StartUT + phase;
+                double loopUT = loopStartUT + phase;
 
                 InterpolateAndPositionKsc(ovState.ghost, rec.Points,
                     ref ovState.playbackIndex, loopUT);
@@ -454,6 +458,15 @@ namespace Parsek
                     TriggerExplosionIfDestroyed(ovState, rec, recIdx);
                 }
             }
+        }
+
+        void PositionGhostAtLoopEndpoint(int recIdx, Recording rec, GhostPlaybackState state)
+        {
+            if (state?.ghost == null || rec?.Points == null || rec.Points.Count == 0)
+                return;
+
+            double endpointUT = GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec);
+            InterpolateAndPositionKsc(state.ghost, rec.Points, ref state.playbackIndex, endpointUT);
         }
 
         /// <summary>
@@ -704,16 +717,17 @@ namespace Parsek
             if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(rec);
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                cycleDuration = duration;
+            // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
+            // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             double elapsed = currentUT - loopStart;
             cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            if (intervalSeconds > 0 && cycleTime > duration)
+            // Pause window only when period strictly exceeds duration.
+            if (intervalSeconds > duration && cycleTime > duration + GhostPlaybackLogic.BoundaryEpsilon)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;
@@ -725,9 +739,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Get the loop interval for a recording. Matches ParsekFlight logic:
-        /// clamped so cycleDuration is always >= GhostPlaybackLogic.MinCycleDuration.
-        /// Negative intervals mean shorter cycles (overlapping launches from KSC).
+        /// Get the loop interval for a recording. Returns the launch-to-launch period
+        /// in seconds (#381) — always &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// Overlap emerges when period &lt; recording duration (see IsOverlapLoop).
         /// </summary>
         internal static double GetLoopIntervalSeconds(Recording rec)
         {

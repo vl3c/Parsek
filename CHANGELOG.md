@@ -18,7 +18,11 @@ All notable changes to Parsek are documented here.
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
 - `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
 - `#380` `scripts/release.py` now runs end-to-end and packages the release zip without aborting on a pre-existing unit-test failure.
+- `#381` The recording loop "Period" field is now the launch-to-launch period: a recording set to 10s relaunches every 10s regardless of duration, overlap emerges automatically when the period is shorter than the recording, and pre-`#381` saved gap values are version-migrated on load to preserve old launch-to-launch timing.
 - `#382` Group `W` button now cycles to the next watchable vessel in the group on each press instead of always toggling the same target.
+- `#409` Fixed a watch-mode overlap-vs-single dispatch mismatch for recordings with a loop subrange: `ResolveWatchPlaybackUT` and `TryStartWatchSession` now read the same `EffectiveLoopDuration` and cycle-start reference, so the two sites can no longer disagree on which playback path to take.
+- `#410` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries — `ComputeLoopPhaseFromUT`, `TryComputeLoopPlaybackUT`, and the live flight/KSC loop schedulers now share a `BoundaryEpsilon` tolerance so they agree on the `isInPause` flag at `phase == duration`.
+- `#411` Loop playback now uses the effective loop subrange consistently in flight and KSC: the overlap-vs-single dispatch, overlap active-cycle bounds, overlap phase anchoring, and loop-end teardown/pause holds now read `EffectiveLoopDuration` / `EffectiveLoopStartUT` / `EffectiveLoopEndUT` instead of raw or hybrid recording ranges.
 
 ### Maintenance
 
