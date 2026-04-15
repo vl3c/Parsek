@@ -223,7 +223,11 @@ namespace Parsek
                 {
                     long oldCycle = state.loopCycleIndex;
                     PositionGhostAtLoopEndpoint(recIdx, rec, state);
-                    TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                    {
+                        TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    }
                     DestroyKscGhost(state, recIdx);
                     kscGhosts.Remove(recIdx);
                     ghostActive = false;
@@ -268,15 +272,7 @@ namespace Parsek
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(state);
 
-                double playbackEndUT = rec.LoopPlayback
-                    ? GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)
-                    : rec.EndUT;
-                bool shouldTriggerExplosion = targetUT >= playbackEndUT;
-                if (!shouldTriggerExplosion
-                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT))
-                {
-                    shouldTriggerExplosion = targetUT >= earlyExplosionUT;
-                }
+                bool shouldTriggerExplosion = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, targetUT);
 
                 if (!state.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -286,8 +282,12 @@ namespace Parsek
                 if (inPauseWindow)
                 {
                     PositionGhostAtLoopEndpoint(recIdx, rec, state);
-                    if (!state.explosionFired)
+                    if (!state.explosionFired
+                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                    {
                         TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    }
                     if (!state.pauseHidden)
                     {
                         state.pauseHidden = true;
@@ -399,12 +399,7 @@ namespace Parsek
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
 
-                bool shouldTriggerExplosion = phase >= duration;
-                if (!shouldTriggerExplosion
-                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT))
-                {
-                    shouldTriggerExplosion = loopUT >= earlyExplosionUT;
-                }
+                bool shouldTriggerExplosion = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, loopUT);
 
                 if (!primaryState.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
@@ -428,7 +423,11 @@ namespace Parsek
                 {
                     // Cycle expired — position at end, explode, destroy
                     PositionGhostAtLoopEndpoint(recIdx, rec, ovState);
-                    TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                    {
+                        TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+                    }
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} overlap cycle={cycle} expired, destroying");
                     DestroyKscGhost(ovState, recIdx);

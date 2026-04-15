@@ -950,6 +950,21 @@ namespace Parsek
             return true;
         }
 
+        internal static bool ShouldTriggerExplosionAtPlaybackUT(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj == null || traj.TerminalStateValue != TerminalState.Destroyed)
+                return false;
+
+            if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))
+                return false;
+
+            if (TryGetEarlyDestroyedDebrisExplosionUT(traj, out double earlyExplosionUT))
+                return playbackUT >= earlyExplosionUT;
+
+            return playbackUT >= traj.EndUT;
+        }
+
         internal static void HideAllGhostParts(GhostPlaybackState state)
         {
             if (state.ghost == null) return;

@@ -767,10 +767,12 @@ namespace Parsek
                     PositionGhostAtLoopEndpoint(index, traj, state);
 
                 bool needsExplosion = state != null
-                    && traj.TerminalStateValue == TerminalState.Destroyed
-                    && !state.explosionFired;
+                    && !state.explosionFired
+                    && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                        traj, ResolveLoopPlaybackEndpointUT(traj));
 
-                TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+                if (needsExplosion)
+                    TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
 
                 // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
@@ -1039,7 +1041,11 @@ namespace Parsek
                 {
                     if (ovState.ghost != null)
                         PositionGhostAtLoopEndpoint(index, traj, ovState);
-                    TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
+                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            traj, ResolveLoopPlaybackEndpointUT(traj)))
+                    {
+                        TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
+                    }
 
                     // Fire camera event for overlap expiry
                     OnOverlapCameraAction?.Invoke(new CameraActionEvent
@@ -1057,7 +1063,7 @@ namespace Parsek
                     {
                         Index = index, Trajectory = traj, State = ovState, Flags = flags,
                         CycleIndex = cycle,
-                        ExplosionFired = traj.TerminalStateValue == TerminalState.Destroyed,
+                        ExplosionFired = ovState.explosionFired,
                         ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
                     });
 
@@ -1124,7 +1130,11 @@ namespace Parsek
                     ? traj.Points[traj.Points.Count - 1].bodyName
                     : null;
             }
-            TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                    traj, ResolveLoopPlaybackEndpointUT(traj)))
+            {
+                TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            }
             if (!state.pauseHidden)
             {
                 state.pauseHidden = true;
