@@ -250,7 +250,7 @@ namespace Parsek
             if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
             {
                 interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
-                    ? defaultInterval : Math.Max(0, globalAutoInterval);
+                    ? defaultInterval : globalAutoInterval;
             }
             else
             {

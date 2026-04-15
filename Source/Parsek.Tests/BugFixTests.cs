@@ -236,7 +236,8 @@ namespace Parsek.Tests
             double startUT = 0.0;
             double duration = 1.0;
             double interval = 0.0;
-            double cycleDuration = duration + Math.Max(0, interval); // = 1.0
+            // #381: cycleDuration = launch-to-launch period clamped to MinCycleDuration (1.0s).
+            double cycleDuration = Math.Max(interval, GhostPlaybackLogic.MinCycleDuration); // = 1.0
             double elapsedAtIntMax = (double)int.MaxValue * cycleDuration;
             double currentUT = startUT + elapsedAtIntMax + 0.5; // midway through cycle int.MaxValue+1
 
