@@ -1023,6 +1023,198 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One-shot save recovery migration for #401 (c1 bricked funds) and #396
+        /// (sci1 bricked science). Walks the GameStateStore events and committed
+        /// science subjects, synthesizes a matching GameAction for any entry that
+        /// does NOT already have one in the ledger, and adds them.
+        ///
+        /// Must be called AFTER <see cref="OnLoad"/> has populated the ledger and
+        /// AFTER <see cref="MilestoneStore.CurrentEpoch"/> has been restored from
+        /// the save, because the migration respects epoch isolation (review §5.6)
+        /// — only acts on events whose epoch matches CurrentEpoch.
+        ///
+        /// Idempotent: the LedgerHasMatchingAction guard makes repeat loads a no-op.
+        /// </summary>
+        internal static int TryRecoverBrokenLedgerOnLoad()
+        {
+            Initialize();
+
+            int recoveredFundsParts = 0;
+            int recoveredContracts = 0;
+            int recoveredScience = 0;
+            int skippedByEpoch = 0;
+
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+
+            // 1) Funds + contract events
+            var events = GameStateStore.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.epoch != currentEpoch)
+                {
+                    skippedByEpoch++;
+                    continue;
+                }
+                if (!IsRecoverableEventType(evt.eventType)) continue;
+                if (LedgerHasMatchingAction(evt)) continue;
+
+                var action = GameStateEventConverter.ConvertEvent(evt, null);
+                if (action == null) continue;
+
+                Ledger.AddAction(action);
+                if (evt.eventType == GameStateEventType.PartPurchased)
+                    recoveredFundsParts++;
+                else
+                    recoveredContracts++;
+
+                ParsekLog.Verbose(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad: synthesized {action.Type} action for " +
+                    $"event {evt.eventType} key='{evt.key}' ut={evt.ut:F1}");
+            }
+
+            // 2) Committed science subjects
+            var subjectIds = GameStateStore.GetCommittedScienceSubjectIds();
+            if (subjectIds != null)
+            {
+                foreach (var subjectId in subjectIds)
+                {
+                    if (string.IsNullOrEmpty(subjectId)) continue;
+                    if (!GameStateStore.TryGetCommittedSubjectScience(subjectId, out float sci)) continue;
+                    if (sci <= 0f) continue;
+                    if (LedgerHasMatchingScienceEarning(subjectId, sci)) continue;
+
+                    var action = new GameAction
+                    {
+                        // Science earnings need a UT for ordering; use CurrentEpoch's
+                        // first pseudo-UT (close to zero) so the synthesized action
+                        // slots in at the beginning of the current epoch.
+                        UT = 0.0,
+                        Type = GameActionType.ScienceEarning,
+                        RecordingId = null,
+                        SubjectId = subjectId,
+                        ScienceAwarded = sci,
+                        SubjectMaxValue = sci + 10f  // generous cap so walk doesn't clip
+                    };
+                    Ledger.AddAction(action);
+                    recoveredScience++;
+
+                    ParsekLog.Verbose(Tag,
+                        $"TryRecoverBrokenLedgerOnLoad: synthesized ScienceEarning for " +
+                        $"subject='{subjectId}' sci={sci:F1}");
+                }
+            }
+
+            int totalRecovered = recoveredFundsParts + recoveredContracts + recoveredScience;
+            if (totalRecovered > 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad: synthesized {recoveredFundsParts} funds/part, " +
+                    $"{recoveredContracts} contract, {recoveredScience} science actions from store " +
+                    $"(epoch={currentEpoch}, skippedByEpoch={skippedByEpoch}).");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad: no recovery needed (epoch={currentEpoch}, " +
+                    $"skippedByEpoch={skippedByEpoch})");
+            }
+
+            return totalRecovered;
+        }
+
+        /// <summary>Pure: event types the migration can synthesize actions for.</summary>
+        internal static bool IsRecoverableEventType(GameStateEventType t)
+        {
+            switch (t)
+            {
+                case GameStateEventType.ContractAccepted:
+                case GameStateEventType.ContractCompleted:
+                case GameStateEventType.ContractFailed:
+                case GameStateEventType.ContractCancelled:
+                case GameStateEventType.PartPurchased:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure: checks whether the ledger already has an action matching the given
+        /// event (same type + UT within epsilon + key). Used by the save recovery
+        /// migration to avoid duplicating an action that already exists.
+        /// </summary>
+        internal static bool LedgerHasMatchingAction(GameStateEvent evt)
+        {
+            GameActionType? expectedType = MapEventTypeToActionType(evt.eventType);
+            if (expectedType == null) return true;   // unmappable => don't recover
+
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a.Type != expectedType.Value) continue;
+                if (Math.Abs(a.UT - evt.ut) > 0.1) continue;
+
+                // Match on the type-specific key field.
+                switch (a.Type)
+                {
+                    case GameActionType.ContractAccept:
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        if (a.ContractId == evt.key) return true;
+                        break;
+                    case GameActionType.FundsSpending:
+                        // Part purchase: evt.key is the part name, stored on DedupKey.
+                        if (a.DedupKey == evt.key) return true;
+                        break;
+                    default:
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure: checks whether the ledger already has a ScienceEarning action for
+        /// the given subject with at least the given science value credited. Uses
+        /// &gt;= comparison so multi-experiment top-ups don't synthesize duplicates.
+        /// </summary>
+        internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
+        {
+            if (string.IsNullOrEmpty(subjectId)) return true;
+            float totalForSubject = 0f;
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a.Type != GameActionType.ScienceEarning) continue;
+                if (a.SubjectId != subjectId) continue;
+                totalForSubject += a.ScienceAwarded;
+            }
+            return totalForSubject >= minScience - 0.01f;
+        }
+
+        /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
+        internal static GameActionType? MapEventTypeToActionType(GameStateEventType t)
+        {
+            switch (t)
+            {
+                case GameStateEventType.ContractAccepted: return GameActionType.ContractAccept;
+                case GameStateEventType.ContractCompleted: return GameActionType.ContractComplete;
+                case GameStateEventType.ContractFailed: return GameActionType.ContractFail;
+                case GameStateEventType.ContractCancelled: return GameActionType.ContractCancel;
+                case GameStateEventType.PartPurchased: return GameActionType.FundsSpending;
+                case GameStateEventType.TechResearched: return GameActionType.ScienceSpending;
+                case GameStateEventType.CrewHired: return GameActionType.KerbalHire;
+                case GameStateEventType.MilestoneAchieved: return GameActionType.MilestoneAchievement;
+                case GameStateEventType.FacilityUpgraded: return GameActionType.FacilityUpgrade;
+                default: return null;
+            }
+        }
+
+        /// <summary>
         /// Called when a KSC spending action occurs outside of a flight recording session.
         /// Converts the event directly to a GameAction and adds to the ledger, then recalculates.
         /// Used for tech unlocks, facility upgrades, and kerbal hires at KSC.

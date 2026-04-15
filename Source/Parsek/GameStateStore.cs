@@ -249,6 +249,16 @@ namespace Parsek
         /// Tries to get the committed science value for a subject.
         /// Returns false if the subject has not been committed.
         /// </summary>
+        /// <summary>
+        /// Returns a snapshot of committed subject IDs for iteration (e.g., by the
+        /// save recovery migration in <see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/>).
+        /// Returns a new list so callers can mutate the underlying store while iterating.
+        /// </summary>
+        internal static List<string> GetCommittedScienceSubjectIds()
+        {
+            return new List<string>(committedScienceSubjects.Keys);
+        }
+
         internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
         {
             return committedScienceSubjects.TryGetValue(subjectId, out science);
