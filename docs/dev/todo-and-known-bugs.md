@@ -7,6 +7,74 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 407. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary
+
+**Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — the inconsistency predates the refactor, but both helpers now share the same cycleDuration formula, so the divergence is easier to reason about.
+
+**Concern:** the two helpers in `Source/Parsek/GhostPlaybackLogic.cs` describe the same playback model but disagree on what happens when a cycle's elapsed phase equals its recording duration exactly:
+
+| Helper | Check | At `phase == duration` |
+|---|---|---|
+| `ComputeLoopPhaseFromUT` (~line 372) | `if (phaseInCycle < duration)` (strict) | falls through to pause branch → "in pause window" |
+| `TryComputeLoopPlaybackUT` (~line 167) | `if (phase > duration + epsilon) return false` | stays in playback branch → "not in pause" |
+
+An existing test `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` locks in the strict-less-than behavior of `ComputeLoopPhaseFromUT`.
+
+**Why it matters:** callers that query both helpers within the same frame (e.g. watch-mode that asks `ComputeLoopPhaseFromUT` for a display phase and `TryComputeLoopPlaybackUT` for a playback UT) can observe a "playing → paused → playing" flicker at the single physics frame where `currentUT - cycleStart` lands exactly on `duration`. In practice the window is narrow (floating-point UT arithmetic rarely produces exact equality for long), but when it does hit, the ghost visual blips.
+
+**Proposed fix:** pick a consistent rule. The epsilon-tolerant version in `TryComputeLoopPlaybackUT` is safer under floating-point UT math, so the cleaner direction is:
+
+1. Rewrite `ComputeLoopPhaseFromUT` to use `phaseInCycle < duration - epsilon` (or equivalently, the pause branch fires on `phaseInCycle >= duration - epsilon`).
+2. Add the same `const double epsilon = 1e-6` that `TryComputeLoopPlaybackUT` uses, or lift it to a shared `MinCycleEpsilon` on `GhostPlaybackLogic`.
+3. Rewrite `AtRecordingEnd_BoundaryEntersPause` to verify the epsilon-inclusive boundary — the test should still pass with `phaseInCycle = duration` mapping to pause under `phaseInCycle >= duration - epsilon`, so the rename is cosmetic; but add a new test `AtRecordingEnd_JustBeforeBoundary_StaysPlaying` with `phaseInCycle = duration - 2*epsilon` to lock in the tolerant-but-still-strict behavior.
+
+**Files to touch:**
+
+- `Source/Parsek/GhostPlaybackLogic.cs` (`ComputeLoopPhaseFromUT`, epsilon constant)
+- `Source/Parsek.Tests/LoopPhaseTests.cs` (`AtRecordingEnd_BoundaryEntersPause` + new test)
+
+**Status:** TODO. Size: XS. No user-visible urgency — one-frame visual flicker at best — but it's the kind of invariant that causes a "why does this ghost blink for one frame every cycle?" bug report months later if a user sets a period that makes the equality land consistently.
+
+---
+
+## 406. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision
+
+**Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — both sites predate the refactor — but `#381` makes the mismatch matter because both dispatches now depend on `IsOverlapLoop(interval, duration)`, so the `duration` value they compute is load-bearing.
+
+**Concern:** two sites in `Source/Parsek/WatchModeController.cs` ask the same question — "should I take the overlap / multi-cycle dispatch path?" — but compute `duration` differently:
+
+| Site | Duration expression | Respects loop subrange? |
+|---|---|---|
+| `TryStartWatchSession` (~line 1344) | `watchRecDuration = GhostPlaybackEngine.EffectiveLoopEndUT(rec) - GhostPlaybackEngine.EffectiveLoopStartUT(rec)` | yes |
+| `ResolveWatchPlaybackUT` (~line 2589) | `duration = rec.EndUT - rec.StartUT` | no |
+
+Under pre-`#381` semantics both sites dispatched on `intervalSeconds < 0`, so `duration` did not participate in the check — the mismatch was dormant. Under `#381`, both dispatch on `GhostPlaybackLogic.IsOverlapLoop(interval, duration)`, and the two sites can disagree.
+
+**Concrete reproducing case:** a 600s recording with a 60s loop subrange (`LoopStartUT`/`LoopEndUT` set to a 60-second window inside the recording) and `LoopIntervalSeconds = 80`:
+
+- `TryStartWatchSession`: `IsOverlapLoop(80, 60) → 80 < 60 → false` → single-ghost dispatch.
+- `ResolveWatchPlaybackUT`: `IsOverlapLoop(80, 600) → 80 < 600 → true` → multi-cycle overlap dispatch.
+
+Watch mode enters via one code path, UT resolution uses the other — positioning drifts from the animation state. Expected symptom: the ghost visual shows one cycle playing while the `loopPhaseOffsets` / `loopCycleIndex` book-keeping thinks multiple cycles are live, producing stale `cycleStartUT` computations after the first cycle boundary.
+
+**Proposed fix:**
+
+1. Centralize the "effective loop duration" computation in a helper on `GhostPlaybackLogic` or `GhostPlaybackEngine` — e.g. `internal static double EffectiveLoopDuration(IPlaybackTrajectory rec) => EffectiveLoopEndUT(rec) - EffectiveLoopStartUT(rec);`. Reuse it at every site that asks "how long is one cycle?"
+2. Switch `ResolveWatchPlaybackUT`'s `duration` local to use the new helper.
+3. Audit `GhostPlaybackEngine`, `ParsekKSC`, and `WatchModeController` for any other site that computes `rec.EndUT - rec.StartUT` near a loop-dispatch check — the same drift can hide elsewhere.
+4. Add an integration test: construct a mock trajectory with `LoopStartUT/LoopEndUT` narrower than `StartUT/EndUT`, call both `TryStartWatchSession`'s overlap check and `ResolveWatchPlaybackUT`'s overlap check with the same interval, assert they return the same decision.
+
+**Files to touch:**
+
+- `Source/Parsek/WatchModeController.cs` (`ResolveWatchPlaybackUT`, line ~2589)
+- `Source/Parsek/GhostPlaybackLogic.cs` or `GhostPlaybackEngine.cs` (new helper)
+- Possibly `Source/Parsek/ParsekKSC.cs` (audit for the same pattern)
+- `Source/Parsek.Tests/` (new integration test covering the dispatch-parity case)
+
+**Status:** TODO. Size: S. No user-visible regression introduced by `#381` — needs a save with an explicit loop subrange to reproduce, which is rare — but the drift is real and will bite the first player who uses loop subranges with watch mode. Worth a small targeted PR with in-game validation.
+
+---
+
 ## 405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc
 
 **Source:** c1 career-mode playtest `2026-04-15` (logs `logs/2026-04-15_0005_c1-career-bugs/`). Player accepted 2 contracts at UT ≈ 412.9 (`Test RT-5 "Flea"` and `Test LV-T45 "Swivel"` at launch site), both captured by `GameStateRecorder.OnContractAccepted` and written to `events.pgse`, both unconditionally destroyed by the next `PatchContracts` pass. Ledger at end of session has **zero** `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, or `FundsSpending (PartPurchased)` actions.
