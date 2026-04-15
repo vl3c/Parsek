@@ -29,6 +29,14 @@ namespace Parsek
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKB");
         private const int LegacyBinaryVersion = 2;
+        // #408 follow-up: the binary sidecar layout last changed at v3 (sparse point lists).
+        // The v4 bump is metadata-only (loopIntervalSeconds semantic change, see
+        // RecordingStore.LaunchToLaunchLoopIntervalFormatVersion), so the on-disk bytes are
+        // byte-identical between v3 and v4. SparsePointBinaryVersion pins the format feature
+        // gate for sparse point list encoding/decoding; CurrentBinaryVersion tracks the
+        // metadata semantic version so a freshly-saved v4 recording stamps its sidecar with
+        // v4 (and loads back as v4). Keep these two constants explicit so a future v5 that
+        // changes either axis independently has an obvious anchor point.
         private const int SparsePointBinaryVersion = 3;
         private const int CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
@@ -192,7 +200,13 @@ namespace Parsek
                 ReadSegmentEventList(reader, rec.SegmentEvents, stringTable);
                 ReadTrackSections(reader, rec.TrackSections, stringTable, probe.FormatVersion, ref stats);
 
-                rec.RecordingFormatVersion = probe.FormatVersion;
+                // #408 follow-up: promote-only. Never demote rec.RecordingFormatVersion from a
+                // higher in-memory value (e.g. a v4 stamp set by the tree/scenario legacy loop
+                // migration before sidecars were hydrated) back down to the on-disk binary
+                // version. Demotion would cause MigrateLegacyLoopIntervalAfterHydration to fire
+                // a second time against the already-migrated value and double the period.
+                if (rec.RecordingFormatVersion < probe.FormatVersion)
+                    rec.RecordingFormatVersion = probe.FormatVersion;
                 if (string.IsNullOrEmpty(rec.RecordingId))
                     rec.RecordingId = probe.RecordingId;
 

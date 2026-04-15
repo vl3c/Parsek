@@ -1276,6 +1276,11 @@ namespace Parsek
             if (double.IsNaN(effectiveLoopDuration) || double.IsInfinity(effectiveLoopDuration)
                 || effectiveLoopDuration <= 0.0)
                 return false;
+            // #408 follow-up: reject NaN/Inf gap defensively so the caller doesn't store a
+            // poisoned period on the recording. All real load paths parse via double.TryParse
+            // and never hand NaN in, but hand-edited saves can.
+            if (double.IsNaN(legacyGapSeconds) || double.IsInfinity(legacyGapSeconds))
+                return false;
 
             migratedPeriod = effectiveLoopDuration + legacyGapSeconds;
             if (double.IsNaN(migratedPeriod) || double.IsInfinity(migratedPeriod)

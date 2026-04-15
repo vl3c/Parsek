@@ -1572,7 +1572,6 @@ namespace Parsek
         {
             double currentUT = Planetarium.GetUniversalTime();
             double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
-            double loopEndUT = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
             // #381: cycleDuration = launch-to-launch period (clamped). Dead-code fallback removed.
             double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
