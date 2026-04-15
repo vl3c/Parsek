@@ -374,18 +374,96 @@ namespace Parsek.Tests
                 out loopUT, out cycleIndex, out inPause));
         }
 
+        // #381: duration=100, period=110 → cycleDuration=110, pause tail 10s.
+        // This is the classic "period > duration" shape used in single-ghost loop tests.
+
         [Fact]
-        public void TryComputeLoopPlaybackUT_FirstCycle_MidTrajectory()
+        public void TryComputeLoopPlaybackUT_PeriodLongerThanDuration_HasPauseWindow()
         {
             var engine = new GhostPlaybackEngine(null);
-            // Duration = 100s, interval = 10s, cycleDuration = 110s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            // currentUT = 150 => elapsed = 50 => cycle 0, cycleTime = 50
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+            // currentUT = 205 => elapsed = 105, cycle 0, cycleTime = 105 > duration(100) → pause.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 205, 110,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(0, cycleIndex);
+            Assert.True(inPause);
+            Assert.Equal(200, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_PeriodEqualsDuration_NoPauseWindow()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // Duration=100, period=100, cycleDuration=100, back-to-back cycles.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(100);
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 250, elapsed = 150, cycle = 1, cycleTime = 50.
+            // period > duration is false → never in pause window.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 250, 100,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(1, cycleIndex);
+            Assert.False(inPause);
+            Assert.Equal(150, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_PeriodShorterThanDuration_OverlapCycles()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // Duration=100, period=30 → cycleDuration=30 (overlap via single-ghost math).
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(30);
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 160, elapsed = 60 → cycle=2, cycleTime=0. No pause.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 160, 30,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(2, cycleIndex);
+            Assert.False(inPause);
+            Assert.Equal(100, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_NegativeInterval_DefensivelyClamped_NoThrow()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // #381: negative interval clamps to MinCycleDuration via ResolveLoopInterval,
+            // which means GetLoopIntervalSeconds returns 1.0, not -30. Engine must not throw.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(-30);
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // The caller passes autoLoopIntervalSeconds=10 but traj.LoopTimeUnit=Sec so the
+            // recording's own (negative) value is used, then clamped to MinCycleDuration=1.
+            // At currentUT=205, resolved interval=1, cycleDuration=1, elapsed=105, cycle=105, phase=0.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 205, 10,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.False(inPause);
+            Assert.Equal(100, loopUT, 6);
+            Assert.Equal(105, cycleIndex);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_FirstCycle_MidTrajectory()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // #381: period=110 > duration=100 (single-ghost loop with 10s pause tail).
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 150 => elapsed = 50, cycle 0, cycleTime = 50.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 110,
                 out loopUT, out cycleIndex, out inPause));
             Assert.Equal(0, cycleIndex);
             Assert.False(inPause);
@@ -393,36 +471,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryComputeLoopPlaybackUT_PauseWindow_PositiveInterval()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            // Duration = 100s, interval = 10s, cycleDuration = 110s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
-
-            double loopUT;
-            long cycleIndex;
-            bool inPause;
-            // currentUT = 205 => elapsed = 105 => cycle 0 (105/110 = 0), cycleTime = 105
-            // cycleTime (105) > duration (100) => pause window
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 205, 10,
-                out loopUT, out cycleIndex, out inPause));
-            Assert.Equal(0, cycleIndex);
-            Assert.True(inPause);
-            Assert.Equal(200, loopUT, 6); // clamped to EndUT
-        }
-
-        [Fact]
         public void TryComputeLoopPlaybackUT_SecondCycle_Start()
         {
             var engine = new GhostPlaybackEngine(null);
-            // Duration = 100s, interval = 10s, cycleDuration = 110s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            // #381: period=110, cycleDuration=110.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            // currentUT = 210 => elapsed = 110 => cycle 1 (110/110 = 1), cycleTime = 0
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 210, 10,
+            // currentUT = 210 => elapsed = 110 => cycle 1, cycleTime = 0.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 210, 110,
                 out loopUT, out cycleIndex, out inPause));
             Assert.Equal(1, cycleIndex);
             Assert.False(inPause);
@@ -430,48 +489,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryComputeLoopPlaybackUT_ZeroInterval_NoPauseWindow()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            // Duration = 100s, interval = 0s, cycleDuration = 100s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(0);
-
-            double loopUT;
-            long cycleIndex;
-            bool inPause;
-            // currentUT = 250 => elapsed = 150 => cycle 1 (150/100 = 1), cycleTime = 50
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 250, 0,
-                out loopUT, out cycleIndex, out inPause));
-            Assert.Equal(1, cycleIndex);
-            Assert.False(inPause);
-            Assert.Equal(150, loopUT, 6); // StartUT + cycleTime
-        }
-
-        [Fact]
-        public void TryComputeLoopPlaybackUT_NegativeInterval_NoPauseWindow()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            // Duration = 100s, interval = -30s, cycleDuration = 70s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(-30);
-
-            double loopUT;
-            long cycleIndex;
-            bool inPause;
-            // currentUT = 205 => elapsed = 105 => cycle 1 (105/70 = 1), cycleTime = 35
-            // interval is -30, so cycleTime (35) <= duration (100) => not pause
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 205, -30,
-                out loopUT, out cycleIndex, out inPause));
-            Assert.Equal(1, cycleIndex);
-            Assert.False(inPause);
-            Assert.Equal(135, loopUT, 6); // StartUT + 35
-        }
-
-        [Fact]
         public void TryComputeLoopPlaybackUT_PhaseOffset_ShiftsElapsed()
         {
             var engine = new GhostPlaybackEngine(null);
-            // Duration = 100s, interval = 10s, cycleDuration = 110s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            // #381: period=110, cycleDuration=110.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
             // Add a phase offset of 55s for recording index 0
             engine.loopPhaseOffsets[0] = 55;
@@ -479,9 +501,8 @@ namespace Parsek.Tests
             double loopUT;
             long cycleIndex;
             bool inPause;
-            // currentUT = 150 => elapsed = 50 => with +55 offset: 105
-            // cycle 0 (105/110 = 0), cycleTime = 105 > 100 => pause window
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+            // currentUT = 150, elapsed = 50 + offset 55 = 105. cycle 0, cycleTime = 105 > 100 → pause.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 110,
                 out loopUT, out cycleIndex, out inPause, 0));
             Assert.Equal(0, cycleIndex);
             Assert.True(inPause);
@@ -494,14 +515,14 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_NoPhaseOffset_NoLogOutput()
         {
             var engine = new GhostPlaybackEngine(null);
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
             logLines.Clear(); // clear engine creation log
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+            engine.TryComputeLoopPlaybackUT(traj, 150, 110,
                 out loopUT, out cycleIndex, out inPause, 0);
 
             // No phase offset => no phase offset log line (only verbose rate-limited may appear)
@@ -512,7 +533,7 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_CycleIndexNeverNegative()
         {
             var engine = new GhostPlaybackEngine(null);
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
             // Negative phase offset that could make elapsed negative
             engine.loopPhaseOffsets[0] = -1000;
@@ -520,7 +541,7 @@ namespace Parsek.Tests
             double loopUT;
             long cycleIndex;
             bool inPause;
-            engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+            engine.TryComputeLoopPlaybackUT(traj, 150, 110,
                 out loopUT, out cycleIndex, out inPause, 0);
             Assert.True(cycleIndex >= 0);
         }
@@ -529,7 +550,7 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_RecIdxMinus1_SkipsPhaseOffset()
         {
             var engine = new GhostPlaybackEngine(null);
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
             // Even if phase offset exists for index 0, passing recIdx=-1 skips it
             engine.loopPhaseOffsets[0] = 1000;
@@ -540,7 +561,7 @@ namespace Parsek.Tests
             long cycleIndex;
             bool inPause;
             // Default recIdx = -1
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 110,
                 out loopUT, out cycleIndex, out inPause));
             Assert.Equal(0, cycleIndex);
             Assert.False(inPause);
@@ -556,21 +577,20 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_WithLoopRange_StaysWithinRange()
         {
             var engine = new GhostPlaybackEngine(null);
-            // Full range 100-200, loop range 130-170 (40s duration)
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            // Full range 100-200, loop range 130-170 (40s duration). #381: period=50 > duration.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(50);
             traj.LoopStartUT = 130;
             traj.LoopEndUT = 170;
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            // currentUT = 150 => elapsed from loopStart(130) = 20 => cycle 0, loopUT = 130 + 20 = 150
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+            // currentUT = 150 => elapsed from loopStart(130) = 20 => cycle 0, loopUT = 150
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 50,
                 out loopUT, out cycleIndex, out inPause));
             Assert.Equal(0, cycleIndex);
             Assert.False(inPause);
             Assert.Equal(150, loopUT, 6);
-            // Verify within loop range
             Assert.True(loopUT >= 130 && loopUT <= 170);
         }
 
@@ -578,16 +598,16 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_WithLoopRange_SecondCycle()
         {
             var engine = new GhostPlaybackEngine(null);
-            // Full range 100-200, loop range 130-170 (40s), interval 10s, cycleDuration = 50s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            // Loop range 130-170 (40s), #381 period=50 → cycleDuration=50.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(50);
             traj.LoopStartUT = 130;
             traj.LoopEndUT = 170;
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            // currentUT = 180 => elapsed from 130 = 50 => cycle 1 (50/50 = 1), cycleTime = 0
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 180, 10,
+            // currentUT = 180 => elapsed from 130 = 50 => cycle 1, cycleTime = 0.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 180, 50,
                 out loopUT, out cycleIndex, out inPause));
             Assert.Equal(1, cycleIndex);
             Assert.False(inPause);
@@ -598,17 +618,17 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_WithLoopRange_PauseWindow()
         {
             var engine = new GhostPlaybackEngine(null);
-            // Full range 100-200, loop range 130-170 (40s), interval 10s, cycleDuration = 50s
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            // Loop range 130-170 (40s duration), #381 period=50 > duration, pause tail 10s.
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(50);
             traj.LoopStartUT = 130;
             traj.LoopEndUT = 170;
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            // currentUT = 175 => elapsed from 130 = 45 => cycle 0 (45/50 = 0), cycleTime = 45
-            // cycleTime (45) > duration (40) => pause window
-            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 175, 10,
+            // currentUT = 175 => elapsed from 130 = 45 => cycle 0, cycleTime = 45.
+            // cycleTime (45) > duration (40) AND period (50) > duration → pause window.
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 175, 50,
                 out loopUT, out cycleIndex, out inPause));
             Assert.Equal(0, cycleIndex);
             Assert.True(inPause);
@@ -619,7 +639,7 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_WithLoopRange_BeforeLoopStart_ReturnsFalse()
         {
             var engine = new GhostPlaybackEngine(null);
-            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(50);
             traj.LoopStartUT = 130;
             traj.LoopEndUT = 170;
 
@@ -627,7 +647,7 @@ namespace Parsek.Tests
             long cycleIndex;
             bool inPause;
             // currentUT = 120 is before loopStart (130)
-            Assert.False(engine.TryComputeLoopPlaybackUT(traj, 120, 10,
+            Assert.False(engine.TryComputeLoopPlaybackUT(traj, 120, 50,
                 out loopUT, out cycleIndex, out inPause));
         }
 

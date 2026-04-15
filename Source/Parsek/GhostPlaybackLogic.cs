@@ -129,6 +129,17 @@ namespace Parsek
             return targetIndex;
         }
 
+        /// <summary>
+        /// Returns true if a recording's loop should dispatch to the multi-cycle overlap
+        /// path. Under the #381 launch-to-launch semantics, overlap is required whenever
+        /// the period (launch-to-launch) is shorter than the recording duration —
+        /// successive launches are still flying when the next one begins.
+        /// </summary>
+        internal static bool IsOverlapLoop(double intervalSeconds, double duration)
+        {
+            return intervalSeconds < duration;
+        }
+
         internal static bool TryComputeLoopPlaybackUT(
             double currentUT, double startUT, double endUT, double intervalSeconds,
             out double loopUT, out long cycleIndex)
@@ -140,16 +151,17 @@ namespace Parsek
             if (duration <= 0 || currentUT < startUT)
                 return false;
 
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= MinCycleDuration)
-                cycleDuration = MinCycleDuration;
+            // #381: intervalSeconds is the launch-to-launch period, not the post-cycle gap.
+            // cycleDuration = period (clamped to MinCycleDuration). Overlap is handled via
+            // IsOverlapLoop dispatch; the pause window only exists when period > duration.
+            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
 
             double elapsed = currentUT - startUT;
             cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             double phase = elapsed - (cycleIndex * cycleDuration);
 
-            // For positive intervals: phase > duration means we're in the pause window
-            if (intervalSeconds >= 0)
+            // Pause window only when the period exceeds the duration (gap between cycles).
+            if (intervalSeconds > duration)
             {
                 const double epsilon = 1e-6;
                 if (phase > duration + epsilon)
@@ -182,8 +194,9 @@ namespace Parsek
 
         /// <summary>
         /// Computes the range of active loop cycles at a given time.
-        /// For positive/zero intervals, firstActiveCycle == lastActiveCycle (no overlap).
-        /// For negative intervals, multiple cycles may be active simultaneously.
+        /// Under #381 launch-to-launch semantics: when period >= duration, only one cycle
+        /// is active at any time (firstActiveCycle == lastActiveCycle). When period &lt; duration,
+        /// multiple cycles may be active simultaneously (overlap).
         /// </summary>
         internal static void GetActiveCycles(
             double currentUT, double startUT, double endUT,
@@ -197,9 +210,7 @@ namespace Parsek
             if (duration <= 0 || currentUT < startUT)
                 return;
 
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < MinCycleDuration)
-                cycleDuration = MinCycleDuration;
+            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
 
             double elapsed = currentUT - startUT;
             lastActiveCycle = (long)Math.Floor(elapsed / cycleDuration);
@@ -223,6 +234,12 @@ namespace Parsek
             if (firstActiveCycle < 0) firstActiveCycle = 0;
         }
 
+        /// <summary>
+        /// Returns the launch-to-launch period in seconds. Non-negative by contract;
+        /// defensively clamped to MinCycleDuration on degenerate input (NaN/inf/&lt;min).
+        /// Under #381 the period is independent of recording duration — overlap emerges
+        /// naturally when period &lt; duration via the IsOverlapLoop dispatch.
+        /// </summary>
         internal static double ResolveLoopInterval(
             IPlaybackTrajectory rec, double globalAutoInterval,
             double defaultInterval, double minCycleDuration)
@@ -241,8 +258,14 @@ namespace Parsek
                     ? defaultInterval : rec.LoopIntervalSeconds;
             }
 
-            double duration = rec.EndUT - rec.StartUT;
-            return Math.Max(-duration + minCycleDuration, interval);
+            if (interval < minCycleDuration)
+            {
+                ParsekLog.Warn("Loop",
+                    $"ResolveLoopInterval: period {interval.ToString("R", CultureInfo.InvariantCulture)}s below MinCycleDuration " +
+                    $"{minCycleDuration.ToString("R", CultureInfo.InvariantCulture)}s for '{rec.VesselName}' — clamping defensively (#381)");
+                return minCycleDuration;
+            }
+            return interval;
         }
 
         /// <summary>
@@ -302,9 +325,16 @@ namespace Parsek
         /// Returns the "loop UT" -- the position within the recording's timeline that
         /// the ghost should be at right now.
         ///
-        /// The loop cycles continuously: recording plays from StartUT to EndUT,
-        /// then pauses for intervalSeconds, then repeats. Given any currentUT,
-        /// this method returns which point in the recording the ghost should show.
+        /// Under #381 launch-to-launch semantics: cycles repeat every <paramref name="intervalSeconds"/>
+        /// (the period). When period &gt; duration there is a pause window at the tail. When
+        /// period &lt;= duration cycles are back-to-back or overlap and there is no pause.
+        ///
+        /// NOTE: this is a *phase* helper — it does not own the overlap dispatch. Callers that
+        /// need overlap (multiple simultaneous ghosts) should consult IsOverlapLoop and use
+        /// GetActiveCycles. This helper collapses the question "where would a single ghost be".
+        /// Pre-#381 code treated negative intervals as zero-pause / continuous playback; under
+        /// the new contract negative values are clamped to MinCycleDuration (extreme overlap),
+        /// consistent with ResolveLoopInterval / TryComputeLoopPlaybackUT.
         ///
         /// Returns (loopUT, cycleIndex, isInPause):
         ///   loopUT: the UT within [StartUT, EndUT] to position the ghost at
@@ -331,12 +361,8 @@ namespace Parsek
                 return (recordingStartUT, 0, false);
             }
 
-            double cycleDuration = duration + Math.Max(0, intervalSeconds);
-            if (cycleDuration <= 0)
-            {
-                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: zero/negative cycleDuration={cycleDuration:R}, returning startUT");
-                return (recordingStartUT, 0, false);
-            }
+            // #381: period = intervalSeconds (launch-to-launch). Defensively clamp to MinCycleDuration.
+            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
 
             double elapsed = currentUT - recordingStartUT;
 
@@ -352,7 +378,7 @@ namespace Parsek
             }
             else
             {
-                // In the pause interval between cycles
+                // In the pause interval between cycles (only reachable when period > duration).
                 // Ghost should be at the end position (or hidden)
                 ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={recordingEndUT:R}, isInPause=true (phase={phaseInCycle:R}/{duration:R})");
                 return (recordingEndUT, cycleIndex, true);

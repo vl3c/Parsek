@@ -97,17 +97,27 @@ namespace Parsek
 
         private void CommitAutoLoopEdit(ParsekSettings s)
         {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             double parsed;
             if (ParsekUI.TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
             {
-                s.autoLoopIntervalSeconds = (float)ParsekUI.ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
+                double newSeconds = ParsekUI.ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
+                // #381: defensively clamp to MinCycleDuration — matches per-recording UI.
+                if (newSeconds < GhostPlaybackLogic.MinCycleDuration)
+                {
+                    ParsekLog.Info("UI",
+                        $"Auto-launch period clamped from {newSeconds.ToString("F1", ic)}s to " +
+                        $"{GhostPlaybackLogic.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
+                    newSeconds = GhostPlaybackLogic.MinCycleDuration;
+                }
+                s.autoLoopIntervalSeconds = (float)newSeconds;
                 ParsekLog.Info("UI",
-                    $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s");
+                    $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", ic)}s");
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Auto-loop settings edit rejected: invalid or negative input '{settingsAutoLoopText}' " +
+                    $"Auto-launch period edit rejected: invalid or negative input '{settingsAutoLoopText}' " +
                     $"for unit {ParsekUI.UnitLabel(s.AutoLoopDisplayUnit)}");
             }
             settingsAutoLoopEditing = false;
@@ -268,8 +278,8 @@ namespace Parsek
         {
             GUILayout.Label("Looping", GUI.skin.box);
             GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Auto-loop every",
-                "Default loop interval for recordings set to 'auto' unit"), GUILayout.Width(100));
+            GUILayout.Label(new GUIContent("Auto-launch every",
+                "Default launch-to-launch period (seconds) for recordings set to 'auto' unit. Overlap occurs naturally when the period is shorter than the recording duration."), GUILayout.Width(100));
             {
                 if (!settingsAutoLoopEditing)
                 {

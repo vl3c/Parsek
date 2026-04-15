@@ -220,8 +220,9 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopUT_AtExactStart_ReturnsTrue()
         {
+            // #381: period=110 > duration=100 (single-ghost loop with 10s pause tail).
             var rec = MakeKerbinRecording(startUT: 100, endUT: 200, loopPlayback: true,
-                loopInterval: 10.0);
+                loopInterval: 110.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
@@ -239,7 +240,7 @@ namespace Parsek.Tests
         public void TryComputeLoopUT_WithinFirstCycle_ReturnsCorrectUT()
         {
             var rec = MakeKerbinRecording(
-                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 110.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
@@ -256,10 +257,10 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopUT_InPauseWindow_SetsFlag()
         {
-            // Recording: UT 100-200 (duration=100), interval=10
-            // Cycle duration = 110. At UT 205, elapsed=105, cycle=0, cycleTime=105 > 100
+            // #381: duration=100, period=110 → cycleDuration=110.
+            // At UT 205, elapsed=105, cycle=0, cycleTime=105 > duration=100 → pause window.
             var rec = MakeKerbinRecording(
-                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 110.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
@@ -276,10 +277,10 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopUT_SecondCycle_ReturnsCorrectCycleIndex()
         {
-            // Recording: UT 100-200 (duration=100), interval=10
-            // Cycle duration = 110. At UT 215, elapsed=115, cycle=1, cycleTime=5
+            // #381: duration=100, period=110 → cycleDuration=110.
+            // At UT 215, elapsed=115, cycle=1, cycleTime=5.
             var rec = MakeKerbinRecording(
-                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 110.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
@@ -327,35 +328,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryComputeLoopUT_ZeroInterval_NoGap()
+        public void TryComputeLoopUT_ZeroInterval_ClampsAndCycles()
         {
+            // #381: period=0 clamps to MinCycleDuration=1. duration=100.
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 0.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
 
-            // At UT 250: elapsed=150, cycleDuration=100, cycle=1, cycleTime=50
+            // At UT 250: elapsed=150, cycleDuration=1, cycle=150, cycleTime=0.
             bool result = ParsekKSC.TryComputeLoopUT(rec, 250,
                 out loopUT, out cycleIndex, out inPauseWindow);
 
             Assert.True(result);
-            Assert.Equal(1, cycleIndex);
+            Assert.Equal(150, cycleIndex);
             Assert.False(inPauseWindow);
-            Assert.Equal(150, loopUT, 3);
+            Assert.Equal(100, loopUT, 3);
         }
 
         [Fact]
         public void TryComputeLoopUT_LargeCycleJump_NoOverflow()
         {
-            // Simulate time warp: currentUT far ahead produces large cycleIndex
+            // Simulate time warp: currentUT far ahead produces large cycleIndex.
+            // #381: period=110 > duration → single-ghost path.
             var rec = MakeKerbinRecording(
-                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 110.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
 
-            // At UT 11100: elapsed=11000, cycleDuration=110, cycle=100
+            // At UT 11100: elapsed=11000, cycleDuration=110, cycle=100, phase=0.
             bool result = ParsekKSC.TryComputeLoopUT(rec, 11100,
                 out loopUT, out cycleIndex, out inPauseWindow);
 
@@ -367,15 +370,15 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopUT_AtEndOfCycle_NotInPauseWindow()
         {
-            // At exactly EndUT within a cycle (cycleTime == duration), should NOT be in pause
+            // #381: At exactly EndUT within a cycle (cycleTime == duration), should NOT be in pause.
             var rec = MakeKerbinRecording(
-                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 110.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
 
-            // At UT 200: elapsed=100, cycle=0, cycleTime=100 == duration
-            // intervalSeconds > 0 && cycleTime > duration? 100 > 100 is false → not in pause
+            // At UT 200: elapsed=100, cycle=0, cycleTime=100 == duration.
+            // cycleTime > duration is false → not in pause.
             bool result = ParsekKSC.TryComputeLoopUT(rec, 200,
                 out loopUT, out cycleIndex, out inPauseWindow);
 
@@ -414,22 +417,19 @@ namespace Parsek.Tests
         [Fact]
         public void GetLoopIntervalSeconds_NegativeValue_ClampedToMinCycleDuration()
         {
-            // Negative intervals shorten cycle duration. Clamped so cycleDuration >= MinCycleDuration.
-            // duration = 200-100 = 100, interval = -50 → returned as -50 (cycleDuration = 50)
+            // #381: negative intervals are no longer allowed — clamp defensively to MinCycleDuration.
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = -50.0;
-            Assert.Equal(-50.0, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(GhostPlaybackLogic.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
-        public void GetLoopIntervalSeconds_VeryNegativeValue_ClampedToPreventZeroCycle()
+        public void GetLoopIntervalSeconds_VeryNegativeValue_ClampedToMinCycleDuration()
         {
-            // duration = 100, interval = -200 → clamped to -100 + epsilon = -99.999
+            // #381: clamp applies regardless of magnitude.
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = -200.0;
-            double result = ParsekKSC.GetLoopIntervalSeconds(rec);
-            // cycleDuration = 100 + result should be >= MinCycleDuration (0.001)
-            Assert.True(100.0 + result >= 0.001);
+            Assert.Equal(GhostPlaybackLogic.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
@@ -441,36 +441,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetLoopIntervalSeconds_Zero_ReturnsZero()
+        public void GetLoopIntervalSeconds_Zero_ClampsToMinCycleDuration()
         {
+            // #381: zero is also below MinCycleDuration.
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = 0.0;
-            Assert.Equal(0.0, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(GhostPlaybackLogic.MinCycleDuration, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         #endregion
 
-        #region TryComputeLoopUT with negative interval (clamped to 0)
+        #region TryComputeLoopUT with #381 period semantics
 
         [Fact]
-        public void TryComputeLoopUT_NegativeInterval_ShorterCycles()
+        public void TryComputeLoopUT_PeriodShorterThanDuration_Overlaps()
         {
-            // Negative interval = -30 → cycleDuration = 100 + (-30) = 70
-            // Shorter cycles = more frequent relaunches (overlap-style)
+            // #381: period=30 < duration=100 → cycleDuration=30 (overlap via single-ghost math).
+            var rec = MakeKerbinRecording(
+                startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 30.0);
+            double loopUT;
+            long cycleIndex;
+            bool inPauseWindow;
+
+            // At UT 160: elapsed=60, cycleDuration=30, cycle=2, cycleTime=0.
+            bool result = ParsekKSC.TryComputeLoopUT(rec, 160,
+                out loopUT, out cycleIndex, out inPauseWindow);
+
+            Assert.True(result);
+            Assert.Equal(2, cycleIndex);
+            Assert.False(inPauseWindow);
+            Assert.Equal(100, loopUT, 3);
+        }
+
+        [Fact]
+        public void TryComputeLoopUT_NegativeInterval_ClampsDefensively_NoThrow()
+        {
+            // #381: negative intervals are rejected at UI; engine clamps defensively to
+            // MinCycleDuration=1. Must not throw.
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: -30.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
 
-            // At UT 250: elapsed=150, cycleDuration=70, cycle=2, cycleTime=150-140=10
+            // Clamped period=1, duration=100. At UT 250, elapsed=150, cycle=150, phase=0.
             bool result = ParsekKSC.TryComputeLoopUT(rec, 250,
                 out loopUT, out cycleIndex, out inPauseWindow);
 
             Assert.True(result);
-            Assert.Equal(2, cycleIndex);
             Assert.False(inPauseWindow);
-            Assert.Equal(110, loopUT, 3); // 100 + 10
+            Assert.Equal(150, cycleIndex);
+            Assert.Equal(100, loopUT, 3);
         }
 
         #endregion

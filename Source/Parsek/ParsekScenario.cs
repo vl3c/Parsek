@@ -2663,7 +2663,19 @@ namespace Parsek
             {
                 double loopIntervalSeconds;
                 if (double.TryParse(loopIntervalStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopIntervalSeconds))
+                {
                     rec.LoopIntervalSeconds = loopIntervalSeconds;
+                    // #381: pre-fix saves may have negative intervals (old "gap after cycle"
+                    // semantics). The engine defensively clamps these at resolve time; warn
+                    // once on load so users can re-enter their intended period.
+                    if (loopIntervalSeconds < 0)
+                    {
+                        ParsekLog.Warn("Loop",
+                            $"ParsekScenario: loaded recording '{rec.VesselName}' with negative " +
+                            $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} (pre-#381 save). " +
+                            "Defensive clamp will apply at playback; consider re-entering the period in the UI.");
+                    }
+                }
             }
 
             string loopTimeUnitStr = recNode.GetValue("loopTimeUnit");

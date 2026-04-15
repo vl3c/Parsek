@@ -169,21 +169,21 @@ namespace Parsek
                     continue;
                 }
 
-                // Branch: looping recordings check interval sign for overlap support
+                // Branch: looping recordings — #381 dispatch on period < duration (overlap).
                 if (rec.LoopPlayback)
                 {
                     double duration = rec.EndUT - rec.StartUT;
                     if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) continue;
 
                     double intervalSeconds = GetLoopIntervalSeconds(rec);
-                    if (intervalSeconds < 0)
+                    if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
                     {
-                        // Negative interval: multi-ghost overlap path
+                        // Period < duration: successive launches overlap, multi-ghost path.
                         UpdateOverlapKsc(i, rec, currentUT, intervalSeconds, duration, suppressVisualFx);
                         continue;
                     }
 
-                    // Positive/zero interval: single-ghost path — clean up any leftover overlaps
+                    // Period >= duration: single-ghost path — clean up any leftover overlaps
                     DestroyAllKscOverlapGhosts(i);
 
                     double targetUT;
@@ -331,8 +331,8 @@ namespace Parsek
                 return;
             }
 
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration) cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+            // #381: cycleDuration = launch-to-launch period (clamped).
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
@@ -704,16 +704,17 @@ namespace Parsek
             if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(rec);
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                cycleDuration = duration;
+            // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
+            // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             double elapsed = currentUT - loopStart;
             cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            if (intervalSeconds > 0 && cycleTime > duration)
+            // Pause window only when period strictly exceeds duration.
+            if (intervalSeconds > duration && cycleTime > duration)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;
@@ -725,9 +726,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Get the loop interval for a recording. Matches ParsekFlight logic:
-        /// clamped so cycleDuration is always >= GhostPlaybackLogic.MinCycleDuration.
-        /// Negative intervals mean shorter cycles (overlapping launches from KSC).
+        /// Get the loop interval for a recording. Returns the launch-to-launch period
+        /// in seconds (#381) — always &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// Overlap emerges when period &lt; recording duration (see IsOverlapLoop).
         /// </summary>
         internal static double GetLoopIntervalSeconds(Recording rec)
         {

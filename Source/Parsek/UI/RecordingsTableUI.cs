@@ -583,8 +583,8 @@ namespace Parsek
 
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
             GUILayout.FlexibleSpace();
-            GUILayout.Label(new GUIContent("Every",
-                "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
+            GUILayout.Label(new GUIContent("Period",
+                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -3005,31 +3005,43 @@ namespace Parsek
         {
             if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
             var rec = committed[loopPeriodFocusedRi];
-            double dur = rec.EndUT - rec.StartUT;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             double parsed;
             if (ParsekUI.TryParseLoopInput(loopPeriodEditText, rec.LoopTimeUnit, out parsed))
             {
                 double newSeconds = ParsekUI.ConvertToSeconds(parsed, rec.LoopTimeUnit);
-                double minSeconds = -(dur - 1.0); // cap: -totalDuration + 1s
-                if (newSeconds < minSeconds)
+                // #381: period is launch-to-launch; negatives are rejected outright.
+                if (newSeconds < 0)
                 {
-                    newSeconds = minSeconds;
-                    ParsekLog.Info("UI",
-                        $"Recording '{rec.VesselName}' loop interval clamped to " +
-                        $"{newSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s " +
-                        $"(minimum for duration {dur.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s)");
+                    ParsekLog.Warn("UI",
+                        $"Recording '{rec.VesselName}' loop period edit rejected: " +
+                        $"negative value {newSeconds.ToString("F1", ic)}s " +
+                        "(period must be >= 0 under launch-to-launch semantics #381)");
                 }
-                rec.LoopIntervalSeconds = newSeconds;
-                ParsekLog.Info("UI",
-                    $"Recording '{rec.VesselName}' loop interval updated to " +
-                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) +
-                    $"s (display: {ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
-                    $"{ParsekUI.UnitLabel(rec.LoopTimeUnit)})");
+                else
+                {
+                    // Defensively clamp below-minimum to MinCycleDuration.
+                    if (newSeconds < GhostPlaybackLogic.MinCycleDuration)
+                    {
+                        ParsekLog.Info("UI",
+                            $"Recording '{rec.VesselName}' loop period clamped from " +
+                            $"{newSeconds.ToString("F1", ic)}s to " +
+                            $"{GhostPlaybackLogic.MinCycleDuration.ToString("F1", ic)}s " +
+                            "(MinCycleDuration)");
+                        newSeconds = GhostPlaybackLogic.MinCycleDuration;
+                    }
+                    rec.LoopIntervalSeconds = newSeconds;
+                    ParsekLog.Info("UI",
+                        $"Recording '{rec.VesselName}' loop period updated to " +
+                        rec.LoopIntervalSeconds.ToString("F1", ic) +
+                        $"s (display: {ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
+                        $"{ParsekUI.UnitLabel(rec.LoopTimeUnit)})");
+                }
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Recording '{rec.VesselName}' loop interval edit rejected: " +
+                    $"Recording '{rec.VesselName}' loop period edit rejected: " +
                     $"invalid input '{loopPeriodEditText}' for unit {rec.LoopTimeUnit}");
             }
             loopPeriodFocusedRi = -1;

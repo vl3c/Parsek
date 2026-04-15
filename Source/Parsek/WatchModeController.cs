@@ -1344,7 +1344,11 @@ namespace Parsek
             double loopIntervalSeconds = shouldLoopPlayback
                 ? host.GetLoopIntervalSecondsForWatch(rec)
                 : 0.0;
-            bool usesOverlapLooping = shouldLoopPlayback && loopIntervalSeconds < 0;
+            // #381: overlap dispatch is period < duration, not interval < 0.
+            double watchRecDuration = GhostPlaybackEngine.EffectiveLoopEndUT(rec)
+                - GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            bool usesOverlapLooping = shouldLoopPlayback
+                && GhostPlaybackLogic.IsOverlapLoop(loopIntervalSeconds, watchRecDuration);
             bool resetLoopPhaseForWatch = currentState.currentZone == RenderingZone.Beyond
                 && shouldLoopPlayback
                 && !usesOverlapLooping;
@@ -1475,9 +1479,8 @@ namespace Parsek
             double loopEndUT = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
             double duration = loopEndUT - loopStartUT;
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                cycleDuration = duration;
+            // #381: cycleDuration = launch-to-launch period (clamped). Dead-code fallback removed.
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             var loopPhaseOffsets = host.Engine.loopPhaseOffsets;
 
@@ -2586,21 +2589,21 @@ namespace Parsek
                 return fallbackUT;
 
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
-            if (intervalSeconds < 0)
+            double resolveDuration = rec.EndUT - rec.StartUT;
+            // #381: overlap dispatch is period < duration.
+            if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, resolveDuration))
             {
                 if (currentState == null || currentState.loopCycleIndex < 0)
                     return fallbackUT;
 
-                double duration = rec.EndUT - rec.StartUT;
-                if (duration <= GhostPlaybackLogic.MinCycleDuration)
+                if (resolveDuration <= GhostPlaybackLogic.MinCycleDuration)
                     return fallbackUT;
 
-                double cycleDuration = duration + intervalSeconds;
-                if (cycleDuration < GhostPlaybackLogic.MinCycleDuration)
-                    cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+                // #381: cycleDuration = launch-to-launch period (clamped).
+                double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
                 double cycleStartUT = rec.StartUT + currentState.loopCycleIndex * cycleDuration;
-                double phase = Math.Max(0, Math.Min(Planetarium.GetUniversalTime() - cycleStartUT, duration));
+                double phase = Math.Max(0, Math.Min(Planetarium.GetUniversalTime() - cycleStartUT, resolveDuration));
                 return rec.StartUT + phase;
             }
 

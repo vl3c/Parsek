@@ -736,15 +736,16 @@ namespace Parsek
                 return;
             }
 
-            // For negative intervals: use multi-cycle overlap path
-            if (intervalSeconds < 0)
+            // #381: If the period is shorter than the recording duration, successive
+            // launches overlap — use multi-cycle path.
+            if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
             {
                 UpdateOverlapPlayback(index, traj, flags, ctx, state,
                     intervalSeconds, duration, suppressVisualFx);
                 return;
             }
 
-            // --- Positive/zero interval: single ghost path (no overlap) ---
+            // --- Period >= duration: single ghost path (pause window may apply) ---
             DestroyAllOverlapGhosts(index);
             double loopUT;
             long cycleIndex;
@@ -899,9 +900,8 @@ namespace Parsek
                 return;
             }
 
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration)
-                cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+            // #381: cycleDuration = launch-to-launch period (clamped).
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, traj.EndUT, intervalSeconds,
@@ -1278,9 +1278,9 @@ namespace Parsek
             if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                cycleDuration = duration;
+            // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
+            // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             double elapsed = currentUT - loopStart;
 
@@ -1296,7 +1296,8 @@ namespace Parsek
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            if (intervalSeconds > 0 && cycleTime > duration)
+            // Pause window only exists when period strictly exceeds duration (there's a gap).
+            if (intervalSeconds > duration && cycleTime > duration)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;

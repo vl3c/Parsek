@@ -54,7 +54,8 @@ namespace Parsek
             if (!double.IsNaN(b.LoopStartUT) || !double.IsNaN(b.LoopEndUT)) return false;
             if (!a.PlaybackEnabled || !b.PlaybackEnabled) return false;
             if (a.Hidden || b.Hidden) return false;
-            if (a.LoopIntervalSeconds != 10.0 || b.LoopIntervalSeconds != 10.0) return false;
+            if (a.LoopIntervalSeconds != GhostPlaybackLogic.DefaultLoopIntervalSeconds
+                || b.LoopIntervalSeconds != GhostPlaybackLogic.DefaultLoopIntervalSeconds) return false;
             if (a.LoopAnchorVesselId != 0 || b.LoopAnchorVesselId != 0) return false;
 
             // Different recording groups = user organized them differently

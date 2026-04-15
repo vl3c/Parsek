@@ -983,7 +983,7 @@ Start with option 1. Dictionary keyed by group name → last-entered `RecordingI
 
 ---
 
-## 381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period
+## ~~381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period~~
 
 **Source:** maintenance request `2026-04-14`. The current "Loop every" field accepts negative values, which is confusing and only makes sense under the current end-to-start model.
 
@@ -1013,7 +1013,20 @@ The issue: recording duration is variable (a KSC Hopper is 30s, a Mun landing is
 - Tests covering `ResolveLoopInterval` and loop UT computation
 - `CHANGELOG.md` (behavior change notice) and this entry on completion
 
-**Status:** TODO. Design change, not a bug. Requires one-pass coordinated edit across engine + UI + migration decision. Size: M.
+**Status:** ~~TODO~~ DONE (branch `fix/381-launch-to-launch`, 2026-04-15).
+
+**Fix:** Reinterpreted `LoopIntervalSeconds` as the launch-to-launch period.
+
+- Core math: `cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration)` everywhere. The `duration + intervalSeconds` formula is gone.
+- Overlap dispatch: new helper `GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration) => intervalSeconds < duration`. Replaces `intervalSeconds < 0` checks in `GhostPlaybackEngine.UpdateLoopingPlayback`, `ParsekKSC.UpdateKscGhosts`, and `WatchModeController.TryStartWatchSession` + `ResolveWatchPlaybackUT`.
+- Pause window: `intervalSeconds > duration && cycleTime > duration` (was `intervalSeconds >= 0` or `> 0`). When period equals duration, cycles are back-to-back with no pause. When period is shorter, overlap handles it.
+- `ResolveLoopInterval` defensively clamps all values below `MinCycleDuration` to `MinCycleDuration` and emits `ParsekLog.Warn("Loop", ...)`. The old `Math.Max(-duration + minCycleDuration, interval)` formula is gone — `duration` is no longer a parameter to clamp against.
+- Dead-code fallback `if (cycleDuration <= MinLoopDurationSeconds) cycleDuration = duration;` deleted from `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (~line 1282), `ParsekKSC.TryComputeLoopUT` (~line 708), and `WatchModeController.ResetLoopPhaseForWatch` (~line 1479). Under `Math.Max` it's unreachable.
+- UI: column header in `RecordingsTableUI.cs` renamed from "Every" to "Period" with a tooltip describing launch-to-launch semantics. Negative values rejected outright in `CommitLoopPeriodEdit`; positive-but-below-min clamped with an info log. Settings window label "Auto-loop every" → "Auto-launch every" with a new tooltip; `CommitAutoLoopEdit` also clamps to `MinCycleDuration`.
+- `ComputeLoopPhaseFromUT` doc comment notes the semantic shift: negative intervals no longer mean zero-pause / continuous playback; they clamp to `MinCycleDuration=1` (extreme overlap). Phase helper does not own the overlap dispatch — callers consult `IsOverlapLoop`.
+- Migration: no per-recording migration. Default `10.0` is unaffected. Pre-#381 saves with negative values are defensively clamped at playback time; load-time warn in both `RecordingTree.Load` (~line 696) and `ParsekScenario.LoadRecordingMetadata` (~line 2666) surfaces the issue so users can re-enter the intended period.
+- Docstrings added to `Recording.LoopIntervalSeconds` and `ParsekSettings.autoLoopIntervalSeconds`. `RecordingOptimizer.CanMerge` no longer hardcodes `10.0` — uses `GhostPlaybackLogic.DefaultLoopIntervalSeconds`.
+- Tests: `AutoLoopTests` rewrote `ResolveLoopInterval_ManualMode_NegativePreserved` → `_NegativeClampsToMin` with log assertion, added `_BelowMin_Clamps` / `_Zero_Clamps` / `_AutoMode_Independent_Of_Duration` / `_AutoMode_NegativeGlobal_ClampsToMin` / `_PeriodShorterThanDuration_Preserved`. `LoopPhaseTests` rewrote the whole `ComputeLoopPhaseFromUT_Tests` class under #381 semantics plus added `PeriodShorter` / `PeriodEqual` / `PeriodGreater` and `ZeroInterval_ClampsToMin` / `NegativeInterval_ClampsToMin`. `GhostPlaybackEngineTests` rewrote the `TryComputeLoopPlaybackUT_*` block to use period=110 > duration=100 for single-ghost/pause scenarios, added `_PeriodLongerThanDuration_HasPauseWindow`, `_PeriodEqualsDuration_NoPauseWindow`, `_PeriodShorterThanDuration_OverlapCycles`, `_NegativeInterval_DefensivelyClamped_NoThrow`; loop-range tests now use interval=50 with a 40s range. `KscGhostPlaybackTests` rewrote `TryComputeLoopUT_*` and `GetLoopIntervalSeconds_*` tests — zero/negative intervals now assert clamping to `MinCycleDuration`, added `TryComputeLoopUT_PeriodShorterThanDuration_Overlaps` and `_NegativeInterval_ClampsDefensively_NoThrow`. `RuntimePolicyTests` rewrote 7 `NegativeInterval_*` tests as `PeriodShorter_*` / `ShortPeriod_*` plus updated the `TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows` theory to use period=30 with duration=20. `BugFixTests.Bug84_LoopPhaseOverflowTests.ComputeLoopPhaseFromUT_LargeElapsed_NoOverflow` and `.TryComputeLoopPlaybackUT_LargeElapsed_NoOverflow` rewritten to use period=1s with 3e9/5e9 elapsed seconds (matching the new `MinCycleDuration` floor). `AnchorLifecycleTests.AnchorLoaded_PhaseComputed_AtMidCycle` and `.AnchorReloaded_PhaseRecomputed_NotFromStart` updated to use period=110. Total: 6208 passing (1 pre-existing Unity-runtime skip: `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`).
 
 ---
 
