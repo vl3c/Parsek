@@ -69,7 +69,9 @@ namespace Parsek.Tests
         {
             OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
                 hasPendingBridge: true,
-                primaryReady: false);
+                primaryReady: false,
+                bridgeWaitFrames: 1,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.KeepBridge, state);
         }
@@ -79,7 +81,9 @@ namespace Parsek.Tests
         {
             OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
                 hasPendingBridge: true,
-                primaryReady: true);
+                primaryReady: true,
+                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.RetargetToPrimary, state);
         }
@@ -89,9 +93,23 @@ namespace Parsek.Tests
         {
             OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
                 hasPendingBridge: false,
-                primaryReady: true);
+                primaryReady: true,
+                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
 
             Assert.Equal(OverlapBridgeRetargetState.None, state);
+        }
+
+        [Fact]
+        public void ResolveOverlapBridgeRetargetState_PendingWithoutPrimaryPastBudget_ExitsWatch()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: true,
+                primaryReady: false,
+                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+
+            Assert.Equal(OverlapBridgeRetargetState.ExitWatch, state);
         }
 
         [Fact]

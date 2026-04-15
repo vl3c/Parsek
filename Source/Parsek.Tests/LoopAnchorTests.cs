@@ -291,6 +291,7 @@ namespace Parsek.Tests
                 {
                     RecordingId = "legacy-tree-sidecar",
                     VesselName = "LegacyTreeSidecar",
+                    RecordingFormatVersion = 3,
                     ExplicitStartUT = 0.0,
                     ExplicitEndUT = 300.0
                 };
@@ -356,6 +357,7 @@ namespace Parsek.Tests
                 {
                     RecordingId = "legacy-tree-positive-sidecar",
                     VesselName = "LegacyTreePositiveSidecar",
+                    RecordingFormatVersion = 3,
                     ExplicitStartUT = 0.0,
                     ExplicitEndUT = 300.0
                 };
@@ -400,9 +402,14 @@ namespace Parsek.Tests
                     RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
                     roundTripNode.GetValue("recordingFormatVersion"));
 
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    loaded, precPath, vesselPath, ghostPath, incrementEpoch: false));
+
                 logLines.Clear();
                 var reloaded = new Recording();
                 RecordingTree.LoadRecordingFrom(roundTripNode, reloaded);
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    reloaded, precPath, vesselPath, ghostPath));
                 Assert.Equal(110.0, reloaded.LoopIntervalSeconds);
                 Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, reloaded.RecordingFormatVersion);
                 Assert.DoesNotContain(logLines, line => line.Contains("migrated recording 'LegacyTreePositiveSidecar'"));

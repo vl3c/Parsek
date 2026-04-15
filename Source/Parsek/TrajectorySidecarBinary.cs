@@ -29,7 +29,8 @@ namespace Parsek
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKB");
         private const int LegacyBinaryVersion = 2;
-        private const int CurrentBinaryVersion = 3;
+        private const int SparsePointBinaryVersion = 3;
+        private const int CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
         private const byte SparsePointListFlagBodyDefault = 1 << 1;
@@ -99,7 +100,9 @@ namespace Parsek
                 probe.FormatVersion = formatVersion;
                 probe.SidecarEpoch = sidecarEpoch;
                 probe.RecordingId = recordingId;
-                probe.Supported = formatVersion == LegacyBinaryVersion || formatVersion == CurrentBinaryVersion;
+                probe.Supported = formatVersion == LegacyBinaryVersion
+                    || formatVersion == SparsePointBinaryVersion
+                    || formatVersion == CurrentBinaryVersion;
                 probe.FailureReason = probe.Supported
                     ? null
                     : $"unsupported binary trajectory version {formatVersion}";
@@ -116,7 +119,9 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
-                : LegacyBinaryVersion;
+                : rec.RecordingFormatVersion >= SparsePointBinaryVersion
+                    ? SparsePointBinaryVersion
+                    : LegacyBinaryVersion;
             SparsePointWriteStats stats = default(SparsePointWriteStats);
 
             using (var stream = new MemoryStream())
@@ -293,7 +298,7 @@ namespace Parsek
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
         {
-            return version >= CurrentBinaryVersion
+            return version >= SparsePointBinaryVersion
                 ? TrajectorySidecarEncoding.BinaryV3
                 : TrajectorySidecarEncoding.BinaryV2;
         }
@@ -304,7 +309,7 @@ namespace Parsek
             if (points == null || points.Count == 0)
                 return;
 
-            if (binaryVersion >= CurrentBinaryVersion)
+            if (binaryVersion >= SparsePointBinaryVersion)
             {
                 WriteSparsePointList(writer, points, table, ref stats);
                 return;
@@ -320,7 +325,7 @@ namespace Parsek
             if (count == 0)
                 return;
 
-            if (binaryVersion >= CurrentBinaryVersion)
+            if (binaryVersion >= SparsePointBinaryVersion)
             {
                 ReadSparsePointList(reader, points, stringTable, count, ref stats);
                 return;

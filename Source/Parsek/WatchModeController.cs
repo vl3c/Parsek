@@ -19,6 +19,7 @@ namespace Parsek
         None = 0,
         KeepBridge = 1,
         RetargetToPrimary = 2,
+        ExitWatch = 3,
     }
 
     internal struct WatchCameraTransitionState
@@ -53,6 +54,7 @@ namespace Parsek
         internal const float DefaultWatchEntryDistance = 50f;
         internal const float DefaultWatchEntryPitch = 12f;
         internal const float DefaultWatchEntryHeading = 0f;
+        internal const int MaxPendingOverlapBridgeFrames = 3;
         internal static Func<float> RealtimeNow = GetRealtimeSafe;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
         internal static Func<float> CurrentWarpRateNow = GetCurrentWarpRateSafe;
@@ -660,6 +662,7 @@ namespace Parsek
                     // a null target and snaps back to the active vessel.
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
+                    watchNoTargetFrames = 0;
                     DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekLoopCameraBridge");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
@@ -703,6 +706,7 @@ namespace Parsek
                 case CameraActionType.ExplosionHoldStart:
                     overlapRetargetAfterUT = evt.HoldUntilUT;
                     watchedOverlapCycleIndex = -2;
+                    watchNoTargetFrames = 0;
                     DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraAnchor");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
@@ -715,6 +719,7 @@ namespace Parsek
                 case CameraActionType.ExplosionHoldEnd:
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
+                    watchNoTargetFrames = 0;
                     DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraBridge");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
@@ -2558,14 +2563,20 @@ namespace Parsek
 
         internal static OverlapBridgeRetargetState ResolveOverlapBridgeRetargetState(
             bool hasPendingBridge,
-            bool primaryReady)
+            bool primaryReady,
+            int bridgeWaitFrames,
+            int maxBridgeWaitFrames)
         {
             if (!hasPendingBridge)
                 return OverlapBridgeRetargetState.None;
 
-            return primaryReady
-                ? OverlapBridgeRetargetState.RetargetToPrimary
-                : OverlapBridgeRetargetState.KeepBridge;
+            if (primaryReady)
+                return OverlapBridgeRetargetState.RetargetToPrimary;
+
+            if (bridgeWaitFrames >= maxBridgeWaitFrames)
+                return OverlapBridgeRetargetState.ExitWatch;
+
+            return OverlapBridgeRetargetState.KeepBridge;
         }
 
         private bool TryResolveOverlapBridgeRetarget()
@@ -2583,11 +2594,24 @@ namespace Parsek
             bool canRetargetToPrimary = primaryReady && primary != null
                 && IsUnityObjectAvailable(primary.ghost)
                 && IsUnityObjectAvailable(primary.cameraPivot);
+            int bridgeWaitFrames = hasPendingBridge ? watchNoTargetFrames + 1 : 0;
             OverlapBridgeRetargetState bridgeState = ResolveOverlapBridgeRetargetState(
                 hasPendingBridge,
-                canRetargetToPrimary);
+                canRetargetToPrimary,
+                bridgeWaitFrames,
+                MaxPendingOverlapBridgeFrames);
             if (bridgeState == OverlapBridgeRetargetState.None)
                 return false;
+
+            if (bridgeState == OverlapBridgeRetargetState.ExitWatch)
+            {
+                watchNoTargetFrames = bridgeWaitFrames;
+                ParsekLog.Info("CameraFollow",
+                    $"Overlap: bridge expired for #{watchedRecordingIndex} after {bridgeWaitFrames} frames without a primary ghost");
+                DestroyOverlapCameraAnchor();
+                ExitWatchModePreservingLineage();
+                return true;
+            }
 
             if (bridgeState == OverlapBridgeRetargetState.RetargetToPrimary)
             {
@@ -2636,7 +2660,7 @@ namespace Parsek
                 }
             }
 
-            watchNoTargetFrames = 0;
+            watchNoTargetFrames = bridgeWaitFrames;
             return true;
         }
 
