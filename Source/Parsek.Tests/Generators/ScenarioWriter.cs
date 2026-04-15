@@ -15,6 +15,8 @@ namespace Parsek.Tests.Generators
         private readonly List<Milestone> milestones = new List<Milestone>();
         private readonly List<GameStateEvent> gameStateEvents = new List<GameStateEvent>();
         private readonly List<ConfigNode> rawMilestoneStates = new List<ConfigNode>();
+        private readonly List<(string child, string parent)> groupHierarchyEntries
+            = new List<(string, string)>();
         private uint milestoneEpoch;
         private bool useV3Format;
 
@@ -120,6 +122,14 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public ScenarioWriter AddGroupHierarchyEntry(string child, string parent)
+        {
+            if (string.IsNullOrEmpty(child) || string.IsNullOrEmpty(parent))
+                return this;
+            groupHierarchyEntries.Add((child, parent));
+            return this;
+        }
+
         internal ScenarioWriter AddMilestone(Milestone milestone)
         {
             milestones.Add(milestone);
@@ -168,6 +178,17 @@ namespace Parsek.Tests.Generators
 
             foreach (var rawMs in rawMilestoneStates)
                 node.AddNode("MILESTONE_STATE", rawMs);
+
+            if (groupHierarchyEntries.Count > 0)
+            {
+                var hierarchyNode = node.AddNode("GROUP_HIERARCHY");
+                foreach (var (child, parent) in groupHierarchyEntries)
+                {
+                    var entry = hierarchyNode.AddNode("ENTRY");
+                    entry.AddValue("child", child);
+                    entry.AddValue("parent", parent);
+                }
+            }
 
             return node;
         }

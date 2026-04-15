@@ -6017,6 +6017,20 @@ namespace Parsek.Tests
                 allRecordings.AddRange(treeNodes[i].GetNodes("RECORDING"));
             }
 
+            // Forward group hierarchy entries from the real career (e.g.,
+            // "Learstar A1 / Debris" nested under "Learstar A1" — #384).
+            var hierarchyNodes = scenarioNode.GetNodes("GROUP_HIERARCHY");
+            for (int i = 0; i < hierarchyNodes.Length; i++)
+            {
+                var entries = hierarchyNodes[i].GetNodes("ENTRY");
+                for (int j = 0; j < entries.Length; j++)
+                {
+                    string child = entries[j].GetValue("child");
+                    string parent = entries[j].GetValue("parent");
+                    writer.AddGroupHierarchyEntry(child, parent);
+                }
+            }
+
             // Add milestone states from the real career
             var milestoneStates = scenarioNode.GetNodes("MILESTONE_STATE");
             for (int i = 0; i < milestoneStates.Length; i++)
