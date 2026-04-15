@@ -1946,8 +1946,26 @@ namespace Parsek
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
 
-            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                ghost, state.heatInfos, index, traj.VesselName);
+            // Gate reentry FX build: stationary part-showcase ghosts, EVA walks, and slow
+            // suborbital hops below Mach 1.5 can never produce reentry visuals, so we skip
+            // the mesh-combine + ParticleSystem + glow-material clone work entirely. With
+            // hundreds of ghosts looping, rebuilding reentry FX on every loop-cycle
+            // boundary was the dominant cost in the map-view perf tank (#406).
+            if (TrajectoryMath.HasReentryPotential(traj))
+            {
+                state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                    ghost, state.heatInfos, index, traj.VesselName);
+                DiagnosticsState.health.reentryFxBuildsThisSession++;
+            }
+            else
+            {
+                state.reentryFxInfo = null;
+                DiagnosticsState.health.reentryFxSkippedThisSession++;
+                ParsekLog.VerboseRateLimited("ReentryFx", $"skip-{index}",
+                    $"Skipped reentry FX build for ghost #{index} \"{traj.VesselName}\" " +
+                    $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s " +
+                    $"and no orbit segments (cannot produce reentry visuals)", 5.0);
+            }
             state.reentryMpb = new MaterialPropertyBlock();
 
             // Keep fresh builds hidden until the playback loop has positioned them at the

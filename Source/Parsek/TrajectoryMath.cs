@@ -940,5 +940,50 @@ namespace Parsek
             var env = sections[idx].environment;
             return env == SegmentEnvironment.SurfaceMobile || env == SegmentEnvironment.SurfaceStationary;
         }
+
+        /// <summary>
+        /// Speed floor for reentry FX build. A trajectory whose peak recorded velocity
+        /// magnitude is below this threshold and that has no orbit segments cannot ever
+        /// produce reentry visuals — Mach 2.5 thermal FX requires ~675 m/s even in thin
+        /// atmosphere on Kerbin, and real reentry on Laythe/Duna/Eve is higher still.
+        /// 400 m/s is well under Mach 1.5 anywhere, giving a safe cutoff for stationary
+        /// part showcases, EVA walks, slow rovers, and low-speed suborbital hops.
+        /// </summary>
+        internal const float ReentryPotentialSpeedFloor = 400f;
+
+        /// <summary>
+        /// Returns true if the trajectory could plausibly produce reentry visuals during
+        /// playback. Used to gate the expensive per-spawn reentry FX build
+        /// (<see cref="GhostVisualBuilder.TryBuildReentryFx"/>), which combines all ghost
+        /// meshes, allocates a ParticleSystem, and clones glow materials — costs that
+        /// multiply across every loop-cycle rebuild of every active ghost.
+        ///
+        /// Returns true if:
+        ///   - the trajectory has any orbit segments (orbital ghosts always de-orbit at
+        ///     high speed), OR
+        ///   - any recorded trajectory point has velocity magnitude at or above
+        ///     <see cref="ReentryPotentialSpeedFloor"/>.
+        ///
+        /// Pure function — no Unity dependencies, no side effects. O(n) in trajectory
+        /// point count; called once per ghost build, not per frame.
+        /// </summary>
+        internal static bool HasReentryPotential(IPlaybackTrajectory traj)
+        {
+            if (traj == null) return false;
+
+            // Orbital ghosts always re-enter at high speed on de-orbit.
+            if (traj.HasOrbitSegments) return true;
+
+            var points = traj.Points;
+            if (points == null) return false;
+
+            float floorSq = ReentryPotentialSpeedFloor * ReentryPotentialSpeedFloor;
+            for (int i = 0; i < points.Count; i++)
+            {
+                if (points[i].velocity.sqrMagnitude >= floorSq)
+                    return true;
+            }
+            return false;
+        }
     }
 }
