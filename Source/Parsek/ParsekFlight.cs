@@ -7415,8 +7415,21 @@ namespace Parsek
                     GhostPlaybackLogic.InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
                     GhostPlaybackLogic.RefreshCompoundPartVisibility(previewGhostState);
 
-                    previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                        ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
+                    // Same reentry-potential gate as the timeline engine path (#406):
+                    // skip the mesh-combine / ParticleSystem build for trajectories that
+                    // cannot possibly produce reentry visuals.
+                    if (TrajectoryMath.HasReentryPotential(previewRecording))
+                    {
+                        previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                            ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
+                    }
+                    else
+                    {
+                        previewGhostState.reentryFxInfo = null;
+                        ParsekLog.Verbose("ReentryFx",
+                            $"Skipped reentry FX build for preview ghost \"{previewRecording.VesselName}\" " +
+                            $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s and no orbit segments");
+                    }
 
                     // Initialize flag event index for preview playback
                     GhostPlaybackLogic.InitializeFlagVisibility(previewRecording, previewGhostState);
