@@ -16,6 +16,8 @@ All notable changes to Parsek are documented here.
 - `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
 - `#380` `scripts/release.py` now runs end-to-end and packages the release zip without aborting on a pre-existing unit-test failure.
 - `#381` The recording loop "Period" field is now the launch-to-launch period: a recording set to 10s relaunches every 10s regardless of duration, and overlap emerges automatically when the period is shorter than the recording; negative values are rejected.
+- `#406` Fixed a watch-mode overlap-vs-single dispatch mismatch for recordings with a loop subrange: `ResolveWatchPlaybackUT` and `TryStartWatchSession` now read the same `EffectiveLoopDuration` and cycle-start reference, so the two sites can no longer disagree on which playback path to take.
+- `#407` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries — `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` now share a `BoundaryEpsilon` tolerance so they agree on the `isInPause` flag at `phase == duration`.
 
 ### Maintenance
 

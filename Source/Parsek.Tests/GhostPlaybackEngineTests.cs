@@ -309,6 +309,49 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region EffectiveLoopDuration — #406
+
+        [Fact]
+        public void EffectiveLoopDuration_NoSubrange_EqualsFullRange()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            // LoopStartUT/LoopEndUT default to NaN → effective range = full range.
+            Assert.Equal(100.0, GhostPlaybackEngine.EffectiveLoopDuration(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopDuration_WithSubrange_EqualsSubrange()
+        {
+            // #406: a recording with a loop subrange [125, 175] inside [100, 200] must
+            // report duration=50, not 100. Previously WatchModeController had two sites
+            // computing "duration" two different ways — this test is the shared source of
+            // truth that both sites now use.
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 125;
+            traj.LoopEndUT = 175;
+            Assert.Equal(50.0, GhostPlaybackEngine.EffectiveLoopDuration(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers()
+        {
+            // #406 regression guard: for a recording with a 50s loop subrange and a 80s
+            // period, raw-range dispatch (100s) would say OVERLAP (80 < 100) while
+            // subrange dispatch (50s) says SINGLE (80 >= 50). Before the fix, the two
+            // watch-mode sites could disagree on which path to take.
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 125;
+            traj.LoopEndUT = 175;
+            double effectiveDuration = GhostPlaybackEngine.EffectiveLoopDuration(traj);
+            double rawDuration = traj.EndUT - traj.StartUT;
+
+            const double period = 80.0;
+            Assert.True(GhostPlaybackLogic.IsOverlapLoop(period, rawDuration));
+            Assert.False(GhostPlaybackLogic.IsOverlapLoop(period, effectiveDuration));
+        }
+
+        #endregion
+
         #region ShouldLoopPlayback with loop range
 
         [Fact]

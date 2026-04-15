@@ -1345,8 +1345,8 @@ namespace Parsek
                 ? host.GetLoopIntervalSecondsForWatch(rec)
                 : 0.0;
             // #381: overlap dispatch is period < duration, not interval < 0.
-            double watchRecDuration = GhostPlaybackEngine.EffectiveLoopEndUT(rec)
-                - GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            // #406: share the effective-loop-duration helper with ResolveWatchPlaybackUT.
+            double watchRecDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
             bool usesOverlapLooping = shouldLoopPlayback
                 && GhostPlaybackLogic.IsOverlapLoop(loopIntervalSeconds, watchRecDuration);
             bool resetLoopPhaseForWatch = currentState.currentZone == RenderingZone.Beyond
@@ -2588,8 +2588,11 @@ namespace Parsek
                 return fallbackUT;
 
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
-            double resolveDuration = rec.EndUT - rec.StartUT;
-            // #381: overlap dispatch is period < duration.
+            // #406: use the same (effective loop start, effective loop duration) frame that
+            // TryStartWatchSession uses, so the overlap-vs-single dispatch and the cycle-UT
+            // reference both agree for recordings with a custom loop subrange.
+            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            double resolveDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
             if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, resolveDuration))
             {
                 if (currentState == null || currentState.loopCycleIndex < 0)
@@ -2598,12 +2601,9 @@ namespace Parsek
                 if (resolveDuration <= GhostPlaybackLogic.MinCycleDuration)
                     return fallbackUT;
 
-                // #381: cycleDuration = launch-to-launch period (clamped).
-                double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
-
-                double cycleStartUT = rec.StartUT + currentState.loopCycleIndex * cycleDuration;
-                double phase = Math.Max(0, Math.Min(Planetarium.GetUniversalTime() - cycleStartUT, resolveDuration));
-                return rec.StartUT + phase;
+                return GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                    Planetarium.GetUniversalTime(), loopStartUT, resolveDuration,
+                    intervalSeconds, currentState.loopCycleIndex);
             }
 
             if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),

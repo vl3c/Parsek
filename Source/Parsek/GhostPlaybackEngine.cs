@@ -1229,6 +1229,19 @@ namespace Parsek
             return traj.EndUT;
         }
 
+        /// <summary>
+        /// Returns the effective loop duration (EffectiveLoopEndUT - EffectiveLoopStartUT).
+        /// All loop-dispatch decisions that care about "one cycle length" — IsOverlapLoop,
+        /// overlap phase clamping, watch-mode single-vs-overlap choice — should use this
+        /// instead of `traj.EndUT - traj.StartUT` or the half-hybrid `traj.EndUT - effStart`,
+        /// so recordings with a custom loop subrange get consistent duration everywhere.
+        /// #406: was duplicated inline at the watch-mode sites with inconsistent formulas.
+        /// </summary>
+        internal static double EffectiveLoopDuration(IPlaybackTrajectory traj)
+        {
+            return EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj);
+        }
+
         /// <summary>Whether the trajectory should loop (has enough points and duration).</summary>
         internal static bool ShouldLoopPlayback(IPlaybackTrajectory traj)
         {

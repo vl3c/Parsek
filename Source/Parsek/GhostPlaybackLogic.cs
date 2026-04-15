@@ -19,6 +19,11 @@ namespace Parsek
         internal const double DefaultLoopIntervalSeconds = 10.0;
         internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
+        // #407: shared boundary tolerance for loop-phase comparisons. Used by
+        // ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT to keep both helpers in sync
+        // on whether the ghost is "still playing the final frame" vs "entered the pause
+        // window" at exact cycle-boundary UTs.
+        internal const double BoundaryEpsilon = 1e-6;
         internal const double MinEarlyDebrisExplosionLeadSeconds = 0.25;
         // Grace period before zone-based watch mode exit (wall-clock seconds).
         // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
@@ -140,6 +145,27 @@ namespace Parsek
             return intervalSeconds < duration;
         }
 
+        /// <summary>
+        /// Computes the playback UT for a specific cycle of an overlapping-loop recording.
+        /// Given the cycle's index and the loop's effective start UT, returns the UT within
+        /// [loopStartUT, loopStartUT + duration] that the ghost for that cycle should be at.
+        /// Phase is clamped to [0, duration] so callers don't have to special-case boundary
+        /// conditions. #406: extracted so WatchModeController.ResolveWatchPlaybackUT and
+        /// TryStartWatchSession agree on the reference frame (effective loop start + effective
+        /// loop duration), independent of the recording's full [StartUT, EndUT] range.
+        /// </summary>
+        internal static double ComputeOverlapCycleLoopUT(
+            double currentUT, double loopStartUT, double duration,
+            double intervalSeconds, long loopCycleIndex)
+        {
+            double cycleDuration = Math.Max(intervalSeconds, MinCycleDuration);
+            double cycleStartUT = loopStartUT + loopCycleIndex * cycleDuration;
+            double phase = currentUT - cycleStartUT;
+            if (phase < 0) phase = 0;
+            if (phase > duration) phase = duration;
+            return loopStartUT + phase;
+        }
+
         internal static bool TryComputeLoopPlaybackUT(
             double currentUT, double startUT, double endUT, double intervalSeconds,
             out double loopUT, out long cycleIndex)
@@ -161,10 +187,10 @@ namespace Parsek
             double phase = elapsed - (cycleIndex * cycleDuration);
 
             // Pause window only when the period exceeds the duration (gap between cycles).
+            // #407: use shared BoundaryEpsilon so ComputeLoopPhaseFromUT stays in sync.
             if (intervalSeconds > duration)
             {
-                const double epsilon = 1e-6;
-                if (phase > duration + epsilon)
+                if (phase > duration + BoundaryEpsilon)
                     return false;
             }
 
@@ -369,10 +395,16 @@ namespace Parsek
             long cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
-            if (phaseInCycle < duration)
+            // #407: epsilon-tolerant boundary. At phaseInCycle == duration (exact cycle end)
+            // we treat the ghost as still playing its final frame — the visual is at endUT
+            // either way, but reporting isInPause=false here keeps us consistent with
+            // TryComputeLoopPlaybackUT (which uses `phase > duration + epsilon`) and avoids
+            // a one-frame pause-state flicker at exact cycle boundaries.
+            if (phaseInCycle <= duration + BoundaryEpsilon)
             {
-                // In the playback portion
-                double loopUT = recordingStartUT + phaseInCycle;
+                // In the playback portion (clamp phase to duration so loopUT == endUT at the boundary).
+                double clampedPhase = phaseInCycle > duration ? duration : phaseInCycle;
+                double loopUT = recordingStartUT + clampedPhase;
                 ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={loopUT:R}, isInPause=false (phase={phaseInCycle:R}/{duration:R})");
                 return (loopUT, cycleIndex, false);
             }

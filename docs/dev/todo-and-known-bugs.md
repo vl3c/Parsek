@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 407. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary
+## ~~407. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary~~
 
 **Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — the inconsistency predates the refactor, but both helpers now share the same cycleDuration formula, so the divergence is easier to reason about.
 
@@ -33,11 +33,13 @@ An existing test `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` locks in th
 - `Source/Parsek/GhostPlaybackLogic.cs` (`ComputeLoopPhaseFromUT`, epsilon constant)
 - `Source/Parsek.Tests/LoopPhaseTests.cs` (`AtRecordingEnd_BoundaryEntersPause` + new test)
 
-**Status:** TODO. Size: XS. No user-visible urgency — one-frame visual flicker at best — but it's the kind of invariant that causes a "why does this ghost blink for one frame every cycle?" bug report months later if a user sets a period that makes the equality land consistently.
+**Status:** ~~Fixed~~. Size: XS.
+
+**Fix:** Added a shared `GhostPlaybackLogic.BoundaryEpsilon = 1e-6` constant. Rewrote `ComputeLoopPhaseFromUT`'s playback/pause gate as `phaseInCycle <= duration + BoundaryEpsilon` (matching the epsilon-tolerant form already used by `TryComputeLoopPlaybackUT`). At the exact boundary, both helpers now report "still playing the final frame, loopUT=endUT" — the ghost visual lands at `recordingEndUT` either way, but the `isInPause` flag agrees across helpers, eliminating the one-frame flicker. `TryComputeLoopPlaybackUT` now references `BoundaryEpsilon` instead of its own inline `const double epsilon = 1e-6`. Rewrote `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` → `_ExactBoundary_StaysInPlayback`, added `_JustPastBoundary_StaysInPlaybackWithinEpsilon` and `_BeyondEpsilon_EntersPause`, and added a new `BoundaryConsistency_WithTryComputeLoopPlaybackUT` cross-helper consistency assertion.
 
 ---
 
-## 406. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision
+## ~~406. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision~~
 
 **Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — both sites predate the refactor — but `#381` makes the mismatch matter because both dispatches now depend on `IsOverlapLoop(interval, duration)`, so the `duration` value they compute is load-bearing.
 
@@ -71,7 +73,11 @@ Watch mode enters via one code path, UT resolution uses the other — positionin
 - Possibly `Source/Parsek/ParsekKSC.cs` (audit for the same pattern)
 - `Source/Parsek.Tests/` (new integration test covering the dispatch-parity case)
 
-**Status:** TODO. Size: S. No user-visible regression introduced by `#381` — needs a save with an explicit loop subrange to reproduce, which is rare — but the drift is real and will bite the first player who uses loop subranges with watch mode. Worth a small targeted PR with in-game validation.
+**Status:** ~~Fixed~~. Size: S.
+
+**Fix:** Added a shared `GhostPlaybackEngine.EffectiveLoopDuration(traj) = EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj)` helper. Added a pure-static `GhostPlaybackLogic.ComputeOverlapCycleLoopUT(currentUT, loopStartUT, duration, intervalSeconds, loopCycleIndex)` that encapsulates the overlap-cycle UT math with phase clamping, so the watch sites no longer duplicate it inline. Rewrote `WatchModeController.ResolveWatchPlaybackUT` to use `EffectiveLoopStartUT` + `EffectiveLoopDuration` as the cycle reference frame (was `rec.StartUT` + raw full-range duration) and to delegate the arithmetic to the new helper. Updated `WatchModeController.TryStartWatchSession` to call the shared `EffectiveLoopDuration` too, so both sites read the same formula. Added tests `EffectiveLoopDuration_NoSubrange_EqualsFullRange`, `_WithSubrange_EqualsSubrange`, `_SubrangeAndFullRange_OverlapDecisionDiffers` (the regression guard — asserts that a 50s subrange + 80s period would disagree between the raw-range and effective-range dispatch), and five `ComputeOverlapCycleLoopUT_*` tests covering cycle 0, higher cycles, phase clamping (both ends), and defensive negative-interval clamping.
+
+**Out of scope (follow-up):** `GhostPlaybackEngine.UpdateLoopingPlayback` (line 717-718) still computes `duration = traj.EndUT - EffectiveLoopStartUT(traj)` — a hybrid that uses the effective start but the raw end. `UpdateOverlapPlayback` calls `GetActiveCycles(..., traj.EndUT, ...)` with the raw end. `ParsekKSC`'s main dispatcher (line 175) uses `rec.EndUT - rec.StartUT`. All three predate `#381` and are self-consistent within their code paths but diverge from the watch-mode path for recordings with loop subranges. Needs a separate PR with in-game validation on a save that exercises `LoopStartUT`/`LoopEndUT`.
 
 ---
 
