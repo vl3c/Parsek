@@ -118,7 +118,23 @@ namespace Parsek
                 case GameStateEventType.KerbalRescued:
                     return ConvertKerbalRescued(evt, recordingId);
 
-                // Skipped event types — no GameAction equivalent
+                // Skipped event types — no GameAction equivalent.
+                //
+                // DO NOT try to "fix" this by re-emitting FundsChanged/ScienceChanged/
+                // ReputationChanged as FundsEarning/ScienceEarning/ReputationEarning.
+                // The earning values already flow through dedicated channels:
+                //   - Recovery        via LedgerOrchestrator.CreateVesselCostActions
+                //   - ContractReward  via ConvertContractCompleted (reads detail)
+                //   - Milestone       via ConvertMilestoneAchieved (reads detail)
+                //   - ScienceEarning  via ConvertScienceSubjects (PendingScienceSubjects)
+                // Re-emitting from the Changed events would double-count against every
+                // one of those channels at the same UT, and GetActionKey for FundsEarning
+                // keys off RecordingId alone so dedup would NOT save us.
+                //
+                // #394 reconciliation: LedgerOrchestrator.ReconcileEarningsWindow runs at
+                // commit time and WARNs if these dropped deltas disagree with the effective
+                // emitted actions — so regressions in any channel surface loudly without
+                // needing to re-emit here.
                 case GameStateEventType.FundsChanged:
                 case GameStateEventType.ScienceChanged:
                 case GameStateEventType.ReputationChanged:

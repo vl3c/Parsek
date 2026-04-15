@@ -135,8 +135,132 @@ namespace Parsek
                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
                 $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
+            // 5b. #394: commit-time reconciliation — compare the sum of dropped
+            // FundsChanged/ReputationChanged/ScienceChanged events (which the converter
+            // intentionally drops, see GameStateEventConverter:121-130) against the
+            // sum of effective emitted Funds/Rep/Science actions in the same UT window.
+            // Log WARN on mismatch. Log-only: the drop block itself must stay, because
+            // re-emitting those events would double-count against recovery + contract +
+            // milestone channels (review §5.1 regression guard).
+            ReconcileEarningsWindow(events, actions, costActions, scienceActions, startUT, endUT);
+
             // 6. Recalculate + patch
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// Pure reconciliation: sums dropped FundsChanged/ReputationChanged/ScienceChanged
+        /// deltas against effective emitted FundsEarning/FundsSpending/ReputationEarning/
+        /// ReputationPenalty/ScienceEarning/ScienceSpending actions in the same UT window
+        /// and logs WARN on mismatch beyond tolerance. Internal static for testability.
+        /// </summary>
+        internal static void ReconcileEarningsWindow(
+            IReadOnlyList<GameStateEvent> events,
+            List<GameAction> newActions,
+            List<GameAction> vesselCostActions,
+            List<GameAction> scienceActions,
+            double startUT, double endUT)
+        {
+            double droppedFundsDelta = 0;
+            double droppedRepDelta = 0;
+            double droppedSciDelta = 0;
+
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.ut < startUT || e.ut > endUT) continue;
+                    switch (e.eventType)
+                    {
+                        case GameStateEventType.FundsChanged:
+                            droppedFundsDelta += (e.valueAfter - e.valueBefore);
+                            break;
+                        case GameStateEventType.ReputationChanged:
+                            droppedRepDelta += (e.valueAfter - e.valueBefore);
+                            break;
+                        case GameStateEventType.ScienceChanged:
+                            droppedSciDelta += (e.valueAfter - e.valueBefore);
+                            break;
+                    }
+                }
+            }
+
+            double emittedFundsDelta = 0;
+            double emittedRepDelta = 0;
+            double emittedSciDelta = 0;
+
+            // newActions already contains vesselCostActions + scienceActions, but the
+            // caller supplies them separately for clarity. We only enumerate newActions
+            // so the sum is well-defined even if caller dedups differently.
+            if (newActions != null)
+            {
+                for (int i = 0; i < newActions.Count; i++)
+                {
+                    var a = newActions[i];
+                    switch (a.Type)
+                    {
+                        case GameActionType.FundsEarning:
+                            emittedFundsDelta += a.FundsAwarded;
+                            break;
+                        case GameActionType.FundsSpending:
+                            emittedFundsDelta -= a.FundsSpent;
+                            break;
+                        case GameActionType.ReputationEarning:
+                            emittedRepDelta += a.NominalRep;
+                            break;
+                        case GameActionType.ReputationPenalty:
+                            emittedRepDelta -= a.NominalPenalty;
+                            break;
+                        case GameActionType.ContractComplete:
+                            emittedFundsDelta += a.FundsReward;
+                            emittedRepDelta += a.RepReward;
+                            emittedSciDelta += a.ScienceReward;
+                            break;
+                        case GameActionType.ContractFail:
+                        case GameActionType.ContractCancel:
+                            emittedFundsDelta -= a.FundsPenalty;
+                            emittedRepDelta -= a.RepPenalty;
+                            break;
+                        case GameActionType.MilestoneAchievement:
+                            emittedFundsDelta += a.MilestoneFundsAwarded;
+                            emittedRepDelta += a.MilestoneRepAwarded;
+                            break;
+                        case GameActionType.ScienceEarning:
+                            emittedSciDelta += a.ScienceAwarded;
+                            break;
+                        case GameActionType.ScienceSpending:
+                            emittedSciDelta -= a.Cost;
+                            break;
+                    }
+                }
+            }
+
+            const double fundsTol = 1.0;   // 1 funds tolerance for rounding
+            const double repTol = 0.1f;
+            const double sciTol = 0.1f;
+
+            if (Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (funds): store delta={droppedFundsDelta:F1} vs " +
+                    $"ledger emitted delta={emittedFundsDelta:F1} — missing earning channel? " +
+                    $"window=[{startUT:F1},{endUT:F1}]");
+            }
+            if (Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (rep): store delta={droppedRepDelta:F1} vs " +
+                    $"ledger emitted delta={emittedRepDelta:F1} — missing earning channel? " +
+                    $"window=[{startUT:F1},{endUT:F1}]");
+            }
+            if (Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (sci): store delta={droppedSciDelta:F1} vs " +
+                    $"ledger emitted delta={emittedSciDelta:F1} — missing earning channel? " +
+                    $"window=[{startUT:F1},{endUT:F1}]");
+            }
         }
 
         /// <summary>
