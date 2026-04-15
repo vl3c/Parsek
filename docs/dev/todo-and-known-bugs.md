@@ -936,7 +936,7 @@ Start with option 1. Add the field to the engine FX info payload (`GhostTypes.cs
 
 ---
 
-## 382. Group "W" button should cycle to the next watchable vessel on each press
+## ~~382. Group "W" button should cycle to the next watchable vessel on each press~~
 
 **Source:** maintenance request `2026-04-14`. Today the group `W` button only ever resolves to one target (the group's "main" recording), so repeated presses toggle watch on/off for that single vessel. The user wants a **watch-next** semantics instead.
 
@@ -979,7 +979,9 @@ Start with option 1. Dictionary keyed by group name → last-entered `RecordingI
 - Tests covering the new cursor advancement logic (empty eligible set, single-entry rotation, wrap, cursor-stale-recovery).
 - `CHANGELOG.md` under Unreleased: "Group `W` button now cycles to the next watchable vessel in the group on each press instead of always toggling the same target."
 
-**Status:** TODO. Size: S-M. No immediate blocker, but a high-visibility UX improvement for groups with multiple simultaneous ghosts.
+**Status:** ~~Fixed~~. High-visibility UX improvement for groups with multiple simultaneous ghosts.
+
+**Fix:** Added `GhostPlaybackLogic.AdvanceGroupWatchCursor` (new pure-static helper + `GroupWatchAdvanceResult` struct) that returns the next watchable descendant in stable `(StartUT, RecordingId)` order, skipping the currently-watched target so repeat presses advance the rotation. `UI/RecordingsTableUI.cs` group W button now stores a transient per-group cursor (`groupWatchCursorByGroupName`, keyed by group name, valued by the last-entered RecordingId) and wires it to the helper. Single-eligible-and-watched groups toggle off cleanly; stale cursors fall back to the first eligible entry; an eligibility-set fingerprint replaces the per-target value in the bug `#279` transition log so cursor advances no longer spam the log. `PruneStaleWatchEntries` gained a fifth `groupWatchCursorByGroupName` overload and now drops cursor entries whose stored RecordingId has left the committed list (or clears the whole dict when the committed list is empty). Covered by new `GroupWatchCursorTests` (16 cases) and an extended `PruneStaleWatchEntries_StaleGroupCursorEntries_Removed` test.
 
 ---
 
