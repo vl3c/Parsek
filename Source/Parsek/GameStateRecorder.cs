@@ -172,15 +172,21 @@ namespace Parsek
 
             var title = contract.Title ?? "";
             double deadline = contract.TimeDeadline;
+            float advanceFunds = (float)contract.FundsAdvance;
             float failFunds = (float)contract.FundsFailure;
             float failRep = (float)contract.ReputationFailure;
 
-            // Structured detail: title + deadline + failure penalties for deadline expiration generation
-            // deadline=0 means no deadline (KSP convention) — store as NaN
+            // Structured detail: title + deadline + advance + failure penalties.
+            // advance must be captured at accept time — KSP applies it immediately via
+            // FundsChanged(ContractAdvance), which the converter intentionally drops.
+            // Without funds= here, AdvanceFunds stayed 0 and FundsModule never credited
+            // the advance (codex review [P1] on PR #307).
+            // deadline=0 means no deadline (KSP convention) — store as NaN.
             string deadlineStr = deadline > 0
                 ? deadline.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                 : "NaN";
             var detail = $"title={title};deadline={deadlineStr}" +
+                $";funds={advanceFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
 
@@ -201,7 +207,7 @@ namespace Parsek
                 GameStateStore.AddContractSnapshot(guid, contractNode);
                 ParsekLog.Info("GameStateRecorder",
                     $"Game state: ContractAccepted '{title}' deadline={deadlineStr} " +
-                    $"failFunds={failFunds} failRep={failRep} (snapshot saved)");
+                    $"advance={advanceFunds} failFunds={failFunds} failRep={failRep} (snapshot saved)");
             }
             catch (Exception ex)
             {

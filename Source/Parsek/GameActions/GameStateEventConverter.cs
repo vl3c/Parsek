@@ -333,14 +333,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/penalties from detail).
-        /// New format (v2): "title=...;deadline=...;failFunds=...;failRep=..."
-        /// Old format (v1): plain title string (no semicolons). Backward compatible.
+        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/advance/penalties from detail).
+        /// New format (v3): "title=...;deadline=...;funds=...;failFunds=...;failRep=..."
+        /// v2 (no funds= key): backward compatible, advance defaults to 0.
+        /// Legacy (v1): plain title string (no semicolons). Backward compatible.
         /// </summary>
         private static GameAction ConvertContractAccepted(GameStateEvent evt, string recordingId)
         {
             string title;
             float deadlineUT = float.NaN;
+            float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
 
@@ -355,6 +357,11 @@ namespace Parsek
                     float.TryParse(deadlineStr, NumberStyles.Float, IC, out deadlineUT);
                 // else remains NaN
 
+                // v3: contract advance payment. Older detail strings omit this key — leave at 0.
+                string advanceStr = ExtractDetail(evt.detail, "funds");
+                if (advanceStr != null)
+                    float.TryParse(advanceStr, NumberStyles.Float, IC, out advanceFunds);
+
                 string failFundsStr = ExtractDetail(evt.detail, "failFunds");
                 if (failFundsStr != null)
                     float.TryParse(failFundsStr, NumberStyles.Float, IC, out fundsPenalty);
@@ -365,7 +372,8 @@ namespace Parsek
 
                 ParsekLog.Verbose(Tag,
                     $"ConvertContractAccepted: structured format contractId='{evt.key}' " +
-                    $"title='{title}' deadline={deadlineUT} failFunds={fundsPenalty} failRep={repPenalty}");
+                    $"title='{title}' deadline={deadlineUT} advance={advanceFunds} " +
+                    $"failFunds={fundsPenalty} failRep={repPenalty}");
             }
             else
             {
@@ -384,6 +392,7 @@ namespace Parsek
                 ContractId = evt.key,
                 ContractTitle = title,
                 DeadlineUT = deadlineUT,
+                AdvanceFunds = advanceFunds,
                 FundsPenalty = fundsPenalty,
                 RepPenalty = repPenalty
             };

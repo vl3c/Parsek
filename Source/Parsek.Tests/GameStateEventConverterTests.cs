@@ -589,6 +589,55 @@ namespace Parsek.Tests
                 l.Contains("guid-old"));
         }
 
+        [Fact]
+        public void ConvertContractAccepted_V3Format_PopulatesAdvanceFunds()
+        {
+            // Regression for codex review [P1] on PR #307: contract advance was dropped
+            // at capture time — ConvertContractAccepted had no funds= field to read, so
+            // FundsModule never credited the advance and funds under-counted on every
+            // accept.
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-adv",
+                detail: "title=Suborbital Flight;deadline=50000;funds=8450.5;failFunds=4000;failRep=3");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec-adv");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ContractAccept, action.Type);
+            Assert.Equal("Suborbital Flight", action.ContractTitle);
+            Assert.Equal(8450.5f, action.AdvanceFunds);
+            Assert.Equal(4000f, action.FundsPenalty);
+            Assert.Equal(3f, action.RepPenalty);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_V2FormatWithoutFundsKey_DefaultsAdvanceToZero()
+        {
+            // Backward compat: old detail strings did not have funds=. Must still parse
+            // the rest of the fields and leave AdvanceFunds at 0 (not throw, not NaN).
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-v2",
+                detail: "title=Old Format;deadline=NaN;failFunds=1000;failRep=1");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec-v2");
+
+            Assert.NotNull(action);
+            Assert.Equal("Old Format", action.ContractTitle);
+            Assert.Equal(0f, action.AdvanceFunds);
+            Assert.Equal(1000f, action.FundsPenalty);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_V3FormatZeroAdvance_StaysZero()
+        {
+            // Some contracts (tutorials, strategies) have zero advance — must round-trip cleanly.
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-zero",
+                detail: "title=Free;deadline=NaN;funds=0;failFunds=0;failRep=0");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.NotNull(action);
+            Assert.Equal(0f, action.AdvanceFunds);
+        }
+
         // ================================================================
         // MilestoneAchieved -> MilestoneAchievement
         // ================================================================
