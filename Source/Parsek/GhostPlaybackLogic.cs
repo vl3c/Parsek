@@ -3805,9 +3805,9 @@ namespace Parsek
             if (descendants == null || committed == null || isEligible == null || descendants.Count == 0)
                 return GroupWatchAdvanceResult.Empty;
 
-            // 1. Build eligible list.
-            var eligibleIdx = new List<int>(descendants.Count);
-            var eligibleRec = new List<Recording>(descendants.Count);
+            // 1. Build eligible list. Only Recording refs are needed from here on;
+            // the UI re-resolves index by RecordingId after the call.
+            var eligible = new List<Recording>(descendants.Count);
             foreach (int idx in descendants)
             {
                 if (idx < 0 || idx >= committed.Count) continue;
@@ -3815,26 +3815,19 @@ namespace Parsek
                 if (rec == null) continue;
                 if (string.IsNullOrEmpty(rec.RecordingId)) continue;
                 if (!isEligible(idx)) continue;
-                eligibleIdx.Add(idx);
-                eligibleRec.Add(rec);
+                eligible.Add(rec);
             }
 
-            if (eligibleRec.Count == 0)
+            if (eligible.Count == 0)
                 return GroupWatchAdvanceResult.Empty;
 
             // 2. Stable sort: StartUT asc, then RecordingId ordinal asc.
-            // Sort paired lists by building an index permutation.
-            int count = eligibleRec.Count;
-            var order = new int[count];
-            for (int i = 0; i < count; i++) order[i] = i;
-            Array.Sort(order, (a, b) =>
+            eligible.Sort((a, b) =>
             {
-                int c = eligibleRec[a].StartUT.CompareTo(eligibleRec[b].StartUT);
-                return c != 0 ? c : string.CompareOrdinal(eligibleRec[a].RecordingId, eligibleRec[b].RecordingId);
+                int c = a.StartUT.CompareTo(b.StartUT);
+                return c != 0 ? c : string.CompareOrdinal(a.RecordingId, b.RecordingId);
             });
-            var sortedRec = new Recording[count];
-            for (int i = 0; i < count; i++)
-                sortedRec[i] = eligibleRec[order[i]];
+            int count = eligible.Count;
 
             // 3. Locate cursor by RecordingId. -1 means "before-first".
             int cursorPos = -1;
@@ -3842,7 +3835,7 @@ namespace Parsek
             {
                 for (int i = 0; i < count; i++)
                 {
-                    if (sortedRec[i].RecordingId == cursorRecordingId)
+                    if (eligible[i].RecordingId == cursorRecordingId)
                     {
                         cursorPos = i;
                         break;
@@ -3853,8 +3846,12 @@ namespace Parsek
             // 4. Walk forward, wrapping, skipping the currently-watched id.
             for (int step = 1; step <= count; step++)
             {
+                // (((cursorPos + step) % count) + count) % count handles the
+                // cursorPos=-1 "before-first" sentinel: with step=1 the first
+                // probe is 0 (first eligible entry). The double-mod is
+                // defensive against any future negative inputs.
                 int probe = ((cursorPos + step) % count + count) % count;
-                var candidate = sortedRec[probe];
+                var candidate = eligible[probe];
                 if (candidate.RecordingId != currentlyWatchedRecId)
                 {
                     // stepping wrapped past end: probe index is at or before cursorPos.

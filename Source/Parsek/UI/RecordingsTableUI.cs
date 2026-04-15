@@ -1497,7 +1497,14 @@ namespace Parsek
                     }
                     else
                     {
-                        // Button is disabled when nextTargetIdx<0 and !isToggleOffPress, so this branch is unreachable.
+                        // Unreachable: GUI.enabled is canWatch || isToggleOffPress,
+                        // and canWatch==true implies nextTargetIdx>=0. If this branch
+                        // ever fires, the enable-gate has drifted — log a warning so
+                        // the regression surfaces instead of silently no-opping.
+                        ParsekLog.Warn("UI",
+                            $"Group '{groupName}' W button press reached unreachable branch " +
+                            $"(canWatch={canWatch} isToggleOffPress={isToggleOffPress} nextTargetIdx={nextTargetIdx}) — " +
+                            "enable-gate and press-dispatch are out of sync");
                         pressKind = "no-op";
                     }
                     ParsekLog.Info("UI",
