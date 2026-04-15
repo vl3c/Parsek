@@ -14,6 +14,13 @@ namespace Parsek
         ArbitraryPerpendicularFallback
     }
 
+    internal enum OverlapBridgeRetargetState
+    {
+        None = 0,
+        KeepBridge = 1,
+        RetargetToPrimary = 2,
+    }
+
     internal struct WatchCameraTransitionState
     {
         public float Distance;
@@ -197,6 +204,56 @@ namespace Parsek
             {
                 return null;
             }
+        }
+
+        private static bool IsUnityObjectAvailable(UnityEngine.Object obj)
+        {
+            if (ReferenceEquals(obj, null))
+                return false;
+
+            try
+            {
+                return obj != null;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return true;
+            }
+            catch (MethodAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static void DestroyUnityObjectSafe(UnityEngine.Object obj)
+        {
+            if (!IsUnityObjectAvailable(obj))
+                return;
+
+            try
+            {
+                UnityEngine.Object.Destroy(obj);
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Unit-test host may provide inert Unity objects without runtime backing.
+            }
+            catch (MethodAccessException)
+            {
+                // Same fallback for non-Unity unit-test environments.
+            }
+        }
+
+        private void DestroyOverlapCameraAnchor()
+        {
+            if (!IsUnityObjectAvailable(overlapCameraAnchor))
+            {
+                overlapCameraAnchor = null;
+                return;
+            }
+
+            DestroyUnityObjectSafe(overlapCameraAnchor);
+            overlapCameraAnchor = null;
         }
 
         private static float GetRealtimeSafe()
@@ -585,7 +642,7 @@ namespace Parsek
                     break;
 
                 case CameraActionType.ExplosionHoldStart:
-                    if (overlapCameraAnchor != null) UnityEngine.Object.Destroy(overlapCameraAnchor);
+                    DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekLoopCameraAnchor");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
                     if (FlightCamera.fetch != null)
@@ -603,7 +660,7 @@ namespace Parsek
                     // a null target and snaps back to the active vessel.
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
-                    if (overlapCameraAnchor != null) UnityEngine.Object.Destroy(overlapCameraAnchor);
+                    DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekLoopCameraBridge");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
                     if (FlightCamera.fetch != null)
@@ -618,7 +675,7 @@ namespace Parsek
                         FlightCamera.fetch.SetTargetTransform(GetWatchTarget(evt.GhostPivot));
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
                         // Clean up the bridge anchor now that camera is on the new ghost
-                        if (overlapCameraAnchor != null) { UnityEngine.Object.Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                        DestroyOverlapCameraAnchor();
                         ParsekLog.Info("CameraFollow",
                             $"Loop: camera retargeted to ghost #{evt.Index} cycle={evt.NewCycleIndex}");
                     }
@@ -637,7 +694,7 @@ namespace Parsek
                     {
                         FlightCamera.fetch.SetTargetTransform(GetWatchTarget(evt.GhostPivot));
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
-                        if (overlapCameraAnchor != null) { UnityEngine.Object.Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                        DestroyOverlapCameraAnchor();
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: camera retargeted to ghost #{evt.Index} cycle={evt.NewCycleIndex}");
                     }
@@ -646,7 +703,7 @@ namespace Parsek
                 case CameraActionType.ExplosionHoldStart:
                     overlapRetargetAfterUT = evt.HoldUntilUT;
                     watchedOverlapCycleIndex = -2;
-                    if (overlapCameraAnchor != null) UnityEngine.Object.Destroy(overlapCameraAnchor);
+                    DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraAnchor");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
                     if (FlightCamera.fetch != null)
@@ -658,33 +715,12 @@ namespace Parsek
                 case CameraActionType.ExplosionHoldEnd:
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
-                    if (overlapCameraAnchor != null) UnityEngine.Object.Destroy(overlapCameraAnchor);
+                    DestroyOverlapCameraAnchor();
                     overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraBridge");
                     overlapCameraAnchor.transform.position = evt.AnchorPosition;
                     if (FlightCamera.fetch != null)
                         FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
-
-                    GhostPlaybackState primary;
-                    bool primaryReady = host.Engine.ghostStates.TryGetValue(watchedRecordingIndex, out primary)
-                        && primary != null;
-                    if (primaryReady && (primary.ghost == null || primary.cameraPivot == null))
-                        primaryReady = TryEnsurePrimaryWatchGhostLoaded(primary, out primary);
-
-                    if (FlightCamera.fetch != null
-                        && primaryReady
-                        && primary != null && primary.ghost != null)
-                    {
-                        FlightCamera.fetch.SetTargetTransform(GetWatchTarget(primary.cameraPivot));
-                        watchedOverlapCycleIndex = primary.loopCycleIndex;
-                        if (overlapCameraAnchor != null)
-                        {
-                            UnityEngine.Object.Destroy(overlapCameraAnchor);
-                            overlapCameraAnchor = null;
-                        }
-                        ParsekLog.Info("CameraFollow",
-                            $"Overlap: camera retargeted after quiet expiry for #{evt.Index}");
-                    }
-                    else
+                    if (TryResolveOverlapBridgeRetarget())
                     {
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: camera bridged at quiet expiry for #{evt.Index} cycle={evt.NewCycleIndex}");
@@ -1441,11 +1477,9 @@ namespace Parsek
             watchedOverlapCycleIndex = -1;
             overlapRetargetAfterUT = -1;
             if (destroyOverlapAnchor)
-            {
-                if (overlapCameraAnchor != null)
-                    UnityEngine.Object.Destroy(overlapCameraAnchor);
-            }
-            overlapCameraAnchor = null;
+                DestroyOverlapCameraAnchor();
+            else
+                overlapCameraAnchor = null;
             savedCameraVessel = null;
             savedCameraDistance = 0f;
             savedCameraPitch = 0f;
@@ -2147,6 +2181,7 @@ namespace Parsek
         internal void ValidateWatchedGhostStillActive()
         {
             if (watchedRecordingIndex < 0) return;
+            if (HasPendingOverlapBridgeRetarget()) return;
             if (host.Engine.TryGetGhostState(watchedRecordingIndex, out var primary) && primary != null) return;
 
             // Check overlap ghosts
@@ -2197,11 +2232,13 @@ namespace Parsek
                 ParsekLog.Warn("CameraFollow",
                     $"Orphaned hold state (overlapRetargetAfterUT={overlapRetargetAfterUT:F1}) \u2014 clearing");
                 watchedOverlapCycleIndex = -1;
-                if (overlapCameraAnchor != null) { UnityEngine.Object.Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                DestroyOverlapCameraAnchor();
             }
 
             // Delayed re-target after watched overlap cycle exploded
             if (TryResolveOverlapRetarget())
+                return;
+            if (TryResolveOverlapBridgeRetarget())
                 return;
 
             // Find the ghost we're actually following -- may be an overlap ghost, not the primary
@@ -2471,11 +2508,7 @@ namespace Parsek
             if (Planetarium.GetUniversalTime() >= overlapRetargetAfterUT)
             {
                 // Destroy temp camera anchor
-                if (overlapCameraAnchor != null)
-                {
-                    UnityEngine.Object.Destroy(overlapCameraAnchor);
-                    overlapCameraAnchor = null;
-                }
+                DestroyOverlapCameraAnchor();
                 overlapRetargetAfterUT = -1;
 
                 // Immediately target the current primary ghost so FlightCamera
@@ -2516,6 +2549,95 @@ namespace Parsek
                 watchNoTargetFrames = 0;
                 return true;
             }
+        }
+
+        private bool HasPendingOverlapBridgeRetarget()
+        {
+            return watchedOverlapCycleIndex == -1 && IsUnityObjectAvailable(overlapCameraAnchor);
+        }
+
+        internal static OverlapBridgeRetargetState ResolveOverlapBridgeRetargetState(
+            bool hasPendingBridge,
+            bool primaryReady)
+        {
+            if (!hasPendingBridge)
+                return OverlapBridgeRetargetState.None;
+
+            return primaryReady
+                ? OverlapBridgeRetargetState.RetargetToPrimary
+                : OverlapBridgeRetargetState.KeepBridge;
+        }
+
+        private bool TryResolveOverlapBridgeRetarget()
+        {
+            bool hasPendingBridge = HasPendingOverlapBridgeRetarget();
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            bool hasFlightCamera = IsUnityObjectAvailable(flightCamera);
+            var ghostStates = host.Engine.ghostStates;
+            GhostPlaybackState primary;
+            bool primaryReady = ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                && primary != null;
+            if (primaryReady && (!IsUnityObjectAvailable(primary.ghost) || !IsUnityObjectAvailable(primary.cameraPivot)))
+                primaryReady = TryEnsurePrimaryWatchGhostLoaded(primary, out primary);
+
+            bool canRetargetToPrimary = primaryReady && primary != null
+                && IsUnityObjectAvailable(primary.ghost)
+                && IsUnityObjectAvailable(primary.cameraPivot);
+            OverlapBridgeRetargetState bridgeState = ResolveOverlapBridgeRetargetState(
+                hasPendingBridge,
+                canRetargetToPrimary);
+            if (bridgeState == OverlapBridgeRetargetState.None)
+                return false;
+
+            if (bridgeState == OverlapBridgeRetargetState.RetargetToPrimary)
+            {
+                if (hasFlightCamera)
+                {
+                    try
+                    {
+                        var target = GetWatchTarget(primary.cameraPivot) ?? primary.ghost.transform;
+                        if (target != null)
+                            flightCamera.SetTargetTransform(target);
+                    }
+                    catch (System.Security.SecurityException)
+                    {
+                    }
+                    catch (MethodAccessException)
+                    {
+                    }
+                }
+
+                watchedOverlapCycleIndex = primary.loopCycleIndex;
+                watchNoTargetFrames = 0;
+                DestroyOverlapCameraAnchor();
+                ParsekLog.Info("CameraFollow",
+                    $"Overlap: camera retargeted after quiet expiry for #{watchedRecordingIndex} cycle={primary.loopCycleIndex}");
+                if (hasFlightCamera)
+                    LogWatchFocusStateChanged(primary, force: true, context: "quiet-expiry-bridge");
+                return false;
+            }
+
+            if (hasFlightCamera)
+            {
+                try
+                {
+                    flightCamera.pivotTranslateSharpness = 0f;
+                    if (IsUnityObjectAvailable(overlapCameraAnchor)
+                        && flightCamera.Target != overlapCameraAnchor.transform)
+                    {
+                        flightCamera.SetTargetTransform(overlapCameraAnchor.transform);
+                    }
+                }
+                catch (System.Security.SecurityException)
+                {
+                }
+                catch (MethodAccessException)
+                {
+                }
+            }
+
+            watchNoTargetFrames = 0;
+            return true;
         }
 
         private void LogWatchTargetMismatch(GhostPlaybackState state)

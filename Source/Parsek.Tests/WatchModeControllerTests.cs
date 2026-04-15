@@ -65,6 +65,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveOverlapBridgeRetargetState_PendingWithoutPrimary_KeepsBridge()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: true,
+                primaryReady: false);
+
+            Assert.Equal(OverlapBridgeRetargetState.KeepBridge, state);
+        }
+
+        [Fact]
+        public void ResolveOverlapBridgeRetargetState_PendingWithPrimary_RetargetsToPrimary()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: true,
+                primaryReady: true);
+
+            Assert.Equal(OverlapBridgeRetargetState.RetargetToPrimary, state);
+        }
+
+        [Fact]
+        public void ResolveOverlapBridgeRetargetState_NoPendingBridge_DoesNothing()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: false,
+                primaryReady: true);
+
+            Assert.Equal(OverlapBridgeRetargetState.None, state);
+        }
+
+        [Fact]
         public void ProcessWatchEndHoldTimer_DebrisOnlyChild_DoesNotAutoFollowDuringHold()
         {
             RecordingStore.ResetForTesting();

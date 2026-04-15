@@ -725,20 +725,22 @@ namespace Parsek
                                 rec, loopIntervalSeconds,
                                 out migratedLoopIntervalSeconds, out effectiveLoopDuration))
                         {
+                            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
                             rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+                            RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
                             ParsekLog.Warn("Loop",
                                 $"RecordingTree: migrated recording '{rec.VesselName}' from legacy " +
                                 $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
                                 $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", ic)}s " +
                                 $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s " +
-                                $"for recordingFormatVersion={rec.RecordingFormatVersion} (pre-v4 loop save).");
+                                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
                         }
                         else
                         {
                             rec.LoopIntervalSeconds = loopIntervalSeconds;
                             ParsekLog.Warn("Loop",
                                 $"RecordingTree: loaded recording '{rec.VesselName}' with legacy " +
-                                $"negative loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
+                                $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
                                 $"for recordingFormatVersion={rec.RecordingFormatVersion}, but deferred migration " +
                                 "because loop bounds are not hydrated yet.");
                         }
