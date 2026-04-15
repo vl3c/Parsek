@@ -5736,8 +5736,15 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Surviving Capsule", content);
                     Assert.Contains("vesselName = Destroyed Booster", content);
 
-                    // Real career recordings from fixture are standalone RECORDING
-                    // format — no longer injected after T56 (only sidecar files copied)
+                    // Real career fixture recordings: standalone RECORDING nodes are
+                    // no longer loaded after T56 (sidecar files still get copied), but
+                    // RECORDING_TREE nodes ARE now injected via ScenarioWriter.AddTree.
+                    // #384 added the Learstar A1 mission tree from the S16 career as a
+                    // far-away / map-view smoke test — assert it round-tripped into the
+                    // injected save.
+                    Assert.Contains("vesselName = Learstar A1", content);
+                    Assert.Contains("vesselName = Learstar A1 Debris", content);
+                    Assert.Contains("treeName = Learstar A1", content);
 
                     Assert.Contains("FLIGHTSTATE", content);
 
@@ -5995,9 +6002,20 @@ namespace Parsek.Tests
             if (scenarioNode == null)
                 return new ConfigNode[0];
 
-            // Parse recording nodes for sidecar file copying (standalone RECORDING
-            // nodes are no longer loaded after T56 — only tree recordings are injected)
+            // Standalone RECORDING nodes are no longer loaded after T56 — they are
+            // collected only so CopyRealRecordingFiles can copy their sidecar files.
+            // RECORDING_TREE nodes, however, ARE injected into the target save via
+            // ScenarioWriter.AddTree so tree-inner recordings appear live in the
+            // injected test career (#384 Learstar A1 is the first such tree).
             var recNodes = scenarioNode.GetNodes("RECORDING");
+            var treeNodes = scenarioNode.GetNodes("RECORDING_TREE");
+
+            var allRecordings = new List<ConfigNode>(recNodes);
+            for (int i = 0; i < treeNodes.Length; i++)
+            {
+                writer.AddTree(treeNodes[i]);
+                allRecordings.AddRange(treeNodes[i].GetNodes("RECORDING"));
+            }
 
             // Add milestone states from the real career
             var milestoneStates = scenarioNode.GetNodes("MILESTONE_STATE");
@@ -6016,7 +6034,7 @@ namespace Parsek.Tests
                 }
             }
 
-            return recNodes;
+            return allRecordings.ToArray();
         }
 
         /// <summary>

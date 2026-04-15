@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.
+- `#384` Added the Learstar A1 mission from the S16 career to the `DefaultCareer` test fixture so `dotnet test --filter InjectAllRecordings` now covers a far-away / map-view smoke-test recording.
 
 ### Bug Fixes
 
