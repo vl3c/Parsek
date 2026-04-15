@@ -240,6 +240,7 @@ namespace Parsek
                         case GameActionType.MilestoneAchievement:
                             emittedFundsDelta += a.MilestoneFundsAwarded;
                             emittedRepDelta += a.MilestoneRepAwarded;
+                            emittedSciDelta += a.MilestoneScienceAwarded;
                             break;
                         case GameActionType.ScienceEarning:
                             emittedSciDelta += a.ScienceAwarded;

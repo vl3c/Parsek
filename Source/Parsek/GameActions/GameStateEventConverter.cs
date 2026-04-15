@@ -484,13 +484,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// MilestoneAchieved -> MilestoneAchievement (milestoneId=key, funds/rep from detail).
-        /// Funds and rep rewards may be 0 if not available from the ProgressNode.
+        /// MilestoneAchieved -> MilestoneAchievement (milestoneId=key, funds/rep/sci from detail).
+        /// Rewards may be 0 if not available from the ProgressNode.
         /// </summary>
         internal static GameAction ConvertMilestoneAchieved(GameStateEvent evt, string recordingId)
         {
             float fundsAwarded = 0f;
             float repAwarded = 0f;
+            float sciAwarded = 0f;
 
             string fundsStr = ExtractDetail(evt.detail, "funds");
             if (fundsStr != null)
@@ -500,6 +501,13 @@ namespace Parsek
             if (repStr != null)
                 float.TryParse(repStr, NumberStyles.Float, IC, out repAwarded);
 
+            // Milestone science reward (e.g. Kerbin/Science FirstLaunch grants ~2 sci).
+            // Previously dropped at convert time — ScienceModule.ProcessMilestoneScienceReward
+            // now consumes this on the effective (first-reached) copy of the action.
+            string sciStr = ExtractDetail(evt.detail, "sci");
+            if (sciStr != null)
+                float.TryParse(sciStr, NumberStyles.Float, IC, out sciAwarded);
+
             return new GameAction
             {
                 UT = evt.ut,
@@ -507,7 +515,8 @@ namespace Parsek
                 RecordingId = recordingId,
                 MilestoneId = evt.key,
                 MilestoneFundsAwarded = fundsAwarded,
-                MilestoneRepAwarded = repAwarded
+                MilestoneRepAwarded = repAwarded,
+                MilestoneScienceAwarded = sciAwarded
             };
         }
 

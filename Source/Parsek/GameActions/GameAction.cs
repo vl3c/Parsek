@@ -212,6 +212,12 @@ namespace Parsek
         /// <summary>Reputation awarded by the milestone (immutable, 0 in Science mode).</summary>
         public float MilestoneRepAwarded;
 
+        /// <summary>Science awarded by the milestone (immutable, 0 in pure-funds/rep milestones).
+        /// Consumed by <see cref="ScienceModule.ProcessMilestoneScienceReward"/> so first-
+        /// reached milestones credit the R&amp;D pool. Without this field, the sci= value
+        /// recorded in the event detail was silently dropped at convert time.</summary>
+        public float MilestoneScienceAwarded;
+
         // ---- Contract fields ----
 
         /// <summary>KSP's unique contract instance ID.</summary>
@@ -622,6 +628,7 @@ namespace Parsek
             if (MilestoneId != null) n.AddValue("milestoneId", MilestoneId);
             n.AddValue("milestoneFundsAwarded", MilestoneFundsAwarded.ToString("R", IC));
             n.AddValue("milestoneRepAwarded", MilestoneRepAwarded.ToString("R", IC));
+            n.AddValue("milestoneSciAwarded", MilestoneScienceAwarded.ToString("R", IC));
         }
 
         private static void DeserializeMilestone(ConfigNode n, GameAction a)
@@ -629,6 +636,8 @@ namespace Parsek
             a.MilestoneId = n.GetValue("milestoneId");
             TryParseFloat(n, "milestoneFundsAwarded", out a.MilestoneFundsAwarded);
             TryParseFloat(n, "milestoneRepAwarded", out a.MilestoneRepAwarded);
+            // Backward compat: pre-fix saves have no milestoneSciAwarded key; default to 0.
+            TryParseFloat(n, "milestoneSciAwarded", out a.MilestoneScienceAwarded);
         }
 
         private void SerializeContractAccept(ConfigNode n)

@@ -92,7 +92,8 @@ namespace Parsek
         /// <summary>
         /// Processes a single game action during the recalculation walk.
         /// Handles ScienceEarning, ScienceSpending, ContractComplete (science reward),
-        /// and ScienceInitial (mid-career seed); ignores all other action types.
+        /// MilestoneAchievement (science reward), and ScienceInitial (mid-career seed);
+        /// ignores all other action types.
         /// </summary>
         public void ProcessAction(GameAction action)
         {
@@ -109,6 +110,9 @@ namespace Parsek
                     break;
                 case GameActionType.ContractComplete:
                     ProcessContractScienceReward(action);
+                    break;
+                case GameActionType.MilestoneAchievement:
+                    ProcessMilestoneScienceReward(action);
                     break;
                 case GameActionType.ScienceInitial:
                     ProcessScienceInitial(action);
@@ -304,6 +308,42 @@ namespace Parsek
 
             ParsekLog.Verbose("ScienceModule",
                 $"ContractComplete science: contractId={action.ContractId ?? "(none)"}, " +
+                $"reward={reward.ToString("R", IC)}, " +
+                $"runningScience={runningScience.ToString("R", IC)}, " +
+                $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
+        }
+
+        // ================================================================
+        // Milestone science reward
+        // ================================================================
+
+        /// <summary>
+        /// Processes a MilestoneAchievement action's science reward. Milestone science is a flat
+        /// reward added directly to the running balance — not subject-capped. Only processes when
+        /// <see cref="GameAction.Effective"/> is true (chronologically first completion gets credit),
+        /// mirroring how <see cref="MilestonesModule"/> and <see cref="ReputationModule"/> gate
+        /// funds/rep awards.
+        /// Previously the sci= value was dropped at convert time; see codex review [P2] on PR #307.
+        /// </summary>
+        internal void ProcessMilestoneScienceReward(GameAction action)
+        {
+            if (!action.Effective)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"MilestoneAchievement science skipped (not effective): id={action.MilestoneId ?? "(none)"}, " +
+                    $"sciAwarded={action.MilestoneScienceAwarded.ToString("R", IC)}");
+                return;
+            }
+
+            float reward = action.MilestoneScienceAwarded;
+            if (reward <= 0f)
+                return;
+
+            runningScience += (double)reward;
+            totalEffectiveEarnings += (double)reward;
+
+            ParsekLog.Verbose("ScienceModule",
+                $"MilestoneAchievement science: id={action.MilestoneId ?? "(none)"}, " +
                 $"reward={reward.ToString("R", IC)}, " +
                 $"runningScience={runningScience.ToString("R", IC)}, " +
                 $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");

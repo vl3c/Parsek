@@ -682,6 +682,50 @@ namespace Parsek.Tests
             Assert.NotNull(action);
             Assert.Equal(1000f, action.MilestoneFundsAwarded);
             Assert.Equal(0f, action.MilestoneRepAwarded);
+            Assert.Equal(0f, action.MilestoneScienceAwarded);
+        }
+
+        [Fact]
+        public void ConvertEvent_MilestoneAchieved_WithScience_PopulatesScienceAwarded()
+        {
+            // Regression for codex review [P2] on PR #307: milestone sci= in detail was
+            // silently dropped — ConvertMilestoneAchieved read only funds/rep.
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 5000.0,
+                key: "Kerbin/Science",
+                detail: "funds=0;rep=0;sci=2");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.NotNull(action);
+            Assert.Equal("Kerbin/Science", action.MilestoneId);
+            Assert.Equal(2f, action.MilestoneScienceAwarded);
+        }
+
+        [Fact]
+        public void ConvertEvent_MilestoneAchieved_AllThreeRewards()
+        {
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 6000.0,
+                key: "Kerbin/Landing",
+                detail: "funds=3000;rep=5;sci=1.5");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.Equal(3000f, action.MilestoneFundsAwarded);
+            Assert.Equal(5f, action.MilestoneRepAwarded);
+            Assert.Equal(1.5f, action.MilestoneScienceAwarded);
+        }
+
+        [Fact]
+        public void ConvertEvent_MilestoneAchieved_BackwardCompatNoSciKey()
+        {
+            // Pre-fix detail strings had no sci= key. Must still parse funds/rep and
+            // leave MilestoneScienceAwarded at 0.
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 7000.0,
+                key: "Legacy",
+                detail: "funds=2000;rep=3");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.Equal(2000f, action.MilestoneFundsAwarded);
+            Assert.Equal(3f, action.MilestoneRepAwarded);
+            Assert.Equal(0f, action.MilestoneScienceAwarded);
         }
 
         [Fact]
