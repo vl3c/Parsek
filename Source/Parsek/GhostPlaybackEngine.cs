@@ -715,7 +715,7 @@ namespace Parsek
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
             double loopStartUT = EffectiveLoopStartUT(traj);
-            double duration = traj.EndUT - loopStartUT;
+            double duration = EffectiveLoopDuration(traj);
 
             // High time warp: hide ghost, destroy overlaps
             if (suppressGhosts)
@@ -893,6 +893,7 @@ namespace Parsek
             double intervalSeconds, double duration, bool suppressVisualFx)
         {
             double loopStartUT = EffectiveLoopStartUT(traj);
+            double loopEndUT = EffectiveLoopEndUT(traj);
             if (ctx.currentUT < loopStartUT)
             {
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
@@ -904,7 +905,7 @@ namespace Parsek
             double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, traj.EndUT, intervalSeconds,
+            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, loopEndUT, intervalSeconds,
                 MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             List<GhostPlaybackState> overlaps;

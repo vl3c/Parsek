@@ -172,7 +172,7 @@ namespace Parsek
                 // Branch: looping recordings — #381 dispatch on period < duration (overlap).
                 if (rec.LoopPlayback)
                 {
-                    double duration = rec.EndUT - rec.StartUT;
+                    double duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
                     if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) continue;
 
                     double intervalSeconds = GetLoopIntervalSeconds(rec);
@@ -323,8 +323,10 @@ namespace Parsek
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
             bool primaryActive = primaryState != null && primaryState.ghost != null;
+            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            double loopEndUT = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
 
-            if (currentUT < rec.StartUT)
+            if (currentUT < loopStartUT)
             {
                 if (primaryActive) { DestroyKscGhost(primaryState, recIdx); kscGhosts.Remove(recIdx); }
                 DestroyAllKscOverlapGhosts(recIdx);
@@ -335,7 +337,7 @@ namespace Parsek
             double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
+            GhostPlaybackLogic.GetActiveCycles(currentUT, loopStartUT, loopEndUT,
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
@@ -373,11 +375,11 @@ namespace Parsek
 
             // Position and animate primary (SpawnKscGhost above guarantees non-null)
             {
-                double cycleStartUT = rec.StartUT + lastCycle * cycleDuration;
+                double cycleStartUT = loopStartUT + lastCycle * cycleDuration;
                 double phase = currentUT - cycleStartUT;
                 if (phase < 0) phase = 0;
                 if (phase > duration) phase = duration;
-                double loopUT = rec.StartUT + phase;
+                double loopUT = loopStartUT + phase;
 
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
                     ref primaryState.playbackIndex, loopUT);
@@ -414,7 +416,7 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double cycleStart = rec.StartUT + cycle * cycleDuration;
+                double cycleStart = loopStartUT + cycle * cycleDuration;
                 double phase = currentUT - cycleStart;
 
                 if (phase > duration)
@@ -432,7 +434,7 @@ namespace Parsek
                 }
 
                 if (phase < 0) phase = 0;
-                double loopUT = rec.StartUT + phase;
+                double loopUT = loopStartUT + phase;
 
                 InterpolateAndPositionKsc(ovState.ghost, rec.Points,
                     ref ovState.playbackIndex, loopUT);

@@ -350,6 +350,51 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.IsOverlapLoop(period, effectiveDuration));
         }
 
+        [Fact]
+        public void EffectiveLoopDuration_SubrangeAndHybridRange_OverlapDecisionDiffers()
+        {
+            // #408 regression guard: UpdateLoopingPlayback used `traj.EndUT - effStart`,
+            // which turns a [100, 200] loop subrange inside [0, 300] into a fake 200s
+            // duration. A 150s period should therefore be SINGLE under the effective
+            // subrange, not OVERLAP under the hybrid parent range.
+            var traj = new MockTrajectory().WithTimeRange(0, 300);
+            traj.LoopStartUT = 100;
+            traj.LoopEndUT = 200;
+
+            double effectiveDuration = GhostPlaybackEngine.EffectiveLoopDuration(traj);
+            double hybridDuration = traj.EndUT - GhostPlaybackEngine.EffectiveLoopStartUT(traj);
+
+            const double period = 150.0;
+            Assert.True(GhostPlaybackLogic.IsOverlapLoop(period, hybridDuration));
+            Assert.False(GhostPlaybackLogic.IsOverlapLoop(period, effectiveDuration));
+        }
+
+        [Fact]
+        public void EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToHybridRange()
+        {
+            // #408 regression guard: overlap cycle selection must stop at EffectiveLoopEndUT,
+            // not raw EndUT, otherwise an expired older cycle lingers one extra period.
+            var traj = new MockTrajectory().WithTimeRange(0, 300).WithLoop(80);
+            traj.LoopStartUT = 100;
+            traj.LoopEndUT = 200;
+
+            long effectiveFirstCycle;
+            long effectiveLastCycle;
+            long hybridFirstCycle;
+            long hybridLastCycle;
+
+            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(traj);
+            GhostPlaybackLogic.GetActiveCycles(260, loopStartUT, GhostPlaybackEngine.EffectiveLoopEndUT(traj),
+                traj.LoopIntervalSeconds, 10, out effectiveFirstCycle, out effectiveLastCycle);
+            GhostPlaybackLogic.GetActiveCycles(260, loopStartUT, traj.EndUT,
+                traj.LoopIntervalSeconds, 10, out hybridFirstCycle, out hybridLastCycle);
+
+            Assert.Equal(1, effectiveFirstCycle);
+            Assert.Equal(2, effectiveLastCycle);
+            Assert.Equal(0, hybridFirstCycle);
+            Assert.Equal(2, hybridLastCycle);
+        }
+
         #endregion
 
         #region ShouldLoopPlayback with loop range

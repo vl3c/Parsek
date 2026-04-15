@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 408. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range
+## ~~408. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
 
 **Source:** `#406` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#406` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
 
@@ -64,7 +64,9 @@ The flight engine's overlap-vs-single decision and its pause-window/phase clamp 
 - `Source/Parsek.Tests/KscGhostPlaybackTests.cs` — loop-subrange dispatch tests.
 - `CHANGELOG.md` and this entry on completion.
 
-**Status:** TODO. Size: S-M. Not a regression — the behavior predates `#381`. Needs in-game validation on a save with a real loop subrange before merging. `#406` fixed the watch-mode half of the same drift; this entry closes it out engine-wide.
+**Status:** ~~Fixed~~. Size: S-M. Not a regression — the behavior predates `#381`. `#406` fixed the watch-mode half of the same drift; this closes out the remaining flight/KSC range math.
+
+**Fix:** Rewrote `GhostPlaybackEngine.UpdateLoopingPlayback` to branch on `EffectiveLoopDuration(traj)` instead of the old hybrid `traj.EndUT - EffectiveLoopStartUT(traj)`, and rewrote `UpdateOverlapPlayback` to bound `GetActiveCycles(...)` with `EffectiveLoopEndUT(traj)` so expired overlap cycles are computed against the real loop subrange. Rewrote the KSC main dispatcher to use `GhostPlaybackEngine.EffectiveLoopDuration(rec)` for the overlap-vs-single decision, then completed the follow-up audit by fixing `UpdateOverlapKsc` too: it now anchors activation, cycle starts, phase clamping, and active-cycle selection to `EffectiveLoopStartUT/EffectiveLoopEndUT` instead of raw `rec.StartUT/rec.EndUT`. Added regression tests in `GhostPlaybackEngineTests` for the hybrid-range dispatch/cycle-bound bug and in `KscGhostPlaybackTests` for the raw-range KSC dispatch/cycle-bound bug. Targeted verification: `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj --no-restore --filter "FullyQualifiedName~GhostPlaybackEngineTests|FullyQualifiedName~KscGhostPlaybackTests" /p:KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program"` → 134 passed, 1 skipped.
 
 ---
 

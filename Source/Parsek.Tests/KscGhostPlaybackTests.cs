@@ -474,6 +474,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers()
+        {
+            // #408 regression guard: the KSC dispatcher must branch on the effective loop
+            // subrange, not the recording's full [StartUT, EndUT] span.
+            var rec = MakeKerbinRecording(
+                startUT: 0, endUT: 300, loopPlayback: true, loopInterval: 150.0);
+            rec.LoopStartUT = 100;
+            rec.LoopEndUT = 200;
+
+            double effectiveDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            double rawDuration = rec.EndUT - rec.StartUT;
+
+            Assert.True(GhostPlaybackLogic.IsOverlapLoop(rec.LoopIntervalSeconds, rawDuration));
+            Assert.False(GhostPlaybackLogic.IsOverlapLoop(rec.LoopIntervalSeconds, effectiveDuration));
+        }
+
+        [Fact]
+        public void EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToFullRange()
+        {
+            // #408 regression guard: UpdateOverlapKsc must anchor both active-cycle bounds
+            // and phase math to the effective loop range, otherwise cycles start from the
+            // recording's raw StartUT and stale overlap ghosts linger too long.
+            var rec = MakeKerbinRecording(
+                startUT: 0, endUT: 300, loopPlayback: true, loopInterval: 80.0);
+            rec.LoopStartUT = 100;
+            rec.LoopEndUT = 200;
+
+            long effectiveFirstCycle;
+            long effectiveLastCycle;
+            long rawFirstCycle;
+            long rawLastCycle;
+
+            GhostPlaybackLogic.GetActiveCycles(260,
+                GhostPlaybackEngine.EffectiveLoopStartUT(rec),
+                GhostPlaybackEngine.EffectiveLoopEndUT(rec),
+                ParsekKSC.GetLoopIntervalSeconds(rec),
+                10, out effectiveFirstCycle, out effectiveLastCycle);
+            GhostPlaybackLogic.GetActiveCycles(260,
+                rec.StartUT, rec.EndUT,
+                ParsekKSC.GetLoopIntervalSeconds(rec),
+                10, out rawFirstCycle, out rawLastCycle);
+
+            Assert.Equal(1, effectiveFirstCycle);
+            Assert.Equal(2, effectiveLastCycle);
+            Assert.Equal(0, rawFirstCycle);
+            Assert.Equal(3, rawLastCycle);
+        }
+
+        [Fact]
         public void TryComputeLoopUT_NegativeInterval_ClampsDefensively_NoThrow()
         {
             // #381: negative intervals are rejected at UI; engine clamps defensively to
