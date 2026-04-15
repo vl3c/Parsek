@@ -509,6 +509,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveLoopPlaybackEndpointUT_Subrange_UsesEffectiveLoopEnd()
+        {
+            var rec = MakeKerbinRecording(
+                startUT: 0, endUT: 300, loopPlayback: true, loopInterval: 80.0);
+            rec.LoopStartUT = 100;
+            rec.LoopEndUT = 200;
+
+            Assert.Equal(200.0, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec));
+        }
+
+        [Fact]
         public void EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToFullRange()
         {
             // #408 regression guard: UpdateOverlapKsc must anchor both active-cycle bounds

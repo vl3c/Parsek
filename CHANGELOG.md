@@ -18,7 +18,7 @@ All notable changes to Parsek are documented here.
 - `#381` The recording loop "Period" field is now the launch-to-launch period: a recording set to 10s relaunches every 10s regardless of duration, overlap emerges automatically when the period is shorter than the recording, and pre-`#381` negative saved gaps are migrated on load instead of collapsing to a 1-second relaunch clamp.
 - `#406` Fixed a watch-mode overlap-vs-single dispatch mismatch for recordings with a loop subrange: `ResolveWatchPlaybackUT` and `TryStartWatchSession` now read the same `EffectiveLoopDuration` and cycle-start reference, so the two sites can no longer disagree on which playback path to take.
 - `#407` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries — `ComputeLoopPhaseFromUT`, `TryComputeLoopPlaybackUT`, and the live flight/KSC loop schedulers now share a `BoundaryEpsilon` tolerance so they agree on the `isInPause` flag at `phase == duration`.
-- `#408` Loop playback now uses the effective loop subrange consistently in flight and KSC: the overlap-vs-single dispatch, overlap active-cycle bounds, and overlap phase anchoring now read `EffectiveLoopDuration` / `EffectiveLoopStartUT` / `EffectiveLoopEndUT` instead of raw or hybrid recording ranges.
+- `#408` Loop playback now uses the effective loop subrange consistently in flight and KSC: the overlap-vs-single dispatch, overlap active-cycle bounds, overlap phase anchoring, and loop-end teardown/pause holds now read `EffectiveLoopDuration` / `EffectiveLoopStartUT` / `EffectiveLoopEndUT` instead of raw or hybrid recording ranges.
 
 ### Maintenance
 

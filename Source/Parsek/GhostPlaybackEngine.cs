@@ -762,9 +762,9 @@ namespace Parsek
             bool cycleChanged = HasLoopCycleChanged(state, cycleIndex);
             if (cycleChanged && state != null)
             {
-                // Position at final point so explosion appears at crash site
+                // Position at the loop endpoint so explosion appears at the real loop end.
                 if (state.ghost != null)
-                    PositionGhostAtRecordingEndpoint(index, traj, state);
+                    PositionGhostAtLoopEndpoint(index, traj, state);
 
                 bool needsExplosion = state != null
                     && traj.TerminalStateValue == TerminalState.Destroyed
@@ -1038,7 +1038,7 @@ namespace Parsek
                 if (phase > duration)
                 {
                     if (ovState.ghost != null)
-                        PositionGhostAtRecordingEndpoint(index, traj, ovState);
+                        PositionGhostAtLoopEndpoint(index, traj, ovState);
                     TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
 
                     // Fire camera event for overlap expiry
@@ -1105,14 +1105,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles the loop pause window: positions ghost at the final trajectory point,
+        /// Handles the loop pause window: positions ghost at the final loop point,
         /// hides all parts (crash-site hold), zeroes velocity for reentry FX decay,
         /// and triggers explosion if the recording ended in destruction.
         /// </summary>
         private void HandleLoopPauseWindow(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, float warpRate)
         {
-            PositionGhostAtRecordingEndpoint(index, traj, state);
+            PositionGhostAtLoopEndpoint(index, traj, state);
             // PositionAtPoint now sets state.lastInterpolatedAltitude to the
             // clamped altitude (#282). Don't overwrite it here with the raw
             // recording-end altitude on the first pause-window frame, or the
@@ -1136,14 +1136,17 @@ namespace Parsek
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
             ActivateGhostVisualsIfNeeded(state);
-            double appearanceUT = RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT)
-                ? orbitEndpointUT
-                : (traj?.Points != null && traj.Points.Count > 0
-                    ? traj.Points[traj.Points.Count - 1].ut
-                    : (traj != null && traj.OrbitSegments != null && traj.OrbitSegments.Count > 0
-                        ? traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT
-                        : 0.0));
+            double appearanceUT = ResolveLoopPlaybackEndpointUT(traj);
             TrackGhostAppearance(index, traj, state, appearanceUT, "loop-pause");
+        }
+
+        private void PositionGhostAtLoopEndpoint(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state)
+        {
+            if (state?.ghost == null || traj == null || positioner == null)
+                return;
+
+            positioner.PositionLoop(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), true);
         }
 
         private void PositionGhostAtRecordingEndpoint(
@@ -1259,6 +1262,15 @@ namespace Parsek
                 || migratedPeriod < GhostPlaybackLogic.MinCycleDuration)
                 return GhostPlaybackLogic.MinCycleDuration;
             return migratedPeriod;
+        }
+
+        /// <summary>
+        /// Returns the UT where loop playback should hold/teardown. For custom loop ranges this
+        /// is the effective loop end, not the recording's raw final timestamp.
+        /// </summary>
+        internal static double ResolveLoopPlaybackEndpointUT(IPlaybackTrajectory traj)
+        {
+            return EffectiveLoopEndUT(traj);
         }
 
         /// <summary>Whether the trajectory should loop (has enough points and duration).</summary>

@@ -333,6 +333,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveLoopPlaybackEndpointUT_WithSubrange_UsesEffectiveLoopEnd()
+        {
+            var traj = new MockTrajectory().WithTimeRange(0, 300);
+            traj.LoopStartUT = 100;
+            traj.LoopEndUT = 200;
+
+            Assert.Equal(200.0, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(traj));
+        }
+
+        [Fact]
         public void EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers()
         {
             // #406 regression guard: for a recording with a 50s loop subrange and a 80s
