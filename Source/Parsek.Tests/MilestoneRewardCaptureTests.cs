@@ -170,6 +170,67 @@ namespace Parsek.Tests
             Assert.NotNull(updated);
             Assert.Equal(7500f, updated.MilestoneFundsAwarded);
             Assert.Equal(10.0f, updated.MilestoneRepAwarded);
+            Assert.Equal(0f, updated.MilestoneScienceAwarded);
+        }
+
+        [Fact]
+        public void EnrichPendingMilestoneRewards_WithScienceReward_UpdatesLedgerAction()
+        {
+            // Regression for codex follow-up review: the KSC-path enrichment updated
+            // MilestoneFundsAwarded and MilestoneRepAwarded on the ledger action but
+            // forgot MilestoneScienceAwarded. Milestones that award science (e.g.
+            // Kerbin/Science) thus produced zero-sci ledger actions on the KSC path
+            // even after Fix #4 wired up the schema. The earlier test with sci=0
+            // could not catch the gap.
+            LedgerOrchestrator.Initialize();
+
+            var node = new FakeProgressNode("Kerbin/Science");
+            var evt = new GameStateEvent
+            {
+                ut = 600,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "Kerbin/Science",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+            GameStateStore.AddEvent(evt);
+            LedgerOrchestrator.OnKscSpending(evt); // writes zero-reward action
+            GameStateRecorder.PendingMilestoneEventByNode[node] = evt;
+
+            GameStateRecorder.EnrichPendingMilestoneRewards(node, 0.0, 0f, 2.0);
+
+            var updated = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.MilestoneAchievement &&
+                a.MilestoneId == "Kerbin/Science");
+            Assert.NotNull(updated);
+            Assert.Equal(2f, updated.MilestoneScienceAwarded);
+        }
+
+        [Fact]
+        public void EnrichPendingMilestoneRewards_AllThreeRewards_UpdatesAllFields()
+        {
+            LedgerOrchestrator.Initialize();
+
+            var node = new FakeProgressNode("Kerbin/Landing");
+            var evt = new GameStateEvent
+            {
+                ut = 700,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "Kerbin/Landing",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+            GameStateStore.AddEvent(evt);
+            LedgerOrchestrator.OnKscSpending(evt);
+            GameStateRecorder.PendingMilestoneEventByNode[node] = evt;
+
+            GameStateRecorder.EnrichPendingMilestoneRewards(node, 3000.0, 5f, 1.5);
+
+            var updated = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.MilestoneAchievement &&
+                a.MilestoneId == "Kerbin/Landing");
+            Assert.NotNull(updated);
+            Assert.Equal(3000f, updated.MilestoneFundsAwarded);
+            Assert.Equal(5f, updated.MilestoneRepAwarded);
+            Assert.Equal(1.5f, updated.MilestoneScienceAwarded);
         }
 
         [Fact]

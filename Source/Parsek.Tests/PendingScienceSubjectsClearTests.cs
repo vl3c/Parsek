@@ -103,10 +103,11 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
 
-            // Science actions from the pending subjects should have landed in the ledger.
+            // Science actions from the pending subjects should have landed in the ledger —
+            // exactly the seeded count, no duplication. Previously this test used `>= 2`,
+            // which hid the tree-commit duplication until the codex review caught it.
             int scienceActions = Ledger.Actions.Count(a => a.Type == GameActionType.ScienceEarning);
-            Assert.True(scienceActions >= 2,
-                $"expected >=2 ScienceEarning actions, got {scienceActions}");
+            Assert.Equal(2, scienceActions);
 
             // And the pending list must now be empty.
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);

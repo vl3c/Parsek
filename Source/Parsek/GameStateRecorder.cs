@@ -227,7 +227,16 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            var detail = $"title={title};fundsReward={contract.FundsCompletion};repReward={contract.ReputationCompletion};sciReward={contract.ScienceCompletion}";
+            // InvariantCulture-safe float serialization — plain interpolation emits
+            // comma decimals on locales like de-DE/fr-FR/ro-RO, and the IC-parsing
+            // converter side then reads zero. See also OnContractAccepted.
+            float fundsReward = (float)contract.FundsCompletion;
+            float repReward = (float)contract.ReputationCompletion;
+            float sciReward = (float)contract.ScienceCompletion;
+            var detail = $"title={title}" +
+                $";fundsReward={fundsReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";repReward={repReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";sciReward={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -236,7 +245,8 @@ namespace Parsek
                 detail = detail
             };
             GameStateStore.AddEvent(evt);
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}' (funds={contract.FundsCompletion}, rep={contract.ReputationCompletion}, sci={contract.ScienceCompletion})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
 
             // #405: route to ledger immediately when at KSC (contract completions in flight
             // go through the normal commit-time ConvertEvents path).
@@ -248,7 +258,11 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
+            float fundsPenalty = (float)contract.FundsFailure;
+            float repPenalty = (float)contract.ReputationFailure;
+            var detail = $"title={title}" +
+                $";fundsPenalty={fundsPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";repPenalty={repPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -257,7 +271,8 @@ namespace Parsek
                 detail = detail
             };
             GameStateStore.AddEvent(evt);
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
             // #405: route to ledger immediately when at KSC.
             if (!IsFlightScene())
@@ -268,7 +283,11 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
+            float fundsPenalty = (float)contract.FundsFailure;
+            float repPenalty = (float)contract.ReputationFailure;
+            var detail = $"title={title}" +
+                $";fundsPenalty={fundsPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";repPenalty={repPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -277,7 +296,8 @@ namespace Parsek
                 detail = detail
             };
             GameStateStore.AddEvent(evt);
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
             // #405: route to ledger immediately when at KSC.
             if (!IsFlightScene())
@@ -355,18 +375,22 @@ namespace Parsek
             }
             if (part == null) return;
             var partName = part.name ?? "";
+            // InvariantCulture-safe: plain interpolation serializes floats with the
+            // system locale decimal separator, and ConvertPartPurchased parses with IC.
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float cost = part.cost;
 
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.PartPurchased,
                 key = partName,
-                detail = $"cost={part.cost}",
-                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + part.cost : 0,
+                detail = "cost=" + cost.ToString("R", ic),
+                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + cost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
             GameStateStore.AddEvent(evt);
-            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={part.cost})");
+            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={cost})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
@@ -402,12 +426,15 @@ namespace Parsek
                     HighLogic.CurrentGame.CrewRoster.GetActiveCrewCount());
             }
 
+            // InvariantCulture-safe hire cost — GetRecruitHireCost is typically integer
+            // but could return fractional on modded career curves.
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewHired,
                 key = name,
-                detail = $"trait={crew.trait ?? ""};cost={hireCost}"
+                detail = $"trait={crew.trait ?? ""};cost={hireCost.ToString("R", ic)}"
             };
             GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
@@ -824,6 +851,7 @@ namespace Parsek
 
                     a.MilestoneFundsAwarded = (float)funds;
                     a.MilestoneRepAwarded = rep;
+                    a.MilestoneScienceAwarded = (float)sci;
                     ParsekLog.Verbose("GameStateRecorder",
                         $"EnrichPendingMilestoneRewards: updated ledger action for '{evt.key}' " +
                         $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
