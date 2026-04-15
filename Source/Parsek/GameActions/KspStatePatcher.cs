@@ -600,6 +600,12 @@ namespace Parsek
 
             // Get the set of contract IDs that should be active after the ledger walk
             var activeIds = contracts.GetActiveContractIds();
+            var activeIdSet = new HashSet<Guid>();
+            foreach (var idStr in activeIds)
+            {
+                if (Guid.TryParse(idStr, out var gid))
+                    activeIdSet.Add(gid);
+            }
 
             // If no active contracts in ledger, just log the current KSP state
             int currentCount = ContractSystem.Instance.Contracts != null
@@ -610,40 +616,65 @@ namespace Parsek
                 $"PatchContracts: ledger has {activeIds.Count.ToString(IC)} active contracts, " +
                 $"KSP has {currentCount.ToString(IC)} current contracts");
 
-            // 1. Unregister all currently active contracts to prevent stale event subscriptions
+            // #404: Filtered remove — only touch Active contracts whose id is NOT in the
+            // ledger's active set. Offered/Declined/Cancelled/Failed/Completed entries MUST
+            // stay untouched; the old code unconditionally cleared currentContracts and
+            // ContractsFinished, which wiped the Mission Control Offered bucket and any
+            // game history. ContractsFinished is append-only game state — Parsek must NOT
+            // mutate it. Filtering is delegated to PartitionContractsForPatch for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
-            int unregistered = 0;
+            var entries = new List<ContractFilterEntry>();
             if (currentContracts != null)
             {
                 for (int i = 0; i < currentContracts.Count; i++)
                 {
-                    if (currentContracts[i] != null &&
-                        currentContracts[i].ContractState == Contract.State.Active)
+                    var c = currentContracts[i];
+                    if (c == null) continue;
+                    entries.Add(new ContractFilterEntry
                     {
-                        try
-                        {
-                            currentContracts[i].Unregister();
-                            unregistered++;
-                        }
-                        catch (Exception ex)
-                        {
-                            ParsekLog.Warn(Tag,
-                                $"PatchContracts: failed to unregister contract: {ex.Message}");
-                        }
-                    }
+                        Id = c.ContractGuid,
+                        IsActive = c.ContractState == Contract.State.Active
+                    });
                 }
             }
 
-            // 2. Clear both lists
+            PartitionContractsForPatch(entries, activeIdSet,
+                out var toRemove, out var survivingActiveIds);
+            var toRemoveSet = new HashSet<Guid>(toRemove);
+
+            int removedStale = 0;
+            int unregisterFailures = 0;
             if (currentContracts != null)
-                currentContracts.Clear();
-            ContractSystem.Instance.ContractsFinished.Clear();
+            {
+                for (int i = currentContracts.Count - 1; i >= 0; i--)
+                {
+                    var c = currentContracts[i];
+                    if (c == null) continue;
+                    if (!toRemoveSet.Contains(c.ContractGuid)) continue;
+
+                    try
+                    {
+                        c.Unregister();
+                    }
+                    catch (Exception ex)
+                    {
+                        unregisterFailures++;
+                        ParsekLog.Warn(Tag,
+                            $"PatchContracts: failed to unregister stale contract '{c.ContractGuid}': {ex.Message}");
+                    }
+                    currentContracts.RemoveAt(i);
+                    removedStale++;
+                }
+            }
 
             ParsekLog.Verbose(Tag,
-                $"PatchContracts: cleared KSP contract lists (unregistered={unregistered.ToString(IC)})");
+                $"PatchContracts: removed {removedStale.ToString(IC)} stale Active contract(s), " +
+                $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place " +
+                $"(unregisterFailures={unregisterFailures.ToString(IC)})");
 
-            // 3. Rebuild active contracts from snapshots
+            // 2. Rebuild ONLY contracts that are in the ledger but not already present.
             int restored = 0;
+            int skippedExisting = 0;
             int noSnapshot = 0;
             int noType = 0;
             int typeNotFound = 0;
@@ -652,6 +683,14 @@ namespace Parsek
 
             foreach (string contractId in activeIds)
             {
+                // Skip contracts that survived the filtered remove — no need to unregister
+                // and recreate them, preserving parameter subscriptions that are already hot.
+                if (Guid.TryParse(contractId, out var cg) && survivingActiveIds.Contains(cg))
+                {
+                    skippedExisting++;
+                    continue;
+                }
+
                 ConfigNode snapshot = GameStateStore.GetContractSnapshot(contractId);
                 if (snapshot == null)
                 {
@@ -702,7 +741,10 @@ namespace Parsek
                         continue;
                     }
 
-                    // Add to the appropriate list based on state
+                    // Only add Active-state contracts. GetActiveContractIds only yields actives,
+                    // so any other state here is either a mis-snapshotted entry or a contract
+                    // that mutated between snapshot and now — either way, we do NOT mutate the
+                    // Finished bucket (see #404: append-only game history).
                     if (contract.ContractState == Contract.State.Active)
                     {
                         currentContracts.Add(contract);
@@ -719,18 +761,16 @@ namespace Parsek
                                 $"PatchContracts: failed to register contract '{contractId}' " +
                                 $"type='{typeName}': {ex.Message}");
                         }
-                    }
-                    else if (contract.IsFinished())
-                    {
-                        ContractSystem.Instance.ContractsFinished.Add(contract);
+
+                        restored++;
                     }
                     else
                     {
-                        // Offered or other non-terminal state — add to main list
-                        currentContracts.Add(contract);
+                        ParsekLog.Warn(Tag,
+                            $"PatchContracts: snapshot for contractId='{contractId}' loaded in " +
+                            $"state={contract.ContractState} (expected Active) — skipping, not mutating " +
+                            $"Finished bucket");
                     }
-
-                    restored++;
                 }
                 catch (Exception ex)
                 {
@@ -741,7 +781,7 @@ namespace Parsek
                 }
             }
 
-            // 4. Fire contracts loaded event so UI refreshes
+            // 3. Fire contracts loaded event so UI refreshes
             try
             {
                 GameEvents.Contract.onContractsLoaded.Fire();
@@ -752,14 +792,70 @@ namespace Parsek
                     $"PatchContracts: onContractsLoaded.Fire() threw: {ex.Message}");
             }
 
+            int kspTotalAfter = currentContracts != null ? currentContracts.Count : 0;
             ParsekLog.Info(Tag,
-                $"PatchContracts: restored={restored.ToString(IC)}, " +
+                $"PatchContracts: removedStale={removedStale.ToString(IC)}, " +
+                $"restored={restored.ToString(IC)}, " +
                 $"registered={registered.ToString(IC)}, " +
+                $"skippedExisting={skippedExisting.ToString(IC)}, " +
                 $"noSnapshot={noSnapshot.ToString(IC)}, " +
                 $"noType={noType.ToString(IC)}, " +
                 $"typeNotFound={typeNotFound.ToString(IC)}, " +
                 $"loadFailed={loadFailed.ToString(IC)}, " +
-                $"ledgerActive={activeIds.Count.ToString(IC)}");
+                $"ledgerActive={activeIds.Count.ToString(IC)}, " +
+                $"kspTotal={kspTotalAfter.ToString(IC)} " +
+                $"(Offered/Finished preserved)");
+        }
+
+        // ================================================================
+        // Testable pure helpers for #404 filtered contract partitioning
+        // ================================================================
+
+        /// <summary>
+        /// Represents the current-state classification of a KSP contract for PatchContracts
+        /// filtering. Active contracts are the only ones Parsek considers mutating; every
+        /// other state (Offered, Declined, Cancelled, Failed, Completed, DeadlineExpired)
+        /// is preserved untouched.
+        /// </summary>
+        internal struct ContractFilterEntry
+        {
+            public Guid Id;
+            public bool IsActive;
+        }
+
+        /// <summary>
+        /// Pure helper: partitions the current KSP contract list into {stale Actives to
+        /// remove} and {surviving Actives to keep in place}. Non-Active entries are
+        /// implicitly preserved by being absent from the remove list. Extracted from
+        /// <see cref="PatchContracts"/> so the filtering logic can be unit-tested without
+        /// real KSP Contract instances.
+        ///
+        /// The rules:
+        /// <list type="number">
+        ///   <item>An Active contract whose ID is NOT in the ledger's active set is "stale" and goes to <paramref name="toRemove"/>.</item>
+        ///   <item>An Active contract whose ID IS in the ledger's active set is "surviving" and goes to <paramref name="surviving"/>.</item>
+        ///   <item>A non-Active contract is left out of both lists — callers MUST NOT touch it.</item>
+        /// </list>
+        /// </summary>
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> surviving)
+        {
+            toRemove = new List<Guid>();
+            surviving = new HashSet<Guid>();
+            if (currentEntries == null) return;
+
+            for (int i = 0; i < currentEntries.Count; i++)
+            {
+                var entry = currentEntries[i];
+                if (!entry.IsActive) continue;        // preserve non-Active
+                if (activeIdSet != null && activeIdSet.Contains(entry.Id))
+                    surviving.Add(entry.Id);
+                else
+                    toRemove.Add(entry.Id);
+            }
         }
 
         internal static void ResetForTesting()
