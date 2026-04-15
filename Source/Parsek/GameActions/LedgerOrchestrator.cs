@@ -94,8 +94,21 @@ namespace Parsek
         /// <param name="recordingId">The recording that was just committed.</param>
         /// <param name="startUT">Start UT of the recording.</param>
         /// <param name="endUT">End UT of the recording.</param>
+        /// <summary>
+        /// Test-only fault injector. When non-null, <see cref="OnRecordingCommitted"/>
+        /// invokes this action at its entry point with the current recording being
+        /// committed, before any real logic runs. Used by PendingScienceSubjectsClearTests
+        /// to verify the try/finally clear invariant in NotifyLedgerTreeCommitted —
+        /// allowing the test to force a throw without corrupting real state.
+        /// Reset to null in test Dispose.
+        /// </summary>
+        internal static Action<string> OnRecordingCommittedFaultInjector;
+
         internal static void OnRecordingCommitted(string recordingId, double startUT, double endUT)
         {
+            // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
+            OnRecordingCommittedFaultInjector?.Invoke(recordingId);
+
             Initialize();
 
             // 1. Convert GameStateStore events to GameActions
@@ -142,7 +155,7 @@ namespace Parsek
             // Log WARN on mismatch. Log-only: the drop block itself must stay, because
             // re-emitting those events would double-count against recovery + contract +
             // milestone channels (review §5.1 regression guard).
-            ReconcileEarningsWindow(events, actions, costActions, scienceActions, startUT, endUT);
+            ReconcileEarningsWindow(events, actions, startUT, endUT);
 
             // 6. Recalculate + patch
             RecalculateAndPatch();
@@ -153,12 +166,15 @@ namespace Parsek
         /// deltas against effective emitted FundsEarning/FundsSpending/ReputationEarning/
         /// ReputationPenalty/ScienceEarning/ScienceSpending actions in the same UT window
         /// and logs WARN on mismatch beyond tolerance. Internal static for testability.
+        /// <para>
+        /// Note: vesselCost and science actions are already merged into <paramref name="newActions"/>
+        /// by <see cref="OnRecordingCommitted"/> before this runs, so they are summed implicitly
+        /// through the single <c>newActions</c> walk and do not need separate parameters.
+        /// </para>
         /// </summary>
         internal static void ReconcileEarningsWindow(
             IReadOnlyList<GameStateEvent> events,
             List<GameAction> newActions,
-            List<GameAction> vesselCostActions,
-            List<GameAction> scienceActions,
             double startUT, double endUT)
         {
             double droppedFundsDelta = 0;
@@ -190,9 +206,8 @@ namespace Parsek
             double emittedRepDelta = 0;
             double emittedSciDelta = 0;
 
-            // newActions already contains vesselCostActions + scienceActions, but the
-            // caller supplies them separately for clarity. We only enumerate newActions
-            // so the sum is well-defined even if caller dedups differently.
+            // newActions already contains vesselCostActions + scienceActions (merged by
+            // OnRecordingCommitted before this runs), so a single walk suffices.
             if (newActions != null)
             {
                 for (int i = 0; i < newActions.Count; i++)
@@ -1123,6 +1138,16 @@ namespace Parsek
             return totalRecovered;
         }
 
+        // Scope limit (deliberate): only contract state changes and part purchases
+        // are migrated because those are the event types that #405/#404 actually
+        // stripped from the ledger on c1/sci1 saves, so those are the ones a broken
+        // save will be missing. MilestoneAchieved is excluded because historical
+        // milestones were emitted with funds=0/rep=0 hardcoded — synthesizing them
+        // would only add zero-reward actions. CrewHired, TechResearched, and
+        // FacilityUpgraded are excluded because their real-time OnKscSpending writes
+        // were never broken; c1/sci1 already have those actions. A future broken
+        // save that surfaces missing hires/tech/facility actions would need this
+        // list extended (see todo-and-known-bugs.md).
         /// <summary>Pure: event types the migration can synthesize actions for.</summary>
         internal static bool IsRecoverableEventType(GameStateEventType t)
         {

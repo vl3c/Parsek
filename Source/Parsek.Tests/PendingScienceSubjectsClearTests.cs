@@ -40,6 +40,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            LedgerOrchestrator.OnRecordingCommittedFaultInjector = null;
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -48,6 +49,11 @@ namespace Parsek.Tests
             GameStateRecorder.PendingScienceSubjects.Clear();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        private sealed class SentinelFaultException : Exception
+        {
+            public SentinelFaultException(string msg) : base(msg) { }
         }
 
         private static Recording MakeRec(string id, double startUT, double endUT)
@@ -154,13 +160,13 @@ namespace Parsek.Tests
         [Fact]
         public void NotifyLedgerTreeCommitted_OrchestratorThrows_StillClears()
         {
-            // Invariant: the try/finally clears PendingScienceSubjects even when
-            // OnRecordingCommitted throws. We trigger the throw by letting the
-            // recording reference itself be corrupted — specifically, by having
-            // a null-ID recording inside the tree so FindRecordingById chains
-            // through, but we also need the subject list to be non-empty so
-            // there's something to clear.
+            // Invariant: the try/finally inside NotifyLedgerTreeCommitted clears
+            // PendingScienceSubjects even when OnRecordingCommitted throws. We use
+            // the LedgerOrchestrator.OnRecordingCommittedFaultInjector test hook to
+            // force a throw at the very start of OnRecordingCommitted, so the
+            // invariant is exercised against real code (not asserted by inspection).
             SeedSubject("crewReport@KerbinSrfLanded", 2.5f);
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
 
             var recGood = MakeRec("rec-good", 100.0, 200.0);
             StageRecordings(recGood);
@@ -172,20 +178,31 @@ namespace Parsek.Tests
                 RootRecordingId = recGood.RecordingId,
                 ActiveRecordingId = recGood.RecordingId
             };
-            // Inject a null recording into tree.Recordings so the foreach will NPE
-            // inside OnRecordingCommitted's downstream. We skip actual NPE creation
-            // (dict rejects null values by convention) and instead test the happy path
-            // plus a separately-crafted "no orchestrator" assertion.
             tree.Recordings[recGood.RecordingId] = recGood;
 
+            var sentinel = new SentinelFaultException("forced for test");
             try
             {
-                LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
-            }
-            catch { /* ignore — the point is that the finally ran */ }
+                LedgerOrchestrator.OnRecordingCommittedFaultInjector = _ => throw sentinel;
 
-            // The finally should have cleared the list regardless.
+                // The sentinel exception must bubble out of NotifyLedgerTreeCommitted —
+                // the method does not swallow OnRecordingCommitted throws.
+                var thrown = Assert.Throws<SentinelFaultException>(() =>
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(tree));
+                Assert.Same(sentinel, thrown);
+            }
+            finally
+            {
+                LedgerOrchestrator.OnRecordingCommittedFaultInjector = null;
+            }
+
+            // Even though OnRecordingCommitted threw at its entry point, the
+            // finally block must have cleared PendingScienceSubjects.
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+
+            // And the clear log line should have fired.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("cleared PendingScienceSubjects"));
         }
 
         [Fact]

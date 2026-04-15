@@ -66,7 +66,6 @@ namespace Parsek.Tests
             };
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
@@ -83,7 +82,6 @@ namespace Parsek.Tests
             var newActions = new List<GameAction>();  // nothing emitted
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.Contains(logLines, l =>
@@ -107,7 +105,6 @@ namespace Parsek.Tests
             var newActions = new List<GameAction>();
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.Contains(logLines, l =>
@@ -131,7 +128,6 @@ namespace Parsek.Tests
             var newActions = new List<GameAction>();
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.Contains(logLines, l =>
@@ -151,7 +147,6 @@ namespace Parsek.Tests
             var newActions = new List<GameAction>();
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             // Neither event counts — no warn.
@@ -186,7 +181,6 @@ namespace Parsek.Tests
             };
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
@@ -219,7 +213,6 @@ namespace Parsek.Tests
             };
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
@@ -246,7 +239,6 @@ namespace Parsek.Tests
             };
 
             LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
-                new List<GameAction>(), new List<GameAction>(),
                 startUT: 100, endUT: 200);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));

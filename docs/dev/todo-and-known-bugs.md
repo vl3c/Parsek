@@ -143,6 +143,8 @@ Once `#403`/`#405` are fixed forward, loading the c1 save will still see `FundsM
 
 **Fix:** Added `LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad` which walks `GameStateStore.Events` and synthesizes missing `ContractAccept/Complete/Fail/Cancel` and `FundsSpending(PartPurchased)` actions for any event that has no matching ledger action. Called from `ParsekScenario.OnLoad` after the epoch is restored from the save file, and only when not rewinding. Respects `MilestoneStore.CurrentEpoch` (per `career-earnings-bundle-review.md` §5.6) so old-branch events don't leak into the new epoch. Idempotent via `LedgerOrchestrator.LedgerHasMatchingAction`. Automatic recalc runs after recovery so the derived state heals. Tests in `Source/Parsek.Tests/LedgerRecoveryMigrationTests.cs`.
 
+**Follow-up / known limitation:** the ledger recovery migration in §K covers contract events and science subjects only; extend `IsRecoverableEventType` if a future broken save surfaces with stale `CrewHired`, `TechResearched`, or `FacilityUpgraded` actions. Those real-time `OnKscSpending` paths were never broken, so c1/sci1 did not need them synthesized.
+
 **Status:** ~~Fixed~~
 
 ---
