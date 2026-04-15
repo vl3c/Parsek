@@ -2648,6 +2648,12 @@ namespace Parsek
                 int formatVersion;
                 if (int.TryParse(formatVersionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out formatVersion))
                     rec.RecordingFormatVersion = formatVersion;
+                else
+                    rec.RecordingFormatVersion = 0;
+            }
+            else
+            {
+                rec.RecordingFormatVersion = 0;
             }
 
             string loopPlaybackStr = recNode.GetValue("loopPlayback");
@@ -2680,18 +2686,32 @@ namespace Parsek
                 double loopIntervalSeconds;
                 if (double.TryParse(loopIntervalStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopIntervalSeconds))
                 {
-                    if (loopIntervalSeconds < 0)
+                    if (rec.RecordingFormatVersion < RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
                     {
                         double effectiveLoopDuration;
                         double migratedLoopIntervalSeconds =
-                            GhostPlaybackEngine.ConvertLegacyGapToLoopPeriodSeconds(
-                                rec, loopIntervalSeconds, out effectiveLoopDuration);
-                        rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
-                        ParsekLog.Warn("Loop",
-                            $"ParsekScenario: migrated recording '{rec.VesselName}' from legacy " +
-                            $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
-                            $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s (pre-#381 save).");
+                            loopIntervalSeconds;
+                        if (GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
+                                rec, loopIntervalSeconds,
+                                out migratedLoopIntervalSeconds, out effectiveLoopDuration))
+                        {
+                            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+                            ParsekLog.Warn("Loop",
+                                $"ParsekScenario: migrated recording '{rec.VesselName}' from legacy " +
+                                $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                                $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
+                                $"for recordingFormatVersion={rec.RecordingFormatVersion} (pre-v4 loop save).");
+                        }
+                        else
+                        {
+                            rec.LoopIntervalSeconds = loopIntervalSeconds;
+                            ParsekLog.Warn("Loop",
+                                $"ParsekScenario: loaded recording '{rec.VesselName}' with legacy " +
+                                $"negative loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"for recordingFormatVersion={rec.RecordingFormatVersion}, but deferred migration " +
+                                "because loop bounds are not hydrated yet.");
+                        }
                     }
                     else
                     {

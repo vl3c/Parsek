@@ -654,6 +654,42 @@ namespace Parsek
                     ParsekLog.Info("CameraFollow",
                         $"Overlap: camera holding at explosion for #{evt.Index} cycle={evt.NewCycleIndex}");
                     break;
+
+                case CameraActionType.ExplosionHoldEnd:
+                    watchedOverlapCycleIndex = -1;
+                    overlapRetargetAfterUT = -1;
+                    if (overlapCameraAnchor != null) UnityEngine.Object.Destroy(overlapCameraAnchor);
+                    overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraBridge");
+                    overlapCameraAnchor.transform.position = evt.AnchorPosition;
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+
+                    GhostPlaybackState primary;
+                    bool primaryReady = host.Engine.ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                        && primary != null;
+                    if (primaryReady && (primary.ghost == null || primary.cameraPivot == null))
+                        primaryReady = TryEnsurePrimaryWatchGhostLoaded(primary, out primary);
+
+                    if (FlightCamera.fetch != null
+                        && primaryReady
+                        && primary != null && primary.ghost != null)
+                    {
+                        FlightCamera.fetch.SetTargetTransform(GetWatchTarget(primary.cameraPivot));
+                        watchedOverlapCycleIndex = primary.loopCycleIndex;
+                        if (overlapCameraAnchor != null)
+                        {
+                            UnityEngine.Object.Destroy(overlapCameraAnchor);
+                            overlapCameraAnchor = null;
+                        }
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: camera retargeted after quiet expiry for #{evt.Index}");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: camera bridged at quiet expiry for #{evt.Index} cycle={evt.NewCycleIndex}");
+                    }
+                    break;
             }
         }
 

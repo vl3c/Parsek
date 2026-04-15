@@ -1041,8 +1041,10 @@ namespace Parsek
                 {
                     if (ovState.ghost != null)
                         PositionGhostAtLoopEndpoint(index, traj, ovState);
-                    if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
-                            traj, ResolveLoopPlaybackEndpointUT(traj)))
+                    bool triggerExplosionAtExpiry = !ovState.explosionFired
+                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            traj, ResolveLoopPlaybackEndpointUT(traj));
+                    if (triggerExplosionAtExpiry)
                     {
                         TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
                     }
@@ -1051,7 +1053,9 @@ namespace Parsek
                     OnOverlapCameraAction?.Invoke(new CameraActionEvent
                     {
                         Index = index,
-                        Action = CameraActionType.ExplosionHoldStart,
+                        Action = triggerExplosionAtExpiry
+                            ? CameraActionType.ExplosionHoldStart
+                            : CameraActionType.ExplosionHoldEnd,
                         NewCycleIndex = cycle,
                         AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
                         HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
@@ -1063,7 +1067,7 @@ namespace Parsek
                     {
                         Index = index, Trajectory = traj, State = ovState, Flags = flags,
                         CycleIndex = cycle,
-                        ExplosionFired = ovState.explosionFired,
+                        ExplosionFired = triggerExplosionAtExpiry,
                         ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
                     });
 
@@ -1261,17 +1265,23 @@ namespace Parsek
         /// period. If the reconstructed period underflows or the trajectory bounds are not
         /// available, clamps defensively to MinCycleDuration.
         /// </summary>
-        internal static double ConvertLegacyGapToLoopPeriodSeconds(
+        internal static bool TryConvertLegacyGapToLoopPeriodSeconds(
             IPlaybackTrajectory traj,
             double legacyGapSeconds,
+            out double migratedPeriod,
             out double effectiveLoopDuration)
         {
             effectiveLoopDuration = EffectiveLoopDuration(traj);
-            double migratedPeriod = effectiveLoopDuration + legacyGapSeconds;
+            migratedPeriod = legacyGapSeconds;
+            if (double.IsNaN(effectiveLoopDuration) || double.IsInfinity(effectiveLoopDuration)
+                || effectiveLoopDuration <= 0.0)
+                return false;
+
+            migratedPeriod = effectiveLoopDuration + legacyGapSeconds;
             if (double.IsNaN(migratedPeriod) || double.IsInfinity(migratedPeriod)
                 || migratedPeriod < GhostPlaybackLogic.MinCycleDuration)
-                return GhostPlaybackLogic.MinCycleDuration;
-            return migratedPeriod;
+                migratedPeriod = GhostPlaybackLogic.MinCycleDuration;
+            return true;
         }
 
         /// <summary>
