@@ -116,17 +116,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NotifyLedgerTreeCommitted_MultiRecording_AllRecordingsSeeSubjectsBeforeClear()
+        public void NotifyLedgerTreeCommitted_MultiRecording_OnlyOneRecordingAbsorbsSubjects()
         {
-            // CRITICAL: with the old "clear in OnRecordingCommitted tail" approach, the
-            // first recording would clear the list and the second recording would see
-            // nothing. This test locks in the "clear after the foreach" contract.
+            // Regression for codex review [P1] on PR #307: the previous implementation
+            // had both recordings re-read PendingScienceSubjects and emit a full
+            // ScienceEarning set each, causing ScienceModule to double-credit every
+            // subject. The fix: NotifyLedgerTreeCommitted snapshots once and picks
+            // exactly one recording (highest EndUT) to own the batch; siblings receive
+            // the empty sentinel.
             SeedSubject("crewReport@KerbinSrfLanded", 2.5f);
             SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
             SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f);
 
             var recA = MakeRec("rec-A", 100.0, 200.0);
-            var recB = MakeRec("rec-B", 200.0, 300.0);
+            var recB = MakeRec("rec-B", 200.0, 300.0);  // higher EndUT -> owner
             StageRecordings(recA, recB);
 
             var tree = new RecordingTree
@@ -141,19 +144,99 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
 
-            // Both recordings should have produced ScienceEarning actions — they both
-            // saw the same non-empty list. Because the subjects are time-assigned to
-            // endUT, there will be actions for both recordings.
             int recAScience = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.ScienceEarning && a.RecordingId == "rec-A");
             int recBScience = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.ScienceEarning && a.RecordingId == "rec-B");
 
-            Assert.True(recAScience >= 3,
-                $"recA should see 3 subjects; saw {recAScience}");
-            Assert.True(recBScience >= 3,
-                $"recB should see 3 subjects; saw {recBScience}");
+            // Only the owner (rec-B, higher EndUT) absorbs the 3 subjects.
+            Assert.Equal(0, recAScience);
+            Assert.Equal(3, recBScience);
 
+            // The total in the ledger must equal exactly the number of seeded subjects —
+            // no duplication across recordings.
+            int totalScienceActions = Ledger.Actions.Count(a => a.Type == GameActionType.ScienceEarning);
+            Assert.Equal(3, totalScienceActions);
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+        }
+
+        [Fact]
+        public void PickScienceOwnerRecordingId_PicksHighestEndUT()
+        {
+            var recA = MakeRec("rec-A", 100.0, 200.0);
+            var recB = MakeRec("rec-B", 200.0, 500.0);  // highest EndUT
+            var recC = MakeRec("rec-C", 500.0, 450.0);
+
+            var tree = new RecordingTree
+            {
+                Id = "t",
+                ActiveRecordingId = "rec-A"
+            };
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+            tree.Recordings[recC.RecordingId] = recC;
+
+            Assert.Equal("rec-B", LedgerOrchestrator.PickScienceOwnerRecordingId(tree));
+        }
+
+        [Fact]
+        public void PickScienceOwnerRecordingId_EmptyTree_ReturnsNull()
+        {
+            var tree = new RecordingTree { Id = "empty" };
+            Assert.Null(LedgerOrchestrator.PickScienceOwnerRecordingId(tree));
+        }
+
+        [Fact]
+        public void PickScienceOwnerRecordingId_NullTree_ReturnsNull()
+        {
+            Assert.Null(LedgerOrchestrator.PickScienceOwnerRecordingId(null));
+        }
+
+        [Fact]
+        public void PickScienceOwnerRecordingId_TieBreaksOnActiveRecording()
+        {
+            // Two recordings share the highest EndUT — the active one wins.
+            var recA = MakeRec("rec-A", 100.0, 300.0);
+            var recB = MakeRec("rec-B", 200.0, 300.0);  // tied on EndUT and is active
+
+            var tree = new RecordingTree
+            {
+                Id = "t",
+                ActiveRecordingId = "rec-B"
+            };
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+
+            Assert.Equal("rec-B", LedgerOrchestrator.PickScienceOwnerRecordingId(tree));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_SingleRecording_OwnerAbsorbsSubjects()
+        {
+            // A single-recording tree: the sole recording IS the owner, and absorbs all
+            // subjects. No sibling comparison is needed — this is the degenerate case of
+            // the multi-recording attribution logic.
+            SeedSubject("temperatureScan@MunFlyingHigh", 4.2f);
+            SeedSubject("barometerScan@KerbinInSpaceLow", 1.8f);
+
+            var rec = MakeRec("rec-lone", 100.0, 200.0);
+            StageRecordings(rec);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-lone",
+                TreeName = "Lone Tree",
+                RootRecordingId = rec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            int scienceActions = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.ScienceEarning && a.RecordingId == "rec-lone");
+            Assert.Equal(2, scienceActions);
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
         }
 

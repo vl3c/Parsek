@@ -104,7 +104,32 @@ namespace Parsek
         /// </summary>
         internal static Action<string> OnRecordingCommittedFaultInjector;
 
+        /// <summary>
+        /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
+        /// in a multi-recording tree that should NOT absorb any pending science subjects.
+        /// Only one recording per tree owns the subject batch — the others get this empty
+        /// list. Distinct from <c>null</c>, which means "read from the static list as
+        /// usual" (the single-recording commit paths).
+        /// </summary>
+        private static readonly IReadOnlyList<PendingScienceSubject> EmptyPendingScience =
+            new PendingScienceSubject[0];
+
         internal static void OnRecordingCommitted(string recordingId, double startUT, double endUT)
+        {
+            OnRecordingCommitted(recordingId, startUT, endUT, pendingScienceOverride: null);
+        }
+
+        /// <summary>
+        /// Processes a single recording commit. When <paramref name="pendingScienceOverride"/>
+        /// is non-null, it is used as the pending-science source instead of the static
+        /// <see cref="GameStateRecorder.PendingScienceSubjects"/> list. This lets tree commits
+        /// split the single shared batch across recordings — exactly one recording absorbs
+        /// the full snapshot, the rest receive the empty sentinel so they do not re-emit
+        /// duplicate <see cref="GameActionType.ScienceEarning"/> actions.
+        /// </summary>
+        internal static void OnRecordingCommitted(
+            string recordingId, double startUT, double endUT,
+            IReadOnlyList<PendingScienceSubject> pendingScienceOverride)
         {
             // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
             OnRecordingCommittedFaultInjector?.Invoke(recordingId);
@@ -115,9 +140,16 @@ namespace Parsek
             var events = GameStateStore.Events;
             var actions = GameStateEventConverter.ConvertEvents(events, recordingId, startUT, endUT);
 
-            // 2. Convert pending science subjects
+            // 2. Convert pending science subjects.
+            // When called from NotifyLedgerTreeCommitted, an override list is passed —
+            // non-null means "use this exact list", and the caller ensures only one
+            // recording per tree receives a populated list. When the override is null
+            // (the single-recording commit paths in ChainSegmentManager.CommitSegmentCore
+            // and ParsekFlight.FallbackCommitSplitRecorder), fall back to the static list.
+            IReadOnlyList<PendingScienceSubject> pendingSource =
+                pendingScienceOverride ?? GameStateRecorder.PendingScienceSubjects;
             var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                GameStateRecorder.PendingScienceSubjects, recordingId, endUT);
+                pendingSource, recordingId, endUT);
             actions.AddRange(scienceActions);
 
             // 3. Inject vessel build cost and recovery funds from recording data
@@ -1424,8 +1456,22 @@ namespace Parsek
             // Key: "chainId:chainIndex", Value: EndUT of that segment.
             var chainEndUTs = BuildChainEndUtMap(tree);
 
+            // #397 / codex review [P1]: snapshot PendingScienceSubjects ONCE and attribute
+            // the full batch to exactly one recording in the tree. Previously every recording
+            // re-read the static list and produced its own ScienceEarning set, so an N-recording
+            // tree credited each subject N times — ScienceModule summed every copy and over-
+            // credited the R&D pool by a factor of N. The pending list has no per-subject UT
+            // field, so attribution must pick one recording arbitrarily; we use the one with
+            // the highest EndUT (most recent flight activity, which is usually where the
+            // science was earned just before commit).
+            var pendingSnapshot = GameStateRecorder.PendingScienceSubjects.Count == 0
+                ? EmptyPendingScience
+                : (IReadOnlyList<PendingScienceSubject>)
+                    new List<PendingScienceSubject>(GameStateRecorder.PendingScienceSubjects);
+            int pendingBefore = pendingSnapshot.Count;
+            string scienceOwnerRecordingId = PickScienceOwnerRecordingId(tree);
+
             int gapsClosed = 0;
-            int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
             try
             {
                 foreach (var rec in tree.Recordings.Values)
@@ -1438,15 +1484,24 @@ namespace Parsek
                     if (adjusted < startUT) gapsClosed++;
                     startUT = adjusted;
 
-                    OnRecordingCommitted(rec.RecordingId, startUT, endUT);
+                    // Exactly one recording absorbs the pending science batch; all others get
+                    // the empty sentinel list so ConvertScienceSubjects returns zero actions.
+                    IReadOnlyList<PendingScienceSubject> perRecordingPending =
+                        (rec.RecordingId == scienceOwnerRecordingId)
+                            ? pendingSnapshot
+                            : EmptyPendingScience;
+
+                    OnRecordingCommitted(rec.RecordingId, startUT, endUT, perRecordingPending);
                 }
             }
             finally
             {
-                // #397: PendingScienceSubjects MUST be cleared after the orchestrator has
-                // read them for every recording in the tree. Previously, RecordingStore
-                // cleared the list BEFORE NotifyLedgerTreeCommitted ran, so
-                // ConvertScienceSubjects always saw an empty list and no ScienceEarning
+                // #397: PendingScienceSubjects is cleared AFTER the orchestrator has read
+                // them for every recording in the tree (via the snapshot above). Clearing
+                // the static list here completes the handoff — the snapshot we captured
+                // remains live inside any ScienceEarning actions the owner produced.
+                // Previously, RecordingStore cleared the list BEFORE NotifyLedgerTreeCommitted
+                // ran, so ConvertScienceSubjects always saw an empty list and no ScienceEarning
                 // actions ever landed. The try/finally ensures the clear fires even if
                 // OnRecordingCommitted throws.
                 int cleared = GameStateRecorder.PendingScienceSubjects.Count;
@@ -1454,13 +1509,57 @@ namespace Parsek
                 if (pendingBefore > 0 || cleared > 0)
                     ParsekLog.Verbose(Tag,
                         $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
-                        $"(before={pendingBefore}, atClear={cleared})");
+                        $"(snapshot={pendingBefore}, owner='{scienceOwnerRecordingId ?? "(none)"}', " +
+                        $"staticAtClear={cleared})");
             }
 
             ParsekLog.Verbose(Tag,
                 $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
                 $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
                 $"gapsClosed={gapsClosed}");
+        }
+
+        /// <summary>
+        /// Picks exactly one recording in a tree to own any PendingScienceSubjects collected
+        /// while the tree was being recorded. Strategy: the recording with the highest EndUT
+        /// (most recent flight activity, where science was most likely earned just before
+        /// commit). If multiple recordings tie, the tree's ActiveRecordingId wins; if none
+        /// tie on that, the first iterated recording is a deterministic fallback.
+        /// Returns null if the tree has no recordings (empty tree). Internal static for
+        /// direct testability.
+        /// </summary>
+        internal static string PickScienceOwnerRecordingId(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return null;
+
+            string bestId = null;
+            double bestEndUT = double.NegativeInfinity;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                double endUT = rec.EndUT;
+                if (endUT > bestEndUT)
+                {
+                    bestEndUT = endUT;
+                    bestId = rec.RecordingId;
+                }
+                else if (endUT == bestEndUT && rec.RecordingId == tree.ActiveRecordingId)
+                {
+                    // Tie-break: prefer the active recording.
+                    bestId = rec.RecordingId;
+                }
+            }
+
+            // Defensive: if we somehow saw no non-null recordings, fall back to the first.
+            if (bestId == null)
+            {
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec != null) { bestId = rec.RecordingId; break; }
+                }
+            }
+            return bestId;
         }
 
         /// <summary>
