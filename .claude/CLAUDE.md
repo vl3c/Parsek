@@ -19,21 +19,41 @@ python scripts/release.py    # build Release, run tests, package zip
 
 Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DLL + version file + toolbar textures). Validates that `Parsek.version` and `AssemblyInfo.cs` versions match before building.
 
-## KSP Decompilation
+## Investigating KSP Internals
 
-To investigate KSP internals, decompile `Assembly-CSharp.dll` using `ilspycmd`:
+When investigating KSP API behavior, search the web and read other open-source KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover) for patterns and prior art.
 
-```bash
-# Install (once)
-dotnet tool install -g ilspycmd
+## KSP API & Code Gotchas
 
-# Decompile a specific type
-ilspycmd "Kerbal Space Program/KSP_x64_Data/Managed/Assembly-CSharp.dll" -t KSP.UI.Screens.SpaceTracking -o /tmp/ksp-decompile/
-ilspycmd "Kerbal Space Program/KSP_x64_Data/Managed/Assembly-CSharp.dll" -t Vessel -o /tmp/ksp-decompile/
-ilspycmd "Kerbal Space Program/KSP_x64_Data/Managed/Assembly-CSharp.dll" -t MapView -o /tmp/ksp-decompile/
-```
+**Enums / APIs**
+- `GameScenes.TRACKSTATION` (not `TRACKINGSTATION`)
+- `PopupDialog` / `MultiOptionDialog` live in `Assembly-CSharp` — no extra Unity module reference needed
+- `ScenarioCreationOptions.AddToAllGames` for ScenarioModules that must exist in every save
+- `FlightCamera.camPitch/camHdg` are **radians**, not degrees (stock defaults 0.2/0.3 = ~11.5°/~17°); pivot rotation is `frameOfReference * Yaw(camHdg) * Pitch(camPitch)`
+- `VesselPrecalculate.vessel` is protected — compare with `__instance.gameObject != v.gameObject` instead
+- `ModuleEngines.runningEffectName`/`directThrottleEffectName` not accessible at compile time — scan EFFECTS config instead
+- `onPartJointBreak` signature: `(PartJoint joint, float breakForce)`
 
-Decompiled output has obfuscation artifacts (spurious `while(true) switch` blocks) — ignore those. Also search the web and other KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover) for patterns when investigating KSP API behavior.
+**Part names**: KSP converts underscores to dots at runtime. cfg `name = solidBooster_v2` → runtime `solidBooster.v2`. Always use dot-form in `PartLoader.getPartInfoByName` and ghost snapshot part names.
+
+**Rotation / world frame**: KSP's world frame co-rotates with the parent body. `body.bodyTransform.rotation` is axial tilt only (time-invariant), NOT body spin.
+- Surface-relative capture: `srfRelRotation = Inverse(body.bodyTransform.rotation) * v.transform.rotation`
+- Playback reconstruction: `worldRot = body.bodyTransform.rotation * srfRelRotation`
+- All recording rotation is unconditionally surface-relative since format v0. Orbital rotation needs inertial-frame + `Planetarium.Rotation` snapshot (future work).
+
+**Krakensbane-corrected velocity**: `(Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity())`
+
+**ConfigNode file I/O**: `ConfigNode.Save()` writes node CONTENTS only (values + children), NOT the node-name wrapper. `ConfigNode.Load()` returns a node already containing the file contents. Do NOT call `root.GetNode("Name")` after load. Use `FileIOUtils` for safe-write (.tmp + rename).
+
+**InvariantCulture everywhere**: all float/double serialization uses `ToString("R", CultureInfo.InvariantCulture)`. UI formatting (`$"{val:F1}"`) also needs InvariantCulture — comma-locale systems produce broken output otherwise.
+
+**Ghost event ↔ snapshot PID**: `VesselSnapshotBuilder.AddPart` assigns `persistentId = 100000 + idx*1111`. Single-part showcase ghosts must use PID `100000` for their events or playback lookup silently fails. Ghost part GameObjects are named by `persistentId` for O(1) lookup.
+
+**Engine key encoding**: `(ulong)pid << 8 | (uint)moduleIndex` — up to 256 engine modules per part. RCS uses separate dicts (`activeRcsKeys`/`lastRcsThrottle`) so keys may overlap.
+
+**Test working dir**: xUnit runs from `Source/Parsek.Tests/bin/Debug/net472/` — use 5 `..` segments to reach project root. Classes touching shared static state (`ParsekLog`, `RecordingStore`, `ParsekScenario.crewReplacements`) need `[Collection("Sequential")]` and the corresponding `ResetForTesting()` calls.
+
+**Recording storage (format v3)**: bulk data lives in sidecar files under `saves/<save>/Parsek/Recordings/`: `<id>.prec` (trajectory), `<id>_vessel.craft`, `<id>_ghost.craft`, `<id>.pcrf` (ghost geometry). Only lightweight metadata + mutable state stays in `.sfs`. `RecordingPaths.ValidateRecordingId` rejects path traversal and invalid filename chars.
 
 ## Project Layout
 
