@@ -5,6 +5,38 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 ---
 
+## Post-review follow-ups on PR #307 (career-earnings-bundle)
+
+After the initial 11-bug bundle landed on `fix/career-earnings-bundle`, an independent
+Codex review found four follow-up bugs my orchestration pipeline had missed. All four
+are fixed in the same PR branch with additional commits:
+
+- **Tree-commit science duplication** (`LedgerOrchestrator.cs`). `NotifyLedgerTreeCommitted`
+  re-read `PendingScienceSubjects` once per recording in the tree, so an N-recording tree
+  credited each subject N times. Fix: snapshot once at the top, pass to exactly one
+  recording via `PickScienceOwnerRecordingId` (highest `EndUT`, ties broken by
+  `ActiveRecordingId`), sibling recordings receive an empty sentinel. See bug #397.
+- **`DedupKey` not serialized** (`GameAction.cs`). KSC part-purchase dedup depended on
+  `DedupKey`, but `SerializeFundsSpending`/`DeserializeFundsSpending` never persisted it,
+  so reloads collapsed all KSC purchases to a single `""` key and
+  `TryRecoverBrokenLedgerOnLoad` re-synthesized the debits. Fix: round-trip the field,
+  2 regression tests. See bug #405.
+- **Contract advance never captured** (`GameStateRecorder.cs`, `GameStateEventConverter.cs`).
+  `OnContractAccepted` wrote title/deadline/fail-penalties into detail but skipped
+  `contract.FundsAdvance`, and `ConvertContractAccepted` had no `funds=` parser. The
+  downstream `GameAction.AdvanceFunds` + `FundsModule` consumption was already in place
+  but always saw zero. Fix: detail v3 format adds `funds=`, converter parses it, backward
+  compat preserved for v2 strings. See bug #405.
+- **Milestone science dropped** (`GameAction.cs`, `GameStateEventConverter.cs`,
+  `ScienceModule.cs`). `#400`'s fix wrote `sci=` into the milestone detail string but
+  `GameAction` had no `MilestoneScienceAwarded` field and `ConvertMilestoneAchieved` read
+  only funds/rep. Milestones with science rewards (Kerbin/Science, Kerbin/Landing, etc.)
+  produced zero ledger science credit. Fix: schema field added, serialized,
+  `ScienceModule.ProcessMilestoneScienceReward` consumes on effective-only actions,
+  reconciliation diagnostic counts it, Actions window displays it. See bug #400.
+
+---
+
 # Known Bugs
 
 ## ~~405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc~~
