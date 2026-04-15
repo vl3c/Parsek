@@ -1083,17 +1083,36 @@ namespace Parsek
             var chainEndUTs = BuildChainEndUtMap(tree);
 
             int gapsClosed = 0;
-            foreach (var rec in tree.Recordings.Values)
+            int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
+            try
             {
-                double startUT = rec.StartUT;
-                double endUT = rec.EndUT;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    double startUT = rec.StartUT;
+                    double endUT = rec.EndUT;
 
-                // Close chain segment gap: extend startUT backward to predecessor's EndUT
-                double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
-                if (adjusted < startUT) gapsClosed++;
-                startUT = adjusted;
+                    // Close chain segment gap: extend startUT backward to predecessor's EndUT
+                    double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+                    if (adjusted < startUT) gapsClosed++;
+                    startUT = adjusted;
 
-                OnRecordingCommitted(rec.RecordingId, startUT, endUT);
+                    OnRecordingCommitted(rec.RecordingId, startUT, endUT);
+                }
+            }
+            finally
+            {
+                // #397: PendingScienceSubjects MUST be cleared after the orchestrator has
+                // read them for every recording in the tree. Previously, RecordingStore
+                // cleared the list BEFORE NotifyLedgerTreeCommitted ran, so
+                // ConvertScienceSubjects always saw an empty list and no ScienceEarning
+                // actions ever landed. The try/finally ensures the clear fires even if
+                // OnRecordingCommitted throws.
+                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                if (pendingBefore > 0 || cleared > 0)
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
+                        $"(before={pendingBefore}, atClear={cleared})");
             }
 
             ParsekLog.Verbose(Tag,
