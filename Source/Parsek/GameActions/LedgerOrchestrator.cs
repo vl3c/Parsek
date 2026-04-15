@@ -186,14 +186,19 @@ namespace Parsek
         }
 
         /// <summary>Returns the type-specific key field for deduplication matching.</summary>
-        private static string GetActionKey(GameAction a)
+        internal static string GetActionKey(GameAction a)
         {
             switch (a.Type)
             {
                 case GameActionType.ScienceEarning: return a.SubjectId ?? "";
                 case GameActionType.ScienceSpending: return a.NodeId ?? "";
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
-                case GameActionType.FundsSpending: return a.RecordingId ?? "";
+                // FundsSpending: RecordingId alone collides when multiple KSC part
+                // purchases share a null/empty RecordingId. DedupKey is the part name
+                // (populated by ConvertPartPurchased) so each part disambiguates.
+                // VesselBuild spending has RecordingId set and DedupKey null, so the
+                // composite key stays unique there.
+                case GameActionType.FundsSpending: return (a.RecordingId ?? "") + ":" + (a.DedupKey ?? "");
                 case GameActionType.MilestoneAchievement: return a.MilestoneId ?? "";
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:

@@ -175,6 +175,16 @@ namespace Parsek
         /// <summary>Source of fund spending.</summary>
         public FundsSpendingSource FundsSpendingSource;
 
+        /// <summary>
+        /// Optional secondary dedup discriminator. Populated for action types whose
+        /// natural key (<see cref="RecordingId"/>) collides at KSC when multiple entries
+        /// share the same null/empty RecordingId at near-identical UT — notably
+        /// <see cref="FundsSpendingSource.Other"/> part purchases, where the part name
+        /// disambiguates. NOT serialized: this is a dedup-only hint that can be
+        /// recomputed from other fields if needed. See <see cref="LedgerOrchestrator.GetActionKey"/>.
+        /// </summary>
+        public string DedupKey;
+
         // ---- Reputation fields ----
 
         /// <summary>Nominal reputation earned before curve (immutable).</summary>

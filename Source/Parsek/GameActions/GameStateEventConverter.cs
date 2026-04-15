@@ -225,13 +225,18 @@ namespace Parsek
             if (costStr != null)
                 float.TryParse(costStr, NumberStyles.Float, IC, out cost);
 
+            // DedupKey uses the part name so multiple part purchases at KSC (where
+            // RecordingId is null) do not collide under GetActionKey. See #F in
+            // career-earnings-bundle plan. Commit-path purchases have RecordingId set,
+            // so DedupKey provides additional disambiguation there too (cheap).
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.FundsSpending,
                 RecordingId = recordingId,
                 FundsSpent = cost,
-                FundsSpendingSource = FundsSpendingSource.Other
+                FundsSpendingSource = FundsSpendingSource.Other,
+                DedupKey = evt.key ?? ""
             };
         }
 
