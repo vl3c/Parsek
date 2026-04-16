@@ -82,8 +82,10 @@ internal struct ContractsTabVM
 {
     public int CurrentActive;
     public int ProjectedActive;
-    public int MaxSlots;                     // from FacilitiesModule at terminal
-    public int AdminLevel;                   // echoed for slot arithmetic context
+    public int CurrentMaxSlots;
+    public int ProjectedMaxSlots;
+    public int MissionControlLevel;          // drives contract slots (LedgerOrchestrator.UpdateSlotLimitsFromFacilities:1440-1446)
+    public int ProjectedMissionControlLevel;
     public List<ContractRow> CurrentRows;    // active-at-liveUT
     public List<ContractRow> ProjectedRows;  // active-at-terminal (superset, or different)
 }
@@ -100,8 +102,10 @@ internal struct StrategiesTabVM
 {
     public int CurrentActive;
     public int ProjectedActive;
-    public int MaxSlots;
-    public int AdminLevel;
+    public int CurrentMaxSlots;
+    public int ProjectedMaxSlots;
+    public int AdminLevel;                   // drives strategy slots
+    public int ProjectedAdminLevel;
     public List<StrategyRow> CurrentRows;
     public List<StrategyRow> ProjectedRows;
 }
@@ -174,7 +178,7 @@ The four modules expose only terminal state. We need `(liveUT, Ledger.Actions)` 
 - **Strategies**: `StrategyActivate` adds; `StrategyDeactivate` removes.
 - **Facilities**: `FacilityUpgrade` sets `Level`; `FacilityDestruction` sets `Destroyed=true`; `FacilityRepair` sets `Destroyed=false`. Last-write-wins per facility.
 - **Milestones**: track a `HashSet<string>` of already-credited ids (first `MilestoneAchievement` wins; `Effective=true` actions only).
-- **Admin-level → slots:** reuse `LedgerOrchestrator.GetContractSlots(level)` (`LedgerOrchestrator.cs:1457`, returns 2/7/999) and `GetStrategySlots(level)` (line 1471, returns 1/3/5). Both are `internal static`; no new helpers needed. The walk tracks Administration facility `Level` as it goes, feeds the live-UT-capped level into these helpers for `CurrentMaxSlots` and the terminal level for `ProjectedMaxSlots`.
+- **Facility level → slots:** reuse `LedgerOrchestrator.GetContractSlots(level)` (`LedgerOrchestrator.cs:1457`, returns 2/7/999) and `GetStrategySlots(level)` (line 1471, returns 1/3/5). Both are `internal static`; no new helpers needed. Per `LedgerOrchestrator.UpdateSlotLimitsFromFacilities:1440-1446` **contracts slots derive from MissionControl level; strategies slots derive from Administration level** — the walk tracks both independently and feeds the live-UT-capped level into each helper for `CurrentMaxSlots` plus the terminal level for `ProjectedMaxSlots`.
 
 Log each filtering decision at `Verbose` — see §7.
 
@@ -250,7 +254,7 @@ Top line under the title, before the tab bar:
 ```
 Contracts
 
-Admin level 1 — slots 1/2 now, 2/2 projected
+Mission Control L1 — slots 1/2 now, 2/2 projected
 
 Active now (1)
   Explore Mun              accepted UT 104230     deadline UT 240000
@@ -365,7 +369,7 @@ One test per behavior, each with a stated failure mode:
 - **`Build_Facilities_UnseenFacilityDefaults`** — no facility actions for `AstronautComplex`. Expect a row at `L1`/not-destroyed. Fails if missing ids are dropped.
 - **`Build_Milestones_PendingCreditShowsInProjectedOnly`** — achievement at UT 300, liveUT=200. Expect `CurrentCreditedCount=0`, `ProjectedCreditedCount=1`, row present with `IsPendingCredit=true`.
 - **`Build_Milestones_IneffectiveDuplicateSkipped`** — two `MilestoneAchievement` with same id, second `Effective=false`. Rows contain one entry.
-- **`Build_AdminLevelEchoed`** — admin upgrade at UT 100 to L2, liveUT 150. Contract tab `AdminLevel=2`, `MaxSlots=7`. Fails if the contract tab reads stale admin level.
+- **`Build_FacilityLevelsEchoed_ContractsUseMissionControl_StrategiesUseAdministration`** — MissionControl upgrade to L2 at UT 50, Administration upgrade to L2 at UT 100, liveUT=150. Contract tab `MissionControlLevel=2`, `CurrentMaxSlots=7`; Strategy tab `AdminLevel=2`, `CurrentMaxSlots=3`. Fails if a tab is wired to the wrong facility (an earlier Phase-1 revision had this crossed).
 - **`Build_LiveUTEqualsActionUT_CountsAsApplied`** — explicit `<=` boundary test.
 
 ### 8.2 Formatting tests
@@ -390,7 +394,7 @@ Capture `ParsekLog` via the existing test sink (see `KerbalsWindowUITests` for t
 - **`Build_Mode_Sandbox_AllTabsEmptyWithBanner`** (E1) — pass `Game.Modes.SANDBOX`; all four tab VMs render empty rows. Fails if the walk still populates from actions in Sandbox.
 - **`Build_Mode_Science_HidesContractsAndStrategies`** (E2) — pass `Game.Modes.SCIENCE_SANDBOX`; Contracts and Strategies tabs empty; Facilities and Milestones populated normally. Fails if science-mode gating is missed.
 - **`Build_Facilities_EmptyLedger_AllNineAtLevel1`** (E3 strengthened) — empty `Ledger.Actions`, all nine stock facilities in `FACILITY_DISPLAY_ORDER` appear at L1 not-destroyed. Fails if unseen facilities are dropped.
-- **`Build_AdminLevel_MultipleFutureUpgrades_CurrentEchoesLiveUTLevel`** (E6) — two `FacilityUpgrade` actions for Administration at UT 100 (→L2) and UT 200 (→L3), liveUT=150. Current `AdminLevel=2, CurrentMaxSlots=GetContractSlots(2)=7`; projected `AdminLevel=3, ProjectedMaxSlots=999`. Fails if projections leak into current.
+- **`Build_MissionControlLevel_MultipleFutureUpgrades_CurrentEchoesLiveUTLevel`** (E6) — two `FacilityUpgrade` actions for MissionControl at UT 100 (→L2) and UT 200 (→L3), liveUT=150. Current `MissionControlLevel=2, CurrentMaxSlots=GetContractSlots(2)=7`; projected `ProjectedMissionControlLevel=3, ProjectedMaxSlots=999`. Fails if projections leak into current.
 - **`Build_Facilities_DestroyAndRepairBothInFuture`** (E7 refinement) — destroy at UT 100, repair at UT 200, liveUT=50. Current not-destroyed, projected not-destroyed, `HasUpcomingChange=false`. Fails if ordering matters.
 - **`Build_NullModules_ReturnsEmptyVMWithWarn`** (E12) — pass `null` for one or more modules; `Build` returns an empty VM and logs a Warn. Fails silently if the walk NREs on cold-start.
 - **`Build_ContractTitleLookup_Throws_FallsBackToId`** (E13) — action with null `ContractTitle`; `ContractSystem.Instance` throws via the test harness. The walk catches and falls back to raw id with a Verbose log. Fails if the reflection path is unguarded.

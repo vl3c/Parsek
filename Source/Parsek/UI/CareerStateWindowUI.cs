@@ -109,8 +109,8 @@ namespace Parsek
             public int ProjectedActive;
             public int CurrentMaxSlots;
             public int ProjectedMaxSlots;
-            public int AdminLevel;          // admin level at liveUT (echoed for slot context)
-            public int ProjectedAdminLevel; // admin level at terminal UT
+            public int MissionControlLevel;          // MissionControl level at liveUT (drives slot count per LedgerOrchestrator.UpdateSlotLimitsFromFacilities)
+            public int ProjectedMissionControlLevel; // MissionControl level at terminal UT
             public List<ContractRow> CurrentRows;
             public List<ContractRow> ProjectedRows;
         }
@@ -437,7 +437,17 @@ namespace Parsek
             bool facilitiesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
             bool milestonesVisible = mode == Game.Modes.CAREER || mode == Game.Modes.SCIENCE_SANDBOX;
 
-            // --- Admin level for slot echo (design doc §4.3) ---
+            // --- Facility levels for slot math (matches LedgerOrchestrator.UpdateSlotLimitsFromFacilities:1440-1446) ---
+            // Contracts draw slots from MissionControl level; Strategies draw from Administration level.
+            int missionControlLevelCur = 1;
+            int missionControlLevelTerm = 1;
+            FacilityAcc mcCur;
+            if (facilityStateCurSnap.TryGetValue("MissionControl", out mcCur))
+                missionControlLevelCur = mcCur.Level;
+            FacilityAcc mcTerm;
+            if (facilityStateTerm.TryGetValue("MissionControl", out mcTerm))
+                missionControlLevelTerm = mcTerm.Level;
+
             int adminLevelCur = 1;
             int adminLevelTerm = 1;
             FacilityAcc adminCur;
@@ -452,10 +462,10 @@ namespace Parsek
             {
                 CurrentRows = new List<ContractRow>(),
                 ProjectedRows = new List<ContractRow>(),
-                AdminLevel = adminLevelCur,
-                ProjectedAdminLevel = adminLevelTerm,
-                CurrentMaxSlots = LedgerOrchestrator.GetContractSlots(adminLevelCur),
-                ProjectedMaxSlots = LedgerOrchestrator.GetContractSlots(adminLevelTerm)
+                MissionControlLevel = missionControlLevelCur,
+                ProjectedMissionControlLevel = missionControlLevelTerm,
+                CurrentMaxSlots = LedgerOrchestrator.GetContractSlots(missionControlLevelCur),
+                ProjectedMaxSlots = LedgerOrchestrator.GetContractSlots(missionControlLevelTerm)
             };
             if (contractsVisible)
             {
@@ -635,8 +645,8 @@ namespace Parsek
                 {
                     CurrentRows = new List<ContractRow>(),
                     ProjectedRows = new List<ContractRow>(),
-                    AdminLevel = 1,
-                    ProjectedAdminLevel = 1,
+                    MissionControlLevel = 1,
+                    ProjectedMissionControlLevel = 1,
                     CurrentMaxSlots = LedgerOrchestrator.GetContractSlots(1),
                     ProjectedMaxSlots = LedgerOrchestrator.GetContractSlots(1)
                 },

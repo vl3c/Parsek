@@ -371,22 +371,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_AdminLevelEchoed()
+        public void Build_FacilityLevelsEchoed_ContractsUseMissionControl_StrategiesUseAdministration()
         {
-            // Regression: this fails if the contract tab reads a stale admin level
-            // (projected leaking into current, or vice versa).
+            // Regression: guards against the two tabs reading the wrong facility for slot math.
+            // Per LedgerOrchestrator.UpdateSlotLimitsFromFacilities (LedgerOrchestrator.cs:1440-1446)
+            // contracts slots derive from MissionControl level; strategies slots derive from
+            // Administration level. Upgrading Administration alone must NOT bump contract slots
+            // and vice versa — an earlier Phase-1 revision had this crossed.
             var (c, s, f, m) = Modules();
             var actions = new List<GameAction>
             {
+                Upgrade("MissionControl", 2, ut: 50.0),
                 Upgrade("Administration", 2, ut: 100.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
                 Game.Modes.CAREER, c, s, f, m);
 
-            Assert.Equal(2, vm.Contracts.AdminLevel);
-            // GetContractSlots(2) == 7 per LedgerOrchestrator.cs:1457.
+            Assert.Equal(2, vm.Contracts.MissionControlLevel);
+            Assert.Equal(2, vm.Contracts.ProjectedMissionControlLevel);
+            // GetContractSlots(2) == 7 per LedgerOrchestrator.cs:1462.
             Assert.Equal(7, vm.Contracts.CurrentMaxSlots);
+            Assert.Equal(7, vm.Contracts.ProjectedMaxSlots);
+
+            Assert.Equal(2, vm.Strategies.AdminLevel);
+            Assert.Equal(2, vm.Strategies.ProjectedAdminLevel);
+            // GetStrategySlots(2) == 3 per LedgerOrchestrator.cs:1476.
+            Assert.Equal(3, vm.Strategies.CurrentMaxSlots);
+            Assert.Equal(3, vm.Strategies.ProjectedMaxSlots);
         }
 
         [Fact]
@@ -550,24 +562,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_AdminLevel_MultipleFutureUpgrades_CurrentEchoesLiveUTLevel()
+        public void Build_MissionControlLevel_MultipleFutureUpgrades_CurrentEchoesLiveUTLevel()
         {
-            // Regression: E6 — two FacilityUpgrade actions for Administration at UT 100
-            // (→L2) and UT 200 (→L3), liveUT=150. Current AdminLevel=2, CurrentMaxSlots=
-            // GetContractSlots(2)=7; projected AdminLevel=3, ProjectedMaxSlots=999.
+            // Regression: E6 — two FacilityUpgrade actions for MissionControl at UT 100
+            // (→L2) and UT 200 (→L3), liveUT=150. Current MissionControlLevel=2,
+            // CurrentMaxSlots=GetContractSlots(2)=7; projected level=3, ProjectedMaxSlots=999.
             // Fails if projections leak into current.
             var (c, s, f, m) = Modules();
             var actions = new List<GameAction>
             {
-                Upgrade("Administration", 2, ut: 100.0),
-                Upgrade("Administration", 3, ut: 200.0)
+                Upgrade("MissionControl", 2, ut: 100.0),
+                Upgrade("MissionControl", 3, ut: 200.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
                 Game.Modes.CAREER, c, s, f, m);
 
-            Assert.Equal(2, vm.Contracts.AdminLevel);
-            Assert.Equal(3, vm.Contracts.ProjectedAdminLevel);
+            Assert.Equal(2, vm.Contracts.MissionControlLevel);
+            Assert.Equal(3, vm.Contracts.ProjectedMissionControlLevel);
             Assert.Equal(7, vm.Contracts.CurrentMaxSlots);
             Assert.Equal(999, vm.Contracts.ProjectedMaxSlots);
         }
