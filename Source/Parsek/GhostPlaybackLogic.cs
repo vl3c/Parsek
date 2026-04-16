@@ -29,6 +29,14 @@ namespace Parsek
         // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
         internal const float WatchModeZoneGraceSeconds = 2.0f;
 
+        // Dedupe set for ResolveLoopInterval clamp warnings. Without this, a recording whose
+        // LoopIntervalSeconds is below MinCycleDuration produces a log line every frame from
+        // GhostPlaybackEngine + ParsekKSC (~3,600 lines/sec with ~20 offending recordings —
+        // ~1.3M entries in a 6-minute session). Keyed on RecordingId (stable across loads)
+        // with fallback to VesselName for transient fixtures lacking an id. Reset between
+        // tests via ResetForTesting.
+        private static readonly HashSet<string> loopIntervalClampWarned = new HashSet<string>(StringComparer.Ordinal);
+
         #region Warp / Loop Policy
 
         internal static bool ShouldSuppressVisualFx(float currentWarpRate)
@@ -286,12 +294,27 @@ namespace Parsek
 
             if (interval < minCycleDuration)
             {
-                ParsekLog.Warn("Loop",
-                    $"ResolveLoopInterval: period {interval.ToString("R", CultureInfo.InvariantCulture)}s below MinCycleDuration " +
-                    $"{minCycleDuration.ToString("R", CultureInfo.InvariantCulture)}s for '{rec.VesselName}' — clamping defensively (#381)");
+                string key = !string.IsNullOrEmpty(rec.RecordingId)
+                    ? rec.RecordingId
+                    : (rec.VesselName ?? string.Empty);
+                if (loopIntervalClampWarned.Add(key))
+                {
+                    ParsekLog.Warn("Loop",
+                        $"ResolveLoopInterval: period {interval.ToString("R", CultureInfo.InvariantCulture)}s below MinCycleDuration " +
+                        $"{minCycleDuration.ToString("R", CultureInfo.InvariantCulture)}s for '{rec.VesselName}' — clamping defensively (#381)");
+                }
                 return minCycleDuration;
             }
             return interval;
+        }
+
+        /// <summary>
+        /// Reset the per-recording clamp-warning dedupe set. Test-only — call from Dispose
+        /// of any test touching ResolveLoopInterval so state doesn't leak across tests.
+        /// </summary>
+        internal static void ResetForTesting()
+        {
+            loopIntervalClampWarned.Clear();
         }
 
         /// <summary>
