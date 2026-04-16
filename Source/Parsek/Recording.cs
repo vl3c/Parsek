@@ -24,6 +24,10 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
+        // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
+        // Ghost-only recordings never spawn a real vessel at playback end.
+        public bool IsGhostOnly;
+
         // Cascade depth from primary recording. 0 = primary recording (active vessel),
         // 1 = primary debris (boosters/fairings decoupled by gen-0 vessel). Background
         // splits whose parent is at Generation >= MaxRecordingGeneration are skipped
@@ -571,6 +575,7 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+            IsGhostOnly = source.IsGhostOnly;
             // Generation is transient, but copied so the cascade-depth state is
             // preserved across recording creation/commit boundaries within a tree session.
             // Loaded recordings reset to 0 since the field is [NonSerialized].

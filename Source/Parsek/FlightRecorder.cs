@@ -111,6 +111,20 @@ namespace Parsek
         private HashSet<uint> loggedFairingReadFailures = new HashSet<uint>();
         internal bool partEventsSubscribed;
         public bool IsRecording { get; internal set; }
+
+        /// <summary>
+        /// When true, this recorder operates in Gloops ghost-only mode:
+        /// registers with GloopsRecorderInstance instead of ActiveRecorder,
+        /// skips rewind save/pre-launch resources, auto-stops on vessel switch.
+        /// </summary>
+        internal bool IsGloopsMode { get; set; }
+
+        /// <summary>
+        /// Stash for the ghost visual snapshot captured at Gloops recording start.
+        /// Applied to the committed Recording by ParsekFlight.StopGloopsRecording().
+        /// </summary>
+        internal ConfigNode GloopsGhostVisualSnapshot { get; set; }
+
         public uint RecordingVesselId { get; private set; }
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
@@ -4184,11 +4198,13 @@ namespace Parsek
 
             LogVisualRecordingCoverage(v);
 
-            if (!isPromotion)
+            if (!isPromotion && !IsGloopsMode)
                 CapturePreLaunchResources();
 
             // Capture rewind save (quicksave stored in Parsek/Saves/)
-            CaptureRewindSave(v, isPromotion);
+            // Gloops mode skips rewind saves — ghost-only recordings have no revert target
+            if (!IsGloopsMode)
+                CaptureRewindSave(v, isPromotion);
 
             InitializeRecordingFlags(v);
             CaptureStartLocation(v, isPromotion);
@@ -4215,7 +4231,10 @@ namespace Parsek
             }
 
             // Register the Harmony patch to call us each physics frame
-            Patches.PhysicsFramePatch.ActiveRecorder = this;
+            if (IsGloopsMode)
+                Patches.PhysicsFramePatch.GloopsRecorderInstance = this;
+            else
+                Patches.PhysicsFramePatch.ActiveRecorder = this;
 
             SubscribePartEvents();
 
@@ -4689,7 +4708,10 @@ namespace Parsek
             }
 
             // Disconnect from Harmony patch
-            Patches.PhysicsFramePatch.ActiveRecorder = null;
+            if (IsGloopsMode)
+                Patches.PhysicsFramePatch.GloopsRecorderInstance = null;
+            else
+                Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
 
@@ -5109,6 +5131,18 @@ namespace Parsek
         /// </summary>
         private bool HandleVesselSwitchDuringRecording(Vessel v)
         {
+            // Gloops mode: auto-stop on vessel switch (no tree/chain logic)
+            if (IsGloopsMode)
+            {
+                ParsekLog.Info("Recorder",
+                    $"Gloops recorder auto-stopping on vessel switch " +
+                    $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
+                FinalizeRecordingState(emitTerminalEvents: true,
+                    clearRelativeMode: true, sampleBoundaryOnRails: false,
+                    logTag: "GloopsVesselSwitch");
+                return true;
+            }
+
             // 1. Dock merge guard — must be first. DockMergePending was set by
             //    OnPartCouple; let the existing capture+stop flow handle it below.
             //    Do NOT enter tree decision logic for dock PID changes.
