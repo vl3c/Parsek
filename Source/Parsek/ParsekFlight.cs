@@ -2416,7 +2416,22 @@ namespace Parsek
             double sUT = rec.StartUT;
             double eUT = rec.EndUT;
             RecordingStore.CommitRecordingDirect(rec);
-            LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
+            int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
+            try
+            {
+                LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
+            }
+            finally
+            {
+                // #397: see CommitSegmentCore comment. The direct OnRecordingCommitted
+                // path is the authoritative clear point when no tree-level commit runs.
+                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                if (pendingBefore > 0 || cleared > 0)
+                    ParsekLog.Verbose("Flight",
+                        $"FallbackCommitSplitRecorder: cleared PendingScienceSubjects " +
+                        $"(before={pendingBefore}, atClear={cleared})");
+            }
             string chainInfo = chainManager.ActiveChainId != null
                 ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
                 : "";

@@ -101,6 +101,8 @@ namespace Parsek
                         desc += string.Format(IC, " +{0:0} funds", action.MilestoneFundsAwarded);
                     if (action.MilestoneRepAwarded != 0)
                         desc += string.Format(IC, " +{0:0.#} rep", action.MilestoneRepAwarded);
+                    if (action.MilestoneScienceAwarded != 0)
+                        desc += string.Format(IC, " +{0:0.#} sci", action.MilestoneScienceAwarded);
                     return desc;
                 }
 

@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#394`, `#395`, `#396`, `#397`, `#398`, `#400`, `#401`, `#402`, `#403`, `#404`, `#405` Fixed a cascade of career-mode ledger bugs that drained funds to zero, lost accepted contracts on scene transition, pinned science at the starting seed, and zeroed out milestone funds/rep rewards. Broken sci1/c1 saves are repaired automatically on first load.
 - `#406` Map-view framerate with many looping showcase ghosts no longer collapses — stationary and slow recordings skip the reentry FX build that was being thrown away and rebuilt on every loop-cycle boundary.
 - `#362` Terminal crash-end decouple fragments (parachutes, heat shields, late shrapnel) now become proper debris branches at the very end of a recording instead of being silently dropped when the parent vessel is already in its destruction frame.
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.

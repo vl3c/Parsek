@@ -346,9 +346,13 @@ namespace Parsek
             // Flush to disk immediately to close the crash window.
             FlushDirtyFiles(committedRecordings);
 
-            // Commit pending science subjects before clearing
+            // Commit pending science subjects. #397: do NOT clear here — the
+            // orchestrator (LedgerOrchestrator.OnRecordingCommitted via
+            // ChainSegmentManager.CommitSegmentCore, or NotifyLedgerTreeCommitted
+            // for tree paths) still needs to read PendingScienceSubjects when
+            // converting ScienceEarning actions. The clear happens in those
+            // upstream sites inside a try/finally.
             GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-            GameStateRecorder.PendingScienceSubjects.Clear();
 
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
@@ -821,9 +825,11 @@ namespace Parsek
 
             committedTrees.Add(tree);
 
-            // Commit pending science subjects before clearing
+            // Commit pending science subjects. #397: do NOT clear here — the orchestrator
+            // still needs to read PendingScienceSubjects in NotifyLedgerTreeCommitted
+            // (for every recording in the tree) before the clear is safe. The clear is
+            // done there, inside a try/finally, so all recordings see the same list.
             GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-            GameStateRecorder.PendingScienceSubjects.Clear();
 
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");

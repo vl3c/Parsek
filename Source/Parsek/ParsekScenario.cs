@@ -1589,6 +1589,32 @@ namespace Parsek
                     ParsekLog.Verbose("Scenario", $"OnLoad: restored budgetDeductionEpoch={bde} from save");
                 }
             }
+
+            // #401/#396: one-shot save recovery migration — runs AFTER the ledger has
+            // been loaded AND the epoch has been restored from the save, so epoch
+            // isolation works correctly. Synthesizes ledger actions for any
+            // GameStateStore events / committed science subjects that have no
+            // matching action in the ledger. Idempotent (the LedgerHasMatchingAction
+            // guard makes repeat loads a no-op), so no version flag is needed.
+            if (!RewindContext.IsRewinding)
+            {
+                try
+                {
+                    int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
+                    if (recovered > 0)
+                    {
+                        ParsekLog.Info("Scenario",
+                            $"OnLoad: TryRecoverBrokenLedgerOnLoad synthesized {recovered} " +
+                            $"action(s) — triggering recalc to heal derived state");
+                        LedgerOrchestrator.RecalculateAndPatch();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("Scenario",
+                        $"OnLoad: TryRecoverBrokenLedgerOnLoad threw: {ex.Message}");
+                }
+            }
         }
 
         /// <summary>

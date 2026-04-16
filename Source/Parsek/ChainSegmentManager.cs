@@ -524,7 +524,24 @@ namespace Parsek
             double endUT = rec.EndUT;
             RecordingStore.CommitRecordingDirect(rec);
             RecordingStore.RunOptimizationPass();
-            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+            int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
+            try
+            {
+                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+            }
+            finally
+            {
+                // #397: Clear PendingScienceSubjects after the orchestrator has read them
+                // for this segment. RecordingStore no longer clears inside CommitRecordingDirect,
+                // so this is the authoritative clear point for chain segments. The try/finally
+                // ensures the invariant holds even if OnRecordingCommitted throws.
+                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                if (pendingBefore > 0 || cleared > 0)
+                    ParsekLog.Verbose("Chain",
+                        $"CommitSegmentCore: cleared PendingScienceSubjects " +
+                        $"(before={pendingBefore}, atClear={cleared})");
+            }
             CrewReservationManager.SwapReservedCrewInFlight();
 
             if (advanceChain)
