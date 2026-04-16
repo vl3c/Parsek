@@ -5347,6 +5347,17 @@ namespace Parsek
 
             DeserializeTrajectorySidecar(precPath, probe, rec);
 
+            // #412: Run legacy-loop migration and degenerate-interval normalization as soon
+            // as trajectory points are hydrated, BEFORE snapshot loading. A snapshot-sidecar
+            // failure below returns early while leaving Points populated; ParsekScenario.OnLoad
+            // still commits the recording, and ParsekKSC treats any enabled recording with
+            // >= 2 points as playback-eligible, so waiting until after snapshot success would
+            // let a degenerate LoopIntervalSeconds=0 slip past the auto-repair. Both
+            // normalizers only touch loop fields + trajectory bounds, so they're safe to run
+            // here regardless of snapshot outcome.
+            MigrateLegacyLoopIntervalAfterHydration(rec);
+            NormalizeDegenerateLoopInterval(rec);
+
             // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
             // the recording was loaded with empty cache fields. Without this, GhostMap
             // and other consumers see an empty TerminalOrbit cache and fail to create
@@ -5378,7 +5389,6 @@ namespace Parsek
                     $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
             }
 
-            MigrateLegacyLoopIntervalAfterHydration(rec);
             return true;
         }
 
@@ -5414,6 +5424,46 @@ namespace Parsek
                 return;
 
             rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
+        }
+
+        /// <summary>
+        /// #412: Normalize recordings whose <c>LoopIntervalSeconds</c> is below
+        /// <see cref="GhostPlaybackLogic.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
+        /// Such recordings otherwise hit <c>ResolveLoopInterval</c>'s defensive clamp on every
+        /// frame. Sources include old synthetic-fixture saves (pre-#412 the RecordingBuilder
+        /// persisted <c>loopIntervalSeconds=0</c>) and any hand-edited save file. Auto-repair
+        /// to the effective loop duration (seamless loop at the recording's own length), falling
+        /// back to <see cref="GhostPlaybackLogic.DefaultLoopIntervalSeconds"/> when the
+        /// trajectory can't supply a valid duration. <see cref="LoopTimeUnit.Auto"/> is left
+        /// alone since the resolver pulls the value from the global slider instead.
+        /// </summary>
+        internal static void NormalizeDegenerateLoopInterval(Recording rec)
+        {
+            if (rec == null || !rec.LoopPlayback) return;
+            if (rec.LoopTimeUnit == LoopTimeUnit.Auto) return;
+            if (rec.LoopIntervalSeconds >= GhostPlaybackLogic.MinCycleDuration) return;
+
+            double originalInterval = rec.LoopIntervalSeconds;
+            double effectiveLoopDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            bool durationUsable = !double.IsNaN(effectiveLoopDuration)
+                && !double.IsInfinity(effectiveLoopDuration)
+                && effectiveLoopDuration >= GhostPlaybackLogic.MinCycleDuration;
+            double resolved = durationUsable
+                ? effectiveLoopDuration
+                : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+
+            rec.LoopIntervalSeconds = resolved;
+            if (!SuppressLogging)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Warn("Loop",
+                    $"NormalizeDegenerateLoopInterval: recording '{rec.VesselName}' had " +
+                    $"loopIntervalSeconds={originalInterval.ToString("R", ic)} " +
+                    $"(below MinCycleDuration={GhostPlaybackLogic.MinCycleDuration.ToString("R", ic)}s); " +
+                    $"normalizing to {resolved.ToString("R", ic)}s " +
+                    $"(effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s, " +
+                    $"durationUsable={durationUsable}) — #412 auto-repair.");
+            }
         }
 
         private static bool SaveRecordingFilesToPathsInternal(
