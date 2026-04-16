@@ -1066,53 +1066,19 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 
 ---
 
-## 383. Ghost engine flames should scale with nozzle diameter like stock KSP
+## ~~383. Ghost engine flames visibly undersized compared to stock~~
 
-**Source:** maintenance request `2026-04-14`. Ghost flames on big engines (Mainsail, Mammoth, Rhino, Twin-Boar, KS-25x4 etc.) look visibly too small compared to the same engines running live in-game on the player vessel.
+**Source:** maintenance request `2026-04-14`. Ghost flames on big engines (Mainsail, Mammoth, Rhino, Twin-Boar, KS-25x4 etc.) looked visibly too small compared to the same engines running live because stock KSP's per-frame `FXGroup.SetPower` modulation (up to 1.75x `startSize`/`startLifetime` at full thrust) was never applied to ghost FX clones.
 
-**Concern:** `EngineFxBuilder.cs` clones the engine FX prefabs and places them on the ghost without rescaling to match the engine's thrust transform / nozzle size. The only size adjustments currently applied are:
+**Prior approach (scrapped PR #316):** replicated stock's per-frame runPower modulation by re-writing `main.startSize` / `main.startLifetime` and `KSPParticleEmitter` emission/energy/velocity fields on every `EngineThrottle` event. Two problems surfaced in playtest:
+- `new ParticleSystem.MinMaxCurve(float, float)` forces `TwoConstants` mode, which destroys prefab curve-mode startSize/startLifetime animations. Flames looked worse than main.
+- `ApplyPartEvents` runs from `ApplyFrameVisuals` every frame and `partEventIndex` resets to 0 on every loop restart, so event replay produced ~30+ modulation calls/sec per engine module on looped recordings, degrading performance.
 
-- Line `512`: `fxInstance.transform.localScale *= 0.35f` for the RAPIER white flame (`isRapierWhiteFlame`).
-- Line `517`-`518`: `main.startSizeMultiplier *= 0.45f` and `startSpeedMultiplier *= 0.75f` also for the RAPIER white flame only.
-- Lines `273` and `305`: `fxClone.transform.localScale = child.localScale` copies the *source child* local scale, which is typically `(1,1,1)` for prefab FX children — not the engine's thrust transform scale.
+**Final fix (PR #316 v3):** one-shot build-time size bump in `GhostVisualBuilder.ApplyGhostEngineFxSizeBoost`. Each engine FX instance has `main.startSizeMultiplier *= 1.5f` and `startLifetimeMultiplier *= 1.5f` applied at clone time in the three engine FX code paths (`ProcessEngineLegacyFx`, `ProcessEngineModelFxEntries`, `ProcessEnginePrefabFxEntries`). Multiplier fields are touched — not the underlying curves — so prefab `startSize` curve modes (Constant / Curve / TwoConstants / TwoCurves) are preserved. Zero per-frame cost. Composes with the existing RAPIER white-flame `0.45x` shrink.
 
-Nothing in the pipeline reads the engine's nozzle diameter / thrust transform scale and propagates it to the FX. Stock KSP gets this right because the live `ModuleEngines` updates the particle system scale from the thrust transform each frame; Parsek never sees that update because the ghost FX is a static clone built at snapshot time.
+Tradeoff: flames stay at the boosted size regardless of throttle (they no longer track partial-throttle plume shrink). That's acceptable for the visual goal — flames at cruise now look roughly like stock at full thrust; main-branch behavior was flames looking undersized at every throttle.
 
-**What "proportional to nozzle diameter" means in practice:**
-
-KSP's engine FX emit from one or more `thrustTransform` GameObjects under the part. The `thrustTransform.lossyScale` (or `localScale` up the chain) encodes how the modeler sized the nozzle — a Mainsail's thrust transform is bigger than a Reliant's. Stock KSP scales the running effect's `startSize` / `startSpeed` by `thrustTransform.lossyScale.magnitude` (or a similar factor — investigate via `ilspycmd` on `ModuleEngines.FXUpdate` / `EffectList` before implementing). The same factor, captured at snapshot time, should be applied to the ghost FX clone.
-
-**Data capture (snapshot-time):** For each `ModuleEngines` on the recorded vessel, record a per-module `ThrustTransformScale` (float). Options:
-
-1. Average of `thrustTransform.lossyScale.magnitude / sqrt(3)` across all `thrustTransforms` on the module. This normalizes `(1,1,1)` → `1.0`.
-2. Bounding sphere radius derived from the thrust transform positions — closer to "nozzle diameter" but harder to reason about when an engine has multiple widely-spaced thrust points.
-
-Start with option 1. Add the field to the engine FX info payload (`GhostTypes.cs` or wherever `EngineGhostInfo` lives — grep for it). Serialize alongside existing engine FX data if it needs to survive save/load (check whether ghost FX is rebuilt from `_ghost.craft` or cached).
-
-**Application (build-time):** In `EngineFxBuilder.TryBuildEngineFX` (look for the main `BuildEngineFX` entry point, not just `TryBuildEngineFX`), after the `fxInstance` is cloned and parented:
-
-- Multiply `fxInstance.transform.localScale *= thrustTransformScale`.
-- Walk `fxInstance.GetComponentsInChildren<ParticleSystem>(true)` and multiply each `main.startSizeMultiplier *= thrustTransformScale`.
-- Consider whether `startSpeedMultiplier` should also scale (stock appears to scale it too, preserving the flame aspect ratio). Verify visually.
-- RAPIER white flame's `0.35f` / `0.45f` / `0.75f` constants need to compose with the new scale — keep them as *relative* adjustments applied on top of the nozzle-derived base.
-
-**Edge cases to check:**
-
-- Engines with multiple thrust transforms (Mammoth, Twin-Boar, KS-25x4) — the per-transform FX is currently instantiated per thrust point. Nozzle diameter here should be per-point, not averaged, so each flame plume stays the right size.
-- Engines with zero thrust transforms or `lossyScale == Vector3.zero` (broken modded parts) — fall back to `1.0`, don't divide by zero.
-- Fixed-scale model FX entries (`MODEL_MULTI_PARTICLE`) that already encode size in the config — these should *not* get a second scale factor applied. Discriminate by node type or test on a few stock engines (Ant, Spider, Reliant) to confirm they still look right.
-- Gimbal-animated engines — make sure the scale multiplication doesn't get reset by any per-frame code path that re-assigns `localScale`.
-
-**Files to touch:**
-
-- `Source/Parsek/EngineFxBuilder.cs` — main build path, apply scale.
-- `Source/Parsek/GhostTypes.cs` or wherever `EngineGhostInfo` is defined — add `ThrustTransformScale` field (verify file first).
-- `Source/Parsek/GhostVisualBuilder.cs` — snapshot-time capture site that feeds `EngineFxBuilder`.
-- `Source/Parsek.Tests/` — unit test for the scale computation helper (pure-static function that takes a list of `Vector3` scales and returns the factor).
-- `Source/Parsek/InGameTests/RuntimeTests.cs` — runtime test that snapshots a Mainsail on a test vessel, builds the ghost, and asserts the flame FX scale is approximately `mainsailThrustScale / reliantThrustScale` bigger than a Reliant-built ghost. Visual verification still needed.
-- `CHANGELOG.md` under Unreleased: "Ghost engine flames now scale with nozzle size, fixing visibly undersized flames on Mainsail, Mammoth, and other large engines."
-
-**Status:** TODO. Size: S-M. Mostly data capture + one scale multiplication; the hard part is picking the right factor and visually validating against stock. Decompile `ModuleEngines.FXUpdate` / `EffectList.OnEvent` first to confirm the formula stock actually uses.
+**Status:** ~~Fixed~~
 
 ---
 

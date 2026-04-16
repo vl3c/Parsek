@@ -277,6 +277,8 @@ namespace Parsek
                         int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
                         {
+                            GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
+                                fxClone, GhostVisualBuilder.GhostEngineFxSizeBoost);
                             clonesAdded++;
                             GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD",
                                 srcLegacyAnchor.name, child.name, prefab.transform, ghostModelNode,
@@ -309,6 +311,8 @@ namespace Parsek
                     int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                     if (addedSystems > 0)
                     {
+                        GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
+                            fxClone, GhostVisualBuilder.GhostEngineFxSizeBoost);
                         Transform fallbackParent = fxClone.transform.parent != null
                             ? fxClone.transform.parent : ghostModelNode;
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD_FALLBACK",
@@ -391,6 +395,8 @@ namespace Parsek
                             int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
                             {
+                                GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
+                                    fxInstance, GhostVisualBuilder.GhostEngineFxSizeBoost);
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
                                     modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                                     fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
@@ -524,6 +530,8 @@ namespace Parsek
                     int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
                     {
+                        GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
+                            fxInstance, GhostVisualBuilder.GhostEngineFxSizeBoost);
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);

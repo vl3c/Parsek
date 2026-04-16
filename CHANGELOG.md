@@ -36,6 +36,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#383` Ghost engine flames now render at roughly stock full-thrust size via a one-shot 1.5x `startSizeMultiplier`/`startLifetimeMultiplier` boost applied when each engine FX instance is cloned; preserves prefab particle curve modes and adds zero per-frame cost.
 - `#394`, `#395`, `#396`, `#397`, `#398`, `#400`, `#401`, `#402`, `#403`, `#404`, `#405` Fixed a cascade of career-mode ledger bugs that drained funds to zero, lost accepted contracts on scene transition, pinned science at the starting seed, and zeroed out milestone funds/rep rewards. Broken sci1/c1 saves are repaired automatically on first load.
 - `#391` `committedScienceSubjects` dictionary is now rebuilt from the ledger after every recalculation and before load-time recovery, so deleting a recording no longer leaves stale science entries that could be re-synthesized as ghost `ScienceEarning` actions on the next load.
 - `#390` `GameStateStore.Events` is now pruned after each commit — old-epoch events and events already swept into milestones are removed, preventing unbounded growth in long careers.

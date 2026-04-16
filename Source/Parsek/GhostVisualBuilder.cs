@@ -1093,6 +1093,39 @@ namespace Parsek
             }
         }
 
+        // #383: Ghost engine flames render undersized vs live stock because Parsek's FX
+        // pipeline never applies stock's per-frame FXGroup.SetPower runPower multiplier
+        // (up to 1.75x at full thrust for legacy engines). Instead of replicating per-frame
+        // modulation — which needs per-layer curves and risks destroying prefab curve modes
+        // when rewriting startSize — apply a fixed build-time size bump that preserves curve
+        // modes via startSizeMultiplier. Chosen to sit near stock's full-thrust appearance
+        // without over-sizing partial-throttle plumes. Caller-supplied so RAPIER white flame
+        // (which already has its own 0.45x shrink) composes naturally.
+        internal const float GhostEngineFxSizeBoost = 1.5f;
+
+        /// <summary>
+        /// Uniformly bumps startSizeMultiplier and startLifetimeMultiplier on every
+        /// ParticleSystem under an engine FX instance so ghost flames render at roughly
+        /// stock full-thrust size. Touches the multiplier fields only, so each system's
+        /// underlying startSize / startLifetime curve mode (Constant / Curve / TwoConstants /
+        /// TwoCurves) is preserved — no risk of flattening animated size curves the way
+        /// rewriting startSize with a new MinMaxCurve would.
+        /// </summary>
+        internal static void ApplyGhostEngineFxSizeBoost(GameObject fxInstance, float scale)
+        {
+            if (fxInstance == null || Mathf.Approximately(scale, 1f))
+                return;
+            ParticleSystem[] systems = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < systems.Length; i++)
+            {
+                if (systems[i] == null)
+                    continue;
+                var main = systems[i].main;
+                main.startSizeMultiplier *= scale;
+                main.startLifetimeMultiplier *= scale;
+            }
+        }
+
         internal static int ConfigureGhostEngineParticleSystems(
             GameObject fxInstance, List<ParticleSystem> sink)
         {
