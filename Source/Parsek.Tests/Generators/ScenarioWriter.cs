@@ -264,6 +264,33 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Number of v3 recording builders registered with this writer —
+        /// used by InjectAllRecordings to compute the exact expected sidecar
+        /// file count without maintaining a brittle magic number.
+        /// </summary>
+        public int V3BuilderCount => v3Builders.Count;
+
+        /// <summary>
+        /// Deletes the entire Parsek/Recordings/ sidecar directory under
+        /// saveDir so a subsequent WriteSidecarFiles call starts from a clean
+        /// slate. Without this purge, recordings from a previous InjectAllRecordings
+        /// run with different (GUID-keyed) IDs survive on disk as orphans, and
+        /// KSP's load-time orphan sweep in RecordingStore later deletes them
+        /// along with any of the current run's sidecars that happen to share
+        /// the victim set. Call this before WriteSidecarFiles / InjectIntoSaveFile
+        /// when you want the final on-disk state to match the just-written scenario.
+        /// </summary>
+        public void PurgeRecordingSidecars(string saveDir)
+        {
+            if (string.IsNullOrEmpty(saveDir))
+                return;
+
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            if (Directory.Exists(recordingsDir))
+                Directory.Delete(recordingsDir, recursive: true);
+        }
+
+        /// <summary>
         /// Writes recording sidecar files for all v3 recordings to the
         /// Parsek/Recordings/ subdirectory relative to the given save directory.
         /// Uses RecordingStore's test-facing save path so generated corpora
