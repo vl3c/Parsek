@@ -50,6 +50,15 @@ namespace Parsek
         public bool writeReadableSidecarMirrors = true;
 
         /// <summary>
+        /// #388 — when false, Parsek ghost ProtoVessels and atmospheric ghost markers
+        /// are hidden from the tracking station (both the vessel list and the map view).
+        /// Toggles are picked up live via force-tick in <c>ParsekTrackingStation.Update</c>.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Show ghosts in Tracking Station",
+            toolTip = "When off, Parsek ghosts are hidden from the tracking station vessel list and map view")]
+        public bool showGhostsInTrackingStation = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
