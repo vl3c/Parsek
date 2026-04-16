@@ -318,8 +318,9 @@ namespace Parsek
 
             if (!expandable)
             {
-                // Indent to align with arrow-prefixed rows ("  \u25b6 ").
-                GUILayout.Label("    " + body + countSuffix, style);
+                // Indent by the width of the arrow + space so the leaf body lines
+                // up with bodies on arrow-prefixed (expandable) rows.
+                GUILayout.Label("  " + body + countSuffix, style);
                 return;
             }
 
@@ -532,7 +533,11 @@ namespace Parsek
             }
 
             // Names that appear in some slot's Chain — the complement within retiredSet
-            // is the orphan set.
+            // is the orphan set. If the same stand-in name somehow appears in two
+            // different slots' chains (not expected by construction, but not enforced
+            // by the data source), it shows up under both owner rows and never lands
+            // in OrphanRetired — deliberate: duplicate visibility beats losing the
+            // link entirely.
             var seenInChain = new HashSet<string>(StringComparer.Ordinal);
 
             if (slots != null && reservations != null && activeChainIndexOf != null)

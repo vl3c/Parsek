@@ -170,16 +170,22 @@ namespace Parsek
                     {
                         for (int c = 0; c < slot.Chain.Count; c++)
                         {
-                            string n = slot.Chain[c];
-                            if (!string.IsNullOrEmpty(n))
-                            {
-                                nonNullChain++;
-                                chainNames.Add(n);
-                            }
+                            if (!string.IsNullOrEmpty(slot.Chain[c])) nonNullChain++;
                         }
                     }
+                    // Dead-and-empty slots are skipped by the topology renderer, so they
+                    // don't contribute to the count — and we don't need their (empty)
+                    // chain names for orphan detection either.
                     if (slot.OwnerPermanentlyGone && nonNullChain == 0) continue;
                     visibleSlots++;
+                    if (slot.Chain != null)
+                    {
+                        for (int c = 0; c < slot.Chain.Count; c++)
+                        {
+                            string n = slot.Chain[c];
+                            if (!string.IsNullOrEmpty(n)) chainNames.Add(n);
+                        }
+                    }
                 }
                 var retiredList = kerbalsModule.GetRetiredKerbals();
                 if (retiredList != null)
