@@ -982,6 +982,12 @@ namespace Parsek
             watchMode.ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
+            // Clear ghost-icon sticky state and force atlas re-init so the next
+            // scene loads its own sprite atlas (the tracking station and flight
+            // scenes may resolve different Texture2D instances for the same
+            // logical atlas). See MapMarkerRenderer.ResetForSceneChange.
+            MapMarkerRenderer.ResetForSceneChange();
+
             // Finalize continuation sampling before anything else
             chainManager.StopAllContinuations("scene change");
 

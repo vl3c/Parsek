@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using ClickThroughFix;
-using KSP.UI.Screens.Mapview;
 using UnityEngine;
 
 namespace Parsek
@@ -24,11 +22,8 @@ namespace Parsek
         // Opaque window style (replaces KSP's semi-transparent default)
         private GUIStyle opaqueWindowStyle;
 
-        // Map view markers
-        private GUIStyle mapMarkerStyle;
-        private Texture2D mapMarkerDiamond; // fallback when atlas unavailable
-        private static Texture2D vesselIconAtlas;
-        private static Dictionary<VesselType, Rect> vesselIconUVs;
+        // Map view markers: icon atlas, fallback texture, label style, hover/sticky
+        // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
 
         // Recordings table window (extracted to RecordingsTableUI)
         private RecordingsTableUI recordingsTableUI;
@@ -640,12 +635,11 @@ namespace Parsek
                 if (FlightCamera.fetch == null || FlightCamera.fetch.mainCamera == null) return;
             }
 
-            EnsureMapMarkerResources();
-
-            // Manual preview ghost
+            // Manual preview ghost. Uses a fixed marker key so hover/sticky state is
+            // consistent across frames, and a "Preview" display label.
             if (flight.IsPlaying && flight.PreviewGhost != null)
             {
-                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview",
+                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "preview", "Preview",
                     new Color(0.2f, 1f, 0.4f, 0.9f));
             }
 
@@ -718,11 +712,14 @@ namespace Parsek
                 }
 
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
+                // Use RecordingId as marker key so hover/sticky state follows the recording,
+                // not the array index (which may shuffle when recordings are added/removed).
+                string markerKey = kvp.Key < committed.Count ? committed[kvp.Key].RecordingId : null;
                 VesselType vtype = kvp.Key < committed.Count
                     ? GhostMapPresence.ResolveVesselType(committed[kvp.Key].VesselSnapshot)
                     : VesselType.Ship;
                 Color markerColor = GetGhostMarkerColorForType(vtype);
-                DrawMapMarkerAt(markerPos, ghostName, markerColor, vtype);
+                DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
             }
         }
 
@@ -804,8 +801,8 @@ namespace Parsek
             kerbalsUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
-            if (mapMarkerDiamond != null)
-                UnityEngine.Object.Destroy(mapMarkerDiamond);
+            // Map marker resources (icon atlas, fallback diamond, label style) are
+            // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.
         }
 
         /// <summary>
@@ -818,142 +815,32 @@ namespace Parsek
             return MapMarkerRenderer.GetColorForType(vtype);
         }
 
-        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color,
+        /// <summary>
+        /// Flight-scene marker draw. Picks FlightCamera or PlanetariumCamera based on
+        /// current view, then delegates to <see cref="MapMarkerRenderer.DrawMarkerAtScreen"/>
+        /// so icon lookup, label hover/sticky, and click handling all stay in one place.
+        /// </summary>
+        private void DrawMapMarkerAt(Vector3 worldPos, string markerKey, string label, Color color,
             VesselType vtype = VesselType.Ship)
         {
             Vector3 screenPos;
             if (MapView.MapIsEnabled)
             {
                 Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
+                if (PlanetariumCamera.Camera == null) return;
                 screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
             }
             else
             {
+                if (FlightCamera.fetch == null || FlightCamera.fetch.mainCamera == null) return;
                 screenPos = FlightCamera.fetch.mainCamera.WorldToScreenPoint(worldPos);
             }
 
             // Behind camera
             if (screenPos.z < 0) return;
 
-            // GUI coordinates (Y inverted)
-            float x = screenPos.x;
-            float y = Screen.height - screenPos.y;
-
-            // Draw vessel type icon from KSP atlas (untinted — original icon colors)
-            Color prevColor = GUI.color;
-            int iconSize = 20;
-            Rect uvRect;
-            if (vesselIconAtlas != null && vesselIconUVs != null
-                && vesselIconUVs.TryGetValue(vtype, out uvRect))
-            {
-                GUI.color = Color.white;
-                GUI.DrawTextureWithTexCoords(
-                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
-                    vesselIconAtlas, uvRect);
-            }
-            else
-            {
-                GUI.color = color;
-                GUI.DrawTexture(
-                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
-                    mapMarkerDiamond);
-            }
-            GUI.color = prevColor;
-
-            // Draw vessel name label
-            mapMarkerStyle.normal.textColor = color;
-            GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), "Ghost: " + label, mapMarkerStyle);
-        }
-
-        private void EnsureMapMarkerResources()
-        {
-            // Try to load KSP's stock vessel icon atlas from the MapView prefab
-            if (vesselIconAtlas == null && MapView.fetch != null)
-                InitVesselTypeIcons();
-
-            // Fallback diamond texture (used when atlas unavailable)
-            if (mapMarkerDiamond == null)
-            {
-                int size = 16;
-                mapMarkerDiamond = new Texture2D(size, size, TextureFormat.ARGB32, false);
-                float center = size / 2f;
-                float halfDiag = size / 2f - 1f;
-                for (int py = 0; py < size; py++)
-                {
-                    for (int px = 0; px < size; px++)
-                    {
-                        float manhattan = Mathf.Abs(px - center + 0.5f) + Mathf.Abs(py - center + 0.5f);
-                        mapMarkerDiamond.SetPixel(px, py, manhattan <= halfDiag ? Color.white : Color.clear);
-                    }
-                }
-                mapMarkerDiamond.Apply();
-            }
-
-            if (mapMarkerStyle == null)
-            {
-                mapMarkerStyle = new GUIStyle(GUI.skin.label);
-                mapMarkerStyle.fontSize = 11;
-                mapMarkerStyle.fontStyle = FontStyle.Bold;
-                mapMarkerStyle.alignment = TextAnchor.UpperCenter;
-            }
-        }
-
-        private static void InitVesselTypeIcons()
-        {
-            vesselIconAtlas = MapView.OrbitIconsMap;
-            if (vesselIconAtlas == null) return;
-
-            var prefab = MapView.UINodePrefab;
-            if (prefab == null) return;
-
-            var fi = typeof(MapNode).GetField("iconSprites",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            if (fi == null)
-            {
-                ParsekLog.Warn("UI", "InitVesselTypeIcons: iconSprites field not found on MapNode");
-                vesselIconAtlas = null;
-                return;
-            }
-
-            var sprites = fi.GetValue(prefab) as Sprite[];
-            if (sprites == null || sprites.Length == 0)
-            {
-                ParsekLog.Warn("UI", "InitVesselTypeIcons: iconSprites is null or empty");
-                vesselIconAtlas = null;
-                return;
-            }
-
-            // VesselType -> sprite index mapping from decompiled MapNode.GetIconIndex.
-            // KSP-version-dependent: indices may change if the atlas is reordered.
-            // Failure is graceful — falls back to diamond texture.
-            var mapping = new Dictionary<VesselType, int>
-            {
-                { VesselType.Ship,        20 }, { VesselType.Probe,    18 },
-                { VesselType.Rover,       19 }, { VesselType.Station,   0 },
-                { VesselType.Plane,       23 }, { VesselType.Lander,   14 },
-                { VesselType.Base,         5 }, { VesselType.EVA,      13 },
-                { VesselType.Relay,       24 }, { VesselType.Debris,    7 },
-                { VesselType.SpaceObject, 21 },
-            };
-
-            float atlasW = vesselIconAtlas.width;
-            float atlasH = vesselIconAtlas.height;
-            vesselIconUVs = new Dictionary<VesselType, Rect>();
-
-            foreach (var kvp in mapping)
-            {
-                if (kvp.Value < sprites.Length && sprites[kvp.Value] != null)
-                {
-                    Rect texRect = sprites[kvp.Value].textureRect;
-                    vesselIconUVs[kvp.Key] = new Rect(
-                        texRect.x / atlasW, texRect.y / atlasH,
-                        texRect.width / atlasW, texRect.height / atlasH);
-                }
-            }
-
-            ParsekLog.Info("UI",
-                $"InitVesselTypeIcons: loaded {vesselIconUVs.Count} vessel type icons from atlas " +
-                $"({atlasW}x{atlasH}, {sprites.Length} sprites)");
+            MapMarkerRenderer.DrawMarkerAtScreen(
+                new Vector2(screenPos.x, screenPos.y), markerKey, label, color, vtype);
         }
 
         /// <summary>

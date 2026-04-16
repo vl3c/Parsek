@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
+using System.Text;
 using KSP.UI.Screens.Mapview;
 using UnityEngine;
 
@@ -7,24 +9,76 @@ namespace Parsek
 {
     /// <summary>
     /// Static helper for drawing ghost vessel map markers via OnGUI.
-    /// Extracts the rendering primitive from ParsekUI so it can be shared
-    /// between flight scene (ParsekUI.DrawMapMarkers) and tracking station
-    /// (ParsekTrackingStation.OnGUI). No dependency on ParsekFlight or
-    /// any scene-specific state.
+    /// Shared between flight-scene map view (ParsekUI.DrawMapMarkers via
+    /// <see cref="DrawMarkerAtScreen"/>) and the tracking station
+    /// (ParsekTrackingStation.OnGUI via <see cref="DrawMarker"/>).
     ///
-    /// Uses the same KSP atlas icons and projection math as ParsekUI:
-    /// worldPos → ScaledSpace → PlanetariumCamera → screen coordinates.
+    /// Icon lookup uses <see cref="StockIconIndexByVesselType"/> — indices
+    /// taken from the decompiled stock KSP.UI.Screens.Mapview.MapNode logic,
+    /// so ghost icons match stock ProtoVessel icons for every VesselType (#387).
+    ///
+    /// Label has stock-style hover/sticky behavior: hidden by default, shown on
+    /// hover, pinned by click (#386). Sticky set is keyed by recording ID and
+    /// cleared on scene change. The custom marker is only drawn when the stock
+    /// MapNode for the same recording is absent or suppressed, so there is no
+    /// double-labeling when a ghost ProtoVessel exists.
     /// </summary>
     internal static class MapMarkerRenderer
     {
+        private const string Tag = "MapMarker";
+        private const int IconSize = 20;
+        private const int ClickPadding = 6; // add to each side of the icon for easier hit-testing
+
+        // VesselType -> sprite index in MapNode.iconSprites, taken from the
+        // decompiled KSP.UI.Screens.Mapview.MapNode icon-index lookup.
+        // KSP-version dependent: if the atlas is reordered, these indices
+        // must be updated. Missing entries fall back to the diamond texture.
+        // Exposed as IReadOnlyDictionary so tests can iterate it without
+        // any caller being able to mutate the shared table.
+        internal static readonly IReadOnlyDictionary<VesselType, int> StockIconIndexByVesselType =
+            new Dictionary<VesselType, int>
+            {
+                { VesselType.Station, 0 },
+                { VesselType.Base, 5 },
+                { VesselType.Debris, 7 },
+                { VesselType.Flag, 11 },
+                { VesselType.EVA, 13 },
+                { VesselType.Lander, 14 },
+                { VesselType.Probe, 18 },
+                { VesselType.Rover, 19 },
+                { VesselType.Ship, 20 },
+                { VesselType.SpaceObject, 21 },
+                { VesselType.Plane, 23 },
+                { VesselType.Relay, 24 },
+                { VesselType.DeployedScienceController, 28 },
+                { VesselType.DeployedGroundPart, 29 },
+            };
+
         private static Texture2D vesselIconAtlas;
         private static Dictionary<VesselType, Rect> vesselIconUVs;
         private static Texture2D fallbackDiamond;
         private static GUIStyle labelStyle;
+        private static bool initAttempted;
+
+        /// <summary>
+        /// Recording IDs whose label is pinned open. Toggled by click-on-icon.
+        /// Keyed by rec.RecordingId (stable across index reuse, see bug #279).
+        /// </summary>
+        private static readonly HashSet<string> stickyMarkers = new HashSet<string>();
+
+        /// <summary>Test-only accessor for sticky state.</summary>
+        internal static HashSet<string> StickyMarkersForTesting => stickyMarkers;
+
+        /// <summary>Test-only accessor for the computed UV cache.</summary>
+        internal static IReadOnlyDictionary<VesselType, Rect> VesselIconUVsForTesting => vesselIconUVs;
+
+        /// <summary>Test-only accessor for the atlas texture resolved at init.</summary>
+        internal static Texture2D VesselIconAtlasForTesting => vesselIconAtlas;
 
         /// <summary>
         /// Returns the orbit color for a ghost marker by vessel type.
-        /// Matches KSP's own orbit color scheme — same table as ParsekUI.GetGhostMarkerColorForType.
+        /// Matches KSP's own orbit color scheme — single source of truth used
+        /// by both ParsekUI (flight) and ParsekTrackingStation (TS).
         /// </summary>
         internal static Color GetColorForType(VesselType vtype)
         {
@@ -43,41 +97,175 @@ namespace Parsek
             }
         }
 
-        internal static void DrawMarker(Vector3d worldPos, string label, Color color,
+        /// <summary>
+        /// Draw a marker for a world-space position (tracking station path).
+        /// Projects through <see cref="PlanetariumCamera"/> — map-only.
+        /// </summary>
+        internal static void DrawMarker(
+            Vector3d worldPos, string markerKey, string label, Color color,
+            VesselType vtype = VesselType.Ship)
+        {
+            if (PlanetariumCamera.Camera == null) return;
+
+            Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
+            Vector3 screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
+            if (screenPos.z < 0) return; // behind camera
+
+            DrawMarkerAtScreen(new Vector2(screenPos.x, screenPos.y), markerKey, label, color, vtype);
+        }
+
+        /// <summary>
+        /// Draw a marker from an already-projected screen position (flight-scene path).
+        /// ParsekUI picks between FlightCamera and PlanetariumCamera itself, then
+        /// calls this overload so the camera branch isn't duplicated here.
+        /// </summary>
+        /// <param name="screenPos">Unity screen-space coordinates (origin bottom-left,
+        /// as returned by Camera.WorldToScreenPoint). Caller must have already handled
+        /// the z &lt; 0 behind-camera case.</param>
+        internal static void DrawMarkerAtScreen(
+            Vector2 screenPos, string markerKey, string label, Color color,
             VesselType vtype = VesselType.Ship)
         {
             EnsureResources();
 
-            Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
-            Vector3 screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
-
-            if (screenPos.z < 0) return; // behind camera
-
             float x = screenPos.x;
             float y = Screen.height - screenPos.y; // GUI Y is inverted
 
+            Rect iconRect = new Rect(x - IconSize / 2f, y - IconSize / 2f, IconSize, IconSize);
+
+            // Draw the icon.
             Color prevColor = GUI.color;
-            int iconSize = 20;
             Rect uvRect;
             if (vesselIconAtlas != null && vesselIconUVs != null
                 && vesselIconUVs.TryGetValue(vtype, out uvRect))
             {
                 GUI.color = Color.white;
-                GUI.DrawTextureWithTexCoords(
-                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
-                    vesselIconAtlas, uvRect);
+                GUI.DrawTextureWithTexCoords(iconRect, vesselIconAtlas, uvRect);
             }
             else if (fallbackDiamond != null)
             {
                 GUI.color = color;
-                GUI.DrawTexture(
-                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
-                    fallbackDiamond);
+                GUI.DrawTexture(iconRect, fallbackDiamond);
             }
             GUI.color = prevColor;
 
-            labelStyle.normal.textColor = color;
-            GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), "Ghost: " + label, labelStyle);
+            // Label hover / sticky / click (#386).
+            bool sticky = !string.IsNullOrEmpty(markerKey) && stickyMarkers.Contains(markerKey);
+            bool hover = false;
+
+            if (Event.current != null && AllowClickInteraction())
+            {
+                Rect hitRect = new Rect(
+                    iconRect.x - ClickPadding, iconRect.y - ClickPadding,
+                    iconRect.width + ClickPadding * 2, iconRect.height + ClickPadding * 2);
+                hover = hitRect.Contains(Event.current.mousePosition);
+
+                if (hover
+                    && !string.IsNullOrEmpty(markerKey)
+                    && Event.current.type == EventType.MouseDown
+                    && Event.current.button == 0)
+                {
+                    bool nowSticky = ToggleSticky(markerKey, stickyMarkers);
+                    sticky = nowSticky;
+                    Event.current.Use();
+                    ParsekLog.Info(Tag,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Ghost icon '{0}' label sticky={1} key={2}",
+                            label ?? "(null)", nowSticky ? "on" : "off", markerKey));
+                }
+            }
+
+            if (ShouldDrawLabel(hover, sticky))
+            {
+                labelStyle.normal.textColor = color;
+                GUI.Label(
+                    new Rect(x - 75, y + IconSize / 2 + 2, 150, 20),
+                    "Ghost: " + (label ?? "(unknown)"),
+                    labelStyle);
+            }
+        }
+
+        /// <summary>
+        /// Pure: should the label be drawn given (hover, sticky)?
+        /// Kept as an internal helper so the decision table is readable
+        /// at call sites even though its body is trivial.
+        /// </summary>
+        internal static bool ShouldDrawLabel(bool hover, bool sticky) => hover || sticky;
+
+        /// <summary>
+        /// Pure: flip the sticky state for <paramref name="key"/> in <paramref name="set"/>.
+        /// Returns the new state (true = now sticky, false = now not sticky).
+        /// </summary>
+        internal static bool ToggleSticky(string key, HashSet<string> set)
+        {
+            if (set == null || string.IsNullOrEmpty(key)) return false;
+            if (set.Contains(key))
+            {
+                set.Remove(key);
+                return false;
+            }
+            set.Add(key);
+            return true;
+        }
+
+        /// <summary>
+        /// Reset sticky state and force icon re-init on the next draw.
+        /// Called from ParsekFlight.OnSceneChangeRequested and
+        /// ParsekTrackingStation.OnDestroy so each scene rebuilds its
+        /// icon atlas against the sprite atlas that scene actually uses.
+        /// Also destroys the generated fallback-diamond texture so the
+        /// re-created one on next scene doesn't leak its predecessor.
+        /// </summary>
+        internal static void ResetForSceneChange()
+        {
+            int stickyCount = stickyMarkers.Count;
+            stickyMarkers.Clear();
+            initAttempted = false;
+            vesselIconAtlas = null;
+            vesselIconUVs = null;
+            if (fallbackDiamond != null)
+            {
+                UnityEngine.Object.Destroy(fallbackDiamond);
+                fallbackDiamond = null;
+            }
+            ParsekLog.Info(Tag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "ResetForSceneChange: cleared {0} sticky marker(s), forced icon re-init",
+                    stickyCount));
+        }
+
+        /// <summary>Pure test hook — reset everything including fallback resources.</summary>
+        internal static void ResetForTesting()
+        {
+            stickyMarkers.Clear();
+            initAttempted = false;
+            vesselIconAtlas = null;
+            vesselIconUVs = null;
+            fallbackDiamond = null;
+            labelStyle = null;
+        }
+
+        /// <summary>
+        /// Test-only: run the icon atlas reflection/init path without requiring
+        /// a GUI context. Used by the in-game MapView icon verification test
+        /// (InGameTestRunner coroutines don't always execute during OnGUI).
+        /// </summary>
+        internal static void ForceInitForTesting()
+        {
+            if (MapView.fetch != null)
+                InitVesselTypeIcons();
+        }
+
+        /// <summary>
+        /// Gate click / hover interaction to map-view-ish scenes.
+        /// Without this, a flight-scene main-window click that happens to overlap
+        /// a projected ghost marker position could double-fire (#386 edge case).
+        /// </summary>
+        private static bool AllowClickInteraction()
+        {
+            if (HighLogic.LoadedScene == GameScenes.TRACKSTATION) return true;
+            if (MapView.MapIsEnabled) return true;
+            return false;
         }
 
         private static void EnsureResources()
@@ -109,24 +297,15 @@ namespace Parsek
             }
         }
 
-        private static bool initAttempted;
-
         private static void InitVesselTypeIcons()
         {
-            if (initAttempted) return; // only try once per session
-
-            vesselIconAtlas = MapView.OrbitIconsMap;
-            if (vesselIconAtlas == null)
-            {
-                ParsekLog.Verbose("MapMarker", "InitVesselTypeIcons: OrbitIconsMap is null");
-                return;
-            }
+            if (initAttempted) return; // one attempt per scene; ResetForSceneChange clears this
+            initAttempted = true;
 
             var prefab = MapView.UINodePrefab;
             if (prefab == null)
             {
-                ParsekLog.Verbose("MapMarker", "InitVesselTypeIcons: UINodePrefab is null");
-                vesselIconAtlas = null;
+                ParsekLog.Verbose(Tag, "InitVesselTypeIcons: UINodePrefab is null");
                 return;
             }
 
@@ -134,34 +313,22 @@ namespace Parsek
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (fi == null)
             {
-                ParsekLog.Warn("MapMarker", "InitVesselTypeIcons: iconSprites field not found");
-                vesselIconAtlas = null;
-                initAttempted = true;
+                ParsekLog.Warn(Tag, "InitVesselTypeIcons: iconSprites field not found");
                 return;
             }
 
             var sprites = fi.GetValue(prefab) as Sprite[];
             if (sprites == null || sprites.Length == 0)
             {
-                ParsekLog.Warn("MapMarker",
-                    $"InitVesselTypeIcons: iconSprites is null or empty (sprites={sprites?.Length ?? 0})");
-                vesselIconAtlas = null;
-                initAttempted = true;
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "InitVesselTypeIcons: iconSprites is null or empty (sprites={0})",
+                    sprites == null ? 0 : sprites.Length));
                 return;
             }
 
-            vesselIconUVs = new Dictionary<VesselType, Rect>();
-            var vtypes = new[] {
-                VesselType.Ship, VesselType.Plane, VesselType.Probe,
-                VesselType.Relay, VesselType.Rover, VesselType.Lander,
-                VesselType.Station, VesselType.Base, VesselType.EVA,
-                VesselType.Flag, VesselType.Debris, VesselType.SpaceObject,
-                VesselType.DeployedScienceController, VesselType.DeployedSciencePart
-            };
-
-            // Use the sprite's own texture as atlas — in the tracking station,
-            // MapView.OrbitIconsMap may be a different Texture2D instance than
-            // the sprite atlas texture. The sprites from UINodePrefab are authoritative.
+            // Pick the first non-null sprite's texture as atlas. MapView.OrbitIconsMap
+            // may point at a different Texture2D instance than the sprite atlas in
+            // the tracking station, so the sprite is authoritative.
             Texture2D spriteAtlas = null;
             for (int i = 0; i < sprites.Length; i++)
             {
@@ -171,30 +338,61 @@ namespace Parsek
                     break;
                 }
             }
-
             if (spriteAtlas == null)
             {
-                ParsekLog.Warn("MapMarker", "InitVesselTypeIcons: no sprite has a texture");
-                vesselIconAtlas = null;
-                initAttempted = true;
+                ParsekLog.Warn(Tag, "InitVesselTypeIcons: no sprite has a texture");
                 return;
             }
 
             vesselIconAtlas = spriteAtlas;
+            vesselIconUVs = new Dictionary<VesselType, Rect>();
+            float atlasW = spriteAtlas.width;
+            float atlasH = spriteAtlas.height;
 
-            for (int i = 0; i < vtypes.Length && i < sprites.Length; i++)
+            int loaded = 0, outOfRange = 0, mismatchedAtlas = 0, missingSprite = 0;
+            var summary = new StringBuilder();
+
+            foreach (var kv in StockIconIndexByVesselType)
             {
-                Sprite s = sprites[i];
-                if (s == null) continue;
+                int idx = kv.Value;
+                if (idx < 0 || idx >= sprites.Length)
+                {
+                    outOfRange++;
+                    continue;
+                }
+                Sprite s = sprites[idx];
+                if (s == null)
+                {
+                    missingSprite++;
+                    continue;
+                }
+                if (s.texture != spriteAtlas)
+                {
+                    mismatchedAtlas++;
+                    ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                        "InitVesselTypeIcons: {0} sprite at index {1} uses texture '{2}' " +
+                        "different from resolved atlas '{3}' — skipping",
+                        kv.Key, idx,
+                        s.texture != null ? s.texture.name : "(null)",
+                        spriteAtlas.name));
+                    continue;
+                }
+
                 Rect r = s.textureRect;
-                vesselIconUVs[vtypes[i]] = new Rect(
-                    r.x / spriteAtlas.width, r.y / spriteAtlas.height,
-                    r.width / spriteAtlas.width, r.height / spriteAtlas.height);
+                var uv = new Rect(r.x / atlasW, r.y / atlasH, r.width / atlasW, r.height / atlasH);
+                vesselIconUVs[kv.Key] = uv;
+                loaded++;
+                summary.AppendFormat(CultureInfo.InvariantCulture,
+                    " {0}=[{1}]({2:F3},{3:F3},{4:F3},{5:F3})",
+                    kv.Key, idx, uv.x, uv.y, uv.width, uv.height);
             }
 
-            initAttempted = true;
-            ParsekLog.Info("MapMarker",
-                $"InitVesselTypeIcons: loaded {vesselIconUVs.Count} vessel type icons from atlas ({sprites.Length} sprites)");
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "InitVesselTypeIcons: loaded={0} outOfRange={1} missingSprite={2} " +
+                "mismatchedAtlas={3} atlas={4}x{5} spriteCount={6}",
+                loaded, outOfRange, missingSprite, mismatchedAtlas,
+                atlasW, atlasH, sprites.Length));
+            ParsekLog.Verbose(Tag, "InitVesselTypeIcons UVs:" + summary);
         }
     }
 }

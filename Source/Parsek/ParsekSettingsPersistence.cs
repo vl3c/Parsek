@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Security;
 
 namespace Parsek
 {
@@ -27,9 +28,9 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// Currently only <c>ghostCameraCutoffKm</c> is tracked. Add more fields
-    /// here if additional settings turn out to need the same survival
-    /// semantics.
+    /// Currently tracks <c>ghostCameraCutoffKm</c>, <c>writeReadableSidecarMirrors</c>,
+    /// and <c>showGhostsInTrackingStation</c> (#388). Add more fields here if
+    /// additional settings turn out to need the same survival semantics.
     /// </para>
     /// </summary>
     internal static class ParsekSettingsPersistence
@@ -39,11 +40,13 @@ namespace Parsek
         private const string RootNodeName = "PARSEK_SETTINGS";
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
+        private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static float? storedGhostCameraCutoffKm;
         private static bool? storedReadableSidecarMirrors;
+        private static bool? storedShowGhostsInTrackingStation;
         private static bool loaded;
 
         /// <summary>
@@ -109,10 +112,22 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ReadableSidecarMirrorsKey} — using default");
                 }
 
+                string showGhostsStr = root.GetValue(ShowGhostsInTrackingStationKey);
+                if (!string.IsNullOrEmpty(showGhostsStr)
+                    && bool.TryParse(showGhostsStr, out bool showGhosts))
+                {
+                    storedShowGhostsInTrackingStation = showGhosts;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
+                }
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': ghostCameraCutoffKm=" +
                     (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<default>") +
-                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>")}");
+                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>")}" +
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -149,6 +164,15 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Restored writeReadableSidecarMirrors {prev} -> {storedReadableSidecarMirrors.Value} from persistent store");
             }
+
+            if (storedShowGhostsInTrackingStation.HasValue
+                && storedShowGhostsInTrackingStation.Value != settings.showGhostsInTrackingStation)
+            {
+                bool prev = settings.showGhostsInTrackingStation;
+                settings.showGhostsInTrackingStation = storedShowGhostsInTrackingStation.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
+            }
         }
 
         /// <summary>
@@ -169,6 +193,56 @@ namespace Parsek
             Save();
         }
 
+        internal static void RecordShowGhostsInTrackingStation(bool value)
+        {
+            LoadIfNeeded();
+            storedShowGhostsInTrackingStation = value;
+            Save();
+        }
+
+        /// <summary>
+        /// Resolve the effective <c>showGhostsInTrackingStation</c> value with
+        /// early-scene-load in mind. Precedence:
+        /// <list type="number">
+        ///   <item>Persisted store (settings.cfg) — authoritative user intent, does
+        ///     NOT depend on <c>HighLogic.CurrentGame</c>, so it's readable during
+        ///     <c>SpaceTracking.Awake</c> where <c>ParsekSettings.Current</c> can be
+        ///     null (see <c>ParsekScenario.cs:546</c> comment).</item>
+        ///   <item>Live <c>ParsekSettings.Current</c> when resolvable.</item>
+        ///   <item>Default <c>true</c> (pre-#388 behavior).</item>
+        /// </list>
+        /// This closes the startup window where a disabled toggle could briefly
+        /// spawn ghosts via the <c>GhostTrackingStationInitPatch</c> prefix before
+        /// a later frame noticed the real setting.
+        /// </summary>
+        internal static bool EffectiveShowGhostsInTrackingStation()
+        {
+            // Swallow ONLY the "called outside Unity runtime" case —
+            // KSPUtil.ApplicationRootPath throws SecurityException/ECall under
+            // xUnit. Real disk-read failures are handled inside LoadIfNeeded
+            // itself and logged at Warn level, so we deliberately don't mask
+            // those here: a genuine settings.cfg corruption bug has to remain
+            // loud or the user's stored preference would silently revert to
+            // the pre-#388 default — the exact symptom this helper is
+            // supposed to prevent.
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"EffectiveShowGhostsInTrackingStation: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedShowGhostsInTrackingStation.HasValue)
+                return storedShowGhostsInTrackingStation.Value;
+            // Final fallback: live ParsekSettings.Current if resolvable, else pre-#388
+            // default. In production every UI write path goes through
+            // RecordShowGhostsInTrackingStation, so the stored value can't lag
+            // behind the live setting; this branch only fires when neither path
+            // has ever set the flag (e.g. KSP's Game Parameters menu was used
+            // to flip it without going through the Parsek settings window).
+            return ParsekSettings.Current?.showGhostsInTrackingStation ?? true;
+        }
+
         /// <summary>
         /// Writes the current store to disk via the shared safe-write helper.
         /// </summary>
@@ -185,11 +259,14 @@ namespace Parsek
                 }
                 if (storedReadableSidecarMirrors.HasValue)
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
+                if (storedShowGhostsInTrackingStation.HasValue)
+                    root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': ghostCameraCutoffKm=" +
                     (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<null>") +
-                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>")}");
+                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>")}" +
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -206,6 +283,7 @@ namespace Parsek
         {
             storedGhostCameraCutoffKm = null;
             storedReadableSidecarMirrors = null;
+            storedShowGhostsInTrackingStation = null;
             loaded = false;
         }
 
@@ -215,6 +293,8 @@ namespace Parsek
         internal static float? GetStoredGhostCameraCutoffKm() => storedGhostCameraCutoffKm;
 
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
+
+        internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
 
         /// <summary>
         /// Test-only: directly sets the stored cutoff without disk I/O.
@@ -229,6 +309,12 @@ namespace Parsek
         internal static void SetStoredReadableSidecarMirrorsForTesting(bool? value)
         {
             storedReadableSidecarMirrors = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
+        {
+            storedShowGhostsInTrackingStation = value;
             loaded = true;
         }
     }
