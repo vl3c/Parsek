@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 
 namespace Parsek
@@ -15,6 +16,12 @@ namespace Parsek
 
     public class ParsekSettings : GameParameters.CustomParameterNode
     {
+        private const string SamplingDensityKey = "samplingDensity";
+        private const string LegacyMinSampleIntervalKey = "minSampleInterval";
+        private const string LegacyMaxSampleIntervalKey = "maxSampleInterval";
+        private const string LegacyVelocityDirThresholdKey = "velocityDirThreshold";
+        private const string LegacySpeedChangeThresholdKey = "speedChangeThreshold";
+
         public override string Title => "Parsek";
         public override GameParameters.GameMode GameMode => GameParameters.GameMode.ANY;
         public override string Section => "Parsek";
@@ -48,6 +55,10 @@ namespace Parsek
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
         /// Serialized as int for ConfigNode round-trip.
         /// </summary>
+        [GameParameters.CustomIntParameterUI("Recorder sample density", minValue = 0, maxValue = 2,
+            stepSize = 1, displayFormat = "N0",
+            toolTip = "Trajectory sampling preset. 0 = Low, 1 = Medium, 2 = High. " +
+                      "The Parsek settings window shows labeled buttons and an exact threshold summary.")]
         public int samplingDensity = 1; // Medium
 
         public SamplingDensity SamplingDensityLevel
@@ -135,5 +146,146 @@ namespace Parsek
 
         public static ParsekSettings Current =>
             HighLogic.CurrentGame?.Parameters?.CustomParams<ParsekSettings>();
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+
+            SamplingDensity level = ResolveSamplingDensityFromConfig(
+                node, out bool migratedFromLegacy, out string invalidSamplingDensityValue);
+            SamplingDensityLevel = level;
+
+            if (!string.IsNullOrEmpty(invalidSamplingDensityValue))
+            {
+                ParsekLog.Warn("Settings",
+                    $"Invalid samplingDensity='{invalidSamplingDensityValue}' in config; " +
+                    $"using {(migratedFromLegacy ? "legacy-derived" : "default")} " +
+                    $"{DensityLabel(level)} preset");
+            }
+
+            if (migratedFromLegacy &&
+                TryReadLegacySamplingThresholds(node,
+                    out float legacyMin, out float legacyMax, out float legacyDir, out float legacySpeed))
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info("Settings",
+                    $"Migrated legacy sampling thresholds ({legacyMin.ToString("F2", ic)}s/" +
+                    $"{legacyMax.ToString("F1", ic)}s/{legacyDir.ToString("F1", ic)}\u00b0/" +
+                    $"{legacySpeed.ToString("F0", ic)}%) to samplingDensity={DensityLabel(level)}");
+            }
+        }
+
+        internal static SamplingDensity ResolveSamplingDensityFromConfig(
+            ConfigNode node, out bool migratedFromLegacy, out string invalidSamplingDensityValue)
+        {
+            migratedFromLegacy = false;
+            invalidSamplingDensityValue = null;
+
+            if (TryReadSamplingDensityFromConfig(node, out SamplingDensity storedLevel))
+                return storedLevel;
+
+            invalidSamplingDensityValue = GetConfigValueOrNull(node, SamplingDensityKey);
+
+            if (TryReadLegacySamplingThresholds(node,
+                out float legacyMin, out float legacyMax, out float legacyDir, out float legacySpeed))
+            {
+                migratedFromLegacy = true;
+                return DeriveSamplingDensityFromLegacyThresholds(
+                    legacyMin, legacyMax, legacyDir, legacySpeed);
+            }
+
+            return SamplingDensity.Medium;
+        }
+
+        internal static SamplingDensity DeriveSamplingDensityFromLegacyThresholds(
+            float minSampleInterval, float maxSampleInterval,
+            float velocityDirThreshold, float speedChangeThreshold)
+        {
+            SamplingDensity bestLevel = SamplingDensity.Medium;
+            double bestScore = double.MaxValue;
+
+            foreach (SamplingDensity level in new[]
+            {
+                SamplingDensity.Low,
+                SamplingDensity.Medium,
+                SamplingDensity.High
+            })
+            {
+                double score =
+                    Square(NormalizeLegacyDistance(minSampleInterval, GetMinSampleInterval(level), 0.95)) +
+                    Square(NormalizeLegacyDistance(maxSampleInterval, GetMaxSampleInterval(level), 9.0)) +
+                    Square(NormalizeLegacyDistance(velocityDirThreshold, GetVelocityDirThreshold(level), 9.5)) +
+                    Square(NormalizeLegacyDistance(speedChangeThreshold, GetSpeedChangeThreshold(level), 19.0));
+
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestLevel = level;
+                }
+            }
+
+            return bestLevel;
+        }
+
+        internal static bool TryReadLegacySamplingThresholds(
+            ConfigNode node,
+            out float minSampleInterval,
+            out float maxSampleInterval,
+            out float velocityDirThreshold,
+            out float speedChangeThreshold)
+        {
+            minSampleInterval = GetMinSampleInterval(SamplingDensity.Medium);
+            maxSampleInterval = GetMaxSampleInterval(SamplingDensity.Medium);
+            velocityDirThreshold = GetVelocityDirThreshold(SamplingDensity.Medium);
+            speedChangeThreshold = GetSpeedChangeThreshold(SamplingDensity.Medium);
+
+            if (node == null) return false;
+
+            bool sawLegacyField = false;
+            sawLegacyField |= TryReadFloat(node, LegacyMinSampleIntervalKey, ref minSampleInterval);
+            sawLegacyField |= TryReadFloat(node, LegacyMaxSampleIntervalKey, ref maxSampleInterval);
+            sawLegacyField |= TryReadFloat(node, LegacyVelocityDirThresholdKey, ref velocityDirThreshold);
+            sawLegacyField |= TryReadFloat(node, LegacySpeedChangeThresholdKey, ref speedChangeThreshold);
+            return sawLegacyField;
+        }
+
+        private static bool TryReadSamplingDensityFromConfig(ConfigNode node, out SamplingDensity level)
+        {
+            level = SamplingDensity.Medium;
+            string rawValue = GetConfigValueOrNull(node, SamplingDensityKey);
+            if (string.IsNullOrEmpty(rawValue))
+                return false;
+
+            if (!int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+                return false;
+            if (parsed < 0 || parsed > 2)
+                return false;
+
+            level = (SamplingDensity)parsed;
+            return true;
+        }
+
+        private static string GetConfigValueOrNull(ConfigNode node, string key)
+        {
+            if (node == null) return null;
+            string value = node.GetValue(key);
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
+
+        private static bool TryReadFloat(ConfigNode node, string key, ref float value)
+        {
+            string rawValue = GetConfigValueOrNull(node, key);
+            if (rawValue == null)
+                return false;
+
+            if (float.TryParse(rawValue, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
+                value = parsed;
+            return true;
+        }
+
+        private static double NormalizeLegacyDistance(float actual, float preset, double range)
+            => (actual - preset) / range;
+
+        private static double Square(double value) => value * value;
     }
 }
