@@ -45,6 +45,116 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 420. `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` fails on tree-root recordings with `pointCount=0` (no `.prec` expected)
+
+**Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Current-format recording 'e1-root' is missing its .prec sidecar`.
+
+**Investigation:** `e1-root` is a synthetic injected `Undock Test Tree` ROOT recording (`InjectAllRecordings` fixture, `pointCount=0`, `recordingFormatVersion=4`). Tree-root recordings legitimately carry no trajectory — they're structural parents for child branches. The sibling test `ExternalFilesExist` is tolerant of missing `.prec` ("Don't fail on missing here"), but the newer binary-probe test (added in commit `3fe7c72e`) only filters by `RecordingFormatVersion < 2` and doesn't skip `pointCount==0` tree-roots.
+
+**Fix direction:** extend the probe test's skip predicate to also skip recordings with `pointCount == 0` (or equivalently, recordings that don't have a trajectory file path registered). Same logic as `ExternalFilesExist`.
+
+**Files to touch:** `Source/Parsek/InGameTests/SaveLoadTests.cs` (look for `CurrentFormatTrajectorySidecarsProbeAsBinary`).
+
+**Status:** TODO. Size: XS.
+
+---
+
+## 419. Debris recording trajectory non-monotonic at parent-breakup boundary (point N UT < point N-1)
+
+**Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Recording 393b82ccb697492bb7b35c6c621f9d07: point 13 UT 155.840000000006 < previous 170.920000000014`.
+
+**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Probable cause: when a debris recording is spawned from a breakup, the sampler writes a new point-0 at the breakup UT, but points 0-12 inherited from the parent's pre-breakup samples run past 170.92 — the inheritance + post-breakup stitch creates a non-monotonic boundary.
+
+**Concern:** Consumers that assume monotonic UTs (binary-search lookups, interpolation) will behave unpredictably on the non-monotonic pair. Not blocking gameplay today but a latent source of playback bugs.
+
+**Files to touch:** whichever code path back-fills debris-at-breakup samples (grep for CRASH branch-event handling, `BranchEventType`, `CreateDebrisRecording` or similar). The `CommittedRecordingsHaveValidData` in-game test is the regression gate.
+
+**Status:** TODO. Size: S-M (trace the stitch path; likely a single-line invariant fix + regression test).
+
+---
+
+## 418. `GhostMapPresence` orphan PID in `ghostMapVesselPids` after consecutive "Run All" passes
+
+**Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `1 ghost map PIDs have no corresponding ProtoVessel (leak)` — passed on first Run All at 22:31, failed on second Run All at 22:33 in the same session.
+
+**Investigation:** Same family as #417 (test-runner state carryover across consecutive runs). A ghost's ProtoVessel was destroyed between runs (overlap/loop end) but its PID wasn't removed from `GhostMapPresence.ghostMapVesselPids`, OR the second run's ghost-map entry reached the test probe before ProtoVessel registration completed.
+
+**Fix direction:** either (a) have the in-game test-runner clean up ghost map presence between runs, or (b) audit `GhostMapPresence` teardown paths to ensure PID removal is synchronous with ProtoVessel destruction.
+
+**Files to touch:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`.
+
+**Status:** TODO. Size: S.
+
+---
+
+## 417. In-game TestRunner leaks ghosts across consecutive "Run All" passes, tripping `GhostCountReasonable`
+
+**Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Suspiciously high ghost count: 249 (potential leak)`. Session ran Run All twice: the first pass at 22:31 had no ghost-count failure; the second at 22:33 reported 249 valid ghost GameObjects against `CommittedRecordings count: 289` (synthetic-injected fixtures).
+
+**Investigation:** The second Run All re-spawns ghosts on top of those still alive from the first run. The test-runner does not destroy/reset the ghost-state dictionaries between Run All invocations, so each pass compounds.
+
+**Fix direction:** add a between-run cleanup hook to `InGameTestRunner` that destroys ghosts / resets state, OR have `GhostCountReasonable` be tolerant of test-runner-driven stacking (less correct). Bundle with #418 — same family.
+
+**Files to touch:** `Source/Parsek/InGameTests/InGameTestRunner.cs`, possibly `GhostPlaybackEngine.cs` for a reset API.
+
+**Status:** TODO. Size: S.
+
+---
+
+## 416. Sidecar-hydration WARN lines duplicate matching INFO-level "trajectory file missing" entries on freshly-loaded test saves
+
+**Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:10529-10605`. Ten trees log a WARN `"N recording(s) with sidecar hydration failures"` immediately after N INFO lines of the form `"Trajectory file missing for <recording> — recording degraded (0 points)"`.
+
+**Concern:** The INFO lines already describe the situation accurately (test-save recordings with no `.prec` sidecars, expected for injected fixtures). The WARN roll-up on top adds no new information and makes the load look unhealthy on a clean test save. Not a regression, but a noise reduction opportunity: either downgrade the roll-up WARN to INFO, or suppress it when every underlying failure is the "file missing" case with zero points (synthetic-fixture marker).
+
+**Files to touch:** wherever the roll-up WARN is emitted (grep for `"recording(s) with sidecar hydration failures"` in `Source/Parsek/RecordingStore.cs` or `Scenario`-adjacent code).
+
+**Status:** TODO. Size: XS.
+
+---
+
+## 415. `GhostAudio` logs "AudioClip not found: 'sound_IonEngine'" per-event without dedupe
+
+**Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:15772, 18092, 22369, 26985, 35917, 41246, 45772`. The missing clip warning fired 7 times over ~3.5 minutes for the same `ionEngine` pid=100000. Pre-existing; not introduced by #316.
+
+**Concern:** The ion engine's audio clip isn't found on ghost playback — likely a lookup path mismatch (stock path / missing from `GameDatabase` at ghost-build time / different clip naming after a KSP update). Separately, even if the clip genuinely is missing, the warning should dedupe per (pid, clip-name) so it fires once per ghost instead of per audio event.
+
+**Investigation hints:** Grep for `"sound_IonEngine"` in `Source/Parsek/GhostVisualBuilder.cs` and `GhostAudioBuilder.cs` (or wherever ghost audio is built from vessel snapshots). Check whether the stock ion engine cfg ships that clip name, or whether Parsek is synthesizing the wrong key.
+
+**Files to touch:** audio-building site(s) + the `GhostAudio` warn callsite.
+
+**Status:** TODO. Size: S.
+
+---
+
+## 414. One-shot 39 ms frame-budget spike ~11 s after scene load with zero ghosts rendered
+
+**Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:12757`. `"Playback frame budget exceeded: 39.3ms (0 ghosts, warp: 1x)"` fired ~11 s after scene load, before any ghost was rendered. Six later spikes in the same session were all normal-range (8.9-9.6 ms) with 246-249 ghosts active.
+
+**Concern:** The spike with zero ghosts rules out per-ghost playback cost. Candidates: one-time scenario hydration, ghost visual build (PR #316 now does a one-shot `startSizeMultiplier` boost pass per engine FX instance, worth confirming it isn't the culprit on a vessel with many engines), or reentry mesh warm-up. A single 39 ms hitch at scene start is tolerable but masks whatever is actually slow.
+
+**Investigation hints:** Add a per-phase timing log inside whichever subsystem fires the budget-exceeded warn, only on the first exceeded frame; correlate with adjacent log timestamps to localize. If it's PR #316's FX size-boost pass, `GhostVisualBuilder.ApplyGhostEngineFxSizeBoost` is a single `GetComponentsInChildren<ParticleSystem>` + two multiplier writes per system — should be cheap but scales with system count.
+
+**Files to touch:** wherever the `"Playback frame budget exceeded"` warn lives (grep the string).
+
+**Status:** TODO. Size: S (investigation) + depends on root cause.
+
+---
+
+## 413. `CrewReservation` orphan-placement with `snapshot pid=0` fails to seat replacement kerbal
+
+**Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:13251`. `[CrewReservation] Orphan placement: no matching part with free seat in active vessel for 'Bill Kerman' -> 'Gus Kerman' (snapshot pid=0 name='mk1pod.v2')`.
+
+**Concern:** The snapshot being serialized for the replacement reservation carries `pid=0` instead of the real part pid, so `CrewReservationManager`'s seat matcher can't locate the destination part in the active vessel. Result: the replacement kerbal is left unplaced (stand-in / orphan), which may cascade into a missing-crew gameplay bug.
+
+**Hypothesis:** Either the replacement path isn't capturing the current `part.persistentId` when it records the snapshot, or the matcher is looking at a different pid field (name vs persistent id). Single occurrence in this session, but the `pid=0` value points at a systematic capture gap, not a transient miss.
+
+**Files to touch:** `Source/Parsek/CrewReservationManager.cs`, possibly the crew-snapshot writer.
+
+**Status:** TODO. Size: S. Reproduce with a crew-replacement scenario (kerbal dies/retires, roster picks replacement) and add a regression test once the capture-site gap is found.
+
+---
+
 ## ~~412. Synthetic showcase recordings reach ghost playback with `LoopIntervalSeconds=0`, firing the `ResolveLoopInterval` clamp warning forever~~
 
 Pre-existing symptom: `GhostPlaybackLogic.ResolveLoopInterval` emitted an
