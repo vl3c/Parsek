@@ -33,7 +33,7 @@ namespace Parsek
             double latest = 0;
             for (int i = 0; i < milestones.Count; i++)
             {
-                if (milestones[i].Epoch == epoch && milestones[i].EndUT > latest)
+                if (milestones[i].Epoch == epoch && milestones[i].Committed && milestones[i].EndUT > latest)
                     latest = milestones[i].EndUT;
             }
             return latest;

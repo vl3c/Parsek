@@ -309,8 +309,6 @@ namespace Parsek.Tests
         [Fact]
         public void PruneProcessedEvents_MixedEpochsAndThreshold()
         {
-            MilestoneStore.CurrentEpoch = 1;
-
             // Event in old epoch (epoch 0) — should be pruned
             MilestoneStore.CurrentEpoch = 0;
             GameStateStore.AddEvent(new GameStateEvent

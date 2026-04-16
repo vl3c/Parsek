@@ -672,7 +672,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Rebuilds <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
+        /// Rebuilds the committed science subjects dictionary via
+        /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
         /// from the ledger's surviving <see cref="GameActionType.ScienceEarning"/>
         /// actions — a lightweight pass that does NOT require a full recalculation
         /// walk. Used by <see cref="TryRecoverBrokenLedgerOnLoad"/> which runs
@@ -706,7 +707,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Rebuilds <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
+        /// Rebuilds the committed science subjects dictionary via
+        /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
         /// from the <see cref="ScienceModule"/> walk state. After a recalculation
         /// walk, the module has authoritative per-subject credited totals — these
         /// are the source of truth because they derive purely from surviving ledger

@@ -20,7 +20,6 @@ All notable changes to Parsek are documented here.
 - `#391` `committedScienceSubjects` dictionary is now rebuilt from the ledger after every recalculation and before load-time recovery, so deleting a recording no longer leaves stale science entries that could be re-synthesized as ghost `ScienceEarning` actions on the next load.
 - `#390` `GameStateStore.Events` is now pruned after each commit — old-epoch events and events already swept into milestones are removed, preventing unbounded growth in long careers.
 - `#393` Fixed misleading "sandbox/science mode" log message in `PatchScience` — `ResearchAndDevelopment.Instance` is only null in sandbox mode, not science mode.
-- `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation` explaining the expected skip during early load.
 - `#406` Map-view framerate with many looping showcase ghosts no longer collapses — stationary and slow recordings skip the reentry FX build that was being thrown away and rebuilt on every loop-cycle boundary.
 - `#362` Terminal crash-end decouple fragments (parachutes, heat shields, late shrapnel) now become proper debris branches at the very end of a recording instead of being silently dropped when the parent vessel is already in its destruction frame.
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
@@ -34,6 +33,7 @@ All notable changes to Parsek are documented here.
 
 ### Maintenance
 
+- `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation` explaining the expected skip during early load.
 - `#372` Removed orphaned synthetic-scenario test helpers left behind after the live FLIGHT save/load round-trip test infrastructure was reverted.
 
 ---
