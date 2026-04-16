@@ -45,6 +45,80 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 412. Legacy pre-v4 recordings can reach ghost playback with `LoopIntervalSeconds=0`, firing the `ResolveLoopInterval` clamp warning forever
+
+Two-part bug introduced by `#381` (commit `5fedff32`, "Loop every = launch-to-launch
+period semantics").
+
+- **Symptom (fixed in the current PR):** `GhostPlaybackLogic.ResolveLoopInterval`
+  (`Source/Parsek/GhostPlaybackLogic.cs:269`) emitted an unrate-limited
+  `ParsekLog.Warn` on every degenerate call. Called per-frame per-recording from
+  `GhostPlaybackEngine.cs:1314` and `ParsekKSC.cs:750`, a 6-minute session with
+  roughly 20 affected recordings produced 1,298,168 lines of
+  `[Parsek][WARN][Loop] ResolveLoopInterval: period 0s below MinCycleDuration 1s for '<name>' — clamping defensively (#381)`
+  (~3,600/sec, with a full string format + log-writer flush per line). The spam
+  itself is now fixed: a per-`RecordingId` `HashSet` inside `GhostPlaybackLogic`
+  ensures each offending recording warns at most once per session; the defensive
+  clamp to `MinCycleDuration` is unchanged.
+- **Root cause still open:** those recordings should never reach the resolver
+  with period `0`. The load pipeline has a two-phase migration:
+  `RecordingTree.LoadLoopFields` / `ParsekScenario.LoadLoopFields` call
+  `GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds` at
+  `.sfs` load time, which returns `false` when the trajectory bounds are not
+  hydrated yet (the `EffectiveLoopDuration <= 0` guard in
+  `GhostPlaybackEngine.cs:1276`) and logs `deferred migration because loop bounds
+  are not hydrated yet`; the legacy gap value is stored as-is. The deferred step
+  is supposed to run from `RecordingStore.MigrateLegacyLoopIntervalAfterHydration`
+  (`Source/Parsek/RecordingStore.cs:5385`), invoked as the last line of
+  `LoadRecordingFilesFromPathsInternal` (line 5381). That call is only reached
+  when *every* sidecar gate passes — trajectory exists, probe valid, format
+  supported, RecordingId matches, sidecar epoch fresh, snapshot sidecar load
+  succeeds. Any early return at lines 5311 / 5319 / 5329 / 5338 / 5344 / 5370
+  skips the migration, leaving `rec.LoopIntervalSeconds` at its legacy `.sfs`
+  value (often `0`, the pre-#381 default for non-looping recordings) and
+  `rec.RecordingFormatVersion` at `3`.
+- **Evidence from user save:** sibling recordings in the same tree successfully
+  migrate to 68–70 s (logs show `RecordingStore: migrated recording 'X' from
+  legacy gap loopIntervalSeconds=10 to launch-to-launch period=68s`), while ~20
+  recordings — mixed kerbal / chain / flight: "Pad Walk", "Reentry South", "Flea
+  Chain", "KSC Hopper", "Jebediah Kerman", "Bill Kerman", etc. — never emit a
+  migration line and keep hitting the clamp. The common factor is therefore not
+  the recording class but rather which sidecar gate failed at load; the logs to
+  check are `LoadRecordingFiles: invalid …`, `Trajectory file missing for …`,
+  `LoadRecordingFiles: id=… unsupported trajectory sidecar`, and
+  `ShouldSkipStaleSidecar`. Hydration-salvage (`#T61`) may also be relevant — if
+  a recording is restored from the pending tree after a stale-sidecar failure,
+  the migration pass needs to run on the salvaged copy too.
+- **Hypothesis:** at least two distinct paths leave a v3 recording persistently
+  un-migrated: (a) the sidecar-gate early returns above (migration never runs),
+  and (b) a recording that genuinely has `Points.Count < 2` (e.g. a recording
+  that was committed before enough frames were sampled) where
+  `EffectiveLoopDuration` legitimately is `0` and `TryConvert` returns `false`
+  even after hydration. Neither path resets the legacy gap to a safe period, so
+  `LoopIntervalSeconds` stays at whatever the `.sfs` held.
+- **Fix proposal (not yet implemented):** when migration cannot produce a real
+  period, still normalize `rec.LoopIntervalSeconds` and `RecordingFormatVersion`
+  so the resolver never sees a legacy-encoded 0. Either (a) run
+  `MigrateLegacyLoopIntervalAfterHydration` unconditionally for every recording
+  returned to the committed set — including sidecar-failed ones — and, when
+  `TryConvert` still fails, set the recording to `LoopPlayback = false` +
+  `LoopIntervalSeconds = DefaultLoopIntervalSeconds` (so ghost playback is
+  skipped entirely for the broken recording instead of relying on the resolver's
+  1 s clamp), or (b) make the resolver detect v3 recordings and promote the
+  legacy gap to `duration + gap` on the fly, mirroring what the migration would
+  have done. Option (a) is cleaner because it keeps the clamp-warning a pure
+  sanity net. A regression test should load a tree containing a v3 recording
+  with 0 trajectory points (or a missing `.prec`) and assert that after the
+  normal load path completes, the recording is no longer producing degenerate
+  loop periods at the resolver.
+- **Scope note:** out of scope for the spam fix PR — the spam fix is independent
+  and lands on its own. The correctness fix is large enough that it needs its
+  own design discussion before coding (needs a repro save, a decision on whether
+  to silently drop playback vs. auto-repair, and an upgrade to the post-hydration
+  pass).
+
+---
+
 ## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
 
 **Source:** `#409` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#409` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
