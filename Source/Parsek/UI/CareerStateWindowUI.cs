@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using ClickThroughFix;
 using Contracts;
 using UnityEngine;
 
@@ -20,23 +21,37 @@ namespace Parsek
     {
         private readonly ParsekUI parentUI;
 
-        // --- Phase 2 placeholders (unused in Phase 1; stubbed so future commits only
-        // add DrawIfOpen wiring without re-declaring the chrome fields). ---
-#pragma warning disable CS0169, CS0414 // Phase 2 placeholder fields; read/written by DrawIfOpen (Phase 2).
+        // --- Phase 2 window-chrome state ---
         private bool showCareerStateWindow;
         private Rect careerStateWindowRect;
+        private Rect lastCareerStateWindowRect;
         private bool careerStateWindowHasInputLock;
         private bool isResizingCareerStateWindow;
         private Vector2 careerStateScrollPos;
         private int selectedTab;
         private CareerStateViewModel? cachedVM;
-#pragma warning restore CS0169, CS0414
+
+        // Rate-limit mode-render logs: only log when the mode changes from last render.
+        // Starts at CAREER so the first SANDBOX/SCIENCE render always logs.
+        private Game.Modes lastRenderedMode = Game.Modes.CAREER;
+
+        // Style cache (initialized lazily on first draw, mirrors KerbalsWindowUI.EnsureStyles).
+        private GUIStyle sectionHeaderStyle;
+        private GUIStyle groupHeaderStyle;
+        private GUIStyle pendingStyle;
+        private GUIStyle grayStyle;
+        private GUIStyle bannerStyle;
 
         private const float DefaultWindowWidth = 420f;
         private const float DefaultWindowHeight = 400f;
         private const float MinWindowWidth = 320f;
         private const float MinWindowHeight = 200f;
         private const string CareerStateInputLockId = "Parsek_CareerStateWindow";
+
+        private static readonly string[] TabLabels = new[]
+        {
+            "Contracts", "Strategies", "Facilities", "Milestones"
+        };
 
         /// <summary>
         /// Stock KSP upgradeable facilities, in display order. Facilities with no
@@ -73,12 +88,28 @@ namespace Parsek
         public bool IsOpen
         {
             get { return showCareerStateWindow; }
-            set { showCareerStateWindow = value; }
+            set
+            {
+                if (showCareerStateWindow == value) return;
+                showCareerStateWindow = value;
+                ParsekLog.Verbose("UI",
+                    value
+                        ? "Career State window toggled: open"
+                        : "Career State window toggled: closed");
+            }
         }
 
         internal CareerStateWindowUI(ParsekUI parentUI)
         {
             this.parentUI = parentUI;
+        }
+
+        // Test seam: exposes the cached VM so InvalidateCache_NullsCachedVM can assert
+        // null state without reflection. Not a production path.
+        internal CareerStateViewModel? CachedVMForTesting
+        {
+            get { return cachedVM; }
+            set { cachedVM = value; }
         }
 
         public void InvalidateCache()
@@ -841,6 +872,524 @@ namespace Parsek
                 sb.Append(c);
             }
             return sb.ToString();
+        }
+
+        // ================================================================
+        // Window chrome (Phase 2)
+        // ================================================================
+
+        /// <summary>
+        /// Renders the Career State window if open. Mirrors KerbalsWindowUI.DrawIfOpen:
+        /// initializes the window rect on first draw, runs resize-drag, wires
+        /// ClickThruBlocker.GUILayoutWindow, and takes/releases the CAMERACONTROLS
+        /// input lock based on mouse position.
+        /// </summary>
+        public void DrawIfOpen(Rect mainWindowRect)
+        {
+            if (!showCareerStateWindow)
+            {
+                ReleaseInputLock();
+                return;
+            }
+
+            if (careerStateWindowRect.width < 1f)
+            {
+                careerStateWindowRect = new Rect(
+                    mainWindowRect.x + mainWindowRect.width + 10,
+                    mainWindowRect.y,
+                    DefaultWindowWidth,
+                    DefaultWindowHeight);
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI",
+                    $"Career State window initial position: x={careerStateWindowRect.x.ToString("F0", ic)} y={careerStateWindowRect.y.ToString("F0", ic)}");
+            }
+
+            ParsekUI.HandleResizeDrag(ref careerStateWindowRect, ref isResizingCareerStateWindow,
+                MinWindowWidth, MinWindowHeight, "Career State window");
+
+            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            careerStateWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekCareerState".GetHashCode(),
+                careerStateWindowRect,
+                DrawCareerStateWindow,
+                "Parsek \u2014 Career State",
+                opaqueWindowStyle,
+                GUILayout.Width(careerStateWindowRect.width),
+                GUILayout.Height(careerStateWindowRect.height)
+            );
+            parentUI.LogWindowPosition("CareerState", ref lastCareerStateWindowRect, careerStateWindowRect);
+
+            if (careerStateWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!careerStateWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, CareerStateInputLockId);
+                    careerStateWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseInputLock();
+            }
+        }
+
+        internal void ReleaseInputLock()
+        {
+            if (!careerStateWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(CareerStateInputLockId);
+            careerStateWindowHasInputLock = false;
+        }
+
+        private void EnsureStyles()
+        {
+            if (sectionHeaderStyle != null) return;
+            sectionHeaderStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                stretchWidth = true
+            };
+            groupHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+            // Pending rows: muted amber to mark "not yet lived" entries.
+            pendingStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.95f, 0.78f, 0.45f) }
+            };
+            grayStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
+            };
+            bannerStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Italic,
+                normal = { textColor = new Color(0.82f, 0.82f, 0.82f) }
+            };
+        }
+
+        private void DrawCareerStateWindow(int windowID)
+        {
+            EnsureStyles();
+
+            // Rebuild the cached VM on demand. Defensive against a null CurrentGame
+            // (e.g. transient scene transitions or a mod that hot-swaps HighLogic).
+            var currentGame = HighLogic.CurrentGame;
+            if (currentGame == null)
+            {
+                ParsekLog.Warn("UI",
+                    "CareerStateWindow: HighLogic.CurrentGame is null; rendering fallback");
+                GUILayout.Label("Career state unavailable \u2014 game not loaded", bannerStyle);
+                if (GUILayout.Button("Close"))
+                {
+                    IsOpen = false;
+                }
+                ParsekUI.DrawResizeHandle(careerStateWindowRect, ref isResizingCareerStateWindow,
+                    "Career State window");
+                GUI.DragWindow();
+                return;
+            }
+
+            var currentMode = currentGame.Mode;
+
+            // Rebuild if no cache or if mode has changed while the window was open.
+            if (cachedVM == null || cachedVM.Value.Mode != currentMode)
+            {
+                cachedVM = Build(
+                    Ledger.Actions,
+                    Planetarium.GetUniversalTime(),
+                    currentMode,
+                    LedgerOrchestrator.Contracts,
+                    LedgerOrchestrator.Strategies,
+                    LedgerOrchestrator.Facilities,
+                    LedgerOrchestrator.Milestones);
+            }
+
+            var vm = cachedVM.Value;
+
+            // Mode banner (design doc §5.4).
+            DrawModeBanner(vm);
+            LogModeRender(vm.Mode, ref lastRenderedMode);
+
+            // Tab bar.
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels);
+            if (newTab != selectedTab)
+            {
+                SwitchTab(selectedTab, newTab);
+                selectedTab = newTab;
+                careerStateScrollPos.y = 0f;
+            }
+
+            careerStateScrollPos = GUILayout.BeginScrollView(careerStateScrollPos, GUILayout.ExpandHeight(true));
+
+            switch (selectedTab)
+            {
+                case 0: DrawContractsTab(vm.Contracts, vm.Mode); break;
+                case 1: DrawStrategiesTab(vm.Strategies, vm.Mode); break;
+                case 2: DrawFacilitiesTab(vm.Facilities, vm.Mode); break;
+                case 3: DrawMilestonesTab(vm.Milestones, vm.Mode); break;
+                default: DrawContractsTab(vm.Contracts, vm.Mode); break;
+            }
+
+            GUILayout.EndScrollView();
+
+            if (GUILayout.Button("Close"))
+            {
+                IsOpen = false;
+            }
+
+            ParsekUI.DrawResizeHandle(careerStateWindowRect, ref isResizingCareerStateWindow,
+                "Career State window");
+
+            GUI.DragWindow();
+        }
+
+        private void DrawModeBanner(CareerStateViewModel vm)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string line;
+            if (vm.Mode == Game.Modes.CAREER)
+            {
+                line = $"Career mode \u2014 UT {vm.LiveUT.ToString("F0", ic)}";
+                if (vm.HasDivergence)
+                {
+                    double ahead = vm.TerminalUT - vm.LiveUT;
+                    if (ahead < 0) ahead = 0;
+                    line += $"  (projection ahead: {ahead.ToString("F0", ic)})";
+                }
+            }
+            else if (vm.Mode == Game.Modes.SCIENCE_SANDBOX)
+            {
+                line = "Science mode \u2014 contracts and strategies unavailable";
+            }
+            else
+            {
+                // SANDBOX, MISSION_BUILDER, MISSION: all treated as sandbox-equivalent.
+                line = "Sandbox mode \u2014 career state is not tracked";
+            }
+            GUILayout.Label(line, bannerStyle);
+        }
+
+        // ================================================================
+        // Per-tab renderers
+        // ================================================================
+
+        private void DrawContractsTab(ContractsTabVM tab, Game.Modes mode)
+        {
+            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
+            {
+                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
+                return;
+            }
+            if (mode == Game.Modes.SCIENCE_SANDBOX)
+            {
+                GUILayout.Label("Contracts are unavailable in Science mode.", grayStyle);
+                return;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            GUILayout.Label(
+                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} \u2014 slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
+                sectionHeaderStyle);
+
+            bool sameAsProjected = RowsEqual(tab.CurrentRows, tab.ProjectedRows);
+            if (sameAsProjected)
+            {
+                GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                GUILayout.BeginVertical(GUI.skin.box);
+                if (tab.CurrentRows.Count == 0)
+                    GUILayout.Label("  (no active contracts)", grayStyle);
+                for (int i = 0; i < tab.CurrentRows.Count; i++)
+                    GUILayout.Label("  " + FormatContractRow(tab.CurrentRows[i]), GUI.skin.label);
+                GUILayout.EndVertical();
+            }
+            else
+            {
+                GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                GUILayout.BeginVertical(GUI.skin.box);
+                if (tab.CurrentRows.Count == 0)
+                    GUILayout.Label("  (no active contracts)", grayStyle);
+                for (int i = 0; i < tab.CurrentRows.Count; i++)
+                    GUILayout.Label("  " + FormatContractRow(tab.CurrentRows[i]), GUI.skin.label);
+                GUILayout.EndVertical();
+
+                // "Pending in timeline" is the projected rows minus the current rows.
+                GUILayout.Space(3);
+                int pendingCount = 0;
+                for (int i = 0; i < tab.ProjectedRows.Count; i++)
+                    if (tab.ProjectedRows[i].IsPendingAccept) pendingCount++;
+                GUILayout.Label($"Pending in timeline ({pendingCount.ToString(ic)})", groupHeaderStyle);
+                GUILayout.BeginVertical(GUI.skin.box);
+                if (pendingCount == 0)
+                    GUILayout.Label("  (none)", grayStyle);
+                for (int i = 0; i < tab.ProjectedRows.Count; i++)
+                {
+                    var r = tab.ProjectedRows[i];
+                    if (!r.IsPendingAccept) continue;
+                    GUILayout.Label("  " + FormatContractRow(r), pendingStyle);
+                }
+                GUILayout.EndVertical();
+            }
+        }
+
+        private void DrawStrategiesTab(StrategiesTabVM tab, Game.Modes mode)
+        {
+            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
+            {
+                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
+                return;
+            }
+            if (mode == Game.Modes.SCIENCE_SANDBOX)
+            {
+                GUILayout.Label("Strategies are unavailable in Science mode.", grayStyle);
+                return;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            GUILayout.Label(
+                $"Administration L{tab.AdminLevel.ToString(ic)} \u2014 slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
+                sectionHeaderStyle);
+
+            bool sameAsProjected = StrategyRowsEqual(tab.CurrentRows, tab.ProjectedRows);
+            if (sameAsProjected)
+            {
+                GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                GUILayout.BeginVertical(GUI.skin.box);
+                if (tab.CurrentRows.Count == 0)
+                    GUILayout.Label("  (no active strategies)", grayStyle);
+                for (int i = 0; i < tab.CurrentRows.Count; i++)
+                    GUILayout.Label("  " + FormatStrategyRow(tab.CurrentRows[i]), GUI.skin.label);
+                GUILayout.EndVertical();
+            }
+            else
+            {
+                GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                GUILayout.BeginVertical(GUI.skin.box);
+                if (tab.CurrentRows.Count == 0)
+                    GUILayout.Label("  (no active strategies)", grayStyle);
+                for (int i = 0; i < tab.CurrentRows.Count; i++)
+                    GUILayout.Label("  " + FormatStrategyRow(tab.CurrentRows[i]), GUI.skin.label);
+                GUILayout.EndVertical();
+
+                GUILayout.Space(3);
+                int pendingCount = 0;
+                for (int i = 0; i < tab.ProjectedRows.Count; i++)
+                    if (tab.ProjectedRows[i].IsPendingActivate) pendingCount++;
+                GUILayout.Label($"Pending in timeline ({pendingCount.ToString(ic)})", groupHeaderStyle);
+                GUILayout.BeginVertical(GUI.skin.box);
+                if (pendingCount == 0)
+                    GUILayout.Label("  (none)", grayStyle);
+                for (int i = 0; i < tab.ProjectedRows.Count; i++)
+                {
+                    var r = tab.ProjectedRows[i];
+                    if (!r.IsPendingActivate) continue;
+                    GUILayout.Label("  " + FormatStrategyRow(r), pendingStyle);
+                }
+                GUILayout.EndVertical();
+            }
+        }
+
+        private void DrawFacilitiesTab(FacilitiesTabVM tab, Game.Modes mode)
+        {
+            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
+            {
+                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
+                return;
+            }
+
+            GUILayout.Label("Facilities", sectionHeaderStyle);
+            GUILayout.BeginVertical(GUI.skin.box);
+            if (tab.Rows.Count == 0)
+            {
+                GUILayout.Label("  (no facility data)", grayStyle);
+            }
+            else
+            {
+                for (int i = 0; i < tab.Rows.Count; i++)
+                {
+                    var row = tab.Rows[i];
+                    GUIStyle rowStyle = row.HasUpcomingChange ? pendingStyle : GUI.skin.label;
+                    GUILayout.Label("  " + FormatFacilityRow(row), rowStyle);
+                }
+            }
+            GUILayout.EndVertical();
+        }
+
+        private void DrawMilestonesTab(MilestonesTabVM tab, Game.Modes mode)
+        {
+            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
+            {
+                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
+                return;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            GUILayout.Label(
+                $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} projected)",
+                sectionHeaderStyle);
+            GUILayout.BeginVertical(GUI.skin.box);
+            if (tab.Rows.Count == 0)
+            {
+                GUILayout.Label("  (no milestones credited)", grayStyle);
+            }
+            else
+            {
+                for (int i = 0; i < tab.Rows.Count; i++)
+                {
+                    var row = tab.Rows[i];
+                    GUIStyle rowStyle = row.IsPendingCredit ? pendingStyle : GUI.skin.label;
+                    GUILayout.Label("  " + FormatMilestoneRow(row), rowStyle);
+                }
+            }
+            GUILayout.EndVertical();
+        }
+
+        // Equality helpers for the "collapse to single Active section" decision.
+        // Two rows are equal when their id + AcceptUT/ActivateUT match; we don't
+        // compare IsPending* because collapsed view only fires when current ==
+        // projected (which implies no pending rows).
+        private static bool RowsEqual(List<ContractRow> a, List<ContractRow> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!string.Equals(a[i].ContractId, b[i].ContractId, StringComparison.Ordinal)) return false;
+                if (a[i].AcceptUT != b[i].AcceptUT) return false;
+            }
+            return true;
+        }
+
+        private static bool StrategyRowsEqual(List<StrategyRow> a, List<StrategyRow> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!string.Equals(a[i].StrategyId, b[i].StrategyId, StringComparison.Ordinal)) return false;
+                if (a[i].ActivateUT != b[i].ActivateUT) return false;
+            }
+            return true;
+        }
+
+        // ================================================================
+        // Formatting helpers (pure, InvariantCulture, testable)
+        // ================================================================
+
+        /// <summary>
+        /// Formats a contract row for display. NaN deadline renders as
+        /// "(deadline --)"; pending rows append " (pending)".
+        /// </summary>
+        internal static string FormatContractRow(ContractRow r)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.ContractId ?? "(unknown)") : r.DisplayTitle;
+            string deadline = double.IsNaN(r.DeadlineUT)
+                ? "(deadline --)"
+                : $"deadline UT {r.DeadlineUT.ToString("F0", ic)}";
+            string baseLine = $"{title}  accepted UT {r.AcceptUT.ToString("F0", ic)}  {deadline}";
+            if (r.IsPendingAccept) baseLine += " (pending)";
+            return baseLine;
+        }
+
+        /// <summary>
+        /// Formats a strategy row for display. Includes Source → Target and the
+        /// commitment percentage (InvariantCulture F1).
+        /// </summary>
+        internal static string FormatStrategyRow(StrategyRow r)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.StrategyId ?? "(unknown)") : r.DisplayTitle;
+            string pct = (r.Commitment * 100f).ToString("F1", ic) + "%";
+            string baseLine =
+                $"{title}  activated UT {r.ActivateUT.ToString("F0", ic)}  {r.SourceResource} -> {r.TargetResource} @ {pct}";
+            if (r.IsPendingActivate) baseLine += " (pending)";
+            return baseLine;
+        }
+
+        /// <summary>
+        /// Formats a facility row for display. Upcoming level change renders as
+        /// "Title  L{cur} -> L{proj} (upcoming)"; destroyed rows append
+        /// "(destroyed)" or "(destroyed, repair pending)" if projected not-destroyed.
+        /// </summary>
+        internal static string FormatFacilityRow(FacilityRow r)
+        {
+            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.FacilityId ?? "(unknown)") : r.DisplayTitle;
+            string levelPart;
+            if (r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel)
+                levelPart = $"L{r.CurrentLevel} -> L{r.ProjectedLevel} (upcoming)";
+            else
+                levelPart = $"L{r.CurrentLevel}";
+
+            string baseLine = $"{title}  {levelPart}";
+
+            if (r.CurrentDestroyed)
+            {
+                if (!r.ProjectedDestroyed)
+                    baseLine += "  (destroyed, repair pending)";
+                else
+                    baseLine += "  (destroyed)";
+            }
+            return baseLine;
+        }
+
+        /// <summary>
+        /// Formats a milestone row for display. Zero-reward suffix entries are
+        /// elided (e.g. "+ 0 sci" drops). Pending rows append " (pending)".
+        /// </summary>
+        internal static string FormatMilestoneRow(MilestoneRow r)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.MilestoneId ?? "(unknown)") : r.DisplayTitle;
+            var sb = new StringBuilder();
+            sb.Append("UT ").Append(r.CreditedUT.ToString("F0", ic));
+            sb.Append("   ").Append(title);
+            if (r.FundsAwarded != 0f)
+                sb.Append("  + ").Append(r.FundsAwarded.ToString("F0", ic)).Append(" funds");
+            if (r.RepAwarded != 0f)
+                sb.Append("  + ").Append(r.RepAwarded.ToString("F0", ic)).Append(" rep");
+            if (r.ScienceAwarded != 0f)
+                sb.Append("  + ").Append(r.ScienceAwarded.ToString("F1", ic)).Append(" sci");
+            if (r.IsPendingCredit) sb.Append(" (pending)");
+            return sb.ToString();
+        }
+
+        // ================================================================
+        // Pure helpers for log-assertion tests (extracted for testability)
+        // ================================================================
+
+        /// <summary>
+        /// Logs a tab-switch Verbose message. Called from DrawCareerStateWindow
+        /// when the user clicks a different tab; extracted as a pure helper so
+        /// the log contract is unit-testable outside IMGUI.
+        /// </summary>
+        internal static void SwitchTab(int oldTab, int newTab)
+        {
+            ParsekLog.Verbose("UI",
+                $"CareerStateWindow: tab switched {oldTab}->{newTab}");
+        }
+
+        /// <summary>
+        /// Emits a one-shot-per-mode-change Verbose log for Sandbox / Science
+        /// mode renders. <paramref name="last"/> is updated in place to the
+        /// current mode; repeat calls with the same mode produce no log.
+        /// Extracted for log-assertion testing.
+        /// </summary>
+        internal static void LogModeRender(Game.Modes current, ref Game.Modes last)
+        {
+            if (current == last) return;
+            last = current;
+            if (current == Game.Modes.SANDBOX
+                || current == Game.Modes.MISSION_BUILDER
+                || current == Game.Modes.MISSION)
+            {
+                ParsekLog.Verbose("UI", "CareerStateWindow: rendered sandbox-empty state");
+            }
+            else if (current == Game.Modes.SCIENCE_SANDBOX)
+            {
+                ParsekLog.Verbose("UI", "CareerStateWindow: rendered science-mode (contracts/strategies hidden)");
+            }
+            // CAREER: no log (it's the default "normal" render).
         }
     }
 }

@@ -679,5 +679,276 @@ namespace Parsek.Tests
             Assert.Null(CareerStateWindowUI.SpaceBeforeCapitals(null));
             Assert.Equal("", CareerStateWindowUI.SpaceBeforeCapitals(""));
         }
+
+        // ──────────────────────────────────────────────────────────────────
+        // §8.2 Formatting tests (Phase 2)
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void FormatContractRow_WithDeadline_ShowsDeadline()
+        {
+            // Regression: fails if the deadline is dropped from the formatted row
+            // or if F0 formatting is replaced with a locale-dependent call.
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1",
+                DisplayTitle = "Explore Mun",
+                AcceptUT = 104230.0,
+                DeadlineUT = 240000.0,
+                IsPendingAccept = false
+            };
+
+            string s = CareerStateWindowUI.FormatContractRow(row);
+
+            Assert.Contains("Explore Mun", s);
+            Assert.Contains("accepted UT 104230", s);
+            Assert.Contains("deadline UT 240000", s);
+            Assert.DoesNotContain("(pending)", s);
+            Assert.DoesNotContain("--", s);
+        }
+
+        [Fact]
+        public void FormatContractRow_NaNDeadline_ShowsDoubleDash()
+        {
+            // Regression: fails if NaN silently renders as "NaN" or is dropped
+            // rather than replaced with "(deadline --)".
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1",
+                DisplayTitle = "Rescue Kerbal",
+                AcceptUT = 118900.0,
+                DeadlineUT = double.NaN,
+                IsPendingAccept = false
+            };
+
+            string s = CareerStateWindowUI.FormatContractRow(row);
+
+            Assert.Contains("Rescue Kerbal", s);
+            Assert.Contains("(deadline --)", s);
+            Assert.DoesNotContain("NaN", s);
+        }
+
+        [Fact]
+        public void FormatContractRow_PendingAccept_IncludesPendingTag()
+        {
+            // Regression: fails if IsPendingAccept=true is silently elided from
+            // the output — pending entries must be visually distinguishable.
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-future",
+                DisplayTitle = "Future Contract",
+                AcceptUT = 500.0,
+                DeadlineUT = double.NaN,
+                IsPendingAccept = true
+            };
+
+            string s = CareerStateWindowUI.FormatContractRow(row);
+
+            Assert.Contains("(pending)", s);
+        }
+
+        [Fact]
+        public void FormatStrategyRow_ShowsSourceTargetAndCommitment()
+        {
+            // Regression: fails if the resource direction swaps (Source↔Target)
+            // or if the commitment percentage loses InvariantCulture (e.g. on a
+            // comma-locale system "12.5%" becomes "12,5%").
+            var row = new CareerStateWindowUI.StrategyRow
+            {
+                StrategyId = "Subsidy",
+                DisplayTitle = "Subsidy",
+                ActivateUT = 150.0,
+                SourceResource = StrategyResource.Funds,
+                TargetResource = StrategyResource.Science,
+                Commitment = 0.125f,
+                IsPendingActivate = false
+            };
+
+            string s = CareerStateWindowUI.FormatStrategyRow(row);
+
+            Assert.Contains("Subsidy", s);
+            Assert.Contains("activated UT 150", s);
+            Assert.Contains("Funds -> Science", s);
+            Assert.Contains("12.5%", s);
+            Assert.DoesNotContain(",5%", s);
+            Assert.DoesNotContain("(pending)", s);
+        }
+
+        [Fact]
+        public void FormatFacilityRow_UpcomingChange_ShowsArrow()
+        {
+            // Regression: fails if an upcoming level change collapses to a
+            // single "L2" label instead of showing "L2 -> L3 (upcoming)".
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                FacilityId = "LaunchPad",
+                DisplayTitle = "Launch Pad",
+                CurrentLevel = 2,
+                ProjectedLevel = 3,
+                CurrentDestroyed = false,
+                ProjectedDestroyed = false,
+                HasUpcomingChange = true
+            };
+
+            string s = CareerStateWindowUI.FormatFacilityRow(row);
+
+            Assert.Contains("Launch Pad", s);
+            Assert.Contains("L2 -> L3", s);
+            Assert.Contains("(upcoming)", s);
+        }
+
+        [Fact]
+        public void FormatFacilityRow_DestroyedWithRepairPending_ShowsBothTags()
+        {
+            // Regression: fails if the combined "destroyed + repair pending"
+            // state collapses to just "(destroyed)" — the projected-clears-destroyed
+            // case must show the repair signal.
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                FacilityId = "Runway",
+                DisplayTitle = "Runway",
+                CurrentLevel = 1,
+                ProjectedLevel = 1,
+                CurrentDestroyed = true,
+                ProjectedDestroyed = false,
+                HasUpcomingChange = true
+            };
+
+            string s = CareerStateWindowUI.FormatFacilityRow(row);
+
+            Assert.Contains("Runway", s);
+            Assert.Contains("destroyed", s);
+            Assert.Contains("repair pending", s);
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_ZeroRewards_ElidesSuffix()
+        {
+            // Regression: fails if zero rewards still render ("+ 0 sci" clutter)
+            // instead of being elided per design doc E8.
+            var row = new CareerStateWindowUI.MilestoneRow
+            {
+                MilestoneId = "FirstLaunch",
+                DisplayTitle = "First Launch",
+                CreditedUT = 8230.0,
+                FundsAwarded = 10000f,
+                RepAwarded = 5f,
+                ScienceAwarded = 0f,
+                IsPendingCredit = false
+            };
+
+            string s = CareerStateWindowUI.FormatMilestoneRow(row);
+
+            Assert.Contains("UT 8230", s);
+            Assert.Contains("First Launch", s);
+            Assert.Contains("+ 10000 funds", s);
+            Assert.Contains("+ 5 rep", s);
+            Assert.DoesNotContain("sci", s);
+            Assert.DoesNotContain("(pending)", s);
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_PendingCredit_ShowsPendingTag()
+        {
+            // Regression: fails if IsPendingCredit=true doesn't surface the
+            // "(pending)" suffix — players must see which milestones are
+            // projected-not-yet-credited.
+            var row = new CareerStateWindowUI.MilestoneRow
+            {
+                MilestoneId = "FirstOrbit",
+                DisplayTitle = "First Orbit",
+                CreditedUT = 118900.0,
+                FundsAwarded = 0f,
+                RepAwarded = 0f,
+                ScienceAwarded = 0f,
+                IsPendingCredit = true
+            };
+
+            string s = CareerStateWindowUI.FormatMilestoneRow(row);
+
+            Assert.Contains("First Orbit", s);
+            Assert.Contains("(pending)", s);
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // §8.4 Cache test (Phase 2)
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void InvalidateCache_NullsCachedVM()
+        {
+            // Regression: fails if InvalidateCache no longer nulls the cached VM —
+            // the next DrawIfOpen would reuse stale data. Mirrors
+            // KerbalsWindowUITests.InvalidateCache_DoesNotClearFoldedKerbals.
+            // ParsekUI ctor takes no args; we only need the field-level access.
+            var ui = new CareerStateWindowUI(parentUI: null);
+            ui.CachedVMForTesting = new CareerStateWindowUI.CareerStateViewModel
+            {
+                Mode = Game.Modes.CAREER,
+                LiveUT = 123.0,
+                TerminalUT = 123.0,
+                HasDivergence = false
+            };
+
+            Assert.NotNull(ui.CachedVMForTesting);
+
+            ui.InvalidateCache();
+
+            Assert.Null(ui.CachedVMForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]") && l.Contains("CareerStateWindow: cache invalidated"));
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Tab switching & mode-render log-assertion tests (Phase 2)
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void TabSwitch_Logs_OldAndNew()
+        {
+            // Regression: fails if the SwitchTab helper stops logging the old and
+            // new indices — diagnostics lose the tab-change trail.
+            CareerStateWindowUI.SwitchTab(oldTab: 1, newTab: 3);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("CareerStateWindow: tab switched")
+                && l.Contains("1->3"));
+        }
+
+        [Fact]
+        public void ModeRender_SandboxLogsOncePerChange()
+        {
+            // Regression: fails if the rate-limit sentinel breaks and Sandbox
+            // mode starts spamming its log every frame (or never logs at all).
+            Game.Modes last = Game.Modes.CAREER;
+            CareerStateWindowUI.LogModeRender(Game.Modes.SANDBOX, ref last);
+            CareerStateWindowUI.LogModeRender(Game.Modes.SANDBOX, ref last);
+            CareerStateWindowUI.LogModeRender(Game.Modes.SANDBOX, ref last);
+
+            int matches = logLines.Count(l =>
+                l.Contains("[UI]") && l.Contains("rendered sandbox-empty state"));
+            Assert.Equal(1, matches);
+            Assert.Equal(Game.Modes.SANDBOX, last);
+        }
+
+        [Fact]
+        public void ModeRender_ScienceLogsOncePerChange()
+        {
+            // Regression: fails if the Science branch log stops firing or if the
+            // rate-limit sentinel swallows mode flips (CAREER -> SCIENCE -> CAREER
+            // -> SCIENCE must log twice).
+            Game.Modes last = Game.Modes.CAREER;
+            CareerStateWindowUI.LogModeRender(Game.Modes.SCIENCE_SANDBOX, ref last);
+            CareerStateWindowUI.LogModeRender(Game.Modes.SCIENCE_SANDBOX, ref last);
+            CareerStateWindowUI.LogModeRender(Game.Modes.CAREER, ref last);
+            CareerStateWindowUI.LogModeRender(Game.Modes.SCIENCE_SANDBOX, ref last);
+
+            int matches = logLines.Count(l =>
+                l.Contains("[UI]")
+                && l.Contains("rendered science-mode")
+                && l.Contains("contracts/strategies hidden"));
+            Assert.Equal(2, matches);
+        }
     }
 }
