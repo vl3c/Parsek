@@ -1086,14 +1086,15 @@ namespace Parsek
         // (which already has its own 0.45x shrink) composes naturally.
         internal const float GhostEngineFxSizeBoost = 1.5f;
 
-        // Per-part overrides. Tiny engines (Twitch/Spider/Ant/Sepratron) have prefab
-        // particles already in scale with the tiny part, so the default 1.5x boost
-        // over-sizes them — override down to ~0.6x. Skipper and Mainsail still read a
-        // shade narrow even after the default boost — bump to ~1.95x (30% wider than
-        // the default-boosted width). Rhino's prefab plume runs visibly narrower than
-        // the live engine even after the 1.5x boost, so bump it up to ~2.7x (about 80%
-        // wider than the default-boosted width). Keys are runtime part names (KSP
-        // converts underscores to dots: `smallRadialEngine_v2` → `smallRadialEngine.v2`).
+        // Per-part overrides relative to the 1.5x default boost. Values are absolute
+        // startSizeMultiplier/startLifetimeMultiplier factors vs the prefab:
+        //   0.6x — tiny engines (Twitch/Spider/Ant/Sepratron); prefab particles are
+        //          already in scale with the tiny part, default boost over-sizes them.
+        //   1.0x — Flea/Hammer SRBs; default boost reads ~30% too wide, pin to prefab.
+        //   2.0x — Skipper/Mainsail; default boost reads ~30% too narrow.
+        //   2.7x — Rhino; prefab plume is visibly narrow even at 1.5x, ~80% wider.
+        // Keys are runtime part names (KSP converts underscores to dots at runtime:
+        // `smallRadialEngine_v2` registers as `smallRadialEngine.v2`).
         private static readonly Dictionary<string, float> engineFxSizeOverride =
             new Dictionary<string, float>(System.StringComparer.Ordinal)
             {
@@ -1102,8 +1103,10 @@ namespace Parsek
                 { "radialEngineMini.v2",    0.6f  }, // LV-1R Spider
                 { "microEngine.v2",         0.6f  }, // LV-1 Ant
                 { "sepMotor1",              0.6f  }, // Sepratron I
-                { "engineLargeSkipper.v2",  1.95f }, // T-1 Toroidal "Skipper"
-                { "liquidEngineMainsail.v2",1.95f }, // RE-M3 "Mainsail"
+                { "solidBooster.sm.v2",     1.0f  }, // RT-5 "Flea" SRB
+                { "solidBooster.v2",        1.0f  }, // RT-10 "Hammer" SRB
+                { "engineLargeSkipper.v2",  2.0f  }, // T-1 Toroidal "Skipper"
+                { "liquidEngineMainsail.v2",2.0f  }, // RE-M3 "Mainsail"
                 { "Size3AdvancedEngine",    2.7f  }, // KR-2L+ Rhino — widen prefab plume
             };
 
