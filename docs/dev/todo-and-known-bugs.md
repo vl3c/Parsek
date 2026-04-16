@@ -950,7 +950,9 @@ There is no hover test, no click handling, and no per-marker "sticky" state. Bot
 
 ---
 
-## 385. Timeline window: move Retired Stand-ins out, add a dedicated Kerbals Status window behind a toolbar button
+## ~~385. Timeline window: move Retired Stand-ins out, add a dedicated Kerbals Status window behind a toolbar button~~
+
+**Status:** DONE in v0.8.3 — delivered Retired + Reserved + Active stand-ins in a new `UI/KerbalsWindowUI.cs` opened from a main-UI button (not a Timeline-header drill-down). Per-recording crew end-states, chain-expansion UI, and per-name filters remain future work; the design notes below apply to those follow-ups.
 
 **Source:** maintenance request `2026-04-14`. The Retired Stand-ins list currently hangs off the bottom of the Timeline window (`UI/TimelineWindowUI.cs:523` `DrawRetiredKerbalsSection`, called from the main draw at line `238`). It's confusing in that location — "retired stand-ins" is not a timeline concept, and it takes vertical space that the timeline entry list should own.
 

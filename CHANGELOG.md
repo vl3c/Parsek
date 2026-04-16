@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Add Gloops Flight Recorder window for manual ghost-only recordings. Manual recording controls (Start/Stop, Preview, Discard) moved from the main Parsek UI to a dedicated "Gloops Flight Recorder" window opened via a button in the main UI. Recordings are marked `IsGhostOnly` and never spawn a real vessel at playback end. They auto-commit on stop with looping enabled by default and are placed in the "Gloops Flight Recordings - Ghosts Only" group. Ghost-only recordings can run in parallel with the auto-recording system. An X (delete) button is added to the recordings table for ghost-only recordings.
+- `#385` New Kerbals window (reserved crew, active stand-ins, retired stand-ins) opened via a button in the main Parsek window; Retired Stand-ins removed from the Timeline footer.
 
 ---
 

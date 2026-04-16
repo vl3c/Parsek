@@ -1025,8 +1025,8 @@ namespace Parsek
                 : KerbalEndState.Recovered;
         }
 
-        private const int ActiveOwnerIndex = -1;
-        private const int NoActiveChainOccupant = -2;
+        internal const int ActiveOwnerIndex = -1;
+        internal const int NoActiveChainOccupant = -2;
 
         private bool ShouldEnsureChainEntryInRoster(KerbalSlot slot, int chainIndex)
         {
@@ -1043,7 +1043,7 @@ namespace Parsek
             return !IsDisplacedChainEntry(slot, chainIndex) || isReserved || usedInRecording;
         }
 
-        private int GetActiveChainIndex(string slotOwnerName, KerbalSlot slot)
+        internal int GetActiveChainIndex(string slotOwnerName, KerbalSlot slot)
         {
             if (slot != null && slot.OwnerPermanentlyGone)
                 return NoActiveChainOccupant;
@@ -1066,7 +1066,7 @@ namespace Parsek
             return slot.Chain.Count;
         }
 
-        private int GetActiveChainIndex(KerbalSlot slot)
+        internal int GetActiveChainIndex(KerbalSlot slot)
         {
             if (slot == null)
                 return NoActiveChainOccupant;
