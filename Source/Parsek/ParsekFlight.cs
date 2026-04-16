@@ -7566,7 +7566,23 @@ namespace Parsek
                 return;
             }
 
-            int idx = RecordingStore.IndexOfCommitted(lastGloopsRecording);
+            var committed = RecordingStore.CommittedRecordings;
+            int idx = -1;
+            if (!string.IsNullOrEmpty(lastGloopsRecording.RecordingId))
+                idx = GhostPlaybackLogic.FindRecordingIndexById(committed, lastGloopsRecording.RecordingId);
+
+            if (idx < 0)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    if (object.ReferenceEquals(committed[i], lastGloopsRecording))
+                    {
+                        idx = i;
+                        break;
+                    }
+                }
+            }
+
             if (idx >= 0)
             {
                 DeleteGhostOnlyRecording(idx);

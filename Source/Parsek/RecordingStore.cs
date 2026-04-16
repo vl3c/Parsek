@@ -417,15 +417,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the index of <paramref name="rec"/> in the committed list, or -1 if not present.
-        /// For production code that needs lookup after CommittedRecordings became IReadOnlyList.
-        /// </summary>
-        internal static int IndexOfCommitted(Recording rec)
-        {
-            return committedRecordings.IndexOf(rec);
-        }
-
-        /// <summary>
         /// Clears all recordings from the internal committed list.
         /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
         /// </summary>

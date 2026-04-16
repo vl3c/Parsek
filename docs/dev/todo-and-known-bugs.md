@@ -633,7 +633,7 @@ Every commit re-walks the full 16-19 event list to decide what's in range. In a 
 
 ---
 
-## 389. Time-range filter for Timeline window and Recordings table (scroll-limit mitigation for long careers)
+## ~~389. Time-range filter for Timeline window and Recordings table (scroll-limit mitigation for long careers)~~
 
 **Source:** maintenance request `2026-04-15`. As a career progresses, both the Timeline window and the Recordings table accumulate entries linearly. A mature career (100+ missions) becomes painful to navigate — scrolling dozens of screenfuls to find a specific flight is not sustainable. The user wants a time-interval filter ("show entries from UT A to UT B") that limits both windows to a user-chosen slice.
 
@@ -707,7 +707,9 @@ Start with **option 1** (sliders + presets). Simplest path to a working filter, 
 - `Source/Parsek.Tests/` — unit tests for `TimeRangeFilterLogic` predicates
 - `CHANGELOG.md` under Unreleased: "Timeline and Recordings windows now support a time-range filter (UT interval) with quick presets (Last day / Last 7 days / Last 30 days / This year / Clear). Useful for navigating long careers with many missions."
 
-**Status:** TODO. Size: M. Not urgent today, but the scale problem is real and will bite hard in any career-mode playtest past ~50 missions. Worth implementing before the next playtest pass with a mature save. Size is mostly RecordingsTableUI integration — it currently has no filter bar at all, so this adds a new visual element to a busy table.
+**Status:** ~~Fixed~~. Implemented as a shared `TimeRangeFilterState` on `ParsekUI`, read by both `TimelineWindowUI` (filter bar with presets + collapsible dual-slider custom range) and `RecordingsTableUI` (filter gate on root items + compact indicator bar with Clear button). Presets: Last Day, Last 7d, Last 30d, This Year, All. Custom range via two `HorizontalSlider` controls with KSP-formatted labels (seconds omitted to mask float quantization). Chains shown as a unit if any segment overlaps the range. Groups hidden when no descendant overlaps. Pure predicates in `TimeRangeFilterLogic` with 22 unit tests. Not persisted across sessions.
+
+**Fix:** New `Source/Parsek/UI/TimeRangeFilter.cs` (state + predicates), wired into `TimelineWindowUI.DrawTimeRangeFilterBar` / `IsEntryVisible` and `RecordingsTableUI.DrawRecordingsWindow` / `DrawTimeRangeFilterIndicator`. `Source/Parsek.Tests/TimeRangeFilterTests.cs` covers all predicate edge cases including in-progress recordings, boundary touches, null bounds, and slider bound computation.
 
 ---
 
