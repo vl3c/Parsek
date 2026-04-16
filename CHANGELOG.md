@@ -21,6 +21,9 @@ All notable changes to Parsek are documented here.
 
 - `#386` Ghost map and tracking station icons now hide their label by default, show it on hover, and pin it on click — matching stock KSP vessel icons.
 - Replaced the four individual sampling sliders (min/max interval, direction threshold, speed threshold) with a single **Recorder Sample Density** setting offering three presets: Low (fewer samples, smaller files), Medium (balanced, same as previous defaults), and High (dense sampling for cinematic recordings). Existing slider-based saves now migrate their legacy thresholds to the nearest preset on load instead of silently defaulting to Medium, and the preset remains available from both the Parsek settings window and KSP's stock Game Parameters UI.
+- `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose and documented the `allowActivation` contract threaded through `IGhostPositioner` positioning methods.
+- `#378` Added a rate-limited warn when the on-save exact-match rebuild-and-compare of flat trajectory vs. track sections exceeds 5 ms on a single recording, so large-recording save stutter becomes visible in `KSP.log`.
+- `#376` Documented the dual-storage invariant for `AutoAssignedStandaloneGroupName` and flagged `ClearAutoAssignedStandaloneGroup` as the mandatory entry point for any new group-mutation path.
 
 ### Tests
 
@@ -40,6 +43,9 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#366` Wrapped each step of the staged-sidecar rollback in its own try/catch so a rollback exception on one file (e.g. external process deleting a `.bak`) no longer aborts the remaining rollback — best-effort atomicity is preserved and each failure is warn-logged.
+- `#369` Hardened `GhostPlaybackLogic.ComputePendingWatchHoldSeconds` against a NaN warp rate (previously fell through to the base hold via NaN arithmetic); cleaned up a cosmetic double `return true;` in `GhostPlaybackEngine.RenderInRangeGhost`.
+- `#377` Removed dead `GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset` and its always-zero visual-root offset propagation; refactored `RecordingOptimizer.FindLastInterestingUT` to scan all `PartEvents` / `SegmentEvents` / `FlagEvents` for max-UT instead of breaking at the first non-inert tail element, so the helper no longer relies on implicit sort order. Added a one-time Info log when auto-generated tree groups are inferred from the pre-#265 legacy heuristic. Added a one-shot-per-pending-restore latch in `WatchModeController.UpdateMapFocusRestore` so `EnsureGhostOrbitRenderers` is not called every frame while waiting for the ghost to materialize in MapView; the latch is also cleared at watch-session start and reset so a fresh session entered while map view is already open still runs renderer creation.
 - `#394`, `#395`, `#396`, `#397`, `#398`, `#400`, `#401`, `#402`, `#403`, `#404`, `#405` Fixed a cascade of career-mode ledger bugs that drained funds to zero, lost accepted contracts on scene transition, pinned science at the starting seed, and zeroed out milestone funds/rep rewards. Broken sci1/c1 saves are repaired automatically on first load.
 - `#391` `committedScienceSubjects` dictionary is now rebuilt from the ledger after every recalculation and before load-time recovery, so deleting a recording no longer leaves stale science entries that could be re-synthesized as ghost `ScienceEarning` actions on the next load.
 - `#390` `GameStateStore.Events` is now pruned after each commit — old-epoch events and events already swept into milestones are removed, preventing unbounded growth in long careers.

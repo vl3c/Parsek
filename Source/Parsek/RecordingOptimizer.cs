@@ -1078,32 +1078,42 @@ namespace Parsek
                 }
             }
 
-            // Last PartEvent
+            // Last non-inert PartEvent. Scans the full list and keeps the max UT so
+            // the result is independent of PartEvents sort order — the previous
+            // tail-backward break relied on an implicit sort-by-UT invariant
+            // (StopRecording sorts, other paths may not).
             if (rec.PartEvents != null && rec.PartEvents.Count > 0)
             {
-                for (int i = rec.PartEvents.Count - 1; i >= 0; i--)
+                for (int i = 0; i < rec.PartEvents.Count; i++)
                 {
                     if (IsInertPartEventForTailTrim(rec.PartEvents[i]))
                         continue;
 
                     double evtUT = rec.PartEvents[i].ut;
                     if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
-                    break;
                 }
             }
 
-            // Last SegmentEvent
+            // Last SegmentEvent. Scans the full list for the max UT so the
+            // decision is independent of SegmentEvents sort order (same
+            // hardening as the PartEvents branch above, #276).
             if (rec.SegmentEvents != null && rec.SegmentEvents.Count > 0)
             {
-                double evtUT = rec.SegmentEvents[rec.SegmentEvents.Count - 1].ut;
-                if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+                for (int i = 0; i < rec.SegmentEvents.Count; i++)
+                {
+                    double evtUT = rec.SegmentEvents[i].ut;
+                    if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+                }
             }
 
-            // Last FlagEvent
+            // Last FlagEvent. Same full-scan hardening as above (#276).
             if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
             {
-                double evtUT = rec.FlagEvents[rec.FlagEvents.Count - 1].ut;
-                if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+                for (int i = 0; i < rec.FlagEvents.Count; i++)
+                {
+                    double evtUT = rec.FlagEvents[i].ut;
+                    if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+                }
             }
 
             return lastUT;
