@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using Xunit;
 
@@ -778,6 +779,146 @@ namespace Parsek.Tests
             Assert.True(loadedRec.SidecarLoadFailed);
             Assert.Equal("snapshot-ghost-invalid", loadedRec.SidecarLoadFailureReason);
             Assert.False(loadedRec.FilesDirty);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_ThenSaveRecordingFiles_HealsSidecarsAndClearsFilesDirty()
+        {
+            // T61 end-to-end slice: prove a later save after salvage actually rewrites
+            // the .prec sidecar to disk and clears FilesDirty. The other salvage tests
+            // stop at "FilesDirty = true" after restore; this one drives the subsequent
+            // SaveRecordingFilesToPathsForTesting call and asserts the resulting bytes.
+            var pendingTree = MakeTree("tree_t61_heal", "Pending", 2);
+            var pendingChild = pendingTree.Recordings["child_tree_t61_heal_1"];
+            pendingChild.VesselName = "Pending Child";
+            // The v3 binary writer requires bodyName to be non-null on every point.
+            // MakeTree leaves it unset; set it explicitly on the points that will be
+            // DeepCloned into the disk tree so the post-salvage save path succeeds.
+            for (int i = 0; i < pendingChild.Points.Count; i++)
+            {
+                var p = pendingChild.Points[i];
+                p.bodyName = "Kerbin";
+                pendingChild.Points[i] = p;
+            }
+            pendingChild.Points.Add(new TrajectoryPoint { ut = 999, bodyName = "Kerbin" });
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_t61_heal", "Disk", 2);
+            loadedTree.Recordings["child_tree_t61_heal_1"].SidecarLoadFailed = true;
+            loadedTree.Recordings["child_tree_t61_heal_1"].SidecarLoadFailureReason = "trajectory-missing";
+            int preSaveEpoch = loadedTree.Recordings["child_tree_t61_heal_1"].SidecarEpoch;
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+            Assert.Equal(1, restored);
+
+            Recording restoredRec = loadedTree.Recordings["child_tree_t61_heal_1"];
+            Assert.True(restoredRec.FilesDirty);
+            Assert.False(restoredRec.SidecarLoadFailed);
+            Assert.Equal("Pending Child", restoredRec.VesselName);
+            Assert.Equal(3, restoredRec.Points.Count);
+
+            string dir = Path.Combine(Path.GetTempPath(),
+                "parsek-t61-salvage-save-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            bool? previousMirrorOverride = RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting;
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            try
+            {
+                string precPath = Path.Combine(dir, restoredRec.RecordingId + ".prec");
+                string vesselPath = Path.Combine(dir, restoredRec.RecordingId + "_vessel.craft");
+                string ghostPath = Path.Combine(dir, restoredRec.RecordingId + "_ghost.craft");
+
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    restoredRec, precPath, vesselPath, ghostPath, incrementEpoch: true));
+
+                Assert.False(restoredRec.FilesDirty);
+                Assert.Equal(preSaveEpoch + 1, restoredRec.SidecarEpoch);
+                Assert.True(File.Exists(precPath));
+                Assert.False(File.Exists(vesselPath));
+                Assert.False(File.Exists(ghostPath));
+
+                TrajectorySidecarProbe probe;
+                Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+                Assert.Equal(restoredRec.SidecarEpoch, probe.SidecarEpoch);
+            }
+            finally
+            {
+                RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = previousMirrorOverride;
+                try { Directory.Delete(dir, true); }
+                catch { /* best-effort cleanup; test has already asserted */ }
+            }
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_MixedRestorabilitySubset_RestoresOnlyTheRecoverableRecordings()
+        {
+            // T61 mixed-case: one tree with three SidecarLoadFailed recordings; one full
+            // restore, one snapshot-only restore, one unrecoverable because the pending
+            // tree no longer has a matching id. Confirms the salvage loop counts exactly
+            // the restorable subset and leaves unrecoverable entries in their disk state.
+            var pendingTree = MakeTree("tree_t61_mixed", "Pending", 4);
+
+            var pendingFull = pendingTree.Recordings["child_tree_t61_mixed_1"];
+            pendingFull.VesselName = "Pending Full";
+            pendingFull.Points.Add(new TrajectoryPoint { ut = 999 });
+
+            var pendingSnapshot = pendingTree.Recordings["child_tree_t61_mixed_2"];
+            pendingSnapshot.VesselSnapshot = BuildSnapshot("Pending Snapshot Vessel", 7601);
+            pendingSnapshot.GhostVisualSnapshot = BuildSnapshot("Pending Snapshot Ghost", 7602);
+            pendingSnapshot.GhostSnapshotMode = GhostSnapshotMode.Separate;
+
+            pendingTree.Recordings.Remove("child_tree_t61_mixed_3");
+
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_t61_mixed", "Disk", 4);
+
+            var loadedFull = loadedTree.Recordings["child_tree_t61_mixed_1"];
+            loadedFull.SidecarLoadFailed = true;
+            loadedFull.SidecarLoadFailureReason = "trajectory-missing";
+
+            var loadedSnapshot = loadedTree.Recordings["child_tree_t61_mixed_2"];
+            loadedSnapshot.VesselSnapshot = BuildSnapshot("Disk Snapshot Vessel", 7701);
+            loadedSnapshot.GhostSnapshotMode = GhostSnapshotMode.Separate;
+            loadedSnapshot.SidecarLoadFailed = true;
+            loadedSnapshot.SidecarLoadFailureReason = "snapshot-ghost-invalid";
+
+            var loadedMissing = loadedTree.Recordings["child_tree_t61_mixed_3"];
+            loadedMissing.SidecarLoadFailed = true;
+            loadedMissing.SidecarLoadFailureReason = "snapshot-ghost-invalid";
+            int missingPointCountBefore = loadedMissing.Points.Count;
+
+            logLines.Clear();
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+
+            Assert.Equal(2, restored);
+
+            Assert.Equal("Pending Full", loadedTree.Recordings["child_tree_t61_mixed_1"].VesselName);
+            Assert.Equal(3, loadedTree.Recordings["child_tree_t61_mixed_1"].Points.Count);
+            Assert.True(loadedTree.Recordings["child_tree_t61_mixed_1"].FilesDirty);
+            Assert.False(loadedTree.Recordings["child_tree_t61_mixed_1"].SidecarLoadFailed);
+
+            var restoredSnapshot = loadedTree.Recordings["child_tree_t61_mixed_2"];
+            Assert.Equal(2, restoredSnapshot.Points.Count);
+            Assert.Equal(120, restoredSnapshot.Points[0].ut);
+            Assert.Equal(130, restoredSnapshot.Points[1].ut);
+            Assert.Equal("Disk Snapshot Vessel", restoredSnapshot.VesselSnapshot.GetValue("name"));
+            Assert.Equal("Pending Snapshot Ghost", restoredSnapshot.GhostVisualSnapshot.GetValue("name"));
+            Assert.True(restoredSnapshot.FilesDirty);
+            Assert.False(restoredSnapshot.SidecarLoadFailed);
+
+            Assert.True(loadedMissing.SidecarLoadFailed);
+            Assert.Equal("snapshot-ghost-invalid", loadedMissing.SidecarLoadFailureReason);
+            Assert.False(loadedMissing.FilesDirty);
+            Assert.Equal(missingPointCountBefore, loadedMissing.Points.Count);
+
+            Assert.Equal("Disk #0", loadedTree.Recordings["root_tree_t61_mixed"].VesselName);
+            Assert.False(loadedTree.Recordings["root_tree_t61_mixed"].FilesDirty);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("restored 2 hydration-failed recording")
+                && l.Contains("(1 snapshot-only, 1 full)"));
         }
 
         // ============================================================
