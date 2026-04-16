@@ -53,11 +53,13 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 3;
+        public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
+        public const int CurrentRecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
         // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
+        // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -5340,7 +5342,42 @@ namespace Parsek
                     $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
             }
 
+            MigrateLegacyLoopIntervalAfterHydration(rec);
             return true;
+        }
+
+        private static void MigrateLegacyLoopIntervalAfterHydration(Recording rec)
+        {
+            if (rec == null
+                || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
+                return;
+
+            double effectiveLoopDuration;
+            double migratedLoopIntervalSeconds;
+            if (!GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
+                    rec, rec.LoopIntervalSeconds,
+                    out migratedLoopIntervalSeconds, out effectiveLoopDuration))
+                return;
+
+            double legacyLoopIntervalSeconds = rec.LoopIntervalSeconds;
+            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
+            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+            NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
+            ParsekLog.Warn("Loop",
+                $"RecordingStore: migrated recording '{rec.VesselName}' from legacy " +
+                $"gap loopIntervalSeconds={legacyLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                $"using hydrated effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
+                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
+        }
+
+        internal static void NormalizeRecordingFormatVersionAfterLegacyLoopMigration(Recording rec)
+        {
+            if (rec == null
+                || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
+                return;
+
+            rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
         }
 
         private static bool SaveRecordingFilesToPathsInternal(

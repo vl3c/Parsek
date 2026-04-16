@@ -41,6 +41,11 @@ namespace Parsek
         public int LoopSyncParentIdx { get; set; } = -1;
 
         public bool LoopPlayback;
+        /// <summary>
+        /// Launch-to-launch period in seconds (#381). Must be &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// When less than the recording duration, successive launches overlap (multi-ghost
+        /// overlap path). When greater, there is a pause window between cycles.
+        /// </summary>
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
         public double LoopStartUT = double.NaN;  // NaN = use StartUT (loop entire recording)

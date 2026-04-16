@@ -39,6 +39,184 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
+
+**Source:** `#409` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#409` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
+
+**Concern:** for recordings that use a custom loop subrange (`LoopStartUT` / `LoopEndUT` narrower than `StartUT` / `EndUT`), three dispatch sites disagree with each other and with `WatchModeController`:
+
+| Site | Duration expression | Shape |
+|---|---|---|
+| `GhostPlaybackEngine.UpdateLoopingPlayback` (`GhostPlaybackEngine.cs:717-718`) | `traj.EndUT - EffectiveLoopStartUT(traj)` | **hybrid** — effective start, raw end |
+| `GhostPlaybackEngine.UpdateOverlapPlayback` (`GhostPlaybackEngine.cs:907`) | `GetActiveCycles(..., loopStartUT, traj.EndUT, ...)` via the hybrid parent | **hybrid** (inherited from parent + raw `traj.EndUT` in the GetActiveCycles bounds) |
+| `ParsekKSC` main dispatcher (`ParsekKSC.cs:175`) | `rec.EndUT - rec.StartUT` | **raw full range** |
+| `ParsekKSC.TryComputeLoopUT` (`ParsekKSC.cs:699-703`) | `EffectiveLoopEndUT - EffectiveLoopStartUT` | effective (correct) |
+| `WatchModeController.TryStartWatchSession` / `ResolveWatchPlaybackUT` (post-`#409`) | `EffectiveLoopDuration(rec)` | effective (correct) |
+
+Concrete divergence: take a 300s recording with loop subrange `[100, 200]` (effective duration = 100s) and `LoopIntervalSeconds = 80`.
+
+- `UpdateLoopingPlayback` sees `duration = 300 - 100 = 200`. `IsOverlapLoop(80, 200)` → **overlap** path.
+- `TryComputeLoopUT` (KSC single-ghost path) sees `duration = 100`. Pause-window check uses `100`.
+- `WatchModeController` (post-`#409`) sees `duration = 100`. `IsOverlapLoop(80, 100)` → **overlap** path.
+- `ParsekKSC` main dispatcher sees `duration = 300 - 0 = 300`. `IsOverlapLoop(80, 300)` → **overlap** path.
+
+The flight engine's overlap-vs-single decision and its pause-window/phase clamp are computed from a hybrid that silently lets playback run past the loop subrange's end into the post-loop portion of the recording. `UpdateOverlapPlayback` then calls `GetActiveCycles(..., loopStartUT, traj.EndUT, ...)` — which computes cycle bounds over the half-range — so the number of simultaneously active cycles is wrong whenever `EffectiveLoopEndUT < traj.EndUT`. `ParsekKSC`'s main dispatcher uses the raw full range, which flips to the overlap path even when the subrange makes `period >= effectiveDuration` and the single-ghost path would be correct.
+
+**Why it didn't get caught under `#381`:** loop subranges are a niche feature. The `#381` fix pass touched every call site's formula but kept the "which start/end fields to use" semantics identical to pre-`#381` — only the arithmetic on those fields changed. The raw-vs-effective asymmetry predates both `#381` and `#409`.
+
+**Proposed fix:**
+
+1. Centralize "effective loop duration" via the existing `GhostPlaybackEngine.EffectiveLoopDuration` helper (already added for `#409`). No new API.
+2. Rewrite `UpdateLoopingPlayback` line 717-718:
+   ```csharp
+   double loopStartUT = EffectiveLoopStartUT(traj);
+   double duration = EffectiveLoopDuration(traj);
+   ```
+3. Rewrite `UpdateOverlapPlayback` line 907 to pass `EffectiveLoopEndUT(traj)` as the cycle bound (not `traj.EndUT`). Also verify the `primaryCycleStartUT = loopStartUT + lastCycle * cycleDuration` reference is correct after the fix — `loopStartUT` already comes from `EffectiveLoopStartUT`, so the reference frame is consistent.
+4. Rewrite `ParsekKSC.cs:175` to use `EffectiveLoopDuration(rec)` for the overlap-vs-single decision, matching `TryComputeLoopUT` which already uses the effective range. This aligns the main KSC dispatcher with its own single-ghost helper.
+5. Audit `GetActiveCycles` callers elsewhere in the engine for any other `(rec.StartUT, rec.EndUT)` vs `(loopStartUT, loopEndUT)` pair.
+6. `UpdateExpireAndPositionOverlaps` takes `duration` and `loopStartUT` as parameters — verify the parameters are still correct after the parent rewrites (should just be the new effective duration + effective start, same variable names).
+
+**Tests:**
+
+- Unit: extend `GhostPlaybackEngineTests` with a `UpdateLoopingPlayback_LoopSubrange_UsesEffectiveDuration` integration case that asserts the overlap decision agrees with `EffectiveLoopDuration` and not `traj.EndUT - loopStartUT`. Can be pure-static if we lift the decision logic into a helper.
+- Unit: extend `KscGhostPlaybackTests` with the same LoopSubrange overlap-decision guard for `ParsekKSC.cs:175`.
+- In-game: create a synthetic recording with a real loop subrange (e.g. `WithLoop(period=80)` + `LoopStartUT=100, LoopEndUT=200` inside a `[0, 300]` range), enable loop playback, and verify:
+  - The ghost restarts at `loopStartUT=100`, not `0`.
+  - Playback ends at `loopEndUT=200`, not `300` (no playback past the subrange).
+  - At period=80 (< effective duration 100), the user sees overlapping ghosts.
+  - At period=110 (> effective duration 100), the user sees single-ghost with a pause window.
+  - The same recording, opened from KSC (tracking station) instead of flight, shows the same number of active ghosts and the same pause behavior.
+
+**Files to touch:**
+
+- `Source/Parsek/GhostPlaybackEngine.cs` — `UpdateLoopingPlayback`, `UpdateOverlapPlayback`, `UpdateExpireAndPositionOverlaps` (param audit).
+- `Source/Parsek/ParsekKSC.cs` — main dispatcher line 175.
+- `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` — loop-subrange dispatch tests.
+- `Source/Parsek.Tests/KscGhostPlaybackTests.cs` — loop-subrange dispatch tests.
+- `CHANGELOG.md` and this entry on completion.
+
+**Status:** ~~Fixed~~. Size: S-M. Not a regression — the behavior predates `#381`. `#409` fixed the watch-mode half of the same drift; this closes out the remaining flight/KSC range math.
+
+**Fix:** Initial landing in `eba44b1b` rewrote the three core dispatch sites (`GhostPlaybackEngine.UpdateLoopingPlayback` now branches on `EffectiveLoopDuration(traj)`; `UpdateOverlapPlayback` bounds `GetActiveCycles` on `EffectiveLoopEndUT(traj)`; `ParsekKSC` main dispatcher uses `EffectiveLoopDuration(rec)`) and completed the KSC audit by anchoring `UpdateOverlapKsc`'s activation, cycle starts, phase clamping, and active-cycle selection on `EffectiveLoopStartUT`/`EffectiveLoopEndUT` instead of raw `rec.StartUT`/`rec.EndUT`.
+
+In-game and review-driven follow-ups then closed out the rest of the raw-vs-effective drift across the entire loop subsystem:
+
+- **`14ae6ba3` Legacy loop migration + runtime epsilon.** Added `GhostPlaybackEngine.ConvertLegacyGapToLoopPeriodSeconds` (later renamed `TryConvertLegacyGapToLoopPeriodSeconds`) to upgrade pre-`#381` negative-gap saves to `effectiveDuration + legacyGap`. Fixed the load order in both `ParsekScenario.LoadRecordingMetadata` and `RecordingTree.LoadRecordingFrom` so `loopStartUT`/`loopEndUT` parse before `loopIntervalSeconds` (the migration needs the subrange). Extended `GhostPlaybackLogic.BoundaryEpsilon` to the live `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (instance) and `ParsekKSC.TryComputeLoopUT` — the original `#410` fix only touched the static helpers, missing the runtime schedulers that the playback engine actually calls each frame.
+- **`1df9d119` Loop-end teardown for subrange playback.** New `GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(traj) = EffectiveLoopEndUT(traj)` helper and new `PositionGhostAtLoopEndpoint` (flight + KSC versions). Every pause-window / cycle-change / overlap-expire / destroyed-explosion position path that used to position at the raw `rec.Points[last]` now positions at the effective loop end, so ghosts no longer play past the subrange into the post-loop portion of the recording.
+- **`1c0c5339` Loop destruction timing.** New shared `GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(traj, playbackUT)` helper unifies the "should we fire the destroyed-vessel explosion at this UT?" decision across six duplicated call sites in the flight engine and KSC dispatcher, using `ResolveLoopPlaybackEndpointUT` instead of raw `traj.EndUT`. Fixes a timing bug where loop-subrange recordings with `TerminalState.Destroyed` were exploding at the wrong UT.
+- **`33371d4b` Legacy tree migration + quiet overlap handoff.** Introduced `RecordingStore.LaunchToLaunchLoopIntervalFormatVersion = 4`; bumped `CurrentRecordingFormatVersion` from 3 → 4. `ConvertLegacy...` became `TryConvertLegacy...` (returns false when duration isn't hydrated). Deferred migration via new `RecordingStore.MigrateLegacyLoopIntervalAfterHydration` fires after sidecar load with the real duration. `UpdateExpireAndPositionOverlaps` now fires `ExplosionHoldEnd` instead of `ExplosionHoldStart` for non-destroyed overlap cycle expiries, so the watch camera bridge doesn't stall waiting for an explosion that never comes.
+- **`6034853b` Deferred migration + bridge retry.** Dropped the `LoopIntervalSeconds >= 0` early-exit from `MigrateLegacyLoopIntervalAfterHydration` (was rejecting migrations that happened to land on a non-negative result). Added `NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec)` to bump the format version to 4 after a successful migration so the same recording doesn't re-migrate on the next load. Added the overlap camera-bridge retry state machine: `OverlapBridgeRetargetState.ExitWatch`, `MaxPendingOverlapBridgeFrames = 3`, Unity-safe object helpers, and a bounded retry budget so the watch camera exits cleanly if the primary ghost never returns.
+- **`ba5f57ab` Sidecar loop version persistence.** `TrajectorySidecarBinary` now distinguishes `SparsePointBinaryVersion = 3` (actual binary layout) from `CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion = 4` (metadata semantic). Load accepts v2/v3/v4; save emits v4 for any recording at `RecordingFormatVersion >= 4`. Without this, the v4 migration couldn't persist through sidecar round-trips.
+- **`9308c7cd` Overlap bridge retry accounting.** New `overlapBridgeLastRetryFrame` per-session field + `AdvanceOverlapBridgeWaitFrames` helper prevents the retry budget from being consumed twice per frame. Reset at all camera-event cleanup sites and in `ResetWatchState`.
+- **`14bf03fb` Test/CHANGELOG alignment.** `FormatVersionTests` updated to assert v4; `RecordingStoreTests.RecordingMetadata_Load_MissingFields_*` updated for the "missing field = legacy v0" contract; CHANGELOG `#381` entry rewritten to reflect the full version-migration behavior instead of the original "clamped to 1 second" wording.
+- **Final review fix (v4 sidecar demotion).** `TrajectorySidecarBinary.Read` was unconditionally assigning `rec.RecordingFormatVersion = probe.FormatVersion`, which demoted any just-stamped v4 (from the tree-load migration with explicit bounds) back to v3 — causing `MigrateLegacyLoopIntervalAfterHydration` to fire a SECOND time and double the period. The fix is a one-line promote-only guard at `TrajectorySidecarBinary.cs:195`. Regression test `LoopRange_Tree_Load_LegacyWithExplicitBoundsAndSidecar_MigratesOnceNotTwice` in `LoopAnchorTests` exercises the full path: tree node with `explicitStartUT`/`explicitEndUT` + v3 sidecar → migration fires at tree-load time → sidecar load must NOT re-migrate. Without the fix, `loaded.LoopIntervalSeconds` would jump from 110 to 210 on sidecar hydration.
+
+Targeted verification across all follow-ups: `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` → 6241 passed / 0 failed / 1 skipped (the pre-existing Unity-runtime `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` skip tracked as `#380`).
+
+---
+
+## ~~410. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary~~
+
+**Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — the inconsistency predates the refactor, but both helpers now share the same cycleDuration formula, so the divergence is easier to reason about.
+
+**Concern:** the two helpers in `Source/Parsek/GhostPlaybackLogic.cs` describe the same playback model but disagree on what happens when a cycle's elapsed phase equals its recording duration exactly:
+
+| Helper | Check | At `phase == duration` |
+|---|---|---|
+| `ComputeLoopPhaseFromUT` (~line 372) | `if (phaseInCycle < duration)` (strict) | falls through to pause branch → "in pause window" |
+| `TryComputeLoopPlaybackUT` (~line 167) | `if (phase > duration + epsilon) return false` | stays in playback branch → "not in pause" |
+
+An existing test `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` locks in the strict-less-than behavior of `ComputeLoopPhaseFromUT`.
+
+**Why it matters:** callers that query both helpers within the same frame (e.g. watch-mode that asks `ComputeLoopPhaseFromUT` for a display phase and `TryComputeLoopPlaybackUT` for a playback UT) can observe a "playing → paused → playing" flicker at the single physics frame where `currentUT - cycleStart` lands exactly on `duration`. In practice the window is narrow (floating-point UT arithmetic rarely produces exact equality for long), but when it does hit, the ghost visual blips.
+
+**Proposed fix:** pick a consistent rule. The epsilon-tolerant version in `TryComputeLoopPlaybackUT` is safer under floating-point UT math, so the cleaner direction is:
+
+1. Rewrite `ComputeLoopPhaseFromUT` to use `phaseInCycle < duration - epsilon` (or equivalently, the pause branch fires on `phaseInCycle >= duration - epsilon`).
+2. Add the same `const double epsilon = 1e-6` that `TryComputeLoopPlaybackUT` uses, or lift it to a shared `MinCycleEpsilon` on `GhostPlaybackLogic`.
+3. Rewrite `AtRecordingEnd_BoundaryEntersPause` to verify the epsilon-inclusive boundary — the test should still pass with `phaseInCycle = duration` mapping to pause under `phaseInCycle >= duration - epsilon`, so the rename is cosmetic; but add a new test `AtRecordingEnd_JustBeforeBoundary_StaysPlaying` with `phaseInCycle = duration - 2*epsilon` to lock in the tolerant-but-still-strict behavior.
+
+**Files to touch:**
+
+- `Source/Parsek/GhostPlaybackLogic.cs` (`ComputeLoopPhaseFromUT`, epsilon constant)
+- `Source/Parsek.Tests/LoopPhaseTests.cs` (`AtRecordingEnd_BoundaryEntersPause` + new test)
+
+**Status:** ~~Fixed~~. Size: XS.
+
+**Fix:** Added a shared `GhostPlaybackLogic.BoundaryEpsilon = 1e-6` constant. Rewrote `ComputeLoopPhaseFromUT`'s playback/pause gate as `phaseInCycle <= duration + BoundaryEpsilon` (matching the epsilon-tolerant form already used by `TryComputeLoopPlaybackUT`). At the exact boundary, both helpers now report "still playing the final frame, loopUT=endUT" — the ghost visual lands at `recordingEndUT` either way, but the `isInPause` flag agrees across helpers, eliminating the one-frame flicker. `TryComputeLoopPlaybackUT` now references `BoundaryEpsilon` instead of its own inline `const double epsilon = 1e-6`. Rewrote `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` → `_ExactBoundary_StaysInPlayback`, added `_JustPastBoundary_StaysInPlaybackWithinEpsilon` and `_BeyondEpsilon_EntersPause`, and added a new `BoundaryConsistency_WithTryComputeLoopPlaybackUT` cross-helper consistency assertion.
+
+---
+
+## ~~409. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision~~
+
+**Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — both sites predate the refactor — but `#381` makes the mismatch matter because both dispatches now depend on `IsOverlapLoop(interval, duration)`, so the `duration` value they compute is load-bearing.
+
+**Concern:** two sites in `Source/Parsek/WatchModeController.cs` ask the same question — "should I take the overlap / multi-cycle dispatch path?" — but compute `duration` differently:
+
+| Site | Duration expression | Respects loop subrange? |
+|---|---|---|
+| `TryStartWatchSession` (~line 1344) | `watchRecDuration = GhostPlaybackEngine.EffectiveLoopEndUT(rec) - GhostPlaybackEngine.EffectiveLoopStartUT(rec)` | yes |
+| `ResolveWatchPlaybackUT` (~line 2589) | `duration = rec.EndUT - rec.StartUT` | no |
+
+Under pre-`#381` semantics both sites dispatched on `intervalSeconds < 0`, so `duration` did not participate in the check — the mismatch was dormant. Under `#381`, both dispatch on `GhostPlaybackLogic.IsOverlapLoop(interval, duration)`, and the two sites can disagree.
+
+**Concrete reproducing case:** a 600s recording with a 60s loop subrange (`LoopStartUT`/`LoopEndUT` set to a 60-second window inside the recording) and `LoopIntervalSeconds = 80`:
+
+- `TryStartWatchSession`: `IsOverlapLoop(80, 60) → 80 < 60 → false` → single-ghost dispatch.
+- `ResolveWatchPlaybackUT`: `IsOverlapLoop(80, 600) → 80 < 600 → true` → multi-cycle overlap dispatch.
+
+Watch mode enters via one code path, UT resolution uses the other — positioning drifts from the animation state. Expected symptom: the ghost visual shows one cycle playing while the `loopPhaseOffsets` / `loopCycleIndex` book-keeping thinks multiple cycles are live, producing stale `cycleStartUT` computations after the first cycle boundary.
+
+**Proposed fix:**
+
+1. Centralize the "effective loop duration" computation in a helper on `GhostPlaybackLogic` or `GhostPlaybackEngine` — e.g. `internal static double EffectiveLoopDuration(IPlaybackTrajectory rec) => EffectiveLoopEndUT(rec) - EffectiveLoopStartUT(rec);`. Reuse it at every site that asks "how long is one cycle?"
+2. Switch `ResolveWatchPlaybackUT`'s `duration` local to use the new helper.
+3. Audit `GhostPlaybackEngine`, `ParsekKSC`, and `WatchModeController` for any other site that computes `rec.EndUT - rec.StartUT` near a loop-dispatch check — the same drift can hide elsewhere.
+4. Add an integration test: construct a mock trajectory with `LoopStartUT/LoopEndUT` narrower than `StartUT/EndUT`, call both `TryStartWatchSession`'s overlap check and `ResolveWatchPlaybackUT`'s overlap check with the same interval, assert they return the same decision.
+
+**Files to touch:**
+
+- `Source/Parsek/WatchModeController.cs` (`ResolveWatchPlaybackUT`, line ~2589)
+- `Source/Parsek/GhostPlaybackLogic.cs` or `GhostPlaybackEngine.cs` (new helper)
+- Possibly `Source/Parsek/ParsekKSC.cs` (audit for the same pattern)
+- `Source/Parsek.Tests/` (new integration test covering the dispatch-parity case)
+
+**Status:** ~~Fixed~~. Size: S.
+
+**Fix:** Added a shared `GhostPlaybackEngine.EffectiveLoopDuration(traj) = EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj)` helper. Added a pure-static `GhostPlaybackLogic.ComputeOverlapCycleLoopUT(currentUT, loopStartUT, duration, intervalSeconds, loopCycleIndex)` that encapsulates the overlap-cycle UT math with phase clamping, so the watch sites no longer duplicate it inline. Rewrote `WatchModeController.ResolveWatchPlaybackUT` to use `EffectiveLoopStartUT` + `EffectiveLoopDuration` as the cycle reference frame (was `rec.StartUT` + raw full-range duration) and to delegate the arithmetic to the new helper. Updated `WatchModeController.TryStartWatchSession` to call the shared `EffectiveLoopDuration` too, so both sites read the same formula. Added tests `EffectiveLoopDuration_NoSubrange_EqualsFullRange`, `_WithSubrange_EqualsSubrange`, `_SubrangeAndFullRange_OverlapDecisionDiffers` (the regression guard — asserts that a 50s subrange + 80s period would disagree between the raw-range and effective-range dispatch), and five `ComputeOverlapCycleLoopUT_*` tests covering cycle 0, higher cycles, phase clamping (both ends), and defensive negative-interval clamping.
+
+**Out of scope (follow-up):** tracked as `#411`. The playback engine's `UpdateLoopingPlayback` / `UpdateOverlapPlayback` and `ParsekKSC`'s main dispatcher still compute "duration" from raw/hybrid ranges instead of `EffectiveLoopDuration`. Predates `#381`, closes out the drift engine-wide, needs in-game validation on a save with a real loop subrange.
+
+---
+
+## ~~406. CRITICAL: map-view framerate collapses with many looping showcase ghosts because every loop-cycle rebuild runs the full reentry FX build pipeline even for stationary part showcases~~
+
+**Source:** `test career` playtest `2026-04-15` (logs `logs/2026-04-15_2034_showcase-loop-perf/`). Player opened flight map view with ~260 active showcase loops; FPS tanked. The `[Parsek][WARN][Diagnostics] Playback frame budget exceeded: 12.3ms (259 ghosts, warp: 1x) | suppressed=106` line proves the `GhostPlaybackEngine.UpdatePlayback` path alone was blowing the 8 ms budget on most frames, *before* any map OnGUI/icon render. 265 primary ghost audio sources paused on ESC (`PauseAllGhostAudio: paused 265 primary + 0 overlap`) confirms the active ghost count. `PauseAllGhostAudio`-scale log spam of `combined 7 meshes into emission shape (4346 verts) for ghost #N | suppressed=839` confirms the reentry FX mesh-combine was firing many hundreds of times per rate-limit window.
+
+**Root cause:** `GhostPlaybackEngine.TryPopulateGhostVisuals` (call site was `GhostPlaybackEngine.cs:1949`) called `GhostVisualBuilder.TryBuildReentryFx` unconditionally on every ghost build. Ghost builds happen on loop-cycle boundaries because the engine destroys + respawns the ghost (`DestroyGhost(reason: "loop cycle boundary")` followed by `SpawnGhost`, triggered by `HasLoopCycleChanged`). `TryBuildReentryFx` per call allocates:
+
+1. Combined emission `Mesh` (`CombineMeshes` on every MeshFilter in the ghost hierarchy),
+2. A `ParticleSystem` (`ReentryFire`) with runtime-generated soft-circle texture + additive material,
+3. Fire shell overlay `MaterialPropertyBlock` + material clone,
+4. Cloned glow materials for every renderer on the ghost via `CollectReentryGlowMaterials`.
+
+For stationary part showcases (lights, solar panels, antennae sitting on KSC ground), reentry is physically impossible — `ComputeReentryIntensity` requires Mach ≥ 2.5 and density ≥ 0.0015 kg/m³. The build work is pure waste, and it was being paid hundreds of times per second across the looping fleet.
+
+**Fix (PR #309):**
+
+1. New pure static helper `TrajectoryMath.HasReentryPotential(IPlaybackTrajectory)` — returns `true` iff the trajectory has any orbit segments OR any recorded trajectory point has velocity magnitude at or above `TrajectoryMath.ReentryPotentialSpeedFloor` (`400 m/s`). 400 m/s is well under Mach 1.5 on every stock body, so the gate cannot hide any real reentry heating. Orbit segments are always considered high-speed because de-orbit happens at ~2300 m/s.
+2. `GhostPlaybackEngine.TryPopulateGhostVisuals` now gates the `TryBuildReentryFx` call behind `HasReentryPotential`. When skipped, `state.reentryFxInfo` stays `null`; all downstream paths already null-guard (`UpdateReentryFx` early-returns at `GhostPlaybackEngine.cs:1395`, `RebuildReentryMeshes` early-returns at `GhostVisualBuilder.cs:6311`, `DestroyReentryFxResources` early-returns at `GhostPlaybackEngine.cs:2577`, `ParsekKSC.cs:519` already documents this pattern).
+3. Matching gate in the `ParsekFlight` preview path (`ParsekFlight.cs:7407`) so manual preview playback gets the same savings.
+4. New session counters `DiagnosticsState.health.reentryFxBuildsThisSession` / `reentryFxSkippedThisSession` make the gate visible in the live diagnostics stream, and a rate-limited `ReentryFx` `Verbose` log line announces each skip with the ghost index, vessel name, and reason.
+5. Unit tests `ReentryPotentialTests` (15 cases) cover: null trajectory, empty, stationary showcase, EVA walk, 200 m/s Flea hop, just-below-floor, at-floor, fast suborbital point, diagonal magnitude, orbit-segment-only recordings, speed floor constant, and the NaN / +Infinity / null-`Points` input edges added in the Opus review follow-up.
+
+**Expected impact:** for the 259-ghost showcase scenario in the smoking-gun logs, ~250 of those ghosts are stationary KSC showcases whose `reentryFxInfo` now stays `null` permanently. The mesh-combine + ParticleSystem + cloned-material allocation is skipped on every loop-cycle rebuild, eliminating the dominant cost in `UpdatePlayback` and taking the playback frame cost back below the 8 ms budget threshold. Only genuine flight recordings (Suborbital Arc, Orbit-1, Kerbin Ascent, etc.) still pay the build cost, and they pay it correctly.
+
+**Status:** fix landed on branch `investigate-showcase-loop-perf`. Follow-up candidates (not in this PR): reuse ghost GameObject across loop cycles instead of destroy/rebuild (would eliminate the remaining per-cycle material/audio clone cost); gate hidden-tier prewarm by reentry potential too.
+
+---
+
 ## ~~405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc~~
 
 **Source:** c1 career-mode playtest `2026-04-15` (logs `logs/2026-04-15_0005_c1-career-bugs/`). Player accepted 2 contracts at UT ≈ 412.9 (`Test RT-5 "Flea"` and `Test LV-T45 "Swivel"` at launch site), both captured by `GameStateRecorder.OnContractAccepted` and written to `events.pgse`, both unconditionally destroyed by the next `PatchContracts` pass. Ledger at end of session has **zero** `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, or `FundsSpending (PartPurchased)` actions.
@@ -874,7 +1052,9 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 - `Source/Parsek.Tests/SyntheticRecordingTests.cs` (add `vesselName = Learstar A1` assertion near line `5518`-`5535`)
 - `CHANGELOG.md` (Dev / internal section — not user-facing): "test career injector now includes a far-away / map-view smoke-test recording (Learstar A1 from S16 campaign)"
 
-**Status:** TODO. Size: S. Pure fixture plumbing, no runtime code changes. Main friction is the manual brace-matched copy of the RECORDING_TREE block and deciding whether to include all debris children or just the root.
+**Status:** DONE (PR #304). Size: S. Required a small runtime code change: `AddRealCareerRecordings` was extended to iterate `scenarioNode.GetNodes("RECORDING_TREE")` and forward trees via `ScenarioWriter.AddTree` (previously only standalone RECORDINGs were read, and standalone format is blocked by the T56 filter). All 5 Learstar recordings retained (root `1bbb50cf98654a23a60b3248848b0301` + 4 debris children) along with the `parsek_rw_0a74d6.sfs` rewind save placed under the new `DefaultCareer/Parsek/Saves/` subdirectory (the existing `CopyRealRecordingFiles` loop reads rewind saves from `sourceCareerDir/Parsek/Saves/`, not from the fixture root). `InjectAllRecordings` gained three assertions (`vesselName = Learstar A1`, `vesselName = Learstar A1 Debris`, `treeName = Learstar A1`). Fixture size: 1.1M → 1.7M (`du -sh`; +577098 bytes, dominated by the 385 KB rewind save and the 74 KB root `.prec`). Follow-up: nested the `Learstar A1 / Debris` group under the main `Learstar A1` group by adding a `GROUP_HIERARCHY` node to the fixture ParsekScenario and extending `ScenarioWriter` with `AddGroupHierarchyEntry(child, parent)` + emission in `BuildScenarioNode`; `AddRealCareerRecordings` now forwards every `GROUP_HIERARCHY/ENTRY` from the fixture so the UI shows debris as a collapsible sub-group of the main mission group instead of a flat sibling.
+
+**Reinjection gotcha:** running `dotnet test --filter InjectAllRecordings` from a sibling git worktree silently short-circuits (xUnit reports Passed in ~100 ms) because `ResolveKspRoot()` probes relative to `ProjectRoot` and does not find `Kerbal Space Program/` outside the worktree. The MSBuild `-p:KSPDir=...` property only wires up DLL references at build time. To actually reinject, set the `KSPDIR` environment variable for the test process: `KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program" dotnet test --filter InjectAllRecordings -p:KSPDir=...`.
 
 ---
 
@@ -928,7 +1108,7 @@ Start with option 1. Add the field to the engine FX info payload (`GhostTypes.cs
 
 ---
 
-## 382. Group "W" button should cycle to the next watchable vessel on each press
+## ~~382. Group "W" button should cycle to the next watchable vessel on each press~~
 
 **Source:** maintenance request `2026-04-14`. Today the group `W` button only ever resolves to one target (the group's "main" recording), so repeated presses toggle watch on/off for that single vessel. The user wants a **watch-next** semantics instead.
 
@@ -971,11 +1151,13 @@ Start with option 1. Dictionary keyed by group name → last-entered `RecordingI
 - Tests covering the new cursor advancement logic (empty eligible set, single-entry rotation, wrap, cursor-stale-recovery).
 - `CHANGELOG.md` under Unreleased: "Group `W` button now cycles to the next watchable vessel in the group on each press instead of always toggling the same target."
 
-**Status:** TODO. Size: S-M. No immediate blocker, but a high-visibility UX improvement for groups with multiple simultaneous ghosts.
+**Status:** ~~Fixed~~. High-visibility UX improvement for groups with multiple simultaneous ghosts.
+
+**Fix:** Added `GhostPlaybackLogic.AdvanceGroupWatchCursor` (new pure-static helper + `GroupWatchAdvanceResult` struct) that returns the next watchable descendant in stable `(StartUT, RecordingId)` order, skipping the currently-watched target so repeat presses advance the rotation. `UI/RecordingsTableUI.cs` group W button now stores a transient per-group cursor (`groupWatchCursorByGroupName`, keyed by group name, valued by the last-entered RecordingId) and wires it to the helper. Single-eligible-and-watched groups toggle off cleanly; stale cursors fall back to the first eligible entry; an eligibility-set fingerprint replaces the per-target value in the bug `#279` transition log so cursor advances no longer spam the log. `PruneStaleWatchEntries` gained a fifth `groupWatchCursorByGroupName` overload and now drops cursor entries whose stored RecordingId has left the committed list (or clears the whole dict when the committed list is empty). Covered by new `GroupWatchCursorTests` (16 cases) and an extended `PruneStaleWatchEntries_StaleGroupCursorEntries_Removed` test.
 
 ---
 
-## 381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period
+## ~~381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period~~
 
 **Source:** maintenance request `2026-04-14`. The current "Loop every" field accepts negative values, which is confusing and only makes sense under the current end-to-start model.
 
@@ -1005,7 +1187,20 @@ The issue: recording duration is variable (a KSC Hopper is 30s, a Mun landing is
 - Tests covering `ResolveLoopInterval` and loop UT computation
 - `CHANGELOG.md` (behavior change notice) and this entry on completion
 
-**Status:** TODO. Design change, not a bug. Requires one-pass coordinated edit across engine + UI + migration decision. Size: M.
+**Status:** ~~TODO~~ DONE (branch `fix/381-launch-to-launch`, 2026-04-15).
+
+**Fix:** Reinterpreted `LoopIntervalSeconds` as the launch-to-launch period.
+
+- Core math: `cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration)` everywhere. The `duration + intervalSeconds` formula is gone.
+- Overlap dispatch: new helper `GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration) => intervalSeconds < duration`. Replaces `intervalSeconds < 0` checks in `GhostPlaybackEngine.UpdateLoopingPlayback`, `ParsekKSC.UpdateKscGhosts`, and `WatchModeController.TryStartWatchSession` + `ResolveWatchPlaybackUT`.
+- Pause window: `intervalSeconds > duration && cycleTime > duration` (was `intervalSeconds >= 0` or `> 0`). When period equals duration, cycles are back-to-back with no pause. When period is shorter, overlap handles it.
+- `ResolveLoopInterval` defensively clamps all values below `MinCycleDuration` to `MinCycleDuration` and emits `ParsekLog.Warn("Loop", ...)`. The old `Math.Max(-duration + minCycleDuration, interval)` formula is gone — `duration` is no longer a parameter to clamp against.
+- Dead-code fallback `if (cycleDuration <= MinLoopDurationSeconds) cycleDuration = duration;` deleted from `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (~line 1282), `ParsekKSC.TryComputeLoopUT` (~line 708), and `WatchModeController.ResetLoopPhaseForWatch` (~line 1479). Under `Math.Max` it's unreachable.
+- UI: column header in `RecordingsTableUI.cs` renamed from "Every" to "Period" with a tooltip describing launch-to-launch semantics. Negative values rejected outright in `CommitLoopPeriodEdit`; positive-but-below-min clamped with an info log. Settings window label "Auto-loop every" → "Auto-launch every" with a new tooltip; `CommitAutoLoopEdit` also clamps to `MinCycleDuration`.
+- `ComputeLoopPhaseFromUT` doc comment notes the semantic shift: negative intervals no longer mean zero-pause / continuous playback; they clamp to `MinCycleDuration=1` (extreme overlap). Phase helper does not own the overlap dispatch — callers consult `IsOverlapLoop`.
+- Migration: no per-recording migration. Default `10.0` is unaffected. Pre-#381 saves with negative values are defensively clamped at playback time; load-time warn in both `RecordingTree.Load` (~line 696) and `ParsekScenario.LoadRecordingMetadata` (~line 2666) surfaces the issue so users can re-enter the intended period.
+- Docstrings added to `Recording.LoopIntervalSeconds` and `ParsekSettings.autoLoopIntervalSeconds`. `RecordingOptimizer.CanMerge` no longer hardcodes `10.0` — uses `GhostPlaybackLogic.DefaultLoopIntervalSeconds`.
+- Tests: `AutoLoopTests` rewrote `ResolveLoopInterval_ManualMode_NegativePreserved` → `_NegativeClampsToMin` with log assertion, added `_BelowMin_Clamps` / `_Zero_Clamps` / `_AutoMode_Independent_Of_Duration` / `_AutoMode_NegativeGlobal_ClampsToMin` / `_PeriodShorterThanDuration_Preserved`. `LoopPhaseTests` rewrote the whole `ComputeLoopPhaseFromUT_Tests` class under #381 semantics plus added `PeriodShorter` / `PeriodEqual` / `PeriodGreater` and `ZeroInterval_ClampsToMin` / `NegativeInterval_ClampsToMin`. `GhostPlaybackEngineTests` rewrote the `TryComputeLoopPlaybackUT_*` block to use period=110 > duration=100 for single-ghost/pause scenarios, added `_PeriodLongerThanDuration_HasPauseWindow`, `_PeriodEqualsDuration_NoPauseWindow`, `_PeriodShorterThanDuration_OverlapCycles`, `_NegativeInterval_DefensivelyClamped_NoThrow`; loop-range tests now use interval=50 with a 40s range. `KscGhostPlaybackTests` rewrote `TryComputeLoopUT_*` and `GetLoopIntervalSeconds_*` tests — zero/negative intervals now assert clamping to `MinCycleDuration`, added `TryComputeLoopUT_PeriodShorterThanDuration_Overlaps` and `_NegativeInterval_ClampsDefensively_NoThrow`. `RuntimePolicyTests` rewrote 7 `NegativeInterval_*` tests as `PeriodShorter_*` / `ShortPeriod_*` plus updated the `TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows` theory to use period=30 with duration=20. `BugFixTests.Bug84_LoopPhaseOverflowTests.ComputeLoopPhaseFromUT_LargeElapsed_NoOverflow` and `.TryComputeLoopPlaybackUT_LargeElapsed_NoOverflow` rewritten to use period=1s with 3e9/5e9 elapsed seconds (matching the new `MinCycleDuration` floor). `AnchorLifecycleTests.AnchorLoaded_PhaseComputed_AtMidCycle` and `.AnchorReloaded_PhaseRecomputed_NotFromStart` updated to use period=110. Total: 6208 passing (1 pre-existing Unity-runtime skip: `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`).
 
 ---
 
@@ -1349,7 +1544,7 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 
 ---
 
-## 362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch
+## ~~362. Terminal crash-end decouple fragments can still collapse to `WithinSegment` and skip a final debris branch~~
 
 **Observed in:** `logs/2026-04-14_1954_kerbal-x-f5f9-fix-verify` (2026-04-14) while re-validating the `Kerbal X` mid-flight `F5/F9` fix. Near the very end of the resumed run, the active vessel was already being destroyed but `onPartDeCouple` still reported two late fragments (`parachuteLarge`, `HeatShield2`). The deferred split pass then classified that event as `WithinSegment newVessels=0` instead of creating one more debris branch.
 
@@ -1368,7 +1563,9 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 
 **Desired policy:** decide explicitly whether terminal crash-end transient fragments should ever become recorded debris branches. If yes, the deferred split path likely needs a terminal-safe capture rule for those last fragments. If no, this should stay documented as intentional and non-blocking.
 
-**Status:** TODO for future check; not blocking the `Kerbal X` `F5/F9` fix in PR `#290`
+**Fix:** `DeferredJointBreakCheck` no longer iterates `decoupleCreatedVessels` (a `List<Vessel>`) when collecting new-vessel PIDs from the synchronous `onPartDeCoupleNewVesselComplete` capture. At terminal crash time, KSP has already destroyed the fragment `GameObject`s, so Unity's overloaded `UnityEngine.Object ==` makes `v == null` true for every fragment and the filter drops them all, leaving `newVesselPids.Count == 0` and collapsing the classification to `WithinSegment`. The deferred check now iterates the PID-keyed `decoupleControllerStatus` dictionary (which is populated in the same synchronous callback and survives terminal destruction because its keys are plain managed `uint`s), routing the fragments through `SegmentBoundaryLogic.ClassifyJointBreakResult` as a real `DebrisSplit`. The rest of the pipeline is already null-safe for destroyed debris: `FindVesselByPid` returns null, `preSnapshot` stays null, `preTrajectoryPoint` falls back to the synchronously-captured `decoupleCreatedTrajectoryPoints[pid]`, and `CreateBreakupChildRecording`'s destroyed-vessel branch produces a `TerminalState.Destroyed` debris leaf stamped at the split UT. Extracted the PID-collection filter to `SegmentBoundaryLogic.CollectSynchronouslyCapturedNewVesselPids` with unit coverage in `Bug362TerminalCrashDebrisTests`. Also added a per-fragment Verbose log so future terminal-crash repros show the PID-only classification breadcrumb in KSP.log.
+
+**Status:** ~~Fixed~~
 
 ---
 

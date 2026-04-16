@@ -49,6 +49,11 @@ namespace Parsek
             toolTip = "Speed change (percent) that triggers a new sample")]
         public float speedChangeThreshold = 5.0f;
 
+        /// <summary>
+        /// Default launch-to-launch period in seconds (#381) for recordings with
+        /// LoopTimeUnit.Auto. Must be &gt;= GhostPlaybackLogic.MinCycleDuration. Overlap
+        /// emerges when the period is shorter than the recording's duration.
+        /// </summary>
         public float autoLoopIntervalSeconds = 10.0f;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 

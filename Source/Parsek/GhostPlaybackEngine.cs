@@ -715,7 +715,7 @@ namespace Parsek
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
             double loopStartUT = EffectiveLoopStartUT(traj);
-            double duration = traj.EndUT - loopStartUT;
+            double duration = EffectiveLoopDuration(traj);
 
             // High time warp: hide ghost, destroy overlaps
             if (suppressGhosts)
@@ -736,15 +736,16 @@ namespace Parsek
                 return;
             }
 
-            // For negative intervals: use multi-cycle overlap path
-            if (intervalSeconds < 0)
+            // #381: If the period is shorter than the recording duration, successive
+            // launches overlap — use multi-cycle path.
+            if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
             {
                 UpdateOverlapPlayback(index, traj, flags, ctx, state,
                     intervalSeconds, duration, suppressVisualFx);
                 return;
             }
 
-            // --- Positive/zero interval: single ghost path (no overlap) ---
+            // --- Period >= duration: single ghost path (pause window may apply) ---
             DestroyAllOverlapGhosts(index);
             double loopUT;
             long cycleIndex;
@@ -761,15 +762,17 @@ namespace Parsek
             bool cycleChanged = HasLoopCycleChanged(state, cycleIndex);
             if (cycleChanged && state != null)
             {
-                // Position at final point so explosion appears at crash site
+                // Position at the loop endpoint so explosion appears at the real loop end.
                 if (state.ghost != null)
-                    PositionGhostAtRecordingEndpoint(index, traj, state);
+                    PositionGhostAtLoopEndpoint(index, traj, state);
 
                 bool needsExplosion = state != null
-                    && traj.TerminalStateValue == TerminalState.Destroyed
-                    && !state.explosionFired;
+                    && !state.explosionFired
+                    && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                        traj, ResolveLoopPlaybackEndpointUT(traj));
 
-                TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+                if (needsExplosion)
+                    TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
 
                 // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
@@ -892,6 +895,7 @@ namespace Parsek
             double intervalSeconds, double duration, bool suppressVisualFx)
         {
             double loopStartUT = EffectiveLoopStartUT(traj);
+            double loopEndUT = EffectiveLoopEndUT(traj);
             if (ctx.currentUT < loopStartUT)
             {
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
@@ -899,12 +903,11 @@ namespace Parsek
                 return;
             }
 
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration)
-                cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+            // #381: cycleDuration = launch-to-launch period (clamped).
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, traj.EndUT, intervalSeconds,
+            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, loopEndUT, intervalSeconds,
                 MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             List<GhostPlaybackState> overlaps;
@@ -1037,14 +1040,22 @@ namespace Parsek
                 if (phase > duration)
                 {
                     if (ovState.ghost != null)
-                        PositionGhostAtRecordingEndpoint(index, traj, ovState);
-                    TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
+                        PositionGhostAtLoopEndpoint(index, traj, ovState);
+                    bool triggerExplosionAtExpiry = !ovState.explosionFired
+                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                            traj, ResolveLoopPlaybackEndpointUT(traj));
+                    if (triggerExplosionAtExpiry)
+                    {
+                        TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
+                    }
 
                     // Fire camera event for overlap expiry
                     OnOverlapCameraAction?.Invoke(new CameraActionEvent
                     {
                         Index = index,
-                        Action = CameraActionType.ExplosionHoldStart,
+                        Action = triggerExplosionAtExpiry
+                            ? CameraActionType.ExplosionHoldStart
+                            : CameraActionType.ExplosionHoldEnd,
                         NewCycleIndex = cycle,
                         AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
                         HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
@@ -1056,7 +1067,7 @@ namespace Parsek
                     {
                         Index = index, Trajectory = traj, State = ovState, Flags = flags,
                         CycleIndex = cycle,
-                        ExplosionFired = traj.TerminalStateValue == TerminalState.Destroyed,
+                        ExplosionFired = triggerExplosionAtExpiry,
                         ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
                     });
 
@@ -1104,14 +1115,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles the loop pause window: positions ghost at the final trajectory point,
+        /// Handles the loop pause window: positions ghost at the final loop point,
         /// hides all parts (crash-site hold), zeroes velocity for reentry FX decay,
         /// and triggers explosion if the recording ended in destruction.
         /// </summary>
         private void HandleLoopPauseWindow(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, float warpRate)
         {
-            PositionGhostAtRecordingEndpoint(index, traj, state);
+            PositionGhostAtLoopEndpoint(index, traj, state);
             // PositionAtPoint now sets state.lastInterpolatedAltitude to the
             // clamped altitude (#282). Don't overwrite it here with the raw
             // recording-end altitude on the first pause-window frame, or the
@@ -1123,7 +1134,11 @@ namespace Parsek
                     ? traj.Points[traj.Points.Count - 1].bodyName
                     : null;
             }
-            TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            if (GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                    traj, ResolveLoopPlaybackEndpointUT(traj)))
+            {
+                TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            }
             if (!state.pauseHidden)
             {
                 state.pauseHidden = true;
@@ -1135,14 +1150,17 @@ namespace Parsek
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
             ActivateGhostVisualsIfNeeded(state);
-            double appearanceUT = RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT)
-                ? orbitEndpointUT
-                : (traj?.Points != null && traj.Points.Count > 0
-                    ? traj.Points[traj.Points.Count - 1].ut
-                    : (traj != null && traj.OrbitSegments != null && traj.OrbitSegments.Count > 0
-                        ? traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT
-                        : 0.0));
+            double appearanceUT = ResolveLoopPlaybackEndpointUT(traj);
             TrackGhostAppearance(index, traj, state, appearanceUT, "loop-pause");
+        }
+
+        private void PositionGhostAtLoopEndpoint(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state)
+        {
+            if (state?.ghost == null || traj == null || positioner == null)
+                return;
+
+            positioner.PositionLoop(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), true);
         }
 
         private void PositionGhostAtRecordingEndpoint(
@@ -1229,6 +1247,57 @@ namespace Parsek
             return traj.EndUT;
         }
 
+        /// <summary>
+        /// Returns the effective loop duration (EffectiveLoopEndUT - EffectiveLoopStartUT).
+        /// All loop-dispatch decisions that care about "one cycle length" — IsOverlapLoop,
+        /// overlap phase clamping, watch-mode single-vs-overlap choice — should use this
+        /// instead of `traj.EndUT - traj.StartUT` or the half-hybrid `traj.EndUT - effStart`,
+        /// so recordings with a custom loop subrange get consistent duration everywhere.
+        /// #409: was duplicated inline at the watch-mode sites with inconsistent formulas.
+        /// </summary>
+        internal static double EffectiveLoopDuration(IPlaybackTrajectory traj)
+        {
+            return EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj);
+        }
+
+        /// <summary>
+        /// Converts a pre-#381 legacy "gap after cycle" value into the current launch-to-launch
+        /// period. If the reconstructed period underflows or the trajectory bounds are not
+        /// available, clamps defensively to MinCycleDuration.
+        /// </summary>
+        internal static bool TryConvertLegacyGapToLoopPeriodSeconds(
+            IPlaybackTrajectory traj,
+            double legacyGapSeconds,
+            out double migratedPeriod,
+            out double effectiveLoopDuration)
+        {
+            effectiveLoopDuration = EffectiveLoopDuration(traj);
+            migratedPeriod = legacyGapSeconds;
+            if (double.IsNaN(effectiveLoopDuration) || double.IsInfinity(effectiveLoopDuration)
+                || effectiveLoopDuration <= 0.0)
+                return false;
+            // #411 follow-up: reject NaN/Inf gap defensively so the caller doesn't store a
+            // poisoned period on the recording. All real load paths parse via double.TryParse
+            // and never hand NaN in, but hand-edited saves can.
+            if (double.IsNaN(legacyGapSeconds) || double.IsInfinity(legacyGapSeconds))
+                return false;
+
+            migratedPeriod = effectiveLoopDuration + legacyGapSeconds;
+            if (double.IsNaN(migratedPeriod) || double.IsInfinity(migratedPeriod)
+                || migratedPeriod < GhostPlaybackLogic.MinCycleDuration)
+                migratedPeriod = GhostPlaybackLogic.MinCycleDuration;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the UT where loop playback should hold/teardown. For custom loop ranges this
+        /// is the effective loop end, not the recording's raw final timestamp.
+        /// </summary>
+        internal static double ResolveLoopPlaybackEndpointUT(IPlaybackTrajectory traj)
+        {
+            return EffectiveLoopEndUT(traj);
+        }
+
         /// <summary>Whether the trajectory should loop (has enough points and duration).</summary>
         internal static bool ShouldLoopPlayback(IPlaybackTrajectory traj)
         {
@@ -1278,9 +1347,9 @@ namespace Parsek
             if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                cycleDuration = duration;
+            // #381: cycleDuration = launch-to-launch period (clamped). The dead-code fallback
+            // to `duration` on underflow was removed — Math.Max with MinCycleDuration covers it.
+            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
 
             double elapsed = currentUT - loopStart;
 
@@ -1296,7 +1365,8 @@ namespace Parsek
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            if (intervalSeconds > 0 && cycleTime > duration)
+            // Pause window only exists when period strictly exceeds duration (there's a gap).
+            if (intervalSeconds > duration && cycleTime > duration + GhostPlaybackLogic.BoundaryEpsilon)
             {
                 inPauseWindow = true;
                 loopUT = loopEnd;
@@ -1946,8 +2016,26 @@ namespace Parsek
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
 
-            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                ghost, state.heatInfos, index, traj.VesselName);
+            // Gate reentry FX build: stationary part-showcase ghosts, EVA walks, and slow
+            // suborbital hops below Mach 1.5 can never produce reentry visuals, so we skip
+            // the mesh-combine + ParticleSystem + glow-material clone work entirely. With
+            // hundreds of ghosts looping, rebuilding reentry FX on every loop-cycle
+            // boundary was the dominant cost in the map-view perf tank (#406).
+            if (TrajectoryMath.HasReentryPotential(traj))
+            {
+                state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                    ghost, state.heatInfos, index, traj.VesselName);
+                DiagnosticsState.health.reentryFxBuildsThisSession++;
+            }
+            else
+            {
+                state.reentryFxInfo = null;
+                DiagnosticsState.health.reentryFxSkippedThisSession++;
+                ParsekLog.VerboseRateLimited("ReentryFx", $"skip-{index}",
+                    $"Skipped reentry FX build for ghost #{index} \"{traj.VesselName}\" " +
+                    $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s " +
+                    $"and no orbit segments (cannot produce reentry visuals)", 5.0);
+            }
             state.reentryMpb = new MaterialPropertyBlock();
 
             // Keep fresh builds hidden until the playback loop has positioned them at the

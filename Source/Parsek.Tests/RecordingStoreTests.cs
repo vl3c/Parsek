@@ -298,18 +298,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingMetadata_Load_MissingFields_KeepsDefaults()
+        public void RecordingMetadata_Load_MissingFields_UsesLegacyFormatVersionAndKeepsOtherDefaults()
         {
             var node = new ConfigNode("RECORDING");
             var loaded = new Recording();
 
             string defaultId = loaded.RecordingId;
-            int defaultRecVer = loaded.RecordingFormatVersion;
 
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal(defaultId, loaded.RecordingId);
-            Assert.Equal(defaultRecVer, loaded.RecordingFormatVersion);
+            Assert.Equal(0, loaded.RecordingFormatVersion);
             Assert.False(loaded.LoopPlayback);
             Assert.Equal(10.0, loaded.LoopIntervalSeconds);
         }

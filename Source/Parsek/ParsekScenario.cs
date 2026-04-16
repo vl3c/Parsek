@@ -2674,6 +2674,12 @@ namespace Parsek
                 int formatVersion;
                 if (int.TryParse(formatVersionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out formatVersion))
                     rec.RecordingFormatVersion = formatVersion;
+                else
+                    rec.RecordingFormatVersion = 0;
+            }
+            else
+            {
+                rec.RecordingFormatVersion = 0;
             }
 
             string loopPlaybackStr = recNode.GetValue("loopPlayback");
@@ -2682,22 +2688,6 @@ namespace Parsek
                 bool loopPlayback;
                 if (bool.TryParse(loopPlaybackStr, out loopPlayback))
                     rec.LoopPlayback = loopPlayback;
-            }
-
-            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
-            if (loopIntervalStr != null)
-            {
-                double loopIntervalSeconds;
-                if (double.TryParse(loopIntervalStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopIntervalSeconds))
-                    rec.LoopIntervalSeconds = loopIntervalSeconds;
-            }
-
-            string loopTimeUnitStr = recNode.GetValue("loopTimeUnit");
-            if (loopTimeUnitStr != null)
-            {
-                LoopTimeUnit loopTimeUnit;
-                if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
-                    rec.LoopTimeUnit = loopTimeUnit;
             }
 
             string loopStartUTStr = recNode.GetValue("loopStartUT");
@@ -2714,6 +2704,56 @@ namespace Parsek
                 double loopEndUT;
                 if (double.TryParse(loopEndUTStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopEndUT))
                     rec.LoopEndUT = loopEndUT;
+            }
+
+            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
+            if (loopIntervalStr != null)
+            {
+                double loopIntervalSeconds;
+                if (double.TryParse(loopIntervalStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopIntervalSeconds))
+                {
+                    if (rec.RecordingFormatVersion < RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
+                    {
+                        double effectiveLoopDuration;
+                        double migratedLoopIntervalSeconds =
+                            loopIntervalSeconds;
+                        if (GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
+                                rec, loopIntervalSeconds,
+                                out migratedLoopIntervalSeconds, out effectiveLoopDuration))
+                        {
+                            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
+                            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+                            RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
+                            ParsekLog.Warn("Loop",
+                                $"ParsekScenario: migrated recording '{rec.VesselName}' from legacy " +
+                                $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                                $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
+                                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
+                        }
+                        else
+                        {
+                            rec.LoopIntervalSeconds = loopIntervalSeconds;
+                            ParsekLog.Warn("Loop",
+                                $"ParsekScenario: loaded recording '{rec.VesselName}' with legacy " +
+                                $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"for recordingFormatVersion={rec.RecordingFormatVersion}, but deferred migration " +
+                                "because loop bounds are not hydrated yet.");
+                        }
+                    }
+                    else
+                    {
+                        rec.LoopIntervalSeconds = loopIntervalSeconds;
+                    }
+                }
+            }
+
+            string loopTimeUnitStr = recNode.GetValue("loopTimeUnit");
+            if (loopTimeUnitStr != null)
+            {
+                LoopTimeUnit loopTimeUnit;
+                if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
+                    rec.LoopTimeUnit = loopTimeUnit;
             }
 
             string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");

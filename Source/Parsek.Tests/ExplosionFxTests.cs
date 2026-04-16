@@ -231,6 +231,49 @@ namespace Parsek.Tests
             Assert.Equal(12.0, explosionUT, 3);
         }
 
+        [Fact]
+        public void ShouldTriggerExplosionAtPlaybackUT_LoopEndpointBeforeDestroyedEnd_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 300.0,
+                LoopStartUT = 100.0,
+                LoopEndUT = 200.0
+            };
+
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec));
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldTriggerExplosionAtPlaybackUT_LoopEndpointAfterEarlyDestroyedDebrisEvent_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 300.0,
+                LoopStartUT = 100.0,
+                LoopEndUT = 200.0
+            };
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 180.0,
+                eventType = PartEventType.Destroyed,
+                partName = "tank"
+            });
+
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec));
+
+            Assert.True(result);
+        }
+
         // --- Guard evaluation order: already-fired checked before terminal state ---
 
         [Fact]

@@ -65,6 +65,76 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveOverlapBridgeRetargetState_PendingWithoutPrimary_KeepsBridge()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: true,
+                primaryReady: false,
+                bridgeWaitFrames: 1,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+
+            Assert.Equal(OverlapBridgeRetargetState.KeepBridge, state);
+        }
+
+        [Fact]
+        public void ResolveOverlapBridgeRetargetState_PendingWithPrimary_RetargetsToPrimary()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: true,
+                primaryReady: true,
+                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+
+            Assert.Equal(OverlapBridgeRetargetState.RetargetToPrimary, state);
+        }
+
+        [Fact]
+        public void ResolveOverlapBridgeRetargetState_NoPendingBridge_DoesNothing()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: false,
+                primaryReady: true,
+                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+
+            Assert.Equal(OverlapBridgeRetargetState.None, state);
+        }
+
+        [Fact]
+        public void ResolveOverlapBridgeRetargetState_PendingWithoutPrimaryPastBudget_ExitsWatch()
+        {
+            OverlapBridgeRetargetState state = WatchModeController.ResolveOverlapBridgeRetargetState(
+                hasPendingBridge: true,
+                primaryReady: false,
+                bridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames,
+                maxBridgeWaitFrames: WatchModeController.MaxPendingOverlapBridgeFrames);
+
+            Assert.Equal(OverlapBridgeRetargetState.ExitWatch, state);
+        }
+
+        [Fact]
+        public void AdvanceOverlapBridgeWaitFrames_SameFrame_DoesNotIncrementTwice()
+        {
+            int waitFrames = WatchModeController.AdvanceOverlapBridgeWaitFrames(
+                currentWaitFrames: 1,
+                currentFrame: 42,
+                lastRetryFrame: 42);
+
+            Assert.Equal(1, waitFrames);
+        }
+
+        [Fact]
+        public void AdvanceOverlapBridgeWaitFrames_NewFrame_IncrementsBudget()
+        {
+            int waitFrames = WatchModeController.AdvanceOverlapBridgeWaitFrames(
+                currentWaitFrames: 1,
+                currentFrame: 43,
+                lastRetryFrame: 42);
+
+            Assert.Equal(2, waitFrames);
+        }
+
+        [Fact]
         public void ProcessWatchEndHoldTimer_DebrisOnlyChild_DoesNotAutoFollowDuringHold()
         {
             RecordingStore.ResetForTesting();
