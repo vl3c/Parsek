@@ -1632,5 +1632,641 @@ namespace Parsek.Tests
                 "StagedSidecarChange",
                 BindingFlags.NonPublic);
         }
+
+        // -----------------------------------------------------------------------
+        // TrajectorySidecarBinary reader bounds (6 tests)
+        // -----------------------------------------------------------------------
+
+        [Fact]
+        public void TrajectorySidecarBinary_TryProbe_FileShorterThanMagic_ReturnsFalse()
+        {
+            string path = Path.Combine(tempDir, "too-short.prec");
+            File.WriteAllBytes(path, new byte[] { 0x50, 0x52 }); // 2 bytes, less than 4-byte magic "PRKB"
+
+            // Call TrajectorySidecarBinary.TryProbe directly; the file length (2) is less than
+            // Magic.Length + 2*sizeof(int) = 12, so TryProbe returns false with "binary header truncated".
+            TrajectorySidecarProbe probe;
+            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
+            Assert.False(result);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_TryProbe_PartialMagic_ReturnsFalse()
+        {
+            string path = Path.Combine(tempDir, "partial-magic.prec");
+            // "PR" only -- first two bytes of "PRKB" but file length (2) < 12 minimum
+            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'R' });
+
+            TrajectorySidecarProbe probe;
+            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
+            Assert.False(result);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_TryProbe_MagicButHeaderBodyTruncated_ReturnsFalse()
+        {
+            // Write "PRKB" + 4 zero bytes = 8 bytes total.
+            // TryProbe requires Magic.Length + 2*sizeof(int) = 4+4+4 = 12 bytes minimum.
+            string path = Path.Combine(tempDir, "truncated-header.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(new byte[] { 0, 0, 0, 0 }); // 4 zero bytes -- only 8 total
+            }
+
+            TrajectorySidecarProbe probe;
+            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
+            Assert.False(result);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_Read_PointListCountExceedsRemainingBytes_ThrowsEndOfStream()
+        {
+            // Craft a file with valid header but point-count=999 with only 20 bytes of data.
+            // Probe succeeds (header is valid); Read throws EndOfStreamException.
+            string path = Path.Combine(tempDir, "truncated-points.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
+            {
+                // Magic
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                // formatVersion = 3 (SparsePointBinaryVersion, supported)
+                writer.Write(3);
+                // sidecarEpoch
+                writer.Write(1);
+                // recordingId (BinaryWriter.Write(string) writes length-prefixed UTF8)
+                writer.Write("truncated-points-test");
+                // flags byte: sectionAuthoritative=0
+                writer.Write((byte)0);
+                // string table count = 1 entry ("Kerbin")
+                writer.Write(1);
+                writer.Write("Kerbin");
+                // point list count = 999, but no actual point data follows
+                writer.Write(999);
+                // 20 zero bytes of payload (not enough for 999 points)
+                writer.Write(new byte[20]);
+            }
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.True(probe.Success);
+
+            var rec = new Recording { RecordingId = "truncated-points-test" };
+            // Pin current behavior: the reader throws EndOfStreamException on truncation.
+            // A graceful fallback would be a production-code fix tracked separately.
+            Assert.Throws<EndOfStreamException>(() =>
+                RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_Read_SparsePointListFlagPresent_TruncatedMidPoint_ThrowsEndOfStream()
+        {
+            // Craft a file with sparse-list header (listFlags = SparsePointListFlagEnabled = 0x01)
+            // and point-count=50 but only minimal bytes of payload. Read throws EndOfStreamException.
+            string path = Path.Combine(tempDir, "truncated-sparse.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(3); // formatVersion = 3
+                writer.Write(1); // sidecarEpoch
+                writer.Write("truncated-sparse-test");
+                writer.Write((byte)0); // flags
+                writer.Write(1);       // string table count
+                writer.Write("Kerbin");
+                // point list count = 50
+                writer.Write(50);
+                // listFlags = SparsePointListFlagEnabled (0x01) | SparsePointListFlagBodyDefault (0x02)
+                writer.Write((byte)0x03);
+                // defaultBodyName index into string table (index 0 = "Kerbin")
+                writer.Write(0);
+                // 10 bytes of point data then EOF -- far too short
+                writer.Write(new byte[10]);
+            }
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.True(probe.Success);
+
+            var rec = new Recording { RecordingId = "truncated-sparse-test" };
+            Assert.Throws<EndOfStreamException>(() =>
+                RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_Read_ValidHeaderWithZeroPoints_ReturnsEmptyRecording()
+        {
+            // Write a recording with RecordingFormatVersion=3 and empty trajectory lists.
+            // Probe should succeed; deserialized recording should have all empty lists.
+            var original = new Recording
+            {
+                RecordingId = "zero-points-v3",
+                RecordingFormatVersion = 3
+            };
+
+            string path = Path.Combine(tempDir, "zero-points-v3.prec");
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(probe.Success);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+
+            var restored = new Recording { RecordingId = "zero-points-v3" };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Empty(restored.Points);
+            Assert.Empty(restored.OrbitSegments);
+            Assert.Empty(restored.TrackSections);
+        }
+
+        // -----------------------------------------------------------------------
+        // Sparse v3 flag combinations (1 theory + 2 facts)
+        // -----------------------------------------------------------------------
+
+        public static IEnumerable<object[]> SparseFlagCombinationCases()
+        {
+            for (int mask = 0; mask < 16; mask++)
+            {
+                bool shareBody = (mask & 1) != 0;
+                bool shareFunds = (mask & 2) != 0;
+                bool shareScience = (mask & 4) != 0;
+                bool shareRep = (mask & 8) != 0;
+                yield return new object[] { shareBody, shareFunds, shareScience, shareRep };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(SparseFlagCombinationCases))]
+        public void SparseBinaryTrajectorySidecar_AllPresentAbsentCombinations_RoundTripLossless(
+            bool shareBody, bool shareFunds, bool shareScience, bool shareRep)
+        {
+            var original = BuildSparseFixture(shareBody, shareFunds, shareScience, shareRep, pointCount: 8);
+            string name = $"sparse-flags-{(shareBody ? "B" : "b")}{(shareFunds ? "F" : "f")}{(shareScience ? "S" : "s")}{(shareRep ? "R" : "r")}";
+            string path = Path.Combine(tempDir, name + ".prec");
+
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+        }
+
+        [Fact]
+        public void SparseBinaryTrajectorySidecar_BodyDefaultWithFundsOverride_MixedCase_RoundTripLossless()
+        {
+            // All 8 points share bodyName="Kerbin" (body default fires) but have per-point funds.
+            var original = new Recording
+            {
+                RecordingId = "sparse-body-funds-mixed",
+                RecordingFormatVersion = 3
+            };
+            for (int i = 0; i < 8; i++)
+            {
+                original.Points.Add(new TrajectoryPoint
+                {
+                    ut = 1000.0 + i * 10,
+                    latitude = -0.1 + i * 0.01,
+                    longitude = -74.5 + i * 0.01,
+                    altitude = 100 + i * 50,
+                    rotation = new Quaternion(0, 0, 0, 1),
+                    velocity = new Vector3(0, 10 + i, 0),
+                    bodyName = "Kerbin",
+                    funds = 1000.0 + i * 50,
+                    science = 0f,
+                    reputation = 0f
+                });
+            }
+
+            string path = Path.Combine(tempDir, "sparse-body-funds-mixed.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+
+            // Body default should have fired: sparsePointLists=1 in the write log.
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sparsePointLists=1"));
+        }
+
+        [Fact]
+        public void SparseBinaryTrajectorySidecar_NoFieldsShareDefaults_UsesDenseListFlag_RoundTripLossless()
+        {
+            // Each point has a unique body name (frequency 1 each) so the body savings gate cannot fire.
+            // All other fields also vary per-point. The sparse plan therefore stays disabled and the writer
+            // uses the dense (non-sparse) list flag. Round-trip correctness is the primary assertion.
+            string[] bodies =
+            {
+                "Body0", "Body1", "Body2", "Body3", "Body4", "Body5", "Body6", "Body7"
+            };
+            var original = new Recording
+            {
+                RecordingId = "sparse-all-vary",
+                RecordingFormatVersion = 3
+            };
+            for (int i = 0; i < 8; i++)
+            {
+                original.Points.Add(new TrajectoryPoint
+                {
+                    ut = 2000.0 + i * 10,
+                    latitude = -0.1 + i * 0.01,
+                    longitude = -74.0 + i * 0.1,
+                    altitude = 200 + i * 100,
+                    rotation = new Quaternion(0, 0, 0, 1),
+                    velocity = new Vector3(0, 20 + i, 0),
+                    bodyName = bodies[i],
+                    funds = 1000.0 + i * 137.3,
+                    science = i * 0.5f,
+                    reputation = i * 0.3f
+                });
+            }
+
+            string path = Path.Combine(tempDir, "sparse-all-vary.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+
+            // Dense branch: no sparsePointLists=1 in write log.
+            // With 8 unique body names the body savings = (4*1)-4 = 0; all other fields also unique.
+            // Total savings = 0, which does not exceed the gate (points.Count + 1 = 9), so sparse stays off.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sparsePointLists=1"));
+        }
+
+        private static Recording BuildSparseFixture(
+            bool shareBody, bool shareFunds, bool shareScience, bool shareRep, int pointCount = 8)
+        {
+            var rec = new Recording
+            {
+                RecordingId = $"sparse-fixture-{Guid.NewGuid():N}",
+                RecordingFormatVersion = 3
+            };
+
+            // When shareBody=false, use pointCount unique body names so FindMostCommonString
+            // returns a mode of 1, making body savings = (4*1)-4 = 0 and leaving the sparse
+            // body-default flag disabled. The previous Kerbin/Mun alternation produced 4
+            // matches out of 8, which silently enabled SparsePointListFlagBodyDefault even
+            // for supposed-absent cases and collapsed the 16-combination matrix.
+            for (int i = 0; i < pointCount; i++)
+            {
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = 3000.0 + i * 10,
+                    latitude = -0.1 + i * 0.01,
+                    longitude = -74.0 + i * 0.02,
+                    altitude = 500 + i * 50,
+                    rotation = new Quaternion(0, 0, 0, 1),
+                    velocity = new Vector3(0, 50 + i, 0),
+                    bodyName = shareBody ? "Kerbin" : $"Body{i}",
+                    funds = shareFunds ? 10000.0 : 1000.0 + i * 100,
+                    science = shareScience ? 5.0f : i * 0.7f,
+                    reputation = shareRep ? 3.0f : i * 0.4f
+                });
+            }
+
+            return rec;
+        }
+
+        // -----------------------------------------------------------------------
+        // Codec round-trip matrix (1 theory)
+        // -----------------------------------------------------------------------
+
+        [Theory]
+        [InlineData("v0Flat")]
+        [InlineData("v1FlatSectionsDuplicated")]
+        [InlineData("v1SectionAuthoritative")]
+        [InlineData("v2Binary")]
+        [InlineData("v3Sparse")]
+        [InlineData("aliasSnapshot")]
+        public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
+        {
+            // The section-authoritative case needs a fixture whose flat payload exactly matches
+            // both the rebuilt points AND the rebuilt orbit segments. BuildBoundaryCodecFixture
+            // has 2 flat OrbitSegments but only Absolute track sections (which contribute nothing
+            // to RebuildOrbitSegmentsFromTrackSections), so its OrbitSegment exact-match fails
+            // and the writer falls through to flat-fallback — good for the duplicated case,
+            // wrong for the section-authoritative case.
+            Recording fixture = caseName == "v1SectionAuthoritative"
+                ? BuildSectionAuthoritativeCodecFixture()
+                : BuildBoundaryCodecFixture();
+
+            TrajectorySidecarEncoding expectedEncoding;
+            bool expectSectionAuthoritative;
+            Recording writeRec;
+
+            switch (caseName)
+            {
+                case "v0Flat":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 0;
+                    writeRec.TrackSections.Clear();
+                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    expectSectionAuthoritative = false;
+                    break;
+
+                case "v1FlatSectionsDuplicated":
+                    // Flat OrbitSegments do not match sections (Absolute-only sections rebuild
+                    // to empty), so ShouldWriteSectionAuthoritativeTrajectory returns false and
+                    // the writer serializes POINT + ORBIT_SEGMENT + TRACK_SECTION nodes.
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 1;
+                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    expectSectionAuthoritative = false;
+                    break;
+
+                case "v1SectionAuthoritative":
+                    // Fixture adds an OrbitalCheckpoint section whose checkpoints exactly match
+                    // the flat OrbitSegments, so FlatTrajectoryExactlyMatchesTrackSectionPayload
+                    // returns true and the writer emits only TRACK_SECTION nodes.
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 1;
+                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    expectSectionAuthoritative = true;
+                    break;
+
+                case "v2Binary":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 2;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV2;
+                    expectSectionAuthoritative = false;
+                    break;
+
+                case "v3Sparse":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 3;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    expectSectionAuthoritative = false;
+                    break;
+
+                case "aliasSnapshot":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 3;
+                    // Set alias snapshot mode: GhostVisualSnapshot == VesselSnapshot
+                    writeRec.VesselSnapshot = BuildSnapshot("CodecMatrix Vessel", pid: 9901u);
+                    writeRec.GhostVisualSnapshot = writeRec.VesselSnapshot;
+                    writeRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    expectSectionAuthoritative = false;
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Unknown case: {caseName}");
+            }
+
+            // Pin the actual write-path choice so a future fixture change cannot silently
+            // collapse v1FlatSectionsDuplicated and v1SectionAuthoritative into the same branch.
+            Assert.Equal(expectSectionAuthoritative,
+                RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(writeRec));
+
+            string path = Path.Combine(tempDir, $"codec-matrix-{caseName}.prec");
+            RecordingStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);
+
+            // For text-format cases (v0/v1) verify the serialized ConfigNode actually took
+            // the expected path: section-authoritative writes omit POINT/ORBIT_SEGMENT,
+            // flat-fallback writes include them.
+            if (expectedEncoding == TrajectorySidecarEncoding.TextConfigNode)
+            {
+                var savedNode = ConfigNode.Load(path);
+                Assert.NotNull(savedNode);
+                int pointNodes = savedNode.GetNodes("POINT").Length;
+                int orbitNodes = savedNode.GetNodes("ORBIT_SEGMENT").Length;
+                int trackNodes = savedNode.GetNodes("TRACK_SECTION").Length;
+                if (expectSectionAuthoritative)
+                {
+                    Assert.Equal(0, pointNodes);
+                    Assert.Equal(0, orbitNodes);
+                    Assert.True(trackNodes > 0, $"{caseName} expected TRACK_SECTION nodes");
+                }
+                else if (caseName != "v0Flat")
+                {
+                    Assert.True(pointNodes > 0, $"{caseName} expected POINT nodes (flat-fallback)");
+                    Assert.True(trackNodes > 0, $"{caseName} expected TRACK_SECTION nodes (flat-fallback)");
+                }
+            }
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe),
+                $"TryProbe failed for case {caseName}");
+            Assert.Equal(expectedEncoding, probe.Encoding);
+
+            var restored = new Recording { RecordingId = writeRec.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            // The fixture has matching flat and section data. For section-authoritative the restored
+            // Points are rebuilt from sections and should equal the fixture's flat Points.
+            AssertSemanticTrajectoryEqual(fixture, restored);
+
+            // Boundary-pair assertions on points.
+            if (fixture.Points.Count > 0)
+            {
+                AssertPointEqual(fixture.Points[0], restored.Points[0], $"{caseName} firstPoint");
+                AssertPointEqual(fixture.Points[fixture.Points.Count - 1],
+                    restored.Points[restored.Points.Count - 1], $"{caseName} lastPoint");
+            }
+
+            // Boundary-pair assertions on orbit segments.
+            if (fixture.OrbitSegments.Count > 0)
+            {
+                AssertOrbitSegmentEqual(fixture.OrbitSegments[0], restored.OrbitSegments[0],
+                    $"{caseName} firstOrbit");
+                AssertOrbitSegmentEqual(fixture.OrbitSegments[fixture.OrbitSegments.Count - 1],
+                    restored.OrbitSegments[restored.OrbitSegments.Count - 1], $"{caseName} lastOrbit");
+            }
+
+            // For aliasSnapshot case: verify the original's GhostSnapshotMode is AliasVessel.
+            // The trajectory sidecar does not store snapshot mode; it is loaded separately from .craft files,
+            // so we only assert the write-side state and the DetermineGhostSnapshotMode computation.
+            if (caseName == "aliasSnapshot")
+            {
+                Assert.Equal(GhostSnapshotMode.AliasVessel, writeRec.GhostSnapshotMode);
+                Assert.Equal(GhostSnapshotMode.AliasVessel,
+                    RecordingStore.DetermineGhostSnapshotMode(writeRec));
+            }
+        }
+
+        private static Recording BuildBoundaryCodecFixture()
+        {
+            const double t0 = 20000.0;
+
+            // Shared boundary point appears in both sections and in the flat list.
+            var boundary = new TrajectoryPoint
+            {
+                ut = t0 + 10,
+                latitude = -0.09,
+                longitude = -74.55,
+                altitude = 500,
+                rotation = new Quaternion(0, 0, 0.1f, 0.99f),
+                velocity = new Vector3(0, 100, 0),
+                bodyName = "Kerbin",
+                funds = 20000.0,
+                science = 1.0f,
+                reputation = 0.5f
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "codec-matrix-boundary",
+                RecordingFormatVersion = 3
+            };
+
+            // Flat point list: 3 points (first, boundary, last)
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = t0,
+                latitude = -0.10,
+                longitude = -74.56,
+                altitude = 100,
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = new Vector3(0, 50, 0),
+                bodyName = "Kerbin",
+                funds = 19000.0,
+                science = 0f,
+                reputation = 0f
+            });
+            rec.Points.Add(boundary);
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = t0 + 20,
+                latitude = -0.08,
+                longitude = -74.54,
+                altitude = 1000,
+                rotation = new Quaternion(0, 0, 0.2f, 0.98f),
+                velocity = new Vector3(0, 200, 0),
+                bodyName = "Kerbin",
+                funds = 21000.0,
+                science = 2.0f,
+                reputation = 1.0f
+            });
+
+            // 2 orbit segments
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = t0 + 30,
+                endUT = t0 + 330,
+                inclination = 28.5,
+                eccentricity = 0.002,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = t0 + 30,
+                bodyName = "Kerbin"
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = t0 + 330,
+                endUT = t0 + 630,
+                inclination = 30.0,
+                eccentricity = 0.001,
+                semiMajorAxis = 710000.0,
+                longitudeOfAscendingNode = 95.0,
+                argumentOfPeriapsis = 50.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = t0 + 330,
+                bodyName = "Kerbin"
+            });
+
+            // 2 Absolute track sections; boundary point shared between them.
+            // Rebuilt Points match flat Points, but rebuilt OrbitSegments is empty (no
+            // OrbitalCheckpoint section), so FlatTrajectoryExactlyMatchesTrackSectionPayload
+            // returns false and a writer with RecordingFormatVersion >= 1 falls through to
+            // flat-fallback. This shape drives the v1FlatSectionsDuplicated case.
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = t0,
+                endUT = t0 + 10,
+                sampleRateHz = 10f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = 100f,
+                maxAltitude = 500f,
+                frames = new List<TrajectoryPoint>
+                {
+                    rec.Points[0],
+                    boundary
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = t0 + 10,
+                endUT = t0 + 20,
+                sampleRateHz = 10f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = 500f,
+                maxAltitude = 1000f,
+                frames = new List<TrajectoryPoint>
+                {
+                    boundary,
+                    rec.Points[2]
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
+        // Adds an OrbitalCheckpoint section whose checkpoints exactly match the flat
+        // OrbitSegments from BuildBoundaryCodecFixture, so rebuilt orbit segments equal
+        // flat orbit segments and FlatTrajectoryExactlyMatchesTrackSectionPayload returns
+        // true. Used by the v1SectionAuthoritative matrix case to exercise the real
+        // section-authoritative write path (POINT and ORBIT_SEGMENT nodes omitted).
+        private static Recording BuildSectionAuthoritativeCodecFixture()
+        {
+            var rec = BuildBoundaryCodecFixture();
+
+            var checkpointCopies = new List<OrbitSegment>(rec.OrbitSegments.Count);
+            foreach (var seg in rec.OrbitSegments)
+                checkpointCopies.Add(seg);
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = rec.OrbitSegments[0].startUT,
+                endUT = rec.OrbitSegments[rec.OrbitSegments.Count - 1].endUT,
+                sampleRateHz = 0.1f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = 700000f,
+                maxAltitude = 710000f,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = checkpointCopies
+            });
+
+            return rec;
+        }
     }
 }
