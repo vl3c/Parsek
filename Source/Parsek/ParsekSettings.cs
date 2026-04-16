@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Parsek
 {
     /// <summary>
@@ -97,11 +99,13 @@ namespace Parsek
 
         internal static string DensitySummary(SamplingDensity level)
         {
+            var ic = CultureInfo.InvariantCulture;
             float min = GetMinSampleInterval(level);
             float max = GetMaxSampleInterval(level);
             float dir = GetVelocityDirThreshold(level);
             float spd = GetSpeedChangeThreshold(level);
-            return $"Sampling: every {min:F2}\u2013{max:F1}s, {dir:F1}\u00b0 / {spd:F0}% thresholds";
+            return $"Sampling: every {min.ToString("F2", ic)}\u2013{max.ToString("F1", ic)}s, " +
+                   $"{dir.ToString("F1", ic)}\u00b0 / {spd.ToString("F0", ic)}% thresholds";
         }
 
         /// <summary>
