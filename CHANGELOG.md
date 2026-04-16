@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- In-game test results file (`parsek-test-results.txt`) now preserves per-scene history — running Run All / Run Category in KSC and then again in Flight accumulates both modes' outcomes (one row per scene, per test) instead of the later run overwriting the earlier. The file auto-exports after every batch finishes; the Export Results button remains for manual re-writes.
 - Add Gloops Flight Recorder window for manual ghost-only recordings. Manual recording controls (Start/Stop, Preview, Discard) moved from the main Parsek UI to a dedicated "Gloops Flight Recorder" window opened via a button in the main UI. Recordings are marked `IsGhostOnly` and never spawn a real vessel at playback end. They auto-commit on stop with looping enabled by default and are placed in the "Gloops Flight Recordings - Ghosts Only" group. Ghost-only recordings can run in parallel with the auto-recording system. An X (delete) button is added to the recordings table for ghost-only recordings.
 - `#385` New Kerbals window (reserved crew, active stand-ins, retired stand-ins) opened via a button in the main Parsek window; Retired Stand-ins removed from the Timeline footer.
 - `#415` Kerbals window now also shows a **Per-Recording Fates** section — which committed recording each kerbal appeared in, with end-state (Aboard / Dead / Recovered) color-coded per row.

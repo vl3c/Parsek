@@ -289,9 +289,13 @@ namespace Parsek.InGameTests
             GUILayout.EndScrollView();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Export Results")) runner.ExportResultsFile();
+            if (GUILayout.Button(new GUIContent("Export Results",
+                "Auto-exported after every Run All / Run Category / row-play — click to re-write now.")))
+                runner.ExportResultsFile();
             if (GUILayout.Button("Close")) showWindow = false;
             GUILayout.EndHorizontal();
+            GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
+                GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
             // Always render tooltip label — conditional rendering causes
