@@ -523,6 +523,8 @@ namespace Parsek
             }
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
+            if (rec.IsGhostOnly)
+                recNode.AddValue("isGhostOnly", rec.IsGhostOnly.ToString());
 
             // Max distance from launch (#302): needed for idle-on-pad auto-discard
             // after scene reload (without this, deserialized recordings default to 0.0
@@ -668,6 +670,12 @@ namespace Parsek
                 int formatVersion;
                 if (int.TryParse(formatVersionStr, NumberStyles.Integer, ic, out formatVersion))
                     rec.RecordingFormatVersion = formatVersion;
+                else
+                    rec.RecordingFormatVersion = 0;
+            }
+            else
+            {
+                rec.RecordingFormatVersion = 0;
             }
             rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
@@ -688,14 +696,6 @@ namespace Parsek
                     rec.LoopPlayback = loopPlayback;
             }
 
-            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
-            if (loopIntervalStr != null)
-            {
-                double loopIntervalSeconds;
-                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
-                    rec.LoopIntervalSeconds = loopIntervalSeconds;
-            }
-
             string loopStartUTStr = recNode.GetValue("loopStartUT");
             if (loopStartUTStr != null)
             {
@@ -710,6 +710,48 @@ namespace Parsek
                 double loopEndUT;
                 if (double.TryParse(loopEndUTStr, inv, ic, out loopEndUT))
                     rec.LoopEndUT = loopEndUT;
+            }
+
+            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
+            if (loopIntervalStr != null)
+            {
+                double loopIntervalSeconds;
+                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
+                {
+                    if (rec.RecordingFormatVersion < RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
+                    {
+                        double effectiveLoopDuration;
+                        double migratedLoopIntervalSeconds =
+                            loopIntervalSeconds;
+                        if (GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
+                                rec, loopIntervalSeconds,
+                                out migratedLoopIntervalSeconds, out effectiveLoopDuration))
+                        {
+                            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
+                            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+                            RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
+                            ParsekLog.Warn("Loop",
+                                $"RecordingTree: migrated recording '{rec.VesselName}' from legacy " +
+                                $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
+                                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", ic)}s " +
+                                $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s " +
+                                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
+                        }
+                        else
+                        {
+                            rec.LoopIntervalSeconds = loopIntervalSeconds;
+                            ParsekLog.Warn("Loop",
+                                $"RecordingTree: loaded recording '{rec.VesselName}' with legacy " +
+                                $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
+                                $"for recordingFormatVersion={rec.RecordingFormatVersion}, but deferred migration " +
+                                "because loop bounds are not hydrated yet.");
+                        }
+                    }
+                    else
+                    {
+                        rec.LoopIntervalSeconds = loopIntervalSeconds;
+                    }
+                }
             }
 
             string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");
@@ -888,6 +930,14 @@ namespace Parsek
                 bool isDebris;
                 if (bool.TryParse(isDebrisStr, out isDebris))
                     rec.IsDebris = isDebris;
+            }
+
+            string isGhostOnlyStr = recNode.GetValue("isGhostOnly");
+            if (isGhostOnlyStr != null)
+            {
+                bool isGhostOnly;
+                if (bool.TryParse(isGhostOnlyStr, out isGhostOnly))
+                    rec.IsGhostOnly = isGhostOnly;
             }
 
             // Max distance from launch (#302)

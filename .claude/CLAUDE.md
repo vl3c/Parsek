@@ -11,6 +11,29 @@ dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into t
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
+**Always verify the deployed DLL after building**, especially when working from a worktree or when multiple worktrees exist side-by-side. The post-build copy can silently fail (KSP holding the file, MSBuild reporting "up-to-date" and skipping the copy target, or a concurrent build from a sibling worktree clobbering `GameData/Parsek/Plugins/Parsek.dll` with a different branch's output). When the user reports "I don't see my change in game," the first thing to check is whether the deployed DLL is actually the one you just built.
+
+**Verification recipe:**
+
+```bash
+# 1. File size + mtime should match your worktree bin/Debug/Parsek.dll
+ls -la "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
+ls -la Source/Parsek/bin/Debug/Parsek.dll
+
+# 2. Grep the deployed DLL for a distinctive new UTF-16 string from your change
+python -c "
+with open(r'...GameData/Parsek/Plugins/Parsek.dll','rb') as f: d=f.read()
+for s in ['NewLabel','OldLabel']: print(s, d.count(s.encode('utf-16-le')))
+"
+
+# 3. If mismatch, force-copy manually
+cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
+```
+
+From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `Kerbal Space Program/` probe only walks parent directories of the csproj — a sibling-of-the-worktree layout at `C:/Users/vlad3/Documents/Code/Parsek/Kerbal Space Program/` is NOT reachable from `C:/Users/vlad3/Documents/Code/Parsek-<branch>/Source/Parsek/` via ancestor walking.
+
+**If multiple worktrees exist**, any of them can overwrite the shared `GameData/Parsek/Plugins/Parsek.dll`. The deployed file belongs to whichever worktree built most recently. Re-verify after every build if you're switching between worktrees or if a sibling session is also building.
+
 ## Release
 
 ```bash
@@ -81,6 +104,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `UI/TestRunnerUI.cs` - in-game test runner window
 - `UI/GroupPickerUI.cs` - group picker popup (recording/chain group assignment)
 - `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
+- `UI/GloopsRecorderUI.cs` - Gloops Flight Recorder window (manual ghost-only recording controls)
 - `UI/ActionsWindowUI.cs` - Game Actions window (ledger display, budget, retired kerbals)
 - `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)

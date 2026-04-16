@@ -53,11 +53,18 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 3;
+        public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
+        public const int CurrentRecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
+
+        /// <summary>
+        /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
+        /// </summary>
+        internal const string GloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
         // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
+        // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -344,15 +351,50 @@ namespace Parsek
             // Flush to disk immediately to close the crash window.
             FlushDirtyFiles(committedRecordings);
 
-            // Commit pending science subjects before clearing
+            // Commit pending science subjects. #397: do NOT clear here — the
+            // orchestrator (LedgerOrchestrator.OnRecordingCommitted via
+            // ChainSegmentManager.CommitSegmentCore, or NotifyLedgerTreeCommitted
+            // for tree paths) still needs to read PendingScienceSubjects when
+            // converting ScienceEarning actions. The clear happens in those
+            // upstream sites inside a try/finally.
             GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-            GameStateRecorder.PendingScienceSubjects.Clear();
 
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
             // Create a milestone bundling game state events since the previous milestone
             MilestoneStore.CreateMilestone(rec.RecordingId, rec.EndUT);
+        }
+
+        /// <summary>
+        /// Commits a ghost-only Gloops recording: adds to committed list, flushes to disk,
+        /// but skips game-state side effects (science subjects, milestones, baselines) since
+        /// ghost-only recordings do not affect game state.
+        /// </summary>
+        internal static void CommitGloopsRecording(Recording rec)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Warn("RecordingStore", "CommitGloopsRecording called with null recording");
+                return;
+            }
+
+            rec.IsGhostOnly = true;
+            rec.FilesDirty = true;
+
+            // Assign to Gloops group
+            if (rec.RecordingGroups == null)
+                rec.RecordingGroups = new List<string>();
+            if (!rec.RecordingGroups.Contains(GloopsGroupName))
+                rec.RecordingGroups.Add(GloopsGroupName);
+
+            committedRecordings.Add(rec);
+            FlushDirtyFiles(committedRecordings);
+
+            ParsekLog.Info("RecordingStore",
+                $"Committed Gloops ghost-only recording \"{rec.VesselName}\" " +
+                $"({rec.Points.Count} points, id={rec.RecordingId}). " +
+                $"Total committed: {committedRecordings.Count}");
         }
 
         /// <summary>
@@ -819,9 +861,11 @@ namespace Parsek
 
             committedTrees.Add(tree);
 
-            // Commit pending science subjects before clearing
+            // Commit pending science subjects. #397: do NOT clear here — the orchestrator
+            // still needs to read PendingScienceSubjects in NotifyLedgerTreeCommitted
+            // (for every recording in the tree) before the clear is safe. The clear is
+            // done there, inside a try/finally, so all recordings see the same list.
             GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-            GameStateRecorder.PendingScienceSubjects.Clear();
 
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
@@ -5334,7 +5378,42 @@ namespace Parsek
                     $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
             }
 
+            MigrateLegacyLoopIntervalAfterHydration(rec);
             return true;
+        }
+
+        private static void MigrateLegacyLoopIntervalAfterHydration(Recording rec)
+        {
+            if (rec == null
+                || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
+                return;
+
+            double effectiveLoopDuration;
+            double migratedLoopIntervalSeconds;
+            if (!GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
+                    rec, rec.LoopIntervalSeconds,
+                    out migratedLoopIntervalSeconds, out effectiveLoopDuration))
+                return;
+
+            double legacyLoopIntervalSeconds = rec.LoopIntervalSeconds;
+            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
+            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
+            NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
+            ParsekLog.Warn("Loop",
+                $"RecordingStore: migrated recording '{rec.VesselName}' from legacy " +
+                $"gap loopIntervalSeconds={legacyLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                $"using hydrated effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
+                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
+        }
+
+        internal static void NormalizeRecordingFormatVersionAfterLegacyLoopMigration(Recording rec)
+        {
+            if (rec == null
+                || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
+                return;
+
+            rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
         }
 
         private static bool SaveRecordingFilesToPathsInternal(

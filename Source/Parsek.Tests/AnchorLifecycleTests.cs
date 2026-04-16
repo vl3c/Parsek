@@ -203,8 +203,9 @@ namespace Parsek.Tests
                 velocity = UnityEngine.Vector3.zero
             });
 
-            double currentUT = 260.0; // elapsed=160, cycle=1, phase=50
-            double interval = 10.0;
+            // #381: period=110 > duration=100, cycleDuration=110.
+            double currentUT = 260.0; // elapsed=160, cycle=1, cycleTime=50
+            double interval = 110.0;
 
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT, rec.StartUT, rec.EndUT, interval);
@@ -233,10 +234,11 @@ namespace Parsek.Tests
             loadedSet.Add(42);
             Assert.True(GhostPlaybackLogic.IsAnchorLoaded(42, loadedSet));
 
-            // Phase recomputed at current UT (simulating a later time)
-            double currentUT = 370.0; // elapsed=270, cycle=2, phase=50
+            // #381: period=110 > duration=100 (single-ghost loop with 10s pause tail).
+            // elapsed=270, cycleDuration=110, cycle=2 (270/110=2.45), cycleTime=50.
+            double currentUT = 370.0;
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT, 100.0, 200.0, 10.0);
+                currentUT, 100.0, 200.0, 110.0);
 
             Assert.Equal(150.0, loopUT);
             Assert.Equal(2, cycleIndex);

@@ -58,7 +58,8 @@ namespace Parsek
                     $"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
                     $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
-                    $" rep={action.MilestoneRepAwarded.ToString("F0", IC)})," +
+                    $" rep={action.MilestoneRepAwarded.ToString("F0", IC)}," +
+                    $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)})," +
                     $" total credited={creditedMilestones.Count}");
             }
             else

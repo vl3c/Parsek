@@ -9,13 +9,16 @@ namespace Parsek.Tests
 
     public class ComputeLoopPhaseFromUT_Tests
     {
+        // #381 semantics: cycleDuration = max(intervalSeconds, MinCycleDuration=1).
+        // The helper does not own overlap dispatch — callers use IsOverlapLoop for that.
+        // These tests use a duration=100s recording with period > duration (classic single-ghost
+        // loop with a pause tail) unless otherwise noted.
+
         [Fact]
         public void BeforeRecordingStart_ReturnsStartUTCycle0NotPaused()
         {
-            // Bug #75: currentUT before startUT should return (startUT, 0, false)
-            // consistent with TryComputeLoopPlaybackUT returning false for pre-start times
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 50.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 50.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(100.0, loopUT);
             Assert.Equal(0, cycleIndex);
@@ -26,7 +29,7 @@ namespace Parsek.Tests
         public void AtRecordingStart_ReturnsPhase0Cycle0NotPaused()
         {
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 100.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 100.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(100.0, loopUT);
             Assert.Equal(0, cycleIndex);
@@ -36,10 +39,10 @@ namespace Parsek.Tests
         [Fact]
         public void MidwayThroughFirstCycle_ReturnsCorrectLoopUT()
         {
-            // duration=100, interval=10, cycle=110
+            // duration=100, period=110, cycleDuration=110
             // At UT 150, elapsed=50, phase=50 within playback portion
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 150.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 150.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(150.0, loopUT);
             Assert.Equal(0, cycleIndex);
@@ -47,27 +50,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AtRecordingEnd_ReturnsEndUTCycle0NotPaused()
+        public void AtRecordingEnd_ExactBoundary_StaysInPlayback()
         {
-            // At UT 200, elapsed=100, phase=100 == duration (edge of playback)
+            // #410: at phaseInCycle == duration exactly, ComputeLoopPhaseFromUT now reports
+            // isInPause=false (matching TryComputeLoopPlaybackUT's epsilon-tolerant check).
+            // Ghost visual lands at endUT either way, but the isInPause flag must agree with
+            // the playback-UT helper to avoid a one-frame "playing → paused → playing" flicker.
+            // duration=100, period=110. elapsed=100, phase=100 == duration → still playing.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 200.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 200.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
-            // phase=100, duration=100, so phase < duration is false (equal)
-            // This falls into pause territory at exactly the boundary
             Assert.Equal(200.0, loopUT);
             Assert.Equal(0, cycleIndex);
-            // At exactly duration, phaseInCycle == duration, so it enters pause branch
+            Assert.False(isInPause);
+        }
+
+        [Fact]
+        public void AtRecordingEnd_JustPastBoundary_StaysInPlaybackWithinEpsilon()
+        {
+            // #410: within BoundaryEpsilon of duration, still playing. 0.5e-6 << epsilon=1e-6.
+            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                currentUT: 200.0000005, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
+
+            Assert.Equal(200.0, loopUT);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(isInPause);
+        }
+
+        [Fact]
+        public void AtRecordingEnd_BeyondEpsilon_EntersPause()
+        {
+            // #410: at phase > duration + BoundaryEpsilon (pause branch fires for real).
+            // elapsed=100.01, phase=100.01 > 100 + 1e-6 → paused.
+            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                currentUT: 200.01, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
+
+            Assert.Equal(200.0, loopUT);
+            Assert.Equal(0, cycleIndex);
             Assert.True(isInPause);
         }
 
         [Fact]
         public void InPauseInterval_ReturnsPausedAtEndUT()
         {
-            // duration=100, interval=10, cycle=110
+            // duration=100, period=110, cycleDuration=110
             // At UT 205, elapsed=105, phase=105 > duration=100 → in pause
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 205.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 205.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(200.0, loopUT);
             Assert.Equal(0, cycleIndex);
@@ -77,10 +106,10 @@ namespace Parsek.Tests
         [Fact]
         public void StartOfSecondCycle_ReturnsCycle1NearStartUT()
         {
-            // duration=100, interval=10, cycle=110
+            // duration=100, period=110, cycleDuration=110
             // At UT 210, elapsed=110 → cycle 1, phaseInCycle=0
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 210.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 210.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(100.0, loopUT);
             Assert.Equal(1, cycleIndex);
@@ -90,10 +119,10 @@ namespace Parsek.Tests
         [Fact]
         public void MidwayThroughSecondCycle_CorrectPhase()
         {
-            // duration=100, interval=10, cycle=110
-            // At UT 260, elapsed=160, cycle=1 (160/110=1.45), phaseInCycle=160-110=50
+            // duration=100, period=110, cycleDuration=110
+            // At UT 260, elapsed=160, cycle=1, phaseInCycle=50
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 260.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 260.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(150.0, loopUT);
             Assert.Equal(1, cycleIndex);
@@ -103,11 +132,10 @@ namespace Parsek.Tests
         [Fact]
         public void ManyCyclesElapsed_CorrectCycleIndexAndPhase()
         {
-            // duration=100, interval=10, cycle=110
-            // 1000 cycles elapsed: UT = 100 + 1000*110 = 110100
-            // At UT 110150, elapsed=110050, cycle=1000 (110050/110=1000.45), phase=50
+            // duration=100, period=110, cycleDuration=110
+            // 1000 cycles: UT = 100 + 1000*110 = 110100; +50 phase into cycle 1000 → UT=110150
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 110150.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+                currentUT: 110150.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 110.0);
 
             Assert.Equal(150.0, loopUT);
             Assert.Equal(1000, cycleIndex);
@@ -126,67 +154,171 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NegativeInterval_TreatedAsZeroPause()
+        public void NegativeInterval_ClampsToMinCycleDuration()
         {
-            // duration=100, interval=-5 → Math.Max(0, -5) = 0, cycleDuration=100
-            // At UT 250, elapsed=150, cycle=1 (150/100=1.5), phase=50
+            // #381: negative intervals no longer mean "zero-pause" (old behavior). They
+            // clamp to MinCycleDuration = 1s (extreme overlap semantics). The phase is
+            // computed as if period=1; overlap dispatch is someone else's problem.
+            // duration=100, period=-5 → cycleDuration=1. elapsed=150 → cycle=150, phase=0.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 250.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: -5.0);
 
-            Assert.Equal(150.0, loopUT);
-            Assert.Equal(1, cycleIndex);
-            Assert.False(isInPause);
-        }
-
-        [Fact]
-        public void BeforeRecordingStarted_ReturnsStartUTCycle0()
-        {
-            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT: 50.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
-
             Assert.Equal(100.0, loopUT);
-            Assert.Equal(0, cycleIndex);
+            Assert.Equal(150, cycleIndex);
             Assert.False(isInPause);
         }
 
         [Fact]
-        public void ZeroInterval_ImmediateRestart()
+        public void ZeroInterval_ClampsToMinCycleDuration()
         {
-            // duration=100, interval=0, cycleDuration=100
-            // At UT 250, elapsed=150, cycle=1 (150/100=1.5), phase=50
+            // #381: period=0 is below MinCycleDuration=1, so cycleDuration=1.
+            // duration=100, elapsed=150 → cycle=150, phase=0.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 250.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 0.0);
 
-            Assert.Equal(150.0, loopUT);
-            Assert.Equal(1, cycleIndex);
+            Assert.Equal(100.0, loopUT);
+            Assert.Equal(150, cycleIndex);
             Assert.False(isInPause);
         }
 
         [Fact]
-        public void ZeroInterval_NeverInPause()
+        public void ZeroInterval_NeverInPause_AtRecordingEnd()
         {
-            // With zero interval, cycleDuration == duration, so phaseInCycle is always < duration
-            // (except at exact boundary). At exact cycle boundary, it wraps to next cycle with phase=0.
-            // At UT 200, elapsed=100, cycle=1 (100/100=1), phase=0
+            // #381: period clamps to 1, period <= duration so no pause window.
+            // At UT 200, elapsed=100, cycleDuration=1 → cycle=100, phase=0.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 200.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 0.0);
 
             Assert.Equal(100.0, loopUT);
-            Assert.Equal(1, cycleIndex);
+            Assert.Equal(100, cycleIndex);
             Assert.False(isInPause);
         }
 
         [Fact]
         public void LargeInterval_LongPauseWindow()
         {
-            // duration=100, interval=1000, cycleDuration=1100
-            // At UT 300 (in pause), elapsed=200, cycle=0 (200/1100=0.18), phase=200 > duration=100
+            // duration=100, period=1000 → cycleDuration=1000. Pause tail = 900s.
+            // At UT 300 (in pause), elapsed=200, cycle=0, phase=200 > duration=100 → pause.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 300.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 1000.0);
 
             Assert.Equal(200.0, loopUT);
             Assert.Equal(0, cycleIndex);
             Assert.True(isInPause);
+        }
+
+        [Fact]
+        public void PeriodShorterThanDuration_OverlapsButNoPause()
+        {
+            // #381: period=30, duration=100. currentUT=150, start=100. elapsed=50.
+            // cycleDuration=30. cycleIndex=floor(50/30)=1. phase=50-30=20.
+            // phase (20) < duration (100) → not in pause. loopUT=100+20=120.
+            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                currentUT: 150.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 30.0);
+
+            Assert.Equal(120.0, loopUT);
+            Assert.Equal(1, cycleIndex);
+            Assert.False(isInPause);
+        }
+
+        [Fact]
+        public void PeriodEqualToDuration_BackToBack()
+        {
+            // #381: period=100, duration=100. currentUT=250, start=100. elapsed=150.
+            // cycleDuration=100. cycle=1. phase=50. loopUT=150. No pause.
+            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                currentUT: 250.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 100.0);
+
+            Assert.Equal(150.0, loopUT);
+            Assert.Equal(1, cycleIndex);
+            Assert.False(isInPause);
+        }
+
+        [Fact]
+        public void PeriodGreaterThanDuration_HasPause()
+        {
+            // #381: period=150, duration=100. currentUT=220, start=100. elapsed=120.
+            // cycleDuration=150. cycle=0. phase=120. phase > duration → pause. loopUT=200.
+            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                currentUT: 220.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 150.0);
+
+            Assert.Equal(200.0, loopUT);
+            Assert.Equal(0, cycleIndex);
+            Assert.True(isInPause);
+        }
+
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_Cycle0_ReturnsLoopStartPlusElapsed()
+        {
+            // #409: cycle 0 starts at loopStartUT. After 25s elapsed, phase=25.
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 125.0, loopStartUT: 100.0, duration: 50.0,
+                intervalSeconds: 30.0, loopCycleIndex: 0);
+            Assert.Equal(125.0, loopUT);
+        }
+
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_HigherCycle_UsesPeriodAsCycleDuration()
+        {
+            // #409: cycle 2 starts at loopStartUT + 2*period=160. At currentUT=170, phase=10.
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 170.0, loopStartUT: 100.0, duration: 50.0,
+                intervalSeconds: 30.0, loopCycleIndex: 2);
+            Assert.Equal(110.0, loopUT);
+        }
+
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_PhasePastDuration_ClampsToDuration()
+        {
+            // #409: cycle 0, currentUT=200 (100s after start), duration=50 → clamp to 50.
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 200.0, loopStartUT: 100.0, duration: 50.0,
+                intervalSeconds: 30.0, loopCycleIndex: 0);
+            Assert.Equal(150.0, loopUT); // loopStart + duration
+        }
+
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_NegativePhase_ClampsToZero()
+        {
+            // #409: currentUT before cycleStartUT (shouldn't normally happen, but defensive).
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 110.0, loopStartUT: 100.0, duration: 50.0,
+                intervalSeconds: 30.0, loopCycleIndex: 2); // cycleStartUT = 160
+            Assert.Equal(100.0, loopUT); // loopStart (phase clamped to 0)
+        }
+
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_NegativeInterval_DefensivelyClamped()
+        {
+            // #409 × #381: defensive negative-interval clamp. Period clamps to MinCycleDuration=1.
+            // cycle 3: cycleStartUT = 100 + 3*1 = 103. currentUT=120 → phase=17, clamp to 50 no, phase=17 < 50.
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 120.0, loopStartUT: 100.0, duration: 50.0,
+                intervalSeconds: -5.0, loopCycleIndex: 3);
+            Assert.Equal(117.0, loopUT); // 100 + 17
+        }
+
+        [Fact]
+        public void BoundaryConsistency_WithTryComputeLoopPlaybackUT()
+        {
+            // #410: ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT must agree on the
+            // isInPause flag at phase == duration exactly. Before the fix the former used
+            // strict `phase < duration` (pause) while the latter used `phase > duration +
+            // epsilon` (not pause), producing a one-frame playing→paused→playing flicker.
+            const double startUT = 100.0;
+            const double endUT = 200.0;
+            const double interval = 110.0; // period > duration → pause window exists
+            const double boundaryUT = 200.0; // elapsed=100, phase=100 == duration
+
+            var (phaseLoopUT, _, phaseIsPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                boundaryUT, startUT, endUT, interval);
+            bool tryOk = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
+                boundaryUT, startUT, endUT, interval,
+                out double tryLoopUT, out _);
+
+            Assert.True(tryOk, "TryComputeLoopPlaybackUT must return true at the exact boundary");
+            Assert.False(phaseIsPause, "ComputeLoopPhaseFromUT must not flag pause at the exact boundary");
+            Assert.Equal(tryLoopUT, phaseLoopUT);
         }
     }
 

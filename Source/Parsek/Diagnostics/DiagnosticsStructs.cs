@@ -141,6 +141,8 @@ namespace Parsek
         public int spawnRetries;
         public int ghostBuildsThisSession;
         public int ghostDestroysThisSession;
+        public int reentryFxBuildsThisSession;
+        public int reentryFxSkippedThisSession;
         public int gcGen0Baseline;
 
         public void Reset()
@@ -152,6 +154,8 @@ namespace Parsek
             spawnRetries = 0;
             ghostBuildsThisSession = 0;
             ghostDestroysThisSession = 0;
+            reentryFxBuildsThisSession = 0;
+            reentryFxSkippedThisSession = 0;
             gcGen0Baseline = System.GC.CollectionCount(0);
         }
     }

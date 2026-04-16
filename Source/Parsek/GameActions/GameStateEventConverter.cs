@@ -118,7 +118,23 @@ namespace Parsek
                 case GameStateEventType.KerbalRescued:
                     return ConvertKerbalRescued(evt, recordingId);
 
-                // Skipped event types — no GameAction equivalent
+                // Skipped event types — no GameAction equivalent.
+                //
+                // DO NOT try to "fix" this by re-emitting FundsChanged/ScienceChanged/
+                // ReputationChanged as FundsEarning/ScienceEarning/ReputationEarning.
+                // The earning values already flow through dedicated channels:
+                //   - Recovery        via LedgerOrchestrator.CreateVesselCostActions
+                //   - ContractReward  via ConvertContractCompleted (reads detail)
+                //   - Milestone       via ConvertMilestoneAchieved (reads detail)
+                //   - ScienceEarning  via ConvertScienceSubjects (PendingScienceSubjects)
+                // Re-emitting from the Changed events would double-count against every
+                // one of those channels at the same UT, and GetActionKey for FundsEarning
+                // keys off RecordingId alone so dedup would NOT save us.
+                //
+                // #394 reconciliation: LedgerOrchestrator.ReconcileEarningsWindow runs at
+                // commit time and WARNs if these dropped deltas disagree with the effective
+                // emitted actions — so regressions in any channel surface loudly without
+                // needing to re-emit here.
                 case GameStateEventType.FundsChanged:
                 case GameStateEventType.ScienceChanged:
                 case GameStateEventType.ReputationChanged:
@@ -225,13 +241,18 @@ namespace Parsek
             if (costStr != null)
                 float.TryParse(costStr, NumberStyles.Float, IC, out cost);
 
+            // DedupKey uses the part name so multiple part purchases at KSC (where
+            // RecordingId is null) do not collide under GetActionKey. See #F in
+            // career-earnings-bundle plan. Commit-path purchases have RecordingId set,
+            // so DedupKey provides additional disambiguation there too (cheap).
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.FundsSpending,
                 RecordingId = recordingId,
                 FundsSpent = cost,
-                FundsSpendingSource = FundsSpendingSource.Other
+                FundsSpendingSource = FundsSpendingSource.Other,
+                DedupKey = evt.key ?? ""
             };
         }
 
@@ -312,14 +333,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/penalties from detail).
-        /// New format (v2): "title=...;deadline=...;failFunds=...;failRep=..."
-        /// Old format (v1): plain title string (no semicolons). Backward compatible.
+        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/advance/penalties from detail).
+        /// New format (v3): "title=...;deadline=...;funds=...;failFunds=...;failRep=..."
+        /// v2 (no funds= key): backward compatible, advance defaults to 0.
+        /// Legacy (v1): plain title string (no semicolons). Backward compatible.
         /// </summary>
         private static GameAction ConvertContractAccepted(GameStateEvent evt, string recordingId)
         {
             string title;
             float deadlineUT = float.NaN;
+            float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
 
@@ -334,6 +357,11 @@ namespace Parsek
                     float.TryParse(deadlineStr, NumberStyles.Float, IC, out deadlineUT);
                 // else remains NaN
 
+                // v3: contract advance payment. Older detail strings omit this key — leave at 0.
+                string advanceStr = ExtractDetail(evt.detail, "funds");
+                if (advanceStr != null)
+                    float.TryParse(advanceStr, NumberStyles.Float, IC, out advanceFunds);
+
                 string failFundsStr = ExtractDetail(evt.detail, "failFunds");
                 if (failFundsStr != null)
                     float.TryParse(failFundsStr, NumberStyles.Float, IC, out fundsPenalty);
@@ -344,7 +372,8 @@ namespace Parsek
 
                 ParsekLog.Verbose(Tag,
                     $"ConvertContractAccepted: structured format contractId='{evt.key}' " +
-                    $"title='{title}' deadline={deadlineUT} failFunds={fundsPenalty} failRep={repPenalty}");
+                    $"title='{title}' deadline={deadlineUT} advance={advanceFunds} " +
+                    $"failFunds={fundsPenalty} failRep={repPenalty}");
             }
             else
             {
@@ -363,6 +392,7 @@ namespace Parsek
                 ContractId = evt.key,
                 ContractTitle = title,
                 DeadlineUT = deadlineUT,
+                AdvanceFunds = advanceFunds,
                 FundsPenalty = fundsPenalty,
                 RepPenalty = repPenalty
             };
@@ -454,13 +484,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// MilestoneAchieved -> MilestoneAchievement (milestoneId=key, funds/rep from detail).
-        /// Funds and rep rewards may be 0 if not available from the ProgressNode.
+        /// MilestoneAchieved -> MilestoneAchievement (milestoneId=key, funds/rep/sci from detail).
+        /// Rewards may be 0 if not available from the ProgressNode.
         /// </summary>
         internal static GameAction ConvertMilestoneAchieved(GameStateEvent evt, string recordingId)
         {
             float fundsAwarded = 0f;
             float repAwarded = 0f;
+            float sciAwarded = 0f;
 
             string fundsStr = ExtractDetail(evt.detail, "funds");
             if (fundsStr != null)
@@ -470,6 +501,13 @@ namespace Parsek
             if (repStr != null)
                 float.TryParse(repStr, NumberStyles.Float, IC, out repAwarded);
 
+            // Milestone science reward (e.g. Kerbin/Science FirstLaunch grants ~2 sci).
+            // Previously dropped at convert time — ScienceModule.ProcessMilestoneScienceReward
+            // now consumes this on the effective (first-reached) copy of the action.
+            string sciStr = ExtractDetail(evt.detail, "sci");
+            if (sciStr != null)
+                float.TryParse(sciStr, NumberStyles.Float, IC, out sciAwarded);
+
             return new GameAction
             {
                 UT = evt.ut,
@@ -477,7 +515,8 @@ namespace Parsek
                 RecordingId = recordingId,
                 MilestoneId = evt.key,
                 MilestoneFundsAwarded = fundsAwarded,
-                MilestoneRepAwarded = repAwarded
+                MilestoneRepAwarded = repAwarded,
+                MilestoneScienceAwarded = sciAwarded
             };
         }
 

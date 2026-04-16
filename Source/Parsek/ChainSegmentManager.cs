@@ -110,13 +110,13 @@ namespace Parsek
 
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
         private static float ContinuationMinInterval =>
-            ParsekSettings.Current?.minSampleInterval ?? 0.2f;
+            ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
         private static float ContinuationMaxInterval =>
-            ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
+            ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
         private static float ContinuationVelDirThreshold =>
-            ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
+            ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
         private static float ContinuationSpeedThreshold =>
-            (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
+            (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
 
         internal ChainSegmentManager()
         {
@@ -524,7 +524,27 @@ namespace Parsek
             double endUT = rec.EndUT;
             RecordingStore.CommitRecordingDirect(rec);
             RecordingStore.RunOptimizationPass();
-            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+            int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
+            try
+            {
+                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+            }
+            finally
+            {
+                // #397: Clear PendingScienceSubjects after the orchestrator has read them
+                // for this segment. RecordingStore no longer clears inside CommitRecordingDirect,
+                // so this is the authoritative clear point for chain segments. The try/finally
+                // ensures the invariant holds even if OnRecordingCommitted throws.
+                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                if (pendingBefore > 0 || cleared > 0)
+                    ParsekLog.Verbose("Chain",
+                        $"CommitSegmentCore: cleared PendingScienceSubjects " +
+                        $"(before={pendingBefore}, atClear={cleared})");
+            }
+            // #390: prune consumed events after milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
+
             CrewReservationManager.SwapReservedCrewInFlight();
 
             if (advanceChain)

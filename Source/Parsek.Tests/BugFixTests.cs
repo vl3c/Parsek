@@ -204,29 +204,26 @@ namespace Parsek.Tests
     public class Bug84_LoopPhaseOverflowTests
     {
         /// <summary>
-        /// For a 0.01s recording looping for ~250 real-Earth days (21.6M seconds),
-        /// the cycle count (2.16 billion) exceeds int.MaxValue (2,147,483,647).
-        /// With the long type fix, this must not overflow.
+        /// #381: cycleDuration is max(period, MinCycleDuration=1). For a long-running loop,
+        /// the cycle count must not overflow int.MaxValue (2.147B) → use 3B elapsed seconds
+        /// with period=1s, giving ~3B cycles.
         /// </summary>
         [Fact]
         public void ComputeLoopPhaseFromUT_LargeElapsed_NoOverflow()
         {
             double startUT = 100.0;
-            double endUT = 100.01;  // 0.01s recording
-            // Elapsed time chosen so elapsed/cycleDuration > int.MaxValue
-            // 0.01s cycle, need > 2.147e9 * 0.01 = 2.147e7 seconds (~248 Earth-days)
-            double elapsed = 3e7; // 30M seconds (~347 Earth-days)
+            double endUT = 101.0;  // 1.0s recording
+            double elapsed = 3e9; // 3 billion seconds, period=1s → 3 billion cycles
             double currentUT = startUT + elapsed;
 
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT, startUT, endUT, intervalSeconds: 0.0);
+                currentUT, startUT, endUT, intervalSeconds: 1.0);
 
             // Should NOT overflow — cycleIndex should be a large positive number
             Assert.True(cycleIndex > 0, $"cycleIndex should be positive, got {cycleIndex}");
             Assert.True(cycleIndex > int.MaxValue,
                 $"cycleIndex should exceed int.MaxValue for this test case, got {cycleIndex}");
-            // Allow +-1 for floating point: (long)(3e7 / 0.01) might be 2999999999 or 3000000000
-            Assert.InRange(cycleIndex, (long)(elapsed / 0.01) - 1, (long)(elapsed / 0.01) + 1);
+            Assert.InRange(cycleIndex, (long)(elapsed / 1.0) - 1, (long)(elapsed / 1.0) + 1);
             Assert.False(isInPause);
         }
 
@@ -239,7 +236,8 @@ namespace Parsek.Tests
             double startUT = 0.0;
             double duration = 1.0;
             double interval = 0.0;
-            double cycleDuration = duration + Math.Max(0, interval); // = 1.0
+            // #381: cycleDuration = launch-to-launch period clamped to MinCycleDuration (1.0s).
+            double cycleDuration = Math.Max(interval, GhostPlaybackLogic.MinCycleDuration); // = 1.0
             double elapsedAtIntMax = (double)int.MaxValue * cycleDuration;
             double currentUT = startUT + elapsedAtIntMax + 0.5; // midway through cycle int.MaxValue+1
 
@@ -282,21 +280,19 @@ namespace Parsek.Tests
         /// With zero interval and 1.0s recording, cycleDuration=1.0s is at the boundary.
         /// Use a small positive interval to push cycleDuration to 2.0s so there's no
         /// false-positive from the pause-window return-false path.
-        /// Actually, with zero interval and 1.0s recording, phase == duration is
-        /// handled by the (phase > duration + epsilon) check; at exact duration the
-        /// method returns true. Use negative interval for overlap path (no pause check).
-        /// Simpler: use 2s recording with 0 interval, cycleDuration=2.0s, need 4.3e9 elapsed.
+        /// #381: use period=1 (= MinCycleDuration) with 2s duration so period < duration,
+        /// no pause window, and cycleDuration=1 gives 5e9 cycles.
         /// </summary>
         [Fact]
         public void TryComputeLoopPlaybackUT_LargeElapsed_NoOverflow()
         {
             double startUT = 100.0;
             double endUT = 102.0; // 2.0s recording
-            double elapsed = 5e9; // 5 billion seconds, 2.0s cycle = 2.5 billion cycles
+            double elapsed = 5e9; // 5 billion seconds, period=1s → 5 billion cycles
             double currentUT = startUT + elapsed;
 
             bool result = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
-                currentUT, startUT, endUT, intervalSeconds: -1.0,
+                currentUT, startUT, endUT, intervalSeconds: 1.0,
                 out double loopUT, out long cycleIndex);
 
             Assert.True(result);

@@ -150,6 +150,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Updates the <c>detail</c> field of the first event matching the given
+        /// ut/eventType/key/epoch. Returns true if an entry was found and updated.
+        /// GameStateEvent is a value type, so callers can't just mutate their copy —
+        /// this helper rewrites the underlying list slot. Used by the milestone reward
+        /// enrichment path (#400), which emits the event first with zero-reward detail
+        /// and then, when the Harmony postfix on ProgressNode.AwardProgress has the
+        /// real values, patches the stored event in place.
+        /// </summary>
+        internal static bool UpdateEventDetail(
+            double ut, GameStateEventType eventType, string key, uint epoch, string newDetail)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut == ut && e.eventType == eventType &&
+                    e.key == key && e.epoch == epoch)
+                {
+                    e.detail = newDetail;
+                    events[i] = e;
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Updated event detail: {eventType} key='{key}' ut={ut:F1}");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Removes an event by matching ut, eventType, and key.
         /// Returns true if the event was found and removed.
         /// </summary>
@@ -168,6 +196,38 @@ namespace Parsek
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Removes events that have been consumed by milestone creation and ledger conversion.
+        /// Call after both CreateMilestone and OnRecordingCommitted have completed.
+        /// Events are pruned if they belong to an old epoch OR if their UT is at or below
+        /// the latest committed milestone EndUT in the current epoch.
+        /// </summary>
+        internal static int PruneProcessedEvents()
+        {
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            double threshold = MilestoneStore.GetLatestCommittedEndUT();
+
+            int pruned = 0;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (e.epoch != currentEpoch || e.ut <= threshold)
+                {
+                    events.RemoveAt(i);
+                    pruned++;
+                }
+            }
+
+            if (pruned > 0)
+            {
+                ParsekLog.Info("GameStateStore",
+                    $"PruneProcessedEvents: removed {pruned} events " +
+                    $"(epoch={currentEpoch}, threshold={threshold:F1}, remaining={events.Count})");
+            }
+
+            return pruned;
         }
 
         internal static void ClearEvents()
@@ -221,9 +281,39 @@ namespace Parsek
         /// Tries to get the committed science value for a subject.
         /// Returns false if the subject has not been committed.
         /// </summary>
+        /// <summary>
+        /// Returns a snapshot of committed subject IDs for iteration (e.g., by the
+        /// save recovery migration in <see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/>).
+        /// Returns a new list so callers can mutate the underlying store while iterating.
+        /// </summary>
+        internal static List<string> GetCommittedScienceSubjectIds()
+        {
+            return new List<string>(committedScienceSubjects.Keys);
+        }
+
         internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
         {
             return committedScienceSubjects.TryGetValue(subjectId, out science);
+        }
+
+        /// <summary>
+        /// Rebuilds the committed science subjects dictionary from the given
+        /// (subjectId, scienceAmount) pairs. Used after recording deletion or
+        /// ledger reconciliation to prune stale entries from deleted recordings.
+        /// </summary>
+        internal static void RebuildCommittedScienceSubjects(
+            IEnumerable<KeyValuePair<string, float>> subjectCredits)
+        {
+            int before = committedScienceSubjects.Count;
+            committedScienceSubjects.Clear();
+            int count = 0;
+            foreach (var kv in subjectCredits)
+            {
+                committedScienceSubjects[kv.Key] = kv.Value;
+                count++;
+            }
+            ParsekLog.Info("GameStateStore",
+                $"RebuildCommittedScienceSubjects: before={before}, rebuilt with {count} subjects");
         }
 
         internal static int CommittedScienceSubjectCount => committedScienceSubjects.Count;

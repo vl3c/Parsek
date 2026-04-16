@@ -123,10 +123,7 @@ GAME
 			autoMerge = False
 			verboseLogging = True
 			writeReadableSidecarMirrors = True
-			minSampleInterval = 0.2
-			maxSampleInterval = 3
-			velocityDirThreshold = 2
-			speedChangeThreshold = 5
+			samplingDensity = 1
 			autoLoopIntervalSeconds = 10
 			autoLoopTimeUnit = 0
 			ghostAudioVolume = 0.7

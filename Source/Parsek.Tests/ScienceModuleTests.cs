@@ -941,5 +941,141 @@ namespace Parsek.Tests
             });
             Assert.False(module.HasSeed);
         }
+
+        // ================================================================
+        // Milestone science reward — regression for codex [P2] on PR #307
+        // ================================================================
+
+        [Fact]
+        public void ProcessMilestoneScienceReward_Effective_CreditsPool()
+        {
+            var action = new GameAction
+            {
+                UT = 100,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "Kerbin/Science",
+                MilestoneScienceAwarded = 2.5f,
+                Effective = true
+            };
+
+            module.ProcessAction(action);
+
+            Assert.Equal(2.5, module.GetRunningScience(), 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("MilestoneAchievement science:") &&
+                l.Contains("Kerbin/Science"));
+        }
+
+        [Fact]
+        public void ProcessMilestoneScienceReward_NotEffective_SkipsCrediting()
+        {
+            // Duplicate milestone re-walks (after MilestonesModule zeros them) must not
+            // re-credit the pool.
+            var action = new GameAction
+            {
+                UT = 100,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "Kerbin/Science",
+                MilestoneScienceAwarded = 2.5f,
+                Effective = false
+            };
+
+            module.ProcessAction(action);
+
+            Assert.Equal(0.0, module.GetRunningScience(), 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("MilestoneAchievement science skipped (not effective)"));
+        }
+
+        [Fact]
+        public void ProcessMilestoneScienceReward_ZeroReward_NoOp()
+        {
+            // Non-science milestones (e.g. FirstLaunch with only funds/rep) must not log
+            // or change state.
+            var action = new GameAction
+            {
+                UT = 100,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                MilestoneFundsAwarded = 4000f,
+                MilestoneScienceAwarded = 0f,
+                Effective = true
+            };
+
+            module.ProcessAction(action);
+
+            Assert.Equal(0.0, module.GetRunningScience(), 3);
+        }
+
+        [Fact]
+        public void ProcessMilestoneScienceReward_StacksWithEarnings()
+        {
+            // Milestone science reward accumulates on top of regular ScienceEarning.
+            module.ProcessAction(MakeEarning(50, "crewReport@KerbinSrfLandedLaunchPad", 3f, 10f));
+            module.ProcessAction(new GameAction
+            {
+                UT = 100,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "Kerbin/Science",
+                MilestoneScienceAwarded = 2f,
+                Effective = true
+            });
+
+            Assert.Equal(5.0, module.GetRunningScience(), 3);
+        }
+
+        // ================================================================
+        // Regression: #399 — two ScienceSpending at same UT must both count
+        // ================================================================
+
+        [Fact]
+        public void ComputeTotalSpendings_TwoSpendingsSameUT_CountsBoth()
+        {
+            // Bug #399 suspected two ScienceSpending actions at the same UT with
+            // different nodeIds were collapsed to one. Verify both are counted.
+            var actions = new List<GameAction>
+            {
+                MakeSpending(420.54, "basicRocketry", 5f, 0),
+                MakeSpending(420.54, "engineering101", 5f, 1)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            Assert.Equal(10.0, module.GetTotalCommittedSpendings());
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("spendingCount=2") &&
+                l.Contains("totalCommittedSpendings="));
+        }
+
+        [Fact]
+        public void Recalculate_TwoScienceSpendingsSameUT_BothProcessed()
+        {
+            // Full integration through RecalculationEngine: seed 11.04, then two
+            // spendings of 5 each at the same UT. Final balance should be ~1.04.
+            RecalculationEngine.ClearModules();
+            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 0.0,
+                    Type = GameActionType.ScienceInitial,
+                    InitialScience = 11.04f
+                },
+                MakeSpending(420.54, "basicRocketry", 5f, 0),
+                MakeSpending(420.54, "engineering101", 5f, 1)
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(1.04, module.GetRunningScience(), 2);
+            Assert.Equal(10.0, module.GetTotalCommittedSpendings());
+
+            RecalculationEngine.ClearModules();
+        }
     }
 }

@@ -146,25 +146,29 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrajectoryMath",
-            Description = "Live ParsekSettings.minSampleInterval caps EVA-jitter sample rate (bug #256 regression guard)")]
+            Description = "Live sampling density preset caps EVA-jitter sample rate (bug #256 regression guard)")]
         public void MinSampleIntervalCapsEvaJitter()
         {
-            // Validates that the live game-loaded ParsekSettings.minSampleInterval is
-            // a sane non-zero value AND that ShouldRecordPoint with that value caps the
-            // simulated jitter pattern at the rate the floor allows. Regression guard
-            // for bug #256.
+            // Validates that the live game-loaded sampling density preset produces
+            // a sane non-zero minSampleInterval AND that ShouldRecordPoint with that
+            // value caps the simulated jitter pattern at the rate the floor allows.
+            // Regression guard for bug #256.
             //
             // Bounds are computed dynamically from the live minInterval so the test passes
-            // for any valid setting (0.05–1.0 s slider range), not just the default.
-            float minInterval = ParsekSettings.Current?.minSampleInterval ?? 0.2f;
+            // for any valid density level (Low/Medium/High), not just the default.
+            float minInterval = ParsekSettings.Current?.minSampleInterval
+                ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
             InGameAssert.IsGreaterThan(minInterval, 0.0f,
                 "minSampleInterval must be > 0 in the live game (bug #256 floor would be disabled)");
             InGameAssert.IsLessThan((double)minInterval, 1.01,
-                "minSampleInterval should be ≤ 1 second (anything larger conflicts with max-interval backstop)");
+                "minSampleInterval should be \u2264 1 second (anything larger conflicts with max-interval backstop)");
 
-            float maxInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
-            float velDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
-            float speedThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
+            float maxInterval = ParsekSettings.Current?.maxSampleInterval
+                ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            float velDirThreshold = ParsekSettings.Current?.velocityDirThreshold
+                ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
+            float speedThreshold = (ParsekSettings.Current?.speedChangeThreshold
+                ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
 
             // Simulate 50 frames at 50 Hz physics (~1 s) with a velocity vector that
             // rotates 2.86°/frame around the up axis. That's parity-independent of

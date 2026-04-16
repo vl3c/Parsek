@@ -5,9 +5,225 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 ---
 
+## Post-review follow-ups on PR #307 (career-earnings-bundle)
+
+After the initial 11-bug bundle landed on `fix/career-earnings-bundle`, an independent
+Codex review found four follow-up bugs my orchestration pipeline had missed. All four
+are fixed in the same PR branch with additional commits:
+
+- **Tree-commit science duplication** (`LedgerOrchestrator.cs`). `NotifyLedgerTreeCommitted`
+  re-read `PendingScienceSubjects` once per recording in the tree, so an N-recording tree
+  credited each subject N times. Fix: snapshot once at the top, pass to exactly one
+  recording via `PickScienceOwnerRecordingId` (highest `EndUT`, ties broken by
+  `ActiveRecordingId`), sibling recordings receive an empty sentinel. See bug #397.
+- **`DedupKey` not serialized** (`GameAction.cs`). KSC part-purchase dedup depended on
+  `DedupKey`, but `SerializeFundsSpending`/`DeserializeFundsSpending` never persisted it,
+  so reloads collapsed all KSC purchases to a single `""` key and
+  `TryRecoverBrokenLedgerOnLoad` re-synthesized the debits. Fix: round-trip the field,
+  2 regression tests. See bug #405.
+- **Contract advance never captured** (`GameStateRecorder.cs`, `GameStateEventConverter.cs`).
+  `OnContractAccepted` wrote title/deadline/fail-penalties into detail but skipped
+  `contract.FundsAdvance`, and `ConvertContractAccepted` had no `funds=` parser. The
+  downstream `GameAction.AdvanceFunds` + `FundsModule` consumption was already in place
+  but always saw zero. Fix: detail v3 format adds `funds=`, converter parses it, backward
+  compat preserved for v2 strings. See bug #405.
+- **Milestone science dropped** (`GameAction.cs`, `GameStateEventConverter.cs`,
+  `ScienceModule.cs`). `#400`'s fix wrote `sci=` into the milestone detail string but
+  `GameAction` had no `MilestoneScienceAwarded` field and `ConvertMilestoneAchieved` read
+  only funds/rep. Milestones with science rewards (Kerbin/Science, Kerbin/Landing, etc.)
+  produced zero ledger science credit. Fix: schema field added, serialized,
+  `ScienceModule.ProcessMilestoneScienceReward` consumes on effective-only actions,
+  reconciliation diagnostic counts it, Actions window displays it. See bug #400.
+
+---
+
+## Gloops Flight Recorder
+
+- **Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops Flight Recordings - Ghosts Only". Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation). Needs in-game verification when KSP is available.
+
+---
+
 # Known Bugs
 
-## 405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc
+## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
+
+**Source:** `#409` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#409` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
+
+**Concern:** for recordings that use a custom loop subrange (`LoopStartUT` / `LoopEndUT` narrower than `StartUT` / `EndUT`), three dispatch sites disagree with each other and with `WatchModeController`:
+
+| Site | Duration expression | Shape |
+|---|---|---|
+| `GhostPlaybackEngine.UpdateLoopingPlayback` (`GhostPlaybackEngine.cs:717-718`) | `traj.EndUT - EffectiveLoopStartUT(traj)` | **hybrid** — effective start, raw end |
+| `GhostPlaybackEngine.UpdateOverlapPlayback` (`GhostPlaybackEngine.cs:907`) | `GetActiveCycles(..., loopStartUT, traj.EndUT, ...)` via the hybrid parent | **hybrid** (inherited from parent + raw `traj.EndUT` in the GetActiveCycles bounds) |
+| `ParsekKSC` main dispatcher (`ParsekKSC.cs:175`) | `rec.EndUT - rec.StartUT` | **raw full range** |
+| `ParsekKSC.TryComputeLoopUT` (`ParsekKSC.cs:699-703`) | `EffectiveLoopEndUT - EffectiveLoopStartUT` | effective (correct) |
+| `WatchModeController.TryStartWatchSession` / `ResolveWatchPlaybackUT` (post-`#409`) | `EffectiveLoopDuration(rec)` | effective (correct) |
+
+Concrete divergence: take a 300s recording with loop subrange `[100, 200]` (effective duration = 100s) and `LoopIntervalSeconds = 80`.
+
+- `UpdateLoopingPlayback` sees `duration = 300 - 100 = 200`. `IsOverlapLoop(80, 200)` → **overlap** path.
+- `TryComputeLoopUT` (KSC single-ghost path) sees `duration = 100`. Pause-window check uses `100`.
+- `WatchModeController` (post-`#409`) sees `duration = 100`. `IsOverlapLoop(80, 100)` → **overlap** path.
+- `ParsekKSC` main dispatcher sees `duration = 300 - 0 = 300`. `IsOverlapLoop(80, 300)` → **overlap** path.
+
+The flight engine's overlap-vs-single decision and its pause-window/phase clamp are computed from a hybrid that silently lets playback run past the loop subrange's end into the post-loop portion of the recording. `UpdateOverlapPlayback` then calls `GetActiveCycles(..., loopStartUT, traj.EndUT, ...)` — which computes cycle bounds over the half-range — so the number of simultaneously active cycles is wrong whenever `EffectiveLoopEndUT < traj.EndUT`. `ParsekKSC`'s main dispatcher uses the raw full range, which flips to the overlap path even when the subrange makes `period >= effectiveDuration` and the single-ghost path would be correct.
+
+**Why it didn't get caught under `#381`:** loop subranges are a niche feature. The `#381` fix pass touched every call site's formula but kept the "which start/end fields to use" semantics identical to pre-`#381` — only the arithmetic on those fields changed. The raw-vs-effective asymmetry predates both `#381` and `#409`.
+
+**Proposed fix:**
+
+1. Centralize "effective loop duration" via the existing `GhostPlaybackEngine.EffectiveLoopDuration` helper (already added for `#409`). No new API.
+2. Rewrite `UpdateLoopingPlayback` line 717-718:
+   ```csharp
+   double loopStartUT = EffectiveLoopStartUT(traj);
+   double duration = EffectiveLoopDuration(traj);
+   ```
+3. Rewrite `UpdateOverlapPlayback` line 907 to pass `EffectiveLoopEndUT(traj)` as the cycle bound (not `traj.EndUT`). Also verify the `primaryCycleStartUT = loopStartUT + lastCycle * cycleDuration` reference is correct after the fix — `loopStartUT` already comes from `EffectiveLoopStartUT`, so the reference frame is consistent.
+4. Rewrite `ParsekKSC.cs:175` to use `EffectiveLoopDuration(rec)` for the overlap-vs-single decision, matching `TryComputeLoopUT` which already uses the effective range. This aligns the main KSC dispatcher with its own single-ghost helper.
+5. Audit `GetActiveCycles` callers elsewhere in the engine for any other `(rec.StartUT, rec.EndUT)` vs `(loopStartUT, loopEndUT)` pair.
+6. `UpdateExpireAndPositionOverlaps` takes `duration` and `loopStartUT` as parameters — verify the parameters are still correct after the parent rewrites (should just be the new effective duration + effective start, same variable names).
+
+**Tests:**
+
+- Unit: extend `GhostPlaybackEngineTests` with a `UpdateLoopingPlayback_LoopSubrange_UsesEffectiveDuration` integration case that asserts the overlap decision agrees with `EffectiveLoopDuration` and not `traj.EndUT - loopStartUT`. Can be pure-static if we lift the decision logic into a helper.
+- Unit: extend `KscGhostPlaybackTests` with the same LoopSubrange overlap-decision guard for `ParsekKSC.cs:175`.
+- In-game: create a synthetic recording with a real loop subrange (e.g. `WithLoop(period=80)` + `LoopStartUT=100, LoopEndUT=200` inside a `[0, 300]` range), enable loop playback, and verify:
+  - The ghost restarts at `loopStartUT=100`, not `0`.
+  - Playback ends at `loopEndUT=200`, not `300` (no playback past the subrange).
+  - At period=80 (< effective duration 100), the user sees overlapping ghosts.
+  - At period=110 (> effective duration 100), the user sees single-ghost with a pause window.
+  - The same recording, opened from KSC (tracking station) instead of flight, shows the same number of active ghosts and the same pause behavior.
+
+**Files to touch:**
+
+- `Source/Parsek/GhostPlaybackEngine.cs` — `UpdateLoopingPlayback`, `UpdateOverlapPlayback`, `UpdateExpireAndPositionOverlaps` (param audit).
+- `Source/Parsek/ParsekKSC.cs` — main dispatcher line 175.
+- `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` — loop-subrange dispatch tests.
+- `Source/Parsek.Tests/KscGhostPlaybackTests.cs` — loop-subrange dispatch tests.
+- `CHANGELOG.md` and this entry on completion.
+
+**Status:** ~~Fixed~~. Size: S-M. Not a regression — the behavior predates `#381`. `#409` fixed the watch-mode half of the same drift; this closes out the remaining flight/KSC range math.
+
+**Fix:** Initial landing in `eba44b1b` rewrote the three core dispatch sites (`GhostPlaybackEngine.UpdateLoopingPlayback` now branches on `EffectiveLoopDuration(traj)`; `UpdateOverlapPlayback` bounds `GetActiveCycles` on `EffectiveLoopEndUT(traj)`; `ParsekKSC` main dispatcher uses `EffectiveLoopDuration(rec)`) and completed the KSC audit by anchoring `UpdateOverlapKsc`'s activation, cycle starts, phase clamping, and active-cycle selection on `EffectiveLoopStartUT`/`EffectiveLoopEndUT` instead of raw `rec.StartUT`/`rec.EndUT`.
+
+In-game and review-driven follow-ups then closed out the rest of the raw-vs-effective drift across the entire loop subsystem:
+
+- **`14ae6ba3` Legacy loop migration + runtime epsilon.** Added `GhostPlaybackEngine.ConvertLegacyGapToLoopPeriodSeconds` (later renamed `TryConvertLegacyGapToLoopPeriodSeconds`) to upgrade pre-`#381` negative-gap saves to `effectiveDuration + legacyGap`. Fixed the load order in both `ParsekScenario.LoadRecordingMetadata` and `RecordingTree.LoadRecordingFrom` so `loopStartUT`/`loopEndUT` parse before `loopIntervalSeconds` (the migration needs the subrange). Extended `GhostPlaybackLogic.BoundaryEpsilon` to the live `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (instance) and `ParsekKSC.TryComputeLoopUT` — the original `#410` fix only touched the static helpers, missing the runtime schedulers that the playback engine actually calls each frame.
+- **`1df9d119` Loop-end teardown for subrange playback.** New `GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(traj) = EffectiveLoopEndUT(traj)` helper and new `PositionGhostAtLoopEndpoint` (flight + KSC versions). Every pause-window / cycle-change / overlap-expire / destroyed-explosion position path that used to position at the raw `rec.Points[last]` now positions at the effective loop end, so ghosts no longer play past the subrange into the post-loop portion of the recording.
+- **`1c0c5339` Loop destruction timing.** New shared `GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(traj, playbackUT)` helper unifies the "should we fire the destroyed-vessel explosion at this UT?" decision across six duplicated call sites in the flight engine and KSC dispatcher, using `ResolveLoopPlaybackEndpointUT` instead of raw `traj.EndUT`. Fixes a timing bug where loop-subrange recordings with `TerminalState.Destroyed` were exploding at the wrong UT.
+- **`33371d4b` Legacy tree migration + quiet overlap handoff.** Introduced `RecordingStore.LaunchToLaunchLoopIntervalFormatVersion = 4`; bumped `CurrentRecordingFormatVersion` from 3 → 4. `ConvertLegacy...` became `TryConvertLegacy...` (returns false when duration isn't hydrated). Deferred migration via new `RecordingStore.MigrateLegacyLoopIntervalAfterHydration` fires after sidecar load with the real duration. `UpdateExpireAndPositionOverlaps` now fires `ExplosionHoldEnd` instead of `ExplosionHoldStart` for non-destroyed overlap cycle expiries, so the watch camera bridge doesn't stall waiting for an explosion that never comes.
+- **`6034853b` Deferred migration + bridge retry.** Dropped the `LoopIntervalSeconds >= 0` early-exit from `MigrateLegacyLoopIntervalAfterHydration` (was rejecting migrations that happened to land on a non-negative result). Added `NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec)` to bump the format version to 4 after a successful migration so the same recording doesn't re-migrate on the next load. Added the overlap camera-bridge retry state machine: `OverlapBridgeRetargetState.ExitWatch`, `MaxPendingOverlapBridgeFrames = 3`, Unity-safe object helpers, and a bounded retry budget so the watch camera exits cleanly if the primary ghost never returns.
+- **`ba5f57ab` Sidecar loop version persistence.** `TrajectorySidecarBinary` now distinguishes `SparsePointBinaryVersion = 3` (actual binary layout) from `CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion = 4` (metadata semantic). Load accepts v2/v3/v4; save emits v4 for any recording at `RecordingFormatVersion >= 4`. Without this, the v4 migration couldn't persist through sidecar round-trips.
+- **`9308c7cd` Overlap bridge retry accounting.** New `overlapBridgeLastRetryFrame` per-session field + `AdvanceOverlapBridgeWaitFrames` helper prevents the retry budget from being consumed twice per frame. Reset at all camera-event cleanup sites and in `ResetWatchState`.
+- **`14bf03fb` Test/CHANGELOG alignment.** `FormatVersionTests` updated to assert v4; `RecordingStoreTests.RecordingMetadata_Load_MissingFields_*` updated for the "missing field = legacy v0" contract; CHANGELOG `#381` entry rewritten to reflect the full version-migration behavior instead of the original "clamped to 1 second" wording.
+- **Final review fix (v4 sidecar demotion).** `TrajectorySidecarBinary.Read` was unconditionally assigning `rec.RecordingFormatVersion = probe.FormatVersion`, which demoted any just-stamped v4 (from the tree-load migration with explicit bounds) back to v3 — causing `MigrateLegacyLoopIntervalAfterHydration` to fire a SECOND time and double the period. The fix is a one-line promote-only guard at `TrajectorySidecarBinary.cs:195`. Regression test `LoopRange_Tree_Load_LegacyWithExplicitBoundsAndSidecar_MigratesOnceNotTwice` in `LoopAnchorTests` exercises the full path: tree node with `explicitStartUT`/`explicitEndUT` + v3 sidecar → migration fires at tree-load time → sidecar load must NOT re-migrate. Without the fix, `loaded.LoopIntervalSeconds` would jump from 110 to 210 on sidecar hydration.
+
+Targeted verification across all follow-ups: `dotnet test Source\Parsek.Tests\Parsek.Tests.csproj` → 6241 passed / 0 failed / 1 skipped (the pre-existing Unity-runtime `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` skip tracked as `#380`).
+
+---
+
+## ~~410. `ComputeLoopPhaseFromUT` and `TryComputeLoopPlaybackUT` disagree at the exact `phase == duration` boundary~~
+
+**Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — the inconsistency predates the refactor, but both helpers now share the same cycleDuration formula, so the divergence is easier to reason about.
+
+**Concern:** the two helpers in `Source/Parsek/GhostPlaybackLogic.cs` describe the same playback model but disagree on what happens when a cycle's elapsed phase equals its recording duration exactly:
+
+| Helper | Check | At `phase == duration` |
+|---|---|---|
+| `ComputeLoopPhaseFromUT` (~line 372) | `if (phaseInCycle < duration)` (strict) | falls through to pause branch → "in pause window" |
+| `TryComputeLoopPlaybackUT` (~line 167) | `if (phase > duration + epsilon) return false` | stays in playback branch → "not in pause" |
+
+An existing test `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` locks in the strict-less-than behavior of `ComputeLoopPhaseFromUT`.
+
+**Why it matters:** callers that query both helpers within the same frame (e.g. watch-mode that asks `ComputeLoopPhaseFromUT` for a display phase and `TryComputeLoopPlaybackUT` for a playback UT) can observe a "playing → paused → playing" flicker at the single physics frame where `currentUT - cycleStart` lands exactly on `duration`. In practice the window is narrow (floating-point UT arithmetic rarely produces exact equality for long), but when it does hit, the ghost visual blips.
+
+**Proposed fix:** pick a consistent rule. The epsilon-tolerant version in `TryComputeLoopPlaybackUT` is safer under floating-point UT math, so the cleaner direction is:
+
+1. Rewrite `ComputeLoopPhaseFromUT` to use `phaseInCycle < duration - epsilon` (or equivalently, the pause branch fires on `phaseInCycle >= duration - epsilon`).
+2. Add the same `const double epsilon = 1e-6` that `TryComputeLoopPlaybackUT` uses, or lift it to a shared `MinCycleEpsilon` on `GhostPlaybackLogic`.
+3. Rewrite `AtRecordingEnd_BoundaryEntersPause` to verify the epsilon-inclusive boundary — the test should still pass with `phaseInCycle = duration` mapping to pause under `phaseInCycle >= duration - epsilon`, so the rename is cosmetic; but add a new test `AtRecordingEnd_JustBeforeBoundary_StaysPlaying` with `phaseInCycle = duration - 2*epsilon` to lock in the tolerant-but-still-strict behavior.
+
+**Files to touch:**
+
+- `Source/Parsek/GhostPlaybackLogic.cs` (`ComputeLoopPhaseFromUT`, epsilon constant)
+- `Source/Parsek.Tests/LoopPhaseTests.cs` (`AtRecordingEnd_BoundaryEntersPause` + new test)
+
+**Status:** ~~Fixed~~. Size: XS.
+
+**Fix:** Added a shared `GhostPlaybackLogic.BoundaryEpsilon = 1e-6` constant. Rewrote `ComputeLoopPhaseFromUT`'s playback/pause gate as `phaseInCycle <= duration + BoundaryEpsilon` (matching the epsilon-tolerant form already used by `TryComputeLoopPlaybackUT`). At the exact boundary, both helpers now report "still playing the final frame, loopUT=endUT" — the ghost visual lands at `recordingEndUT` either way, but the `isInPause` flag agrees across helpers, eliminating the one-frame flicker. `TryComputeLoopPlaybackUT` now references `BoundaryEpsilon` instead of its own inline `const double epsilon = 1e-6`. Rewrote `LoopPhaseTests.AtRecordingEnd_BoundaryEntersPause` → `_ExactBoundary_StaysInPlayback`, added `_JustPastBoundary_StaysInPlaybackWithinEpsilon` and `_BeyondEpsilon_EntersPause`, and added a new `BoundaryConsistency_WithTryComputeLoopPlaybackUT` cross-helper consistency assertion.
+
+---
+
+## ~~409. `ResolveWatchPlaybackUT` uses `rec.EndUT - rec.StartUT` while `TryStartWatchSession` uses `EffectiveLoopEndUT - EffectiveLoopStartUT` for the same overlap decision~~
+
+**Source:** surfaced during the `#381` (launch-to-launch loop semantics) review pass `2026-04-15`. Not introduced by `#381` — both sites predate the refactor — but `#381` makes the mismatch matter because both dispatches now depend on `IsOverlapLoop(interval, duration)`, so the `duration` value they compute is load-bearing.
+
+**Concern:** two sites in `Source/Parsek/WatchModeController.cs` ask the same question — "should I take the overlap / multi-cycle dispatch path?" — but compute `duration` differently:
+
+| Site | Duration expression | Respects loop subrange? |
+|---|---|---|
+| `TryStartWatchSession` (~line 1344) | `watchRecDuration = GhostPlaybackEngine.EffectiveLoopEndUT(rec) - GhostPlaybackEngine.EffectiveLoopStartUT(rec)` | yes |
+| `ResolveWatchPlaybackUT` (~line 2589) | `duration = rec.EndUT - rec.StartUT` | no |
+
+Under pre-`#381` semantics both sites dispatched on `intervalSeconds < 0`, so `duration` did not participate in the check — the mismatch was dormant. Under `#381`, both dispatch on `GhostPlaybackLogic.IsOverlapLoop(interval, duration)`, and the two sites can disagree.
+
+**Concrete reproducing case:** a 600s recording with a 60s loop subrange (`LoopStartUT`/`LoopEndUT` set to a 60-second window inside the recording) and `LoopIntervalSeconds = 80`:
+
+- `TryStartWatchSession`: `IsOverlapLoop(80, 60) → 80 < 60 → false` → single-ghost dispatch.
+- `ResolveWatchPlaybackUT`: `IsOverlapLoop(80, 600) → 80 < 600 → true` → multi-cycle overlap dispatch.
+
+Watch mode enters via one code path, UT resolution uses the other — positioning drifts from the animation state. Expected symptom: the ghost visual shows one cycle playing while the `loopPhaseOffsets` / `loopCycleIndex` book-keeping thinks multiple cycles are live, producing stale `cycleStartUT` computations after the first cycle boundary.
+
+**Proposed fix:**
+
+1. Centralize the "effective loop duration" computation in a helper on `GhostPlaybackLogic` or `GhostPlaybackEngine` — e.g. `internal static double EffectiveLoopDuration(IPlaybackTrajectory rec) => EffectiveLoopEndUT(rec) - EffectiveLoopStartUT(rec);`. Reuse it at every site that asks "how long is one cycle?"
+2. Switch `ResolveWatchPlaybackUT`'s `duration` local to use the new helper.
+3. Audit `GhostPlaybackEngine`, `ParsekKSC`, and `WatchModeController` for any other site that computes `rec.EndUT - rec.StartUT` near a loop-dispatch check — the same drift can hide elsewhere.
+4. Add an integration test: construct a mock trajectory with `LoopStartUT/LoopEndUT` narrower than `StartUT/EndUT`, call both `TryStartWatchSession`'s overlap check and `ResolveWatchPlaybackUT`'s overlap check with the same interval, assert they return the same decision.
+
+**Files to touch:**
+
+- `Source/Parsek/WatchModeController.cs` (`ResolveWatchPlaybackUT`, line ~2589)
+- `Source/Parsek/GhostPlaybackLogic.cs` or `GhostPlaybackEngine.cs` (new helper)
+- Possibly `Source/Parsek/ParsekKSC.cs` (audit for the same pattern)
+- `Source/Parsek.Tests/` (new integration test covering the dispatch-parity case)
+
+**Status:** ~~Fixed~~. Size: S.
+
+**Fix:** Added a shared `GhostPlaybackEngine.EffectiveLoopDuration(traj) = EffectiveLoopEndUT(traj) - EffectiveLoopStartUT(traj)` helper. Added a pure-static `GhostPlaybackLogic.ComputeOverlapCycleLoopUT(currentUT, loopStartUT, duration, intervalSeconds, loopCycleIndex)` that encapsulates the overlap-cycle UT math with phase clamping, so the watch sites no longer duplicate it inline. Rewrote `WatchModeController.ResolveWatchPlaybackUT` to use `EffectiveLoopStartUT` + `EffectiveLoopDuration` as the cycle reference frame (was `rec.StartUT` + raw full-range duration) and to delegate the arithmetic to the new helper. Updated `WatchModeController.TryStartWatchSession` to call the shared `EffectiveLoopDuration` too, so both sites read the same formula. Added tests `EffectiveLoopDuration_NoSubrange_EqualsFullRange`, `_WithSubrange_EqualsSubrange`, `_SubrangeAndFullRange_OverlapDecisionDiffers` (the regression guard — asserts that a 50s subrange + 80s period would disagree between the raw-range and effective-range dispatch), and five `ComputeOverlapCycleLoopUT_*` tests covering cycle 0, higher cycles, phase clamping (both ends), and defensive negative-interval clamping.
+
+**Out of scope (follow-up):** tracked as `#411`. The playback engine's `UpdateLoopingPlayback` / `UpdateOverlapPlayback` and `ParsekKSC`'s main dispatcher still compute "duration" from raw/hybrid ranges instead of `EffectiveLoopDuration`. Predates `#381`, closes out the drift engine-wide, needs in-game validation on a save with a real loop subrange.
+
+---
+
+## ~~406. CRITICAL: map-view framerate collapses with many looping showcase ghosts because every loop-cycle rebuild runs the full reentry FX build pipeline even for stationary part showcases~~
+
+**Source:** `test career` playtest `2026-04-15` (logs `logs/2026-04-15_2034_showcase-loop-perf/`). Player opened flight map view with ~260 active showcase loops; FPS tanked. The `[Parsek][WARN][Diagnostics] Playback frame budget exceeded: 12.3ms (259 ghosts, warp: 1x) | suppressed=106` line proves the `GhostPlaybackEngine.UpdatePlayback` path alone was blowing the 8 ms budget on most frames, *before* any map OnGUI/icon render. 265 primary ghost audio sources paused on ESC (`PauseAllGhostAudio: paused 265 primary + 0 overlap`) confirms the active ghost count. `PauseAllGhostAudio`-scale log spam of `combined 7 meshes into emission shape (4346 verts) for ghost #N | suppressed=839` confirms the reentry FX mesh-combine was firing many hundreds of times per rate-limit window.
+
+**Root cause:** `GhostPlaybackEngine.TryPopulateGhostVisuals` (call site was `GhostPlaybackEngine.cs:1949`) called `GhostVisualBuilder.TryBuildReentryFx` unconditionally on every ghost build. Ghost builds happen on loop-cycle boundaries because the engine destroys + respawns the ghost (`DestroyGhost(reason: "loop cycle boundary")` followed by `SpawnGhost`, triggered by `HasLoopCycleChanged`). `TryBuildReentryFx` per call allocates:
+
+1. Combined emission `Mesh` (`CombineMeshes` on every MeshFilter in the ghost hierarchy),
+2. A `ParticleSystem` (`ReentryFire`) with runtime-generated soft-circle texture + additive material,
+3. Fire shell overlay `MaterialPropertyBlock` + material clone,
+4. Cloned glow materials for every renderer on the ghost via `CollectReentryGlowMaterials`.
+
+For stationary part showcases (lights, solar panels, antennae sitting on KSC ground), reentry is physically impossible — `ComputeReentryIntensity` requires Mach ≥ 2.5 and density ≥ 0.0015 kg/m³. The build work is pure waste, and it was being paid hundreds of times per second across the looping fleet.
+
+**Fix (PR #309):**
+
+1. New pure static helper `TrajectoryMath.HasReentryPotential(IPlaybackTrajectory)` — returns `true` iff the trajectory has any orbit segments OR any recorded trajectory point has velocity magnitude at or above `TrajectoryMath.ReentryPotentialSpeedFloor` (`400 m/s`). 400 m/s is well under Mach 1.5 on every stock body, so the gate cannot hide any real reentry heating. Orbit segments are always considered high-speed because de-orbit happens at ~2300 m/s.
+2. `GhostPlaybackEngine.TryPopulateGhostVisuals` now gates the `TryBuildReentryFx` call behind `HasReentryPotential`. When skipped, `state.reentryFxInfo` stays `null`; all downstream paths already null-guard (`UpdateReentryFx` early-returns at `GhostPlaybackEngine.cs:1395`, `RebuildReentryMeshes` early-returns at `GhostVisualBuilder.cs:6311`, `DestroyReentryFxResources` early-returns at `GhostPlaybackEngine.cs:2577`, `ParsekKSC.cs:519` already documents this pattern).
+3. Matching gate in the `ParsekFlight` preview path (`ParsekFlight.cs:7407`) so manual preview playback gets the same savings.
+4. New session counters `DiagnosticsState.health.reentryFxBuildsThisSession` / `reentryFxSkippedThisSession` make the gate visible in the live diagnostics stream, and a rate-limited `ReentryFx` `Verbose` log line announces each skip with the ghost index, vessel name, and reason.
+5. Unit tests `ReentryPotentialTests` (15 cases) cover: null trajectory, empty, stationary showcase, EVA walk, 200 m/s Flea hop, just-below-floor, at-floor, fast suborbital point, diagonal magnitude, orbit-segment-only recordings, speed floor constant, and the NaN / +Infinity / null-`Points` input edges added in the Opus review follow-up.
+
+**Expected impact:** for the 259-ghost showcase scenario in the smoking-gun logs, ~250 of those ghosts are stationary KSC showcases whose `reentryFxInfo` now stays `null` permanently. The mesh-combine + ParticleSystem + cloned-material allocation is skipped on every loop-cycle rebuild, eliminating the dominant cost in `UpdatePlayback` and taking the playback frame cost back below the 8 ms budget threshold. Only genuine flight recordings (Suborbital Arc, Orbit-1, Kerbin Ascent, etc.) still pay the build cost, and they pay it correctly.
+
+**Status:** fix landed on branch `investigate-showcase-loop-perf`. Follow-up candidates (not in this PR): reuse ghost GameObject across loop cycles instead of destroy/rebuild (would eliminate the remaining per-cycle material/audio clone cost); gate hidden-tier prewarm by reentry potential too.
+
+---
+
+## ~~405. CRITICAL: career-mode contract accept/complete/fail/cancel events and `PartPurchased` never reach the ledger — `PatchContracts` destroys active contracts on every recalc~~
 
 **Source:** c1 career-mode playtest `2026-04-15` (logs `logs/2026-04-15_0005_c1-career-bugs/`). Player accepted 2 contracts at UT ≈ 412.9 (`Test RT-5 "Flea"` and `Test LV-T45 "Swivel"` at launch site), both captured by `GameStateRecorder.OnContractAccepted` and written to `events.pgse`, both unconditionally destroyed by the next `PatchContracts` pass. Ledger at end of session has **zero** `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, or `FundsSpending (PartPurchased)` actions.
 
@@ -42,18 +258,13 @@ Log evidence (c1 session, the smoking gun):
 
 c1 `events.pgse` has **47 ContractOffered + 2 ContractAccepted + 8 PartPurchased** events; c1 `ledger.pgld` has **zero** of the corresponding actions. This is the same "store says yes, ledger says no, patcher drags KSP to match ledger" anti-pattern as `#397` but for the KSC event pipeline instead of the `PendingScienceSubjects` pipeline.
 
-**Fix direction (paired with `#404`):**
+**Fix:** Added `if (!IsFlightScene()) LedgerOrchestrator.OnKscSpending(evt);` to `OnContractAccepted`, `OnContractCompleted`, `OnContractFailed`, `OnContractCancelled`, and `OnPartPurchased` in `Source/Parsek/GameStateRecorder.cs`. Contract events now flow through the existing `GameStateEventConverter.ConvertContractAccepted/Completed/Failed/Cancelled` dispatch, and `OnPartPurchased` relies on the new `DedupKey` field (see §F of `career-earnings-bundle.md`) to avoid collisions between multiple part purchases at similar UTs. Regression tests in `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
 
-1. Add `if (!IsFlightScene()) LedgerOrchestrator.OnKscSpending(evt);` to `OnContractAccepted`, `OnContractCompleted`, `OnContractFailed`, `OnContractCancelled`, and `OnPartPurchased`. One-line addition per handler.
-2. Verify `LedgerOrchestrator.OnKscSpending` dispatches the contract event types correctly (`GameStateEventConverter.ConvertContractAccepted/Completed/Failed/Cancelled` already exist and work — lines 319, 372, 407, 432).
-3. Regression test: integration test that (a) mocks a `ContractAccepted` event with a known contract id, (b) calls `GameStateRecorder.OnContractAccepted` (or a test-visible wrapper), (c) asserts the ledger gained a `ContractAccept` action with the matching id. Same shape for the other four handlers.
-4. Consider: should `PatchContracts` also *warn* when it's about to clear KSP contracts that have no matching ledger action, so the next time this happens the log shouts instead of whispers `VERBOSE`?
-
-**Status:** TODO. **Critical — blocks career-mode saves.** Depends on nothing; should ship in the same PR as `#397`, `#403`, and `#404` as a "career-mode earnings pipeline" fix bundle.
+**Status:** ~~Fixed~~
 
 ---
 
-## 404. `PatchContracts` unconditionally clears KSP's `ContractsFinished` list and `Offered` contracts, neither of which the ledger tracks
+## ~~404. `PatchContracts` unconditionally clears KSP's `ContractsFinished` list and `Offered` contracts, neither of which the ledger tracks~~
 
 **Source:** same c1 playtest as `#405`.
 
@@ -80,17 +291,13 @@ Then step 3 only restores contracts whose IDs come from `ContractsModule.GetActi
 
 Log evidence — same 7 offered contracts appear at 3 different UTs (lines 9369-9382 at ut=52.6; 9829-9842 at ut=204.0; 10974-10987 at ut=395.6; 11744-11761 at ut=420.5) — that's not 28 unique contracts, it's 7 unique contracts that `ContractSystem` kept regenerating after each `PatchContracts` wipe.
 
-**Fix direction:**
+**Fix:** Replaced the destructive `currentContracts.Clear()` + `ContractsFinished.Clear()` in `Source/Parsek/GameActions/KspStatePatcher.cs` `PatchContracts` with a filtered partition. Only Active contracts whose id is NOT in the ledger's active set are removed; non-Active entries (Offered/Declined/Cancelled/Failed/Completed) stay untouched, and `ContractsFinished` is never mutated. Active contracts already in the ledger are preserved in place (no unregister/recreate cycle), which also closes the `ContractOffered` regeneration loop that caused #398. Filtering extracted into the testable `KspStatePatcher.PartitionContractsForPatch` helper. Tests in `Source/Parsek.Tests/PatchContractsPreservationTests.cs`.
 
-1. **Minimal:** in step 2, change `currentContracts.Clear()` to a filtered remove that only touches `Contract.State.Active` entries; leave `Offered` / `Declined` / `Failed` / `Cancelled` states alone. The subsequent restore still repopulates the Active bucket from ledger snapshots.
-2. **`ContractsFinished`:** do not clear. KSP's own `Clear() + Load()` path for finished contracts is a save-file concern, not a Parsek-walk concern. Parsek should treat `ContractsFinished` as append-only game history that Parsek does not mutate, at least until `#405` is fixed and a matching module walk can reason about it.
-3. Add a log-assertion test that after `PatchContracts` runs on a freshly-loaded career save with 7 offered contracts, the offered list still contains 7 entries (or equivalently, `Offered` state count is unchanged).
-
-**Status:** TODO. **Critical** when paired with `#405`. Fix in the same bundle.
+**Status:** ~~Fixed~~
 
 ---
 
-## 403. Career-mode `FundsEarning` and `ReputationEarning` actions are never emitted — running totals stuck at seed for the entire timeline
+## ~~403. Career-mode `FundsEarning` and `ReputationEarning` actions are never emitted — running totals stuck at seed for the entire timeline~~
 
 **Source:** same c1 playtest as `#405`.
 
@@ -104,17 +311,13 @@ The `FundsModule.totalEarnings` field (`FundsModule.cs:49`) stays at `0` for the
 
 The `ScienceChanged` channel has a partial parallel path (`OnScienceReceived → PendingScienceSubjects → ConvertScienceSubjects → ScienceEarning`), but that path is broken by `#397`. The `FundsChanged` and `ReputationChanged` channels have no parallel path at all.
 
-**Fix direction:**
+**Fix:** No code change — the missing earnings were a composite symptom of #405 (contract events not reaching the ledger), #404 (contracts destroyed on recalc), #400 (milestones hardcoded to zero rewards), and the existing `CreateVesselCostActions` recovery path not being misdiagnosed after all. The review (§1.3) verified `CreateVesselCostActions` correctly emits `FundsEarning(Recovery)` whenever `TerminalStateValue == Recovered`; the todo's "silently bails" claim was wrong. Regression guard added in `Source/Parsek.Tests/VesselCostRecoveryRegressionTests.cs` so future refactors can't drop the recovery emission without a red test. The drop block in `GameStateEventConverter.cs:121-130` stays as-is; re-emitting `FundsChanged` would double-count against recovery + contract + milestone channels (see `career-earnings-bundle-review.md` §5.1). The new `LedgerOrchestrator.ReconcileEarningsWindow` diagnostic (#394) surfaces any future regressions loudly at commit time.
 
-1. **Capture-side:** replace the hardcoded `0` in `OnProgressComplete` with a pre/post delta on `Funding.Instance.Funds` and `Reputation.Instance.reputation`. A `GameEvents.Contract.onRewardsCollected` or equivalent prefix/postfix hook may be needed since `OnProgressComplete` fires *after* KSP applies the reward; a simpler alternative is to snapshot `Funding.Instance.Funds` inside `OnScienceReceived`-style prefix and read it again in the postfix.
-2. **Convert-side for recovery:** the existing `CreateVesselCostActions` in `LedgerOrchestrator.cs:220+` is supposed to inject `FundsEarning (Recovery)` and `FundsSpending (VesselBuild)` from recording point data. Confirm it runs for the committed recordings and emits actions; c1's ledger has no `FundsEarning` or `FundsSpending (VesselBuild)` entries, which suggests it's silently bailing (possibly `rec.Points.Count == 0` guard at line 232, or `PreLaunchFunds` not set).
-3. **Contract rewards:** covered by `#405`'s fix — once `ContractComplete` actions enter the ledger, `ConvertContractCompleted` extracts `fundsReward`/`repReward`/`sciReward` from the event detail correctly.
-
-**Status:** TODO. **Critical** — second-order consequence of `#397` / `#405`, but with distinct root causes in its own right. Must ship in the same PR bundle.
+**Status:** ~~Fixed~~
 
 ---
 
-## 402. `PatchFunds` drags KSP's fund balance down to 0 every recalc (visible symptom of `#403`)
+## ~~402. `PatchFunds` drags KSP's fund balance down to 0 every recalc (visible symptom of `#403`)~~
 
 **Source:** same c1 playtest as `#405`. The player-facing symptom: **funds slider reads 0 within seconds of any scene transition or commit**.
 
@@ -131,13 +334,13 @@ Log evidence:
 
 The `affordable=False` on every kerbal hire (lines 11718-11724) is a cascading diagnostic — the `KerbalsModule` / `FundsModule` reservation check thinks the player couldn't afford the seven kerbals they demonstrably did hire, because the walk starts from a running balance that's already negative due to missing `FundsEarning` actions.
 
-**Fix direction:** same as `#397` for the science side — `PatchFunds` should be a no-op (not a "correct to match ledger") call when the ledger's running funds total is less than the current KSP funds value *and* `FundsModule.HasSeed` is true. Alternatively, once `#403` is fixed the ledger will actually have correct earnings and the clamp-to-zero will stop firing. Defensive option: add a sanity check before `AddFunds(delta)` — if `delta < 0 && Math.Abs(delta) > 0.1 * current` (i.e., Parsek wants to remove more than 10% of the pool in a single call), log a `WARN` before applying, and consider requiring explicit `HasEarnings` confirmation.
+**Fix:** Added a defensive WARN to `Source/Parsek/GameActions/KspStatePatcher.cs` `PatchFunds` and `PatchScience` that fires when a single recalc removes more than 10% of a non-trivial resource pool (>1000). This is log-only — legitimate revert walks can subtract large amounts — but the shape of a missing earning channel always produces a >10% drop, so the diagnostic is a cheap tripwire. The threshold check is extracted into `KspStatePatcher.IsSuspiciousDrawdown` for unit testing. The underlying symptom is resolved by the #405/#404/#400 fixes landing in this bundle. Tests in `Source/Parsek.Tests/PatchFundsSanityTests.cs`.
 
-**Status:** TODO. Will be fixed incidentally when `#403` is fixed, but the defensive-sanity warning is a cheap addition worth shipping independently.
+**Status:** ~~Fixed~~
 
 ---
 
-## 401. c1 career save needs one-shot funds/contract recovery after `#403`/`#405` land
+## ~~401. c1 career save needs one-shot funds/contract recovery after `#403`/`#405` land~~
 
 **Source:** same playtest as `#405`. The c1 save (`saves/c1/Parsek/GameState/{events.pgse, ledger.pgld}`) is in a broken state that fixing the code forward will not repair.
 
@@ -154,17 +357,15 @@ c1 `ledger.pgld` has only 14 actions: `FundsInitial(25000)`, `ScienceInitial(11.
 
 Once `#403`/`#405` are fixed forward, loading the c1 save will still see `FundsModule.totalEarnings = 0` and `Contract` list as empty, because `OnKspLoad` doesn't re-synthesize missing actions from the store. The funds pool will still be dragged to 0 on the first `PatchFunds` call and the player's accepted contracts will still be missing from Mission Control.
 
-**Fix direction:** see `#396` (the sci1 recovery proposal) — same shape. `LedgerOrchestrator.OnKspLoad` should detect the "store has events that would have produced actions but ledger has zero matching actions" divergence and synthesize the missing actions on load. For c1 specifically, this means:
+**Fix:** Added `LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad` which walks `GameStateStore.Events` and synthesizes missing `ContractAccept/Complete/Fail/Cancel` and `FundsSpending(PartPurchased)` actions for any event that has no matching ledger action. Called from `ParsekScenario.OnLoad` after the epoch is restored from the save file, and only when not rewinding. Respects `MilestoneStore.CurrentEpoch` (per `career-earnings-bundle-review.md` §5.6) so old-branch events don't leak into the new epoch. Idempotent via `LedgerOrchestrator.LedgerHasMatchingAction`. Automatic recalc runs after recovery so the derived state heals. Tests in `Source/Parsek.Tests/LedgerRecoveryMigrationTests.cs`.
 
-- For each `ContractAccepted` event in the store with no matching `ContractAccept` action in the ledger, emit one `ContractAccept` via `ConvertContractAccepted` (using the stored contract snapshot for the `KspStatePatcher` restore path).
-- Same for `ContractCompleted`/`Failed`/`Cancelled` and `PartPurchased`.
-- Milestone rewards (`#400`): use stored `milestoneFundsAwarded`/`milestoneRepAwarded` if populated; otherwise leave as 0 and accept the funds drain as historical.
+**Follow-up / known limitation:** the ledger recovery migration in §K covers contract events and science subjects only; extend `IsRecoverableEventType` if a future broken save surfaces with stale `CrewHired`, `TechResearched`, or `FacilityUpgraded` actions. Those real-time `OnKscSpending` paths were never broken, so c1/sci1 did not need them synthesized.
 
-**Status:** TODO. Depends on `#405`, `#403` being fixed first. Blocks c1 player.
+**Status:** ~~Fixed~~
 
 ---
 
-## 400. `OnProgressComplete` hardcodes milestone funds/rep rewards to 0, causing permanent career-mode funds drain via `PatchFunds`
+## ~~400. `OnProgressComplete` hardcodes milestone funds/rep rewards to 0, causing permanent career-mode funds drain via `PatchFunds`~~
 
 **Source:** same c1 playtest as `#405`. Identified from in-code comment at `GameStateRecorder.cs:687-698` and confirmed in c1 `ledger.pgld`.
 
@@ -182,17 +383,13 @@ Once `#403`/`#405` are fixed forward, loading the c1 save will still see `FundsM
 
 The c1 ledger confirms the effect: every `MilestoneAchievement` action has `milestoneFundsAwarded = 0` and `milestoneRepAwarded = 0`, so `FundsModule` / `ReputationModule` never sees the reward even though KSP's pool received it in real time. Over a full career, this drains hundreds of thousands of funds silently — every `FirstLaunch`, `FirstOrbit`, `Kerbin/Flyby`, etc. contributes to the gap that `#403`/`#402` then close by dragging funds back down.
 
-**Fix direction:** three options of increasing coverage:
+**Fix:** Two-phase capture. `OnProgressComplete` in `Source/Parsek/GameStateRecorder.cs` emits the `MilestoneAchieved` event with zero-reward detail and stores the `ProgressNode` reference in `PendingMilestoneEventByNode`. Then the new `Source/Parsek/Patches/ProgressRewardPatch.cs` (Harmony postfix on the protected `ProgressNode.AwardProgress(string, float, float, float, CelestialBody)`) reads the real funds/science/rep values from the method parameters and calls `GameStateRecorder.EnrichPendingMilestoneRewards`, which patches the stored event in place (`GameStateStore.UpdateEventDetail` helper) and updates any matching ledger `MilestoneAchievement` action. The plan's preferred `GameVariables.GetProgressFunds/Rep/Science` does NOT exist in stock KSP (verified via decompile) — the review's `AwardProgress`-postfix fallback was the only stable option. Tests in `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs`.
 
-1. **Pre-snapshot** via a Harmony prefix on `ProgressNode.Complete` or a `GameEvents.OnProgressAchieved` `Add` callback that caches `Funding.Instance.Funds` + `Reputation.Instance.reputation` before KSP applies the reward, then reads them again in `OnProgressComplete` and writes the delta into the event detail.
-2. **Best-effort via GameVariables:** call `GameVariables.Instance.GetProgressFunds(node)` / `GetProgressRep(node)` / `GetProgressSci(node)` and write the computed reward into the event detail. The in-code comment calls this "too fragile" — revisit whether KSP 1.12's API is stable enough after 4 years of the API not changing.
-3. **Store-only:** capture the delta into `GameStateStore` via a separate `MilestoneReward` event type decoupled from `MilestoneAchieved`, so the conversion can fail independently and existing saves still work.
-
-**Status:** TODO. Blocked on `#403` prioritization — this is one of the three earning-side holes. Tracked in deferred items `D17`/`D18` per the in-code comment (verify those entries still exist in `deferred-items.md` or archive).
+**Status:** ~~Fixed~~
 
 ---
 
-## 399. `ScienceModule.ComputeTotalSpendings` walks only one of two `ScienceSpending` actions for a save with two tech unlocks at the same UT
+## ~~399. `ScienceModule.ComputeTotalSpendings` walks only one of two `ScienceSpending` actions for a save with two tech unlocks at the same UT~~
 
 **Source:** same c1 playtest as `#405`. **Suspect — needs verification.**
 
@@ -218,11 +415,11 @@ Line 11762's `Coalesced ScienceChanged event at ut=420.54` hints that `GameState
 
 **Fix direction:** read `Source/Parsek/GameActions/ScienceModule.cs` around `ComputeTotalSpendings` and `ProcessSpending`, look for a dedup keyed on `(ut, cost)` or `(ut, nodeId)` that drops one of the two actions. Add a unit test with two `ScienceSpending` actions at the same UT with different `nodeId`s, assert both are walked. Likely a one-line fix, but the cascade matters — if this drops one tech research, the running balance is off by the cost of that tech node, which compounds into the `#403` funds-drain chain.
 
-**Status:** TODO. Suspect, unverified. Low-ish priority compared to `#405`/`#403`/`#402` — but easy to verify once those are cleared.
+**Status:** ~~Fixed~~. Verified — the code is correct; no dedup bug exists. The `spendingCount=1` log entries were from intermediate `RecalculateAndPatch` calls (triggered by `CanAffordScienceSpending`) before the second action was added to the ledger. Regression tests added in `ScienceModuleTests.cs` to lock in the correct behavior.
 
 ---
 
-## 398. `GameStateStore` accumulates `ContractOffered` events forever — c1 session bloated to 78+ within 8 minutes of play
+## ~~398. `GameStateStore` accumulates `ContractOffered` events forever — c1 session bloated to 78+ within 8 minutes of play~~
 
 **Source:** same c1 playtest as `#405`. Distinct from `#390` (perf/size concern about `outOfRange` accumulation in general) — this is specifically about `ContractOffered` volume caused by the `#404` clear-and-regenerate loop.
 
@@ -230,13 +427,13 @@ Line 11762's `Coalesced ScienceChanged event at ut=420.54` hints that `GameState
 
 Once `#404` is fixed, the clear-regenerate loop stops and this bloat stops accumulating. Until then, every few seconds adds another 5-9 events to the store, every save writes them to disk, every future `ConvertEvents` re-walks them as `outOfRange`.
 
-**Fix direction:** stop dropping `ContractOffered` into the store at all — `GameStateEventConverter.ConvertEvent` already skips them (line 127). Either (a) don't write `ContractOffered` to the store in the first place (delete the `GameStateStore.AddEvent` call in `OnContractOffered`, keep the diagnostic log), or (b) write it to a separate diagnostic-only channel that isn't serialized. Option (a) is the minimal diff.
+**Fix:** `OnContractOffered` in `Source/Parsek/GameStateRecorder.cs` no longer calls `GameStateStore.AddEvent`. Offered contracts are transient advertisements generated on every ContractSystem tick; keeping the handler subscribed preserves the diagnostic log only. The converter already dropped `ContractOffered`, and no UI/module reads the events from the store, so the removal is safe. `#404`'s preservation of surviving Active contracts also closes the clear-and-regenerate loop upstream. Tests in `Source/Parsek.Tests/OnContractOfferedStoreTests.cs` (including an IL-scan regression guard against re-adding an `AddEvent` call).
 
-**Status:** TODO. Low priority once `#404` is fixed. Fold into the `#405`/`#404` fix PR if easy.
+**Status:** ~~Fixed~~
 
 ---
 
-## 397. CRITICAL: science-career earnings silently dropped — `PatchScience` resets R&D back to seed after every commit
+## ~~397. CRITICAL: science-career earnings silently dropped — `PatchScience` resets R&D back to seed after every commit~~
 
 **Source:** sci1 science-career playtest `2026-04-14` (logs `logs/2026-04-14_2340_sci1-science-bug/`). Player collected ~16 science across multiple recovered flights; sci1 `ledger.pgld` contains zero `ScienceEarning` actions; in-game R&D pool stayed pinned at the starting seed value of `2.712`.
 
@@ -274,24 +471,13 @@ The ledger loses 7.7 + 3.3 + 2.1 + 0.6 = **13.7 science points** across one play
 
 **Scope:** all science-mode and career-mode saves on `main` since `b19c9de9` (2026-03-31). The symptom only appears in career/science mode — sandbox saves are unaffected because `ResearchAndDevelopment.Instance` is null there. Funds and reputation flow through the same `OnRecordingCommitted → ConvertEvents` path but do **not** use a parallel `PendingX + CommitX + Clear` staging list, so they are unaffected.
 
-**Fix options (pick one, smallest diff first):**
+**Fix:** Removed the premature `PendingScienceSubjects.Clear()` inside `RecordingStore.CommitRecordingDirect:348-349` and `RecordingStore.FinalizeTreeCommit:823-824`. Added `try/finally` clear points at the authoritative upstream sites that read the list — `LedgerOrchestrator.NotifyLedgerTreeCommitted` (after the foreach so every recording in a tree sees the same non-empty list), `ChainSegmentManager.CommitSegmentCore:527` (for chain segments), and `ParsekFlight.FallbackCommitSplitRecorder` (direct commit path). The `try/finally` guarantees the list is cleared even if `OnRecordingCommitted` throws. Discard paths (ClearCommitted, CommitTree duplicate guard, DiscardPendingTree, ResetForTesting, Quickload) keep their clears — they drop orphaned pending subjects. Tests in `Source/Parsek.Tests/PendingScienceSubjectsClearTests.cs`.
 
-1. **Smallest diff:** remove the four `.Clear()` calls after `CommitScienceSubjects(...)` in `RecordingStore` (lines 349, 824, and the guard clears at 420 / 911). Move a single `GameStateRecorder.PendingScienceSubjects.Clear()` into the tail of `LedgerOrchestrator.OnRecordingCommitted` after `ConvertScienceSubjects` runs. Also add the clear to the failure path inside `DeduplicateAgainstLedger` so a throw can't leak a growing list.
-2. **Snapshot-param:** make `OnRecordingCommitted` take an `IReadOnlyList<PendingScienceSubject>` parameter, have `RecordingStore` snapshot `PendingScienceSubjects` and pass the snapshot *before* clearing. Cleanest separation but touches every call site of `OnRecordingCommitted` (3 call sites: `ChainSegmentManager.cs:527`, `LedgerOrchestrator.cs:1091`, `ParsekFlight.cs:2419`).
-3. **Source-of-truth flip:** change `ConvertScienceSubjects` to read from `GameStateStore.committedScienceSubjects` (the persisted store), with per-commit delta tracking so we don't double-count across commits. Most work, but removes the static-list dependency entirely.
-
-Option 1 is the minimal fix. Option 3 is the right long-term direction and would naturally close `#398` below.
-
-**Regression test plan (must ship with the fix):**
-
-- Log-assertion integration test for `RecordingStore.CommitTree` → `LedgerOrchestrator.NotifyLedgerTreeCommitted` flow: seed a fake `PendingScienceSubjects` entry, call the full commit chain (not just `ConvertScienceSubjects` in isolation), assert the resulting `Ledger.Actions` contains at least one `ScienceEarning` with the expected subject id and value. Assert the `ConvertScienceSubjects: converted=N (N>0)` log line.
-- Negative test: if the above test had run against the current buggy `main`, it would have logged `ConvertScienceSubjects: empty or null subjects list` and the assertion would have failed. The existing unit tests pass because they bypass `CommitTree` entirely.
-
-**Status:** TODO. **Critical — blocks science/career-mode saves.** See `#396` for the user-facing save recovery migration and `#395` for the display-layer masking.
+**Status:** ~~Fixed~~
 
 ---
 
-## 396. sci1 save file needs one-shot science recovery after #397 fix
+## ~~396. sci1 save file needs one-shot science recovery after #397 fix~~
 
 **Source:** same playtest as `#397`. The collected sci1 save (`saves/sci1/Parsek/GameState/events.pgse` + `ledger.pgld`) is in a broken state that simply fixing `#397` will not un-brick.
 
@@ -304,20 +490,13 @@ Option 1 is the minimal fix. Option 3 is the right long-term direction and would
 
 Even after `#397` is fixed, loading this save runs `OnKspLoad → RecalculateAndPatch → PatchScience`, which still sees `GetAvailableScience() = 2.712` (no earnings in ledger) and drags R&D back to 2.712. The science sitting in `events.pgse` is orphaned — nothing reads it back into the ledger.
 
-**Fix options:**
+**Fix:** Covered by the same `LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad` added for `#401` — the second half of the migration walks `GameStateStore.GetCommittedScienceSubjectIds()` and synthesizes a `ScienceEarning` action for any subject with a positive committed value but no matching ledger action (via `LedgerOrchestrator.LedgerHasMatchingScienceEarning`). Respects epoch isolation and is idempotent. Tests in `Source/Parsek.Tests/LedgerRecoveryMigrationTests.cs`.
 
-1. **One-shot recovery in `LedgerOrchestrator.OnKspLoad`:** detect the divergence (`committedScienceSubjects.Count > 0` but no `ScienceEarning` in ledger), synthesize `ScienceEarning` actions from the store entries, and mark the ledger dirty so the recovery persists on next save. Gated on a single version bump or a one-time scenario flag so repeat loads don't re-synthesize.
-2. **Manual recovery script:** add a `scripts/` utility that reads `events.pgse` and writes corresponding `GAME_ACTION { type = N ... }` nodes into `ledger.pgld`. User runs it once against the sci1 save folder. Simpler, keeps repair logic out of production code.
-
-Option 1 is more user-friendly and catches any future saves that slipped through other bugs. Option 2 is safer because it doesn't run on every load forever.
-
-**Handling the sci1 save specifically:** the player is currently stuck. Either (a) ship `#397` + option 1 above in the same release and tell them to load once, or (b) hand-edit `ledger.pgld` to add 9 `ScienceEarning` entries backdated to `ut=0` with seq numbers 10..18 and `subjectId`, `scienceAwarded`, `subjectMaxValue` from the store.
-
-**Status:** TODO. Blocks this player's sci1 career. Depends on `#397` being fixed first.
+**Status:** ~~Fixed~~
 
 ---
 
-## 395. `ScienceSubjectPatch` Harmony postfix masks the broken ledger at the Science Archive display layer
+## ~~395. `ScienceSubjectPatch` Harmony postfix masks the broken ledger at the Science Archive display layer~~
 
 **Source:** same investigation as `#397`. Made the main bug much harder to detect in-game.
 
@@ -331,13 +510,13 @@ In the `#397` bug scenario the store has the subjects (persisted to `events.pgse
 
 The contradiction makes the bug look like "the number at the top is wrong but my experiments are fine" instead of "the entire pipeline from OnScienceReceived to ledger is broken."
 
-**Fix direction:** after `#397` is fixed and the ledger is the authoritative source again, decide whether this patch should read from ledger-module state (`ScienceModule.GetSubjectCreditedTotal`) instead of the store, so the two display paths (archive + pool) can never disagree. Leaving it reading from the store is defensible as long as the store is only populated via the same `CommitScienceSubjects` entry that feeds the ledger — verify after the fix.
+**Fix:** `Source/Parsek/Patches/ScienceSubjectPatch.cs` now resolves committed science via `LedgerOrchestrator.Science.GetSubjectCredited(subjectId)` (the same `ScienceModule` the R&D pool patcher reads from) instead of `GameStateStore.TryGetCommittedSubjectScience`. If the module has zero credited for a subject, the Archive no longer shows a stale store value — a broken ledger can't mask itself with a correct-looking Archive display. Falls back to the store path only when `LedgerOrchestrator` is uninitialized (sandbox / pre-init loads). Decision logic extracted into `ScienceSubjectPatch.TryResolveCommittedScience` for unit testing. Tests in `Source/Parsek.Tests/ScienceSubjectPatchHardeningTests.cs`.
 
-**Status:** TODO. Low priority once `#397` is fixed, but worth a hardening pass.
+**Status:** ~~Fixed~~
 
 ---
 
-## 394. `GameStateEventConverter` silently drops `ScienceChanged` events while `GameStateRecorder` keeps capturing them
+## ~~394. `GameStateEventConverter` silently drops `ScienceChanged` events while `GameStateRecorder` keeps capturing them~~
 
 **Source:** same investigation as `#397`.
 
@@ -355,16 +534,13 @@ Log evidence from the sci1 session (5 distinct `ScienceChanged` events captured 
 
 The `5.4 → 4.1` regression on line `14063` is a direct visible symptom of `#397` — `PatchScience` dragged R&D down between two recovery events.
 
-**Two concerns:**
+**Fix:** Added `LedgerOrchestrator.ReconcileEarningsWindow`, called from the tail of `OnRecordingCommitted`, which sums dropped `FundsChanged/ReputationChanged/ScienceChanged` event deltas against the effective emitted earning/spending actions in the same UT window and logs WARN when they disagree beyond tolerance. This is the log-level cross-check the review (§5.1) called out: it would have caught `#397`, `#400`, and `#405` on day one without needing to re-emit the Changed events (re-emitting would double-count against recovery + contract + milestone channels). The drop block in `GameStateEventConverter.cs:121-130` stays — now with an expanded comment explaining WHY so a future engineer can't "fix" it into double-counting. Tests in `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
 
-1. **Dead path:** if the events have no `GameAction` equivalent by design (science earnings flow via `OnScienceReceived → PendingScienceSubjects`), then capturing them bloats the store for no reason. They are serialized to `events.pgse` and re-scanned on every future commit as `outOfRange`. Either stop capturing them, or document why they are kept (diagnostics? sanity cross-check?).
-2. **Lost sanity check:** if they *were* intended as a cross-check ("the delta I saw on `OnScienceChanged` should equal the sum of `OnScienceReceived` subjects for the same commit window") that cross-check was never wired up, and having it wired up would have caught `#397` on day one. Adding it as a log-level assertion — not an `AddAction` — is low-cost insurance.
-
-**Status:** TODO. Tie into the `#397` hardening pass — either delete the capture or turn it into a diagnostic gate. Low priority.
+**Status:** ~~Fixed~~
 
 ---
 
-## 393. `KspStatePatcher.PatchScience` log message says "sandbox/science mode" when only sandbox is affected
+## ~~393. `KspStatePatcher.PatchScience` log message says "sandbox/science mode" when only sandbox is affected~~
 
 **Source:** same investigation as `#397`.
 
@@ -383,11 +559,11 @@ if (ResearchAndDevelopment.Instance == null)
 
 **Fix:** change the `PatchScience` message to `"ResearchAndDevelopment.Instance is null (sandbox mode) — skipping"`. One-line edit.
 
-**Status:** TODO. Trivial, low priority, roll into the `#397` fix PR.
+**Status:** ~~Fixed~~. Changed `"sandbox/science mode"` to `"sandbox mode"` in `KspStatePatcher.PatchScience` log message.
 
 ---
 
-## 392. `ScienceModule.HasSeed` gate may silently skip patching on the first recalculate after a fresh load
+## ~~392. `ScienceModule.HasSeed` gate may silently skip patching on the first recalculate after a fresh load~~
 
 **Source:** same investigation as `#397`. **Unverified — file as a diagnostic question, not a confirmed bug.**
 
@@ -419,11 +595,11 @@ The question: is there a window where (a) R&D.Science has already been mutated b
 
 **Fix direction:** verify the intended contract. If "seed captures baseline-at-first-recalc, earnings must arrive via `OnScienceReceived`" is correct and intentional, add a one-line comment explaining *why* the `HasSeed` skip is safe so the next person doesn't mistake it for the root cause. If there's a real gap, close it.
 
-**Status:** TODO. Unverified. Low priority — verify as part of the `#397` fix review.
+**Status:** ~~Fixed~~. Verified benign — the `DeferredSeedAndRecalculate` coroutine correctly handles the timing gap. The 12 HasSeed-skip log entries during early load are expected. Added clarifying comments to `PatchScience`/`PatchFunds`/`PatchReputation` in `KspStatePatcher.cs`.
 
 ---
 
-## 391. Max-wins inside `CommitScienceSubjects` silently drops subjects whose value hasn't increased since last commit
+## ~~391. Max-wins inside `CommitScienceSubjects` silently drops subjects whose value hasn't increased since last commit~~
 
 **Source:** same investigation as `#397`. **Unverified — file as a suspect.**
 
@@ -433,11 +609,11 @@ In the `#397`-broken state, where the store has the subjects but the ledger has 
 
 **Fix direction:** after `#397` is fixed, add a test for the rewind-same-value case, and confirm the intended behavior: the action *should* exist in the new recording's slice of the ledger, because otherwise the old recording's action disappears when the old recording is discarded. This may require splitting "store update" from "action emit" at the call-site level.
 
-**Status:** TODO. Unverified. Medium priority — test after `#397` fix to make sure rewind/replay doesn't introduce a new data loss pattern.
+**Status:** ~~Fixed~~. The `>` guard itself is harmless (equal-value re-commits don't change the dictionary). The real bug was that `committedScienceSubjects` became stale after recording deletion — subjects from deleted recordings persisted and `TryRecoverBrokenLedgerOnLoad` could synthesize ghost actions for them. Fix: `RebuildCommittedScienceFromWalk()` at the end of `RecalculateAndPatch()` and `RebuildCommittedScienceFromLedger()` before `TryRecoverBrokenLedgerOnLoad` iterates subjects. Tests in `CommittedScienceDictTests.cs`.
 
 ---
 
-## 390. `GameStateStore.Events` grows unboundedly with `outOfRange` events across recordings
+## ~~390. `GameStateStore.Events` grows unboundedly with `outOfRange` events across recordings~~
 
 **Source:** same playtest as `#397`. Low-severity perf/size concern — logged for completeness.
 
@@ -453,11 +629,11 @@ Every commit re-walks the full 16-19 event list to decide what's in range. In a 
 
 **Fix direction:** after a commit successfully converts events falling in its window, those specific events can be tombstoned (or moved to a separate "already-committed" list) so future commits walk a shorter candidate list. Separately, consider pruning events older than the oldest committed recording's startUT. Both require a migration for existing saves, so plan carefully.
 
-**Status:** TODO. Not urgent — only bites very long careers. Could be bundled with a future `GameStateStore` rework.
+**Status:** ~~Fixed~~. `GameStateStore.PruneProcessedEvents()` removes old-epoch events and events at or below the latest committed milestone's EndUT. Called after each commit in `NotifyLedgerTreeCommitted`, `CommitSegmentCore`, and `FallbackCommitSplitRecorder`. Tests in `EventPruningTests.cs`.
 
 ---
 
-## 389. Time-range filter for Timeline window and Recordings table (scroll-limit mitigation for long careers)
+## ~~389. Time-range filter for Timeline window and Recordings table (scroll-limit mitigation for long careers)~~
 
 **Source:** maintenance request `2026-04-15`. As a career progresses, both the Timeline window and the Recordings table accumulate entries linearly. A mature career (100+ missions) becomes painful to navigate — scrolling dozens of screenfuls to find a specific flight is not sustainable. The user wants a time-interval filter ("show entries from UT A to UT B") that limits both windows to a user-chosen slice.
 
@@ -531,7 +707,9 @@ Start with **option 1** (sliders + presets). Simplest path to a working filter, 
 - `Source/Parsek.Tests/` — unit tests for `TimeRangeFilterLogic` predicates
 - `CHANGELOG.md` under Unreleased: "Timeline and Recordings windows now support a time-range filter (UT interval) with quick presets (Last day / Last 7 days / Last 30 days / This year / Clear). Useful for navigating long careers with many missions."
 
-**Status:** TODO. Size: M. Not urgent today, but the scale problem is real and will bite hard in any career-mode playtest past ~50 missions. Worth implementing before the next playtest pass with a mature save. Size is mostly RecordingsTableUI integration — it currently has no filter bar at all, so this adds a new visual element to a busy table.
+**Status:** ~~Fixed~~. Implemented as a shared `TimeRangeFilterState` on `ParsekUI`, read by both `TimelineWindowUI` (filter bar with presets + collapsible dual-slider custom range) and `RecordingsTableUI` (filter gate on root items + compact indicator bar with Clear button). Presets: Last Day, Last 7d, Last 30d, This Year, All. Custom range via two `HorizontalSlider` controls with KSP-formatted labels (seconds omitted to mask float quantization). Chains shown as a unit if any segment overlaps the range. Groups hidden when no descendant overlaps. Pure predicates in `TimeRangeFilterLogic` with 22 unit tests. Not persisted across sessions.
+
+**Fix:** New `Source/Parsek/UI/TimeRangeFilter.cs` (state + predicates), wired into `TimelineWindowUI.DrawTimeRangeFilterBar` / `IsEntryVisible` and `RecordingsTableUI.DrawRecordingsWindow` / `DrawTimeRangeFilterIndicator`. `Source/Parsek.Tests/TimeRangeFilterTests.cs` covers all predicate edge cases including in-progress recordings, boundary touches, null bounds, and slider bound computation.
 
 ---
 
@@ -987,7 +1165,7 @@ Start with option 1. Dictionary keyed by group name → last-entered `RecordingI
 
 ---
 
-## 381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period
+## ~~381. "Loop every" semantics: switch from end-to-start gap to launch-to-launch period~~
 
 **Source:** maintenance request `2026-04-14`. The current "Loop every" field accepts negative values, which is confusing and only makes sense under the current end-to-start model.
 
@@ -1017,7 +1195,20 @@ The issue: recording duration is variable (a KSC Hopper is 30s, a Mun landing is
 - Tests covering `ResolveLoopInterval` and loop UT computation
 - `CHANGELOG.md` (behavior change notice) and this entry on completion
 
-**Status:** TODO. Design change, not a bug. Requires one-pass coordinated edit across engine + UI + migration decision. Size: M.
+**Status:** ~~TODO~~ DONE (branch `fix/381-launch-to-launch`, 2026-04-15).
+
+**Fix:** Reinterpreted `LoopIntervalSeconds` as the launch-to-launch period.
+
+- Core math: `cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration)` everywhere. The `duration + intervalSeconds` formula is gone.
+- Overlap dispatch: new helper `GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration) => intervalSeconds < duration`. Replaces `intervalSeconds < 0` checks in `GhostPlaybackEngine.UpdateLoopingPlayback`, `ParsekKSC.UpdateKscGhosts`, and `WatchModeController.TryStartWatchSession` + `ResolveWatchPlaybackUT`.
+- Pause window: `intervalSeconds > duration && cycleTime > duration` (was `intervalSeconds >= 0` or `> 0`). When period equals duration, cycles are back-to-back with no pause. When period is shorter, overlap handles it.
+- `ResolveLoopInterval` defensively clamps all values below `MinCycleDuration` to `MinCycleDuration` and emits `ParsekLog.Warn("Loop", ...)`. The old `Math.Max(-duration + minCycleDuration, interval)` formula is gone — `duration` is no longer a parameter to clamp against.
+- Dead-code fallback `if (cycleDuration <= MinLoopDurationSeconds) cycleDuration = duration;` deleted from `GhostPlaybackEngine.TryComputeLoopPlaybackUT` (~line 1282), `ParsekKSC.TryComputeLoopUT` (~line 708), and `WatchModeController.ResetLoopPhaseForWatch` (~line 1479). Under `Math.Max` it's unreachable.
+- UI: column header in `RecordingsTableUI.cs` renamed from "Every" to "Period" with a tooltip describing launch-to-launch semantics. Negative values rejected outright in `CommitLoopPeriodEdit`; positive-but-below-min clamped with an info log. Settings window label "Auto-loop every" → "Auto-launch every" with a new tooltip; `CommitAutoLoopEdit` also clamps to `MinCycleDuration`.
+- `ComputeLoopPhaseFromUT` doc comment notes the semantic shift: negative intervals no longer mean zero-pause / continuous playback; they clamp to `MinCycleDuration=1` (extreme overlap). Phase helper does not own the overlap dispatch — callers consult `IsOverlapLoop`.
+- Migration: no per-recording migration. Default `10.0` is unaffected. Pre-#381 saves with negative values are defensively clamped at playback time; load-time warn in both `RecordingTree.Load` (~line 696) and `ParsekScenario.LoadRecordingMetadata` (~line 2666) surfaces the issue so users can re-enter the intended period.
+- Docstrings added to `Recording.LoopIntervalSeconds` and `ParsekSettings.autoLoopIntervalSeconds`. `RecordingOptimizer.CanMerge` no longer hardcodes `10.0` — uses `GhostPlaybackLogic.DefaultLoopIntervalSeconds`.
+- Tests: `AutoLoopTests` rewrote `ResolveLoopInterval_ManualMode_NegativePreserved` → `_NegativeClampsToMin` with log assertion, added `_BelowMin_Clamps` / `_Zero_Clamps` / `_AutoMode_Independent_Of_Duration` / `_AutoMode_NegativeGlobal_ClampsToMin` / `_PeriodShorterThanDuration_Preserved`. `LoopPhaseTests` rewrote the whole `ComputeLoopPhaseFromUT_Tests` class under #381 semantics plus added `PeriodShorter` / `PeriodEqual` / `PeriodGreater` and `ZeroInterval_ClampsToMin` / `NegativeInterval_ClampsToMin`. `GhostPlaybackEngineTests` rewrote the `TryComputeLoopPlaybackUT_*` block to use period=110 > duration=100 for single-ghost/pause scenarios, added `_PeriodLongerThanDuration_HasPauseWindow`, `_PeriodEqualsDuration_NoPauseWindow`, `_PeriodShorterThanDuration_OverlapCycles`, `_NegativeInterval_DefensivelyClamped_NoThrow`; loop-range tests now use interval=50 with a 40s range. `KscGhostPlaybackTests` rewrote `TryComputeLoopUT_*` and `GetLoopIntervalSeconds_*` tests — zero/negative intervals now assert clamping to `MinCycleDuration`, added `TryComputeLoopUT_PeriodShorterThanDuration_Overlaps` and `_NegativeInterval_ClampsDefensively_NoThrow`. `RuntimePolicyTests` rewrote 7 `NegativeInterval_*` tests as `PeriodShorter_*` / `ShortPeriod_*` plus updated the `TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows` theory to use period=30 with duration=20. `BugFixTests.Bug84_LoopPhaseOverflowTests.ComputeLoopPhaseFromUT_LargeElapsed_NoOverflow` and `.TryComputeLoopPlaybackUT_LargeElapsed_NoOverflow` rewritten to use period=1s with 3e9/5e9 elapsed seconds (matching the new `MinCycleDuration` floor). `AnchorLifecycleTests.AnchorLoaded_PhaseComputed_AtMidCycle` and `.AnchorReloaded_PhaseRecomputed_NotFromStart` updated to use period=110. Total: 6208 passing (1 pre-existing Unity-runtime skip: `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`).
 
 ---
 

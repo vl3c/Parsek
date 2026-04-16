@@ -154,6 +154,9 @@ namespace Parsek
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
 
+        // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
+        private int pendingDeleteGhostOnlyIndex = -1;
+
         // Window drag tracking for position logging
         private Rect lastRecordingsWindowRect;
 
@@ -627,8 +630,8 @@ namespace Parsek
 
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
             GUILayout.FlexibleSpace();
-            GUILayout.Label(new GUIContent("Every",
-                "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
+            GUILayout.Label(new GUIContent("Period",
+                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -697,8 +700,44 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        private void DrawTimeRangeFilterIndicator()
+        {
+            var filter = parentUI.TimeRangeFilter;
+            if (!filter.IsActive) return;
+
+            GUILayout.BeginHorizontal();
+            string label;
+            if (filter.ActivePresetName != null)
+            {
+                label = "Filtered: " + filter.ActivePresetName;
+            }
+            else
+            {
+                label = "Filtered: "
+                    + TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? 0)
+                    + " \u2014 "
+                    + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? 0);
+            }
+            GUILayout.Label(label, GUILayout.ExpandWidth(true));
+            if (GUILayout.Button("Clear", GUILayout.Width(50)))
+            {
+                filter.Clear();
+                parentUI.GetTimelineUI()?.ResetTimeRangeSliders();
+                ParsekLog.Verbose("UI", "Time-range filter: cleared from Recordings table");
+            }
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawRecordingsWindow(int windowID)
         {
+            // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
+            if (pendingDeleteGhostOnlyIndex >= 0)
+            {
+                int delIdx = pendingDeleteGhostOnlyIndex;
+                pendingDeleteGhostOnlyIndex = -1;
+                DeleteGhostOnlyRecording(delIdx);
+            }
+
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
 
@@ -726,6 +765,9 @@ namespace Parsek
                     $"Cross-link: applied deferred scroll to rendered row {pendingScrollRowIndex}");
                 pendingScrollRowIndex = -1;
             }
+
+            // Time-range filter indicator
+            DrawTimeRangeFilterIndicator();
 
             if (committed.Count == 0)
             {
@@ -756,11 +798,23 @@ namespace Parsek
                 // -- Build unified sorted root items --
                 var rootItems = new List<RootDrawItem>();
 
+                // Time-range filter state for skipping non-overlapping items
+                var timeFilter = parentUI.TimeRangeFilter;
+                double? tfMin = timeFilter.MinUT;
+                double? tfMax = timeFilter.MaxUT;
+
                 // Add root groups
                 for (int g = 0; g < rootGrps.Count; g++)
                 {
                     var desc = new HashSet<int>();
                     CollectDescendantRecordings(rootGrps[g], grpToRecs, grpChildren, desc);
+
+                    // Group filter: skip if no descendant overlaps the time range
+                    if (timeFilter.IsActive &&
+                        !TimeRangeFilterLogic.DoesAnyRecordingOverlapRange(
+                            committed, desc, timeFilter.MinUT, timeFilter.MaxUT))
+                        continue;
+
                     rootItems.Add(new RootDrawItem
                     {
                         SortKey = GetGroupSortKey(desc, committed, sortColumn, now),
@@ -784,6 +838,13 @@ namespace Parsek
                     {
                         if (!seenChains.Add(rec.ChainId)) continue;
                         var members = chainToRecs[rec.ChainId];
+
+                        // Chain filter: show entire chain if any segment overlaps
+                        if (timeFilter.IsActive &&
+                            !TimeRangeFilterLogic.DoesAnyRecordingOverlapRange(
+                                committed, members, tfMin, tfMax))
+                            continue;
+
                         var firstRec = members.Count > 0 ? committed[members[0]] : null;
                         string cSortName = sortColumn == SortColumn.LaunchSite
                             ? (firstRec?.LaunchSiteName ?? "")
@@ -799,6 +860,12 @@ namespace Parsek
                     }
                     else if (string.IsNullOrEmpty(rec.ChainId))
                     {
+                        // Standalone recording filter
+                        if (timeFilter.IsActive &&
+                            !TimeRangeFilterLogic.DoesRecordingOverlapRange(
+                                rec.StartUT, rec.EndUT, tfMin, tfMax))
+                            continue;
+
                         string rSortName = sortColumn == SortColumn.LaunchSite
                             ? (rec.LaunchSiteName ?? "")
                             : (string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName);
@@ -977,12 +1044,30 @@ namespace Parsek
             var statusContent = new GUIContent(statusText, chainStatusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
 
-            // Group assignment button
-            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+            // Group assignment button (split with X delete for ghost-only recordings)
+            if (rec.IsGhostOnly)
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                groupPicker.OpenForRecording(ri, mousePos);
-                ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
+                float halfGroup = (ColW_Group - 4f) * 0.5f;
+                if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
+                {
+                    var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                    groupPicker.OpenForRecording(ri, mousePos);
+                    ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
+                }
+                if (GUILayout.Button("X", GUILayout.Width(halfGroup)))
+                {
+                    pendingDeleteGhostOnlyIndex = ri;
+                    ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} name='{rec.VesselName}'");
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+                {
+                    var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                    groupPicker.OpenForRecording(ri, mousePos);
+                    ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
+                }
             }
 
             // Loop checkbox
@@ -2034,6 +2119,43 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
+        /// <summary>
+        /// Deletes a ghost-only recording by index. No confirmation dialog — ghost-only
+        /// recordings are low-commitment.
+        /// </summary>
+        private void DeleteGhostOnlyRecording(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (index < 0 || index >= committed.Count)
+            {
+                ParsekLog.Warn("UI", $"DeleteGhostOnlyRecording: index {index} out of range");
+                return;
+            }
+
+            var rec = committed[index];
+            if (!rec.IsGhostOnly)
+            {
+                ParsekLog.Warn("UI", $"DeleteGhostOnlyRecording: recording at index {index} is not ghost-only");
+                return;
+            }
+
+            var flight = parentUI.Flight;
+            if (flight != null && parentUI.InFlightMode)
+            {
+                // Flight scene: use ParsekFlight.DeleteRecording for ghost cleanup
+                flight.DeleteGhostOnlyRecording(index);
+            }
+            else
+            {
+                // KSC scene: direct store deletion
+                RecordingStore.DeleteRecordingFull(index);
+            }
+
+            InvalidateSort();
+            ParsekLog.Info("UI",
+                $"Deleted ghost-only recording \"{rec.VesselName}\" (id={rec.RecordingId})");
+        }
+
         private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
         {
             parentUI.DrawSortableHeaderCore(label, col, ref sortColumn, ref sortAscending, width, expand, () =>
@@ -3026,6 +3148,15 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Clears any active loop-period text-edit focus. Called by TimelineWindowUI
+        /// when the L button toggles loop off, so a stale edit field doesn't linger.
+        /// </summary>
+        internal void ClearLoopPeriodFocus()
+        {
+            loopPeriodFocusedRi = -1;
+        }
+
         // --- Loop period cell ---
 
         private void DrawLoopPeriodCell(Recording rec, int ri, double dur)
@@ -3127,31 +3258,43 @@ namespace Parsek
         {
             if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
             var rec = committed[loopPeriodFocusedRi];
-            double dur = rec.EndUT - rec.StartUT;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             double parsed;
             if (ParsekUI.TryParseLoopInput(loopPeriodEditText, rec.LoopTimeUnit, out parsed))
             {
                 double newSeconds = ParsekUI.ConvertToSeconds(parsed, rec.LoopTimeUnit);
-                double minSeconds = -(dur - 1.0); // cap: -totalDuration + 1s
-                if (newSeconds < minSeconds)
+                // #381: period is launch-to-launch; negatives are rejected outright.
+                if (newSeconds < 0)
                 {
-                    newSeconds = minSeconds;
-                    ParsekLog.Info("UI",
-                        $"Recording '{rec.VesselName}' loop interval clamped to " +
-                        $"{newSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s " +
-                        $"(minimum for duration {dur.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s)");
+                    ParsekLog.Warn("UI",
+                        $"Recording '{rec.VesselName}' loop period edit rejected: " +
+                        $"negative value {newSeconds.ToString("F1", ic)}s " +
+                        "(period must be >= 0 under launch-to-launch semantics #381)");
                 }
-                rec.LoopIntervalSeconds = newSeconds;
-                ParsekLog.Info("UI",
-                    $"Recording '{rec.VesselName}' loop interval updated to " +
-                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) +
-                    $"s (display: {ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
-                    $"{ParsekUI.UnitLabel(rec.LoopTimeUnit)})");
+                else
+                {
+                    // Defensively clamp below-minimum to MinCycleDuration.
+                    if (newSeconds < GhostPlaybackLogic.MinCycleDuration)
+                    {
+                        ParsekLog.Info("UI",
+                            $"Recording '{rec.VesselName}' loop period clamped from " +
+                            $"{newSeconds.ToString("F1", ic)}s to " +
+                            $"{GhostPlaybackLogic.MinCycleDuration.ToString("F1", ic)}s " +
+                            "(MinCycleDuration)");
+                        newSeconds = GhostPlaybackLogic.MinCycleDuration;
+                    }
+                    rec.LoopIntervalSeconds = newSeconds;
+                    ParsekLog.Info("UI",
+                        $"Recording '{rec.VesselName}' loop period updated to " +
+                        rec.LoopIntervalSeconds.ToString("F1", ic) +
+                        $"s (display: {ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
+                        $"{ParsekUI.UnitLabel(rec.LoopTimeUnit)})");
+                }
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Recording '{rec.VesselName}' loop interval edit rejected: " +
+                    $"Recording '{rec.VesselName}' loop period edit rejected: " +
                     $"invalid input '{loopPeriodEditText}' for unit {rec.LoopTimeUnit}");
             }
             loopPeriodFocusedRi = -1;

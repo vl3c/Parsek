@@ -175,6 +175,18 @@ namespace Parsek
         /// <summary>Source of fund spending.</summary>
         public FundsSpendingSource FundsSpendingSource;
 
+        /// <summary>
+        /// Optional secondary dedup discriminator. Populated for action types whose
+        /// natural key (<see cref="RecordingId"/>) collides at KSC when multiple entries
+        /// share the same null/empty RecordingId at near-identical UT — notably
+        /// <see cref="FundsSpendingSource.Other"/> part purchases, where the part name
+        /// disambiguates. Serialized for <see cref="FundsSpending"/> so save/load and
+        /// the load-time recovery migration (<see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/>)
+        /// can still match historical part-purchase actions against their source events.
+        /// See <see cref="LedgerOrchestrator.GetActionKey"/>.
+        /// </summary>
+        public string DedupKey;
+
         // ---- Reputation fields ----
 
         /// <summary>Nominal reputation earned before curve (immutable).</summary>
@@ -199,6 +211,12 @@ namespace Parsek
 
         /// <summary>Reputation awarded by the milestone (immutable, 0 in Science mode).</summary>
         public float MilestoneRepAwarded;
+
+        /// <summary>Science awarded by the milestone (immutable, 0 in pure-funds/rep milestones).
+        /// Consumed by <see cref="ScienceModule.ProcessMilestoneScienceReward"/> so first-
+        /// reached milestones credit the R&amp;D pool. Without this field, the sci= value
+        /// recorded in the event detail was silently dropped at convert time.</summary>
+        public float MilestoneScienceAwarded;
 
         // ---- Contract fields ----
 
@@ -592,12 +610,17 @@ namespace Parsek
         {
             n.AddValue("fundsSpent", FundsSpent.ToString("R", IC));
             n.AddValue("fundsSpendingSource", ((int)FundsSpendingSource).ToString(IC));
+            // DedupKey disambiguates same-UT KSC spendings (e.g. multiple part purchases
+            // with recordingId=null) — must round-trip so reload doesn't re-collapse them.
+            if (!string.IsNullOrEmpty(DedupKey))
+                n.AddValue("dedupKey", DedupKey);
         }
 
         private static void DeserializeFundsSpending(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "fundsSpent", out a.FundsSpent);
             TryParseEnum(n, "fundsSpendingSource", out a.FundsSpendingSource);
+            a.DedupKey = n.GetValue("dedupKey");
         }
 
         private void SerializeMilestone(ConfigNode n)
@@ -605,6 +628,7 @@ namespace Parsek
             if (MilestoneId != null) n.AddValue("milestoneId", MilestoneId);
             n.AddValue("milestoneFundsAwarded", MilestoneFundsAwarded.ToString("R", IC));
             n.AddValue("milestoneRepAwarded", MilestoneRepAwarded.ToString("R", IC));
+            n.AddValue("milestoneSciAwarded", MilestoneScienceAwarded.ToString("R", IC));
         }
 
         private static void DeserializeMilestone(ConfigNode n, GameAction a)
@@ -612,6 +636,8 @@ namespace Parsek
             a.MilestoneId = n.GetValue("milestoneId");
             TryParseFloat(n, "milestoneFundsAwarded", out a.MilestoneFundsAwarded);
             TryParseFloat(n, "milestoneRepAwarded", out a.MilestoneRepAwarded);
+            // Backward compat: pre-fix saves have no milestoneSciAwarded key; default to 0.
+            TryParseFloat(n, "milestoneSciAwarded", out a.MilestoneScienceAwarded);
         }
 
         private void SerializeContractAccept(ConfigNode n)

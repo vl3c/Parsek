@@ -94,17 +94,62 @@ namespace Parsek
         /// <param name="recordingId">The recording that was just committed.</param>
         /// <param name="startUT">Start UT of the recording.</param>
         /// <param name="endUT">End UT of the recording.</param>
+        /// <summary>
+        /// Test-only fault injector. When non-null, <see cref="OnRecordingCommitted"/>
+        /// invokes this action at its entry point with the current recording being
+        /// committed, before any real logic runs. Used by PendingScienceSubjectsClearTests
+        /// to verify the try/finally clear invariant in NotifyLedgerTreeCommitted —
+        /// allowing the test to force a throw without corrupting real state.
+        /// Reset to null in test Dispose.
+        /// </summary>
+        internal static Action<string> OnRecordingCommittedFaultInjector;
+
+        /// <summary>
+        /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
+        /// in a multi-recording tree that should NOT absorb any pending science subjects.
+        /// Only one recording per tree owns the subject batch — the others get this empty
+        /// list. Distinct from <c>null</c>, which means "read from the static list as
+        /// usual" (the single-recording commit paths).
+        /// </summary>
+        private static readonly IReadOnlyList<PendingScienceSubject> EmptyPendingScience =
+            new PendingScienceSubject[0];
+
         internal static void OnRecordingCommitted(string recordingId, double startUT, double endUT)
         {
+            OnRecordingCommitted(recordingId, startUT, endUT, pendingScienceOverride: null);
+        }
+
+        /// <summary>
+        /// Processes a single recording commit. When <paramref name="pendingScienceOverride"/>
+        /// is non-null, it is used as the pending-science source instead of the static
+        /// <see cref="GameStateRecorder.PendingScienceSubjects"/> list. This lets tree commits
+        /// split the single shared batch across recordings — exactly one recording absorbs
+        /// the full snapshot, the rest receive the empty sentinel so they do not re-emit
+        /// duplicate <see cref="GameActionType.ScienceEarning"/> actions.
+        /// </summary>
+        internal static void OnRecordingCommitted(
+            string recordingId, double startUT, double endUT,
+            IReadOnlyList<PendingScienceSubject> pendingScienceOverride)
+        {
+            // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
+            OnRecordingCommittedFaultInjector?.Invoke(recordingId);
+
             Initialize();
 
             // 1. Convert GameStateStore events to GameActions
             var events = GameStateStore.Events;
             var actions = GameStateEventConverter.ConvertEvents(events, recordingId, startUT, endUT);
 
-            // 2. Convert pending science subjects
+            // 2. Convert pending science subjects.
+            // When called from NotifyLedgerTreeCommitted, an override list is passed —
+            // non-null means "use this exact list", and the caller ensures only one
+            // recording per tree receives a populated list. When the override is null
+            // (the single-recording commit paths in ChainSegmentManager.CommitSegmentCore
+            // and ParsekFlight.FallbackCommitSplitRecorder), fall back to the static list.
+            IReadOnlyList<PendingScienceSubject> pendingSource =
+                pendingScienceOverride ?? GameStateRecorder.PendingScienceSubjects;
             var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                GameStateRecorder.PendingScienceSubjects, recordingId, endUT);
+                pendingSource, recordingId, endUT);
             actions.AddRange(scienceActions);
 
             // 3. Inject vessel build cost and recovery funds from recording data
@@ -135,8 +180,135 @@ namespace Parsek
                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
                 $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
+            // 5b. #394: commit-time reconciliation — compare the sum of dropped
+            // FundsChanged/ReputationChanged/ScienceChanged events (which the converter
+            // intentionally drops, see GameStateEventConverter:121-130) against the
+            // sum of effective emitted Funds/Rep/Science actions in the same UT window.
+            // Log WARN on mismatch. Log-only: the drop block itself must stay, because
+            // re-emitting those events would double-count against recovery + contract +
+            // milestone channels (review §5.1 regression guard).
+            ReconcileEarningsWindow(events, actions, startUT, endUT);
+
             // 6. Recalculate + patch
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// Pure reconciliation: sums dropped FundsChanged/ReputationChanged/ScienceChanged
+        /// deltas against effective emitted FundsEarning/FundsSpending/ReputationEarning/
+        /// ReputationPenalty/ScienceEarning/ScienceSpending actions in the same UT window
+        /// and logs WARN on mismatch beyond tolerance. Internal static for testability.
+        /// <para>
+        /// Note: vesselCost and science actions are already merged into <paramref name="newActions"/>
+        /// by <see cref="OnRecordingCommitted"/> before this runs, so they are summed implicitly
+        /// through the single <c>newActions</c> walk and do not need separate parameters.
+        /// </para>
+        /// </summary>
+        internal static void ReconcileEarningsWindow(
+            IReadOnlyList<GameStateEvent> events,
+            List<GameAction> newActions,
+            double startUT, double endUT)
+        {
+            double droppedFundsDelta = 0;
+            double droppedRepDelta = 0;
+            double droppedSciDelta = 0;
+
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.ut < startUT || e.ut > endUT) continue;
+                    switch (e.eventType)
+                    {
+                        case GameStateEventType.FundsChanged:
+                            droppedFundsDelta += (e.valueAfter - e.valueBefore);
+                            break;
+                        case GameStateEventType.ReputationChanged:
+                            droppedRepDelta += (e.valueAfter - e.valueBefore);
+                            break;
+                        case GameStateEventType.ScienceChanged:
+                            droppedSciDelta += (e.valueAfter - e.valueBefore);
+                            break;
+                    }
+                }
+            }
+
+            double emittedFundsDelta = 0;
+            double emittedRepDelta = 0;
+            double emittedSciDelta = 0;
+
+            // newActions already contains vesselCostActions + scienceActions (merged by
+            // OnRecordingCommitted before this runs), so a single walk suffices.
+            if (newActions != null)
+            {
+                for (int i = 0; i < newActions.Count; i++)
+                {
+                    var a = newActions[i];
+                    switch (a.Type)
+                    {
+                        case GameActionType.FundsEarning:
+                            emittedFundsDelta += a.FundsAwarded;
+                            break;
+                        case GameActionType.FundsSpending:
+                            emittedFundsDelta -= a.FundsSpent;
+                            break;
+                        case GameActionType.ReputationEarning:
+                            emittedRepDelta += a.NominalRep;
+                            break;
+                        case GameActionType.ReputationPenalty:
+                            emittedRepDelta -= a.NominalPenalty;
+                            break;
+                        case GameActionType.ContractComplete:
+                            emittedFundsDelta += a.FundsReward;
+                            emittedRepDelta += a.RepReward;
+                            emittedSciDelta += a.ScienceReward;
+                            break;
+                        case GameActionType.ContractFail:
+                        case GameActionType.ContractCancel:
+                            emittedFundsDelta -= a.FundsPenalty;
+                            emittedRepDelta -= a.RepPenalty;
+                            break;
+                        case GameActionType.MilestoneAchievement:
+                            emittedFundsDelta += a.MilestoneFundsAwarded;
+                            emittedRepDelta += a.MilestoneRepAwarded;
+                            emittedSciDelta += a.MilestoneScienceAwarded;
+                            break;
+                        case GameActionType.ScienceEarning:
+                            emittedSciDelta += a.ScienceAwarded;
+                            break;
+                        case GameActionType.ScienceSpending:
+                            emittedSciDelta -= a.Cost;
+                            break;
+                    }
+                }
+            }
+
+            const double fundsTol = 1.0;   // 1 funds tolerance for rounding
+            const double repTol = 0.1f;
+            const double sciTol = 0.1f;
+
+            if (Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (funds): store delta={droppedFundsDelta:F1} vs " +
+                    $"ledger emitted delta={emittedFundsDelta:F1} — missing earning channel? " +
+                    $"window=[{startUT:F1},{endUT:F1}]");
+            }
+            if (Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (rep): store delta={droppedRepDelta:F1} vs " +
+                    $"ledger emitted delta={emittedRepDelta:F1} — missing earning channel? " +
+                    $"window=[{startUT:F1},{endUT:F1}]");
+            }
+            if (Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (sci): store delta={droppedSciDelta:F1} vs " +
+                    $"ledger emitted delta={emittedSciDelta:F1} — missing earning channel? " +
+                    $"window=[{startUT:F1},{endUT:F1}]");
+            }
         }
 
         /// <summary>
@@ -186,14 +358,19 @@ namespace Parsek
         }
 
         /// <summary>Returns the type-specific key field for deduplication matching.</summary>
-        private static string GetActionKey(GameAction a)
+        internal static string GetActionKey(GameAction a)
         {
             switch (a.Type)
             {
                 case GameActionType.ScienceEarning: return a.SubjectId ?? "";
                 case GameActionType.ScienceSpending: return a.NodeId ?? "";
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
-                case GameActionType.FundsSpending: return a.RecordingId ?? "";
+                // FundsSpending: RecordingId alone collides when multiple KSC part
+                // purchases share a null/empty RecordingId. DedupKey is the part name
+                // (populated by ConvertPartPurchased) so each part disambiguates.
+                // VesselBuild spending has RecordingId set and DedupKey null, so the
+                // composite key stays unique there.
+                case GameActionType.FundsSpending: return (a.RecordingId ?? "") + ":" + (a.DedupKey ?? "");
                 case GameActionType.MilestoneAchievement: return a.MilestoneId ?? "";
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
@@ -481,10 +658,40 @@ namespace Parsek
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                 milestonesModule, facilitiesModule, contractsModule);
 
+            // #391: rebuild committedScienceSubjects from the walk's authoritative
+            // per-subject credits. This prunes stale entries left behind when a
+            // recording was deleted (the old dictionary was only ever appended to,
+            // never pruned). Without this, TryRecoverBrokenLedgerOnLoad would
+            // synthesize ghost ScienceEarning actions for the stale subjects.
+            RebuildCommittedScienceFromWalk();
+
             ParsekLog.Info(Tag,
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Rebuilds the committed science subjects dictionary via
+        /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
+        /// from the <see cref="ScienceModule"/> walk state. After a recalculation
+        /// walk, the module has authoritative per-subject credited totals — these
+        /// are the source of truth because they derive purely from surviving ledger
+        /// actions. Replaces the stale append-only dictionary.
+        /// </summary>
+        private static void RebuildCommittedScienceFromWalk()
+        {
+            if (scienceModule == null) return;
+
+            var walkSubjects = scienceModule.GetAllSubjects();
+            var pairs = new List<KeyValuePair<string, float>>(walkSubjects.Count);
+            foreach (var kvp in walkSubjects)
+            {
+                if (kvp.Value.CreditedTotal > 0.0)
+                    pairs.Add(new KeyValuePair<string, float>(kvp.Key, (float)kvp.Value.CreditedTotal));
+            }
+
+            GameStateStore.RebuildCommittedScienceSubjects(pairs);
         }
 
         /// <summary>
@@ -894,6 +1101,230 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One-shot save recovery migration for #401 (c1 bricked funds) and #396
+        /// (sci1 bricked science). Walks the GameStateStore events and committed
+        /// science subjects, synthesizes a matching GameAction for any entry that
+        /// does NOT already have one in the ledger, and adds them.
+        ///
+        /// Must be called AFTER <see cref="OnLoad"/> has populated the ledger and
+        /// AFTER <see cref="MilestoneStore.CurrentEpoch"/> has been restored from
+        /// the save, because the migration respects epoch isolation (review §5.6)
+        /// — only acts on events whose epoch matches CurrentEpoch.
+        ///
+        /// Idempotent: the LedgerHasMatchingAction guard makes repeat loads a no-op.
+        /// </summary>
+        internal static int TryRecoverBrokenLedgerOnLoad()
+        {
+            Initialize();
+
+            int recoveredFundsParts = 0;
+            int recoveredContracts = 0;
+            int recoveredScience = 0;
+            int skippedByEpoch = 0;
+
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+
+            // 1) Funds + contract events
+            var events = GameStateStore.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.epoch != currentEpoch)
+                {
+                    skippedByEpoch++;
+                    continue;
+                }
+                if (!IsRecoverableEventType(evt.eventType)) continue;
+                if (LedgerHasMatchingAction(evt)) continue;
+
+                var action = GameStateEventConverter.ConvertEvent(evt, null);
+                if (action == null) continue;
+
+                Ledger.AddAction(action);
+                if (evt.eventType == GameStateEventType.PartPurchased)
+                    recoveredFundsParts++;
+                else
+                    recoveredContracts++;
+
+                ParsekLog.Verbose(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad: synthesized {action.Type} action for " +
+                    $"event {evt.eventType} key='{evt.key}' ut={evt.ut:F1}");
+            }
+
+            // 2) Committed science subjects
+            // Use the persisted store as the recovery source of truth. Broken pre-#397
+            // saves are missing ScienceEarning rows in the ledger; rebuilding the store
+            // from the broken ledger here would erase the very totals we need to heal.
+            // When some earnings already survive, synthesize only the missing delta so
+            // cumulative subject totals do not double-count.
+            var subjectIds = GameStateStore.GetCommittedScienceSubjectIds();
+            if (subjectIds != null)
+            {
+                foreach (var subjectId in subjectIds)
+                {
+                    if (string.IsNullOrEmpty(subjectId)) continue;
+                    if (!GameStateStore.TryGetCommittedSubjectScience(subjectId, out float sci)) continue;
+                    if (sci <= 0f) continue;
+
+                    float existingScience = GetLedgerScienceEarningTotal(subjectId);
+                    float missingScience = sci - existingScience;
+                    if (missingScience <= 0.01f) continue;
+
+                    var action = new GameAction
+                    {
+                        // Science earnings need a UT for ordering; use CurrentEpoch's
+                        // first pseudo-UT (close to zero) so the synthesized action
+                        // slots in at the beginning of the current epoch.
+                        UT = 0.0,
+                        Type = GameActionType.ScienceEarning,
+                        RecordingId = null,
+                        SubjectId = subjectId,
+                        ScienceAwarded = missingScience,
+                        SubjectMaxValue = sci + 10f  // generous cap so walk doesn't clip
+                    };
+                    Ledger.AddAction(action);
+                    recoveredScience++;
+
+                    ParsekLog.Verbose(Tag,
+                        $"TryRecoverBrokenLedgerOnLoad: synthesized ScienceEarning for " +
+                        $"subject='{subjectId}' missingSci={missingScience:F1} " +
+                        $"(stored={sci:F1}, existing={existingScience:F1})");
+                }
+            }
+
+            int totalRecovered = recoveredFundsParts + recoveredContracts + recoveredScience;
+            if (totalRecovered > 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad: synthesized {recoveredFundsParts} funds/part, " +
+                    $"{recoveredContracts} contract, {recoveredScience} science actions from store " +
+                    $"(epoch={currentEpoch}, skippedByEpoch={skippedByEpoch}).");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryRecoverBrokenLedgerOnLoad: no recovery needed (epoch={currentEpoch}, " +
+                    $"skippedByEpoch={skippedByEpoch})");
+            }
+
+            return totalRecovered;
+        }
+
+        // Scope limit (deliberate): only contract state changes and part purchases
+        // are migrated because those are the event types that #405/#404 actually
+        // stripped from the ledger on c1/sci1 saves, so those are the ones a broken
+        // save will be missing. MilestoneAchieved is excluded because historical
+        // milestones were emitted with funds=0/rep=0 hardcoded — synthesizing them
+        // would only add zero-reward actions. CrewHired, TechResearched, and
+        // FacilityUpgraded are excluded because their real-time OnKscSpending writes
+        // were never broken; c1/sci1 already have those actions. A future broken
+        // save that surfaces missing hires/tech/facility actions would need this
+        // list extended (see todo-and-known-bugs.md).
+        /// <summary>Pure: event types the migration can synthesize actions for.</summary>
+        internal static bool IsRecoverableEventType(GameStateEventType t)
+        {
+            switch (t)
+            {
+                case GameStateEventType.ContractAccepted:
+                case GameStateEventType.ContractCompleted:
+                case GameStateEventType.ContractFailed:
+                case GameStateEventType.ContractCancelled:
+                case GameStateEventType.PartPurchased:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure: checks whether the ledger already has an action matching the given
+        /// event (same type + UT within epsilon + key). Used by the save recovery
+        /// migration to avoid duplicating an action that already exists.
+        /// </summary>
+        internal static bool LedgerHasMatchingAction(GameStateEvent evt)
+        {
+            GameActionType? expectedType = MapEventTypeToActionType(evt.eventType);
+            if (expectedType == null) return true;   // unmappable => don't recover
+
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a.Type != expectedType.Value) continue;
+                if (Math.Abs(a.UT - evt.ut) > 0.1) continue;
+
+                // Match on the type-specific key field.
+                switch (a.Type)
+                {
+                    case GameActionType.ContractAccept:
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        if (a.ContractId == evt.key) return true;
+                        break;
+                    case GameActionType.FundsSpending:
+                        // Part purchase: evt.key is the part name, stored on DedupKey.
+                        if (a.DedupKey == evt.key) return true;
+                        break;
+                    default:
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure: checks whether the ledger already has a ScienceEarning action for
+        /// the given subject with at least the given science value credited. Uses
+        /// &gt;= comparison so multi-experiment top-ups don't synthesize duplicates.
+        /// </summary>
+        internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
+        {
+            if (string.IsNullOrEmpty(subjectId)) return true;
+            return GetLedgerScienceEarningTotal(subjectId) >= minScience - 0.01f;
+        }
+
+        /// <summary>
+        /// Pure: returns the total ScienceAwarded already present in the ledger for a
+        /// given subject. Used by save recovery to synthesize only the missing delta
+        /// when a broken save kept some ScienceEarning rows but lost later top-ups.
+        /// </summary>
+        internal static float GetLedgerScienceEarningTotal(string subjectId)
+        {
+            if (string.IsNullOrEmpty(subjectId)) return 0f;
+
+            float totalForSubject = 0f;
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a.Type != GameActionType.ScienceEarning) continue;
+                if (a.SubjectId != subjectId) continue;
+                totalForSubject += a.ScienceAwarded;
+            }
+
+            return totalForSubject;
+        }
+
+        /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
+        internal static GameActionType? MapEventTypeToActionType(GameStateEventType t)
+        {
+            switch (t)
+            {
+                case GameStateEventType.ContractAccepted: return GameActionType.ContractAccept;
+                case GameStateEventType.ContractCompleted: return GameActionType.ContractComplete;
+                case GameStateEventType.ContractFailed: return GameActionType.ContractFail;
+                case GameStateEventType.ContractCancelled: return GameActionType.ContractCancel;
+                case GameStateEventType.PartPurchased: return GameActionType.FundsSpending;
+                case GameStateEventType.TechResearched: return GameActionType.ScienceSpending;
+                case GameStateEventType.CrewHired: return GameActionType.KerbalHire;
+                case GameStateEventType.MilestoneAchieved: return GameActionType.MilestoneAchievement;
+                case GameStateEventType.FacilityUpgraded: return GameActionType.FacilityUpgrade;
+                default: return null;
+            }
+        }
+
+        /// <summary>
         /// Called when a KSC spending action occurs outside of a flight recording session.
         /// Converts the event directly to a GameAction and adds to the ledger, then recalculates.
         /// Used for tech unlocks, facility upgrades, and kerbal hires at KSC.
@@ -1077,24 +1508,113 @@ namespace Parsek
             // Key: "chainId:chainIndex", Value: EndUT of that segment.
             var chainEndUTs = BuildChainEndUtMap(tree);
 
+            // #397 / codex review [P1]: snapshot PendingScienceSubjects ONCE and attribute
+            // the full batch to exactly one recording in the tree. Previously every recording
+            // re-read the static list and produced its own ScienceEarning set, so an N-recording
+            // tree credited each subject N times — ScienceModule summed every copy and over-
+            // credited the R&D pool by a factor of N. The pending list has no per-subject UT
+            // field, so attribution must pick one recording arbitrarily; we use the one with
+            // the highest EndUT (most recent flight activity, which is usually where the
+            // science was earned just before commit).
+            var pendingSnapshot = GameStateRecorder.PendingScienceSubjects.Count == 0
+                ? EmptyPendingScience
+                : (IReadOnlyList<PendingScienceSubject>)
+                    new List<PendingScienceSubject>(GameStateRecorder.PendingScienceSubjects);
+            int pendingBefore = pendingSnapshot.Count;
+            string scienceOwnerRecordingId = PickScienceOwnerRecordingId(tree);
+
             int gapsClosed = 0;
-            foreach (var rec in tree.Recordings.Values)
+            try
             {
-                double startUT = rec.StartUT;
-                double endUT = rec.EndUT;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    double startUT = rec.StartUT;
+                    double endUT = rec.EndUT;
 
-                // Close chain segment gap: extend startUT backward to predecessor's EndUT
-                double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
-                if (adjusted < startUT) gapsClosed++;
-                startUT = adjusted;
+                    // Close chain segment gap: extend startUT backward to predecessor's EndUT
+                    double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+                    if (adjusted < startUT) gapsClosed++;
+                    startUT = adjusted;
 
-                OnRecordingCommitted(rec.RecordingId, startUT, endUT);
+                    // Exactly one recording absorbs the pending science batch; all others get
+                    // the empty sentinel list so ConvertScienceSubjects returns zero actions.
+                    IReadOnlyList<PendingScienceSubject> perRecordingPending =
+                        (rec.RecordingId == scienceOwnerRecordingId)
+                            ? pendingSnapshot
+                            : EmptyPendingScience;
+
+                    OnRecordingCommitted(rec.RecordingId, startUT, endUT, perRecordingPending);
+                }
             }
+            finally
+            {
+                // #397: PendingScienceSubjects is cleared AFTER the orchestrator has read
+                // them for every recording in the tree (via the snapshot above). Clearing
+                // the static list here completes the handoff — the snapshot we captured
+                // remains live inside any ScienceEarning actions the owner produced.
+                // Previously, RecordingStore cleared the list BEFORE NotifyLedgerTreeCommitted
+                // ran, so ConvertScienceSubjects always saw an empty list and no ScienceEarning
+                // actions ever landed. The try/finally ensures the clear fires even if
+                // OnRecordingCommitted throws.
+                int cleared = GameStateRecorder.PendingScienceSubjects.Count;
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                if (pendingBefore > 0 || cleared > 0)
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
+                        $"(snapshot={pendingBefore}, owner='{scienceOwnerRecordingId ?? "(none)"}', " +
+                        $"staticAtClear={cleared})");
+            }
+
+            // #390: prune events consumed by milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
 
             ParsekLog.Verbose(Tag,
                 $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
                 $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
                 $"gapsClosed={gapsClosed}");
+        }
+
+        /// <summary>
+        /// Picks exactly one recording in a tree to own any PendingScienceSubjects collected
+        /// while the tree was being recorded. Strategy: the recording with the highest EndUT
+        /// (most recent flight activity, where science was most likely earned just before
+        /// commit). If multiple recordings tie, the tree's ActiveRecordingId wins; if none
+        /// tie on that, the first iterated recording is a deterministic fallback.
+        /// Returns null if the tree has no recordings (empty tree). Internal static for
+        /// direct testability.
+        /// </summary>
+        internal static string PickScienceOwnerRecordingId(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return null;
+
+            string bestId = null;
+            double bestEndUT = double.NegativeInfinity;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                double endUT = rec.EndUT;
+                if (endUT > bestEndUT)
+                {
+                    bestEndUT = endUT;
+                    bestId = rec.RecordingId;
+                }
+                else if (endUT == bestEndUT && rec.RecordingId == tree.ActiveRecordingId)
+                {
+                    // Tie-break: prefer the active recording.
+                    bestId = rec.RecordingId;
+                }
+            }
+
+            // Defensive: if we somehow saw no non-null recordings, fall back to the first.
+            if (bestId == null)
+            {
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec != null) { bestId = rec.RecordingId; break; }
+                }
+            }
+            return bestId;
         }
 
         /// <summary>

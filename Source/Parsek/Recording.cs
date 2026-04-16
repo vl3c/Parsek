@@ -24,6 +24,10 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
+        // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
+        // Ghost-only recordings never spawn a real vessel at playback end.
+        public bool IsGhostOnly;
+
         // Cascade depth from primary recording. 0 = primary recording (active vessel),
         // 1 = primary debris (boosters/fairings decoupled by gen-0 vessel). Background
         // splits whose parent is at Generation >= MaxRecordingGeneration are skipped
@@ -41,6 +45,11 @@ namespace Parsek
         public int LoopSyncParentIdx { get; set; } = -1;
 
         public bool LoopPlayback;
+        /// <summary>
+        /// Launch-to-launch period in seconds (#381). Must be &gt;= GhostPlaybackLogic.MinCycleDuration.
+        /// When less than the recording duration, successive launches overlap (multi-ghost
+        /// overlap path). When greater, there is a pause window between cycles.
+        /// </summary>
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
         public double LoopStartUT = double.NaN;  // NaN = use StartUT (loop entire recording)
@@ -566,6 +575,7 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+            IsGhostOnly = source.IsGhostOnly;
             // Generation is transient, but copied so the cascade-depth state is
             // preserved across recording creation/commit boundaries within a tree session.
             // Loaded recordings reset to 0 since the field is [NonSerialized].
@@ -683,6 +693,37 @@ namespace Parsek
                 result.Add(copy);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Returns true if this recording is "logically loopable" — a launch, atmospheric
+        /// descent, surface departure, or docking segment whose loop replay has visual value.
+        /// Used by the timeline L button to decide which entries get a loop toggle.
+        /// </summary>
+        internal static bool IsLoopableRecording(Recording rec)
+        {
+            if (rec == null || rec.IsDebris)
+                return false;
+
+            // Launch from pad/runway
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName))
+                return true;
+
+            // Prelaunch start (e.g. pad without a named site)
+            if (rec.StartSituation == "Prelaunch")
+                return true;
+
+            // Atmospheric entry/exit or high-altitude approach
+            if (rec.SegmentPhase == "atmo" || rec.SegmentPhase == "approach" || rec.SegmentPhase == "surface")
+                return true;
+
+            // Actual docking segments record the other vessel's PID at the boundary.
+            // A plain Docked terminal state is too broad: some recordings simply stay
+            // docked in orbit and should not get the timeline loop toggle.
+            if (rec.DockTargetVesselPid != 0)
+                return true;
+
+            return false;
         }
 
         /// <summary>

@@ -409,7 +409,7 @@ namespace Parsek.Tests
                 RecordingFormatVersion = 0,
                 VesselName = "Probe",
                 LoopPlayback = true,
-                LoopIntervalSeconds = -15,
+                LoopIntervalSeconds = 15,
                 LoopTimeUnit = LoopTimeUnit.Min,
                 LoopAnchorVesselId = 99,
                 TerminalStateValue = TerminalState.Orbiting,
@@ -424,7 +424,7 @@ namespace Parsek.Tests
             Assert.Equal(0, traj.RecordingFormatVersion);
             Assert.Equal("Probe", traj.VesselName);
             Assert.True(traj.LoopPlayback);
-            Assert.Equal(-15, traj.LoopIntervalSeconds, 6);
+            Assert.Equal(15, traj.LoopIntervalSeconds, 6);
             Assert.Equal(LoopTimeUnit.Min, traj.LoopTimeUnit);
             Assert.Equal(99u, traj.LoopAnchorVesselId);
             Assert.Equal(TerminalState.Orbiting, traj.TerminalStateValue);
