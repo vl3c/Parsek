@@ -1783,5 +1783,172 @@ namespace Parsek.Tests
             Assert.Empty(restored.OrbitSegments);
             Assert.Empty(restored.TrackSections);
         }
+
+        // -----------------------------------------------------------------------
+        // Sparse v3 flag combinations (1 theory + 2 facts)
+        // -----------------------------------------------------------------------
+
+        public static IEnumerable<object[]> SparseFlagCombinationCases()
+        {
+            for (int mask = 0; mask < 16; mask++)
+            {
+                bool shareBody = (mask & 1) != 0;
+                bool shareFunds = (mask & 2) != 0;
+                bool shareScience = (mask & 4) != 0;
+                bool shareRep = (mask & 8) != 0;
+                yield return new object[] { shareBody, shareFunds, shareScience, shareRep };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(SparseFlagCombinationCases))]
+        public void SparseBinaryTrajectorySidecar_AllPresentAbsentCombinations_RoundTripLossless(
+            bool shareBody, bool shareFunds, bool shareScience, bool shareRep)
+        {
+            var original = BuildSparseFixture(shareBody, shareFunds, shareScience, shareRep, pointCount: 8);
+            string name = $"sparse-flags-{(shareBody ? "B" : "b")}{(shareFunds ? "F" : "f")}{(shareScience ? "S" : "s")}{(shareRep ? "R" : "r")}";
+            string path = Path.Combine(tempDir, name + ".prec");
+
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+        }
+
+        [Fact]
+        public void SparseBinaryTrajectorySidecar_BodyDefaultWithFundsOverride_MixedCase_RoundTripLossless()
+        {
+            // All 8 points share bodyName="Kerbin" (body default fires) but have per-point funds.
+            var original = new Recording
+            {
+                RecordingId = "sparse-body-funds-mixed",
+                RecordingFormatVersion = 3
+            };
+            for (int i = 0; i < 8; i++)
+            {
+                original.Points.Add(new TrajectoryPoint
+                {
+                    ut = 1000.0 + i * 10,
+                    latitude = -0.1 + i * 0.01,
+                    longitude = -74.5 + i * 0.01,
+                    altitude = 100 + i * 50,
+                    rotation = new Quaternion(0, 0, 0, 1),
+                    velocity = new Vector3(0, 10 + i, 0),
+                    bodyName = "Kerbin",
+                    funds = 1000.0 + i * 50,
+                    science = 0f,
+                    reputation = 0f
+                });
+            }
+
+            string path = Path.Combine(tempDir, "sparse-body-funds-mixed.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+
+            // Body default should have fired: sparsePointLists=1 in the write log.
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sparsePointLists=1"));
+        }
+
+        [Fact]
+        public void SparseBinaryTrajectorySidecar_NoFieldsShareDefaults_UsesDenseListFlag_RoundTripLossless()
+        {
+            // Each point has a unique body name (frequency 1 each) so the body savings gate cannot fire.
+            // All other fields also vary per-point. The sparse plan therefore stays disabled and the writer
+            // uses the dense (non-sparse) list flag. Round-trip correctness is the primary assertion.
+            string[] bodies =
+            {
+                "Body0", "Body1", "Body2", "Body3", "Body4", "Body5", "Body6", "Body7"
+            };
+            var original = new Recording
+            {
+                RecordingId = "sparse-all-vary",
+                RecordingFormatVersion = 3
+            };
+            for (int i = 0; i < 8; i++)
+            {
+                original.Points.Add(new TrajectoryPoint
+                {
+                    ut = 2000.0 + i * 10,
+                    latitude = -0.1 + i * 0.01,
+                    longitude = -74.0 + i * 0.1,
+                    altitude = 200 + i * 100,
+                    rotation = new Quaternion(0, 0, 0, 1),
+                    velocity = new Vector3(0, 20 + i, 0),
+                    bodyName = bodies[i],
+                    funds = 1000.0 + i * 137.3,
+                    science = i * 0.5f,
+                    reputation = i * 0.3f
+                });
+            }
+
+            string path = Path.Combine(tempDir, "sparse-all-vary.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            AssertSemanticTrajectoryEqual(original, restored);
+
+            // Dense branch: no sparsePointLists=1 in write log.
+            // With 8 unique body names the body savings = (4*1)-4 = 0; all other fields also unique.
+            // Total savings = 0, which does not exceed the gate (points.Count + 1 = 9), so sparse stays off.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sparsePointLists=1"));
+        }
+
+        private static Recording BuildSparseFixture(
+            bool shareBody, bool shareFunds, bool shareScience, bool shareRep, int pointCount = 8)
+        {
+            var rec = new Recording
+            {
+                RecordingId = $"sparse-fixture-{Guid.NewGuid():N}",
+                RecordingFormatVersion = 3
+            };
+
+            string[] bodies = { "Kerbin", "Mun", "Kerbin", "Mun", "Kerbin", "Mun", "Kerbin", "Mun" };
+
+            for (int i = 0; i < pointCount; i++)
+            {
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = 3000.0 + i * 10,
+                    latitude = -0.1 + i * 0.01,
+                    longitude = -74.0 + i * 0.02,
+                    altitude = 500 + i * 50,
+                    rotation = new Quaternion(0, 0, 0, 1),
+                    velocity = new Vector3(0, 50 + i, 0),
+                    bodyName = shareBody ? "Kerbin" : bodies[i % bodies.Length],
+                    funds = shareFunds ? 10000.0 : 1000.0 + i * 100,
+                    science = shareScience ? 5.0f : i * 0.7f,
+                    reputation = shareRep ? 3.0f : i * 0.4f
+                });
+            }
+
+            return rec;
+        }
     }
 }
