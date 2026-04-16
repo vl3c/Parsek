@@ -60,7 +60,15 @@ namespace Parsek
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
         /// </summary>
-        internal const string GloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
+        internal const string GloopsGroupName = "Gloops - Ghosts Only";
+
+        /// <summary>
+        /// Pre-PR-328 group name. Recordings loaded from disk carrying this string are
+        /// transparently renamed to <see cref="GloopsGroupName"/> on load (see
+        /// <c>RecordingTree.LoadRecordingFrom</c>) and the file is marked dirty so the
+        /// rename persists on the next save.
+        /// </summary>
+        internal const string LegacyGloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables

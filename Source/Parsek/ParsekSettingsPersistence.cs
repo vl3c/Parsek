@@ -50,6 +50,17 @@ namespace Parsek
         private static bool loaded;
 
         /// <summary>
+        /// True once <see cref="ApplyTo"/> has reconciled the store into a live
+        /// <see cref="ParsekSettings"/> instance. Until then, <c>ParsekSettings.Current</c>
+        /// may still hold whatever KSP restored from the .sfs (or the compiled
+        /// default for a fresh game) — trusting it would let
+        /// <see cref="EffectiveShowGhostsInTrackingStation"/> overwrite a correct
+        /// stored preference with a stale save value. Reset only via
+        /// <see cref="ResetForTesting"/>.
+        /// </summary>
+        private static bool reconciledWithLiveSettings;
+
+        /// <summary>
         /// Resolves the settings file path under GameData/Parsek/PluginData/.
         /// PluginData is the KSP convention for runtime-written, non-asset state:
         /// it's excluded from ModuleManager's patch cache, survives mod updates
@@ -173,6 +184,13 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
             }
+
+            // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
+            // now is ParsekSettings.Current authoritative enough for
+            // EffectiveShowGhostsInTrackingStation to trust it and resync the
+            // store from it. Before this flag flips, any early call must treat
+            // the store as the source of truth.
+            reconciledWithLiveSettings = true;
         }
 
         /// <summary>
@@ -203,20 +221,22 @@ namespace Parsek
         /// <summary>
         /// Resolve the effective <c>showGhostsInTrackingStation</c> value. Precedence:
         /// <list type="number">
-        ///   <item>Live <c>ParsekSettings.Current</c> when resolvable — authoritative
-        ///     after <c>ParsekScenario.OnLoad</c> reconciles the store into it, and
-        ///     the ONLY surface that catches a flip from KSP's stock Game Parameters
-        ///     menu (which mutates the field directly, bypassing
-        ///     <see cref="RecordShowGhostsInTrackingStation"/>). When live differs
-        ///     from stored we resync the store so the next cold-start window (before
-        ///     <c>ParsekSettings.Current</c> resolves) reads the user's real intent.</item>
-        ///   <item>Persisted store (settings.cfg) — fallback for the early-scene-load
-        ///     window. Does NOT depend on <c>HighLogic.CurrentGame</c>, so it's
-        ///     readable during <c>SpaceTracking.Awake</c> where
-        ///     <c>ParsekSettings.Current</c> can be null (see <c>ParsekScenario.cs:546</c>
-        ///     comment).</item>
+        ///   <item>Live <c>ParsekSettings.Current</c> — but only AFTER
+        ///     <see cref="ApplyTo"/> has reconciled the store into it
+        ///     (<c>reconciledWithLiveSettings</c> flag). Until then, <c>Current</c>
+        ///     may still hold the value KSP restored from the .sfs — trusting it
+        ///     would overwrite the user's persisted preference with a stale save
+        ///     value (PR #328 P2-A).</item>
+        ///   <item>Persisted store (settings.cfg) — authoritative before
+        ///     reconciliation AND the fallback for the early-scene-load window
+        ///     where <c>ParsekSettings.Current</c> is null (see
+        ///     <c>ParsekScenario.cs:546</c> comment).</item>
         ///   <item>Default <c>true</c> (pre-#388 behavior).</item>
         /// </list>
+        /// Post-reconciliation, a live value that disagrees with the store is
+        /// resynced back to disk so a flip from KSP's stock Game Parameters UI
+        /// (which mutates the field directly, bypassing
+        /// <see cref="RecordShowGhostsInTrackingStation"/>) survives cold-start.
         /// </summary>
         internal static bool EffectiveShowGhostsInTrackingStation()
         {
@@ -236,14 +256,14 @@ namespace Parsek
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
 
-            // Live Current wins when available. The stock Game Parameters UI writes
-            // directly to this field (bypassing RecordShowGhostsInTrackingStation), so
-            // reading from the store first would mask that flip for the rest of the
-            // session. When live and stored disagree, persist the live value so the
-            // next cold-start reads the user's current intent — the store still acts
-            // as the early-scene-load fallback below.
+            // Post-reconciliation: live Current wins. The stock Game Parameters UI
+            // writes directly to this field (bypassing
+            // RecordShowGhostsInTrackingStation), so reading from the store first
+            // would mask that flip for the rest of the session. When live and
+            // stored disagree, persist the live value so the next cold-start reads
+            // the user's current intent.
             var current = ParsekSettings.Current;
-            if (current != null)
+            if (reconciledWithLiveSettings && current != null)
             {
                 if (!storedShowGhostsInTrackingStation.HasValue
                     || storedShowGhostsInTrackingStation.Value != current.showGhostsInTrackingStation)
@@ -267,9 +287,18 @@ namespace Parsek
                 return current.showGhostsInTrackingStation;
             }
 
+            // Pre-reconciliation (or Current unavailable): store is the source of
+            // truth. This is the SpaceTracking.Awake pre-OnLoad window #388
+            // originally targeted, plus the new P2-A fix — a non-null-but-stale
+            // Current must not clobber the persisted preference before
+            // ParsekScenario.OnLoad had a chance to reconcile.
             if (storedShowGhostsInTrackingStation.HasValue)
                 return storedShowGhostsInTrackingStation.Value;
-            return true;
+
+            // Neither reconciled Current nor stored value available — fall back
+            // to pre-reconciliation Current if present (first-run, no settings.cfg
+            // yet), else the compiled default.
+            return current?.showGhostsInTrackingStation ?? true;
         }
 
         /// <summary>
@@ -307,6 +336,9 @@ namespace Parsek
 
         /// <summary>
         /// Test-only: clears the static store so LoadIfNeeded re-reads the file.
+        /// Also resets the reconciliation flag — tests that exercise the
+        /// live-wins precedence must either call <see cref="ApplyTo"/> with a
+        /// settings instance or <see cref="MarkReconciledForTesting"/> first.
         /// </summary>
         internal static void ResetForTesting()
         {
@@ -314,7 +346,22 @@ namespace Parsek
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
             loaded = false;
+            reconciledWithLiveSettings = false;
         }
+
+        /// <summary>
+        /// Test-only: flip the reconciled-with-live-settings flag without
+        /// needing to stand up a full <see cref="ParsekSettings"/> + call
+        /// <see cref="ApplyTo"/>. Mirrors the effect
+        /// <c>ParsekScenario.OnLoad → ApplyTo</c> has in production.
+        /// </summary>
+        internal static void MarkReconciledForTesting()
+        {
+            reconciledWithLiveSettings = true;
+        }
+
+        /// <summary>Test-only: current reconciliation-flag state.</summary>
+        internal static bool IsReconciledForTesting => reconciledWithLiveSettings;
 
         /// <summary>
         /// Test-only: returns the current stored cutoff value (null if unset).

@@ -271,10 +271,14 @@ namespace Parsek
                 testRunner.RunAll();
                 ParsekLog.Info("UI", "Test runner: Run All clicked");
             }
-            if (GUILayout.Button("Reset"))
+            if (GUILayout.Button(new GUIContent("Reset",
+                "Clears the table AND per-scene history used by the auto-exported results file.")))
             {
-                testRunner.ResetResults();
-                ParsekLog.Verbose("UI", "Test runner: Reset clicked");
+                // Explicit Reset wipes per-scene history so the auto-export on the
+                // next run produces a clean report. The implicit pre-run ResetResults
+                // used by Run All preserves history for cross-scene accumulation.
+                testRunner.ClearAllSceneHistory();
+                ParsekLog.Verbose("UI", "Test runner: Reset clicked (full history wipe)");
             }
             GUI.enabled = testRunner.IsRunning;
             if (GUILayout.Button("Cancel"))

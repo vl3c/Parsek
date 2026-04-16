@@ -899,9 +899,22 @@ namespace Parsek
             string[] recGroups = recNode.GetValues("recordingGroup");
             if (recGroups != null && recGroups.Length > 0)
             {
+                bool renamedAny = false;
                 for (int g = 0; g < recGroups.Length; g++)
+                {
                     recGroups[g] = Recording.ResolveLocalizedName(recGroups[g]);
+                    // PR #328: rename the gloops group to a shorter label. Recordings
+                    // from pre-rename builds keep working — the mapping runs once,
+                    // marks the file dirty, and the next save writes the new name.
+                    if (recGroups[g] == RecordingStore.LegacyGloopsGroupName)
+                    {
+                        recGroups[g] = RecordingStore.GloopsGroupName;
+                        renamedAny = true;
+                    }
+                }
                 rec.RecordingGroups = new List<string>(recGroups);
+                if (renamedAny)
+                    rec.FilesDirty = true;
             }
             rec.AutoAssignedStandaloneGroupName = recNode.GetValue("autoAssignedStandaloneGroup");
 

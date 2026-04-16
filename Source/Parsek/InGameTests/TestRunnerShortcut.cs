@@ -186,7 +186,15 @@ namespace Parsek.InGameTests
             GUILayout.BeginHorizontal();
             GUI.enabled = !running;
             if (GUILayout.Button("Run All")) { runner.ResetResults(); runner.RunAll(); }
-            if (GUILayout.Button("Reset")) { runner.ResetResults(); }
+            // The explicit Reset button wipes BOTH the live table and the per-scene
+            // history used by the auto-export — clicking Reset must produce a fresh
+            // report on the next run. The implicit pre-run ResetResults (above)
+            // preserves per-scene history so KSC→Flight accumulation works.
+            if (GUILayout.Button(new GUIContent("Reset",
+                "Clears the table AND per-scene history used by the auto-exported results file.")))
+            {
+                runner.ClearAllSceneHistory();
+            }
             GUI.enabled = running;
             if (GUILayout.Button("Cancel")) { runner.Cancel(); }
             GUI.enabled = true;

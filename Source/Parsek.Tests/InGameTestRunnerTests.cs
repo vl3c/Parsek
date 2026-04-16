@@ -243,5 +243,63 @@ namespace Parsek.Tests
             Assert.DoesNotContain("first run", joined);
             Assert.DoesNotContain("FAIL", joined);
         }
+
+        // ---- Reset semantics (PR #328 P2-B) ----
+        // The two Reset controls now have distinct meaning:
+        // - Implicit pre-run ResetResults / ResetCategory: clears live Status fields
+        //   so the table shows progression, but preserves per-scene history so the
+        //   auto-export keeps accumulating KSC→Flight outcomes.
+        // - Explicit ClearAllSceneHistory (wired to the "Reset" button): full wipe,
+        //   including per-scene history. Next auto-export produces a clean report.
+        //
+        // Unit-testing the live runner directly requires a MonoBehaviour host, but
+        // we can pin the state-machine contract on an InGameTestInfo directly.
+
+        [Fact]
+        public void InGameTestInfo_PerSceneHistory_SurvivesTopLevelStatusReset()
+        {
+            // Simulate the implicit pre-run reset: caller clears top-level Status
+            // but should NOT touch ResultsByScene — that's what keeps the
+            // cross-scene accumulation working.
+            var t = MakeTest("Cat", "Alpha");
+            StampResult(t, GameScenes.SPACECENTER, TestStatus.Passed, durationMs: 5.2f);
+            t.Status = TestStatus.Passed;
+            t.DurationMs = 5.2f;
+
+            // Mimic ResetResults' effect on this one test.
+            t.Status = TestStatus.NotRun;
+            t.ErrorMessage = null;
+            t.DurationMs = 0;
+
+            Assert.Single(t.ResultsByScene);
+            Assert.True(t.ResultsByScene.ContainsKey(GameScenes.SPACECENTER));
+            Assert.Equal(TestStatus.Passed, t.ResultsByScene[GameScenes.SPACECENTER].Status);
+        }
+
+        [Fact]
+        public void InGameTestInfo_PerSceneHistory_ClearedByFullWipe()
+        {
+            // Simulate ClearAllSceneHistory: both top-level AND the scene dict get
+            // cleared. This is what the explicit Reset button triggers so the next
+            // auto-export produces a clean file.
+            var t = MakeTest("Cat", "Alpha");
+            StampResult(t, GameScenes.SPACECENTER, TestStatus.Failed, err: "old");
+            StampResult(t, GameScenes.FLIGHT, TestStatus.Passed);
+
+            t.Status = TestStatus.NotRun;
+            t.ErrorMessage = null;
+            t.DurationMs = 0;
+            t.ResultsByScene.Clear();
+
+            Assert.Empty(t.ResultsByScene);
+            Assert.Equal(TestStatus.NotRun, t.Status);
+
+            // And the formatter treats the now-empty test as "never run".
+            var lines = InGameTestRunner.FormatResultsReport(
+                new[] { t },
+                new DateTime(2026, 4, 17, 10, 0, 0),
+                GameScenes.FLIGHT);
+            Assert.Contains("(never run)", string.Join("\n", lines));
+        }
     }
 }

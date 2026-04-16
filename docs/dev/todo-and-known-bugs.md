@@ -39,7 +39,7 @@ are fixed in the same PR branch with additional commits:
 
 ## ~~Gloops Flight Recorder~~
 
-- ~~**Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops Flight Recordings - Ghosts Only". Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation).~~ In-game verified 2026-04-16.
+- ~~**Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops - Ghosts Only" (renamed from the longer "Gloops Flight Recordings - Ghosts Only" in PR #328 with a transparent load-time migration). Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation).~~ In-game verified 2026-04-16.
 
 ---
 
