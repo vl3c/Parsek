@@ -1088,19 +1088,23 @@ namespace Parsek
 
         // Per-part overrides. Tiny engines (Twitch/Spider/Ant/Sepratron) have prefab
         // particles already in scale with the tiny part, so the default 1.5x boost
-        // over-sizes them — override down to ~0.6x. Rhino's prefab plume runs visibly
-        // narrower than the live engine even after the 1.5x boost, so bump it up to ~2.7x
-        // (about 80% wider than the default-boosted width). Keys are runtime part names
-        // (KSP converts underscores to dots: `smallRadialEngine_v2` → `smallRadialEngine.v2`).
+        // over-sizes them — override down to ~0.6x. Skipper and Mainsail still read a
+        // shade narrow even after the default boost — bump to ~1.95x (30% wider than
+        // the default-boosted width). Rhino's prefab plume runs visibly narrower than
+        // the live engine even after the 1.5x boost, so bump it up to ~2.7x (about 80%
+        // wider than the default-boosted width). Keys are runtime part names (KSP
+        // converts underscores to dots: `smallRadialEngine_v2` → `smallRadialEngine.v2`).
         private static readonly Dictionary<string, float> engineFxSizeOverride =
             new Dictionary<string, float>(System.StringComparer.Ordinal)
             {
-                { "smallRadialEngine",     0.6f }, // 24-77 Twitch
-                { "smallRadialEngine.v2",  0.6f }, // 24-77 Twitch v2
-                { "radialEngineMini.v2",   0.6f }, // LV-1R Spider
-                { "microEngine.v2",        0.6f }, // LV-1 Ant
-                { "sepMotor1",             0.6f }, // Sepratron I
-                { "Size3AdvancedEngine",   2.7f }, // KR-2L+ Rhino — widen prefab plume
+                { "smallRadialEngine",      0.6f  }, // 24-77 Twitch
+                { "smallRadialEngine.v2",   0.6f  }, // 24-77 Twitch v2
+                { "radialEngineMini.v2",    0.6f  }, // LV-1R Spider
+                { "microEngine.v2",         0.6f  }, // LV-1 Ant
+                { "sepMotor1",              0.6f  }, // Sepratron I
+                { "engineLargeSkipper.v2",  1.95f }, // T-1 Toroidal "Skipper"
+                { "liquidEngineMainsail.v2",1.95f }, // RE-M3 "Mainsail"
+                { "Size3AdvancedEngine",    2.7f  }, // KR-2L+ Rhino — widen prefab plume
             };
 
         /// <summary>
