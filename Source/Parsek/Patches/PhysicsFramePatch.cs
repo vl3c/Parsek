@@ -21,6 +21,13 @@ namespace Parsek.Patches
         private static FlightRecorder lastObservedRecorder;
 
         /// <summary>
+        /// Set by ParsekFlight.StartGloopsRecording(), cleared on stop.
+        /// Null when not Gloops-recording. Runs in parallel with ActiveRecorder.
+        /// </summary>
+        internal static FlightRecorder GloopsRecorderInstance;
+        private static FlightRecorder lastObservedGloopsRecorder;
+
+        /// <summary>
         /// Set by ParsekFlight when a recording tree is active.
         /// Null when no tree is active. Enables background physics recording
         /// for non-active vessels in the tree.
@@ -40,7 +47,16 @@ namespace Parsek.Patches
                 lastObservedRecorder = ActiveRecorder;
             }
 
-            if (ActiveRecorder == null && BackgroundRecorderInstance == null)
+            if (GloopsRecorderInstance != lastObservedGloopsRecorder)
+            {
+                if (GloopsRecorderInstance == null)
+                    ParsekLog.Info("PhysicsPatch", "Gloops recorder cleared");
+                else
+                    ParsekLog.Info("PhysicsPatch", "Gloops recorder attached");
+                lastObservedGloopsRecorder = GloopsRecorderInstance;
+            }
+
+            if (ActiveRecorder == null && GloopsRecorderInstance == null && BackgroundRecorderInstance == null)
                 return;
 
             // VesselPrecalculate.vessel is protected; resolve the vessel
@@ -65,6 +81,15 @@ namespace Parsek.Patches
                     DiagnosticsState.recordingBudget.totalMicroseconds = elapsedUs;
 
                     DiagnosticsComputation.CheckRecordingBudgetThreshold(elapsedUs, v.vesselName);
+                }
+            }
+
+            // Gloops recorder runs in parallel with the active recorder on the same vessel
+            if (GloopsRecorderInstance != null)
+            {
+                if (v != null && __instance.gameObject == v.gameObject)
+                {
+                    GloopsRecorderInstance.OnPhysicsFrame(v);
                 }
             }
 

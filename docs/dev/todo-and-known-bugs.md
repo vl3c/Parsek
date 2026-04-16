@@ -37,6 +37,12 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
+## Gloops Flight Recorder
+
+- **Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops Flight Recordings - Ghosts Only". Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation). Needs in-game verification when KSP is available.
+
+---
+
 # Known Bugs
 
 ## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~

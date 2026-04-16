@@ -523,6 +523,8 @@ namespace Parsek
             }
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
+            if (rec.IsGhostOnly)
+                recNode.AddValue("isGhostOnly", rec.IsGhostOnly.ToString());
 
             // Max distance from launch (#302): needed for idle-on-pad auto-discard
             // after scene reload (without this, deserialized recordings default to 0.0
@@ -928,6 +930,14 @@ namespace Parsek
                 bool isDebris;
                 if (bool.TryParse(isDebrisStr, out isDebris))
                     rec.IsDebris = isDebris;
+            }
+
+            string isGhostOnlyStr = recNode.GetValue("isGhostOnly");
+            if (isGhostOnlyStr != null)
+            {
+                bool isGhostOnly;
+                if (bool.TryParse(isGhostOnlyStr, out isGhostOnly))
+                    rec.IsGhostOnly = isGhostOnly;
             }
 
             // Max distance from launch (#302)

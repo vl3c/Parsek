@@ -56,6 +56,9 @@ namespace Parsek
         // Spawn Control window (extracted to SpawnControlUI)
         private SpawnControlUI spawnControlUI;
 
+        // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
+        private GloopsRecorderUI gloopsUI;
+
         private static readonly string VersionLabel = "v" +
             System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
@@ -82,6 +85,7 @@ namespace Parsek
             this.mode = UIMode.Flight;
             this.recordingsTableUI = new RecordingsTableUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
+            this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
@@ -94,6 +98,7 @@ namespace Parsek
             this.mode = mode;
             this.recordingsTableUI = new RecordingsTableUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
+            this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
@@ -160,7 +165,15 @@ namespace Parsek
             }
 
             if (InFlight)
-                DrawFlightRecordingControls();
+            {
+                GUILayout.Space(SpacingLarge);
+                if (GUILayout.Button("Gloops Flight Recorder"))
+                {
+                    gloopsUI.IsOpen = !gloopsUI.IsOpen;
+                    ParsekLog.Verbose("UI",
+                        $"Gloops Flight Recorder window toggled: {(gloopsUI.IsOpen ? "open" : "closed")}");
+                }
+            }
 
             // --- Settings button ---
             GUILayout.Space(SpacingLarge);
@@ -202,66 +215,7 @@ namespace Parsek
             GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
         }
 
-        private void DrawFlightRecordingControls()
-        {
-            GUILayout.Space(SpacingLarge);
-
-            if (!flight.IsRecording)
-            {
-                if (GUILayout.Button("Start Recording"))
-                {
-                    ParsekLog.Verbose("UI", "Start Recording button clicked");
-                    flight.StartRecording();
-                }
-            }
-            else
-            {
-                if (GUILayout.Button("Stop Recording"))
-                {
-                    ParsekLog.Verbose("UI", "Stop Recording button clicked");
-                    flight.StopRecording();
-                }
-            }
-
-            if (!flight.IsPlaying)
-            {
-                GUI.enabled = !flight.IsRecording && flight.recording.Count > 0;
-                if (GUILayout.Button("Preview Playback"))
-                {
-                    ParsekLog.Verbose("UI", "Preview Playback button clicked");
-                    flight.StartPlayback();
-                }
-                GUI.enabled = true;
-            }
-            else
-            {
-                if (GUILayout.Button("Stop Preview"))
-                {
-                    ParsekLog.Verbose("UI", "Stop Preview button clicked");
-                    flight.StopPlayback();
-                }
-            }
-
-            GUI.enabled = !flight.IsRecording && !flight.IsPlaying && flight.recording.Count > 0;
-            if (GUILayout.Button("Clear Current Recording"))
-            {
-                ParsekLog.Verbose("UI", "Clear Current Recording button clicked");
-                recordingsTableUI.ShowClearRecordingConfirmation();
-            }
-
-            bool canCommitTree = flight.HasActiveTree;
-            bool stableSituation = FlightGlobals.ActiveVessel != null
-                && RecordingStore.IsStableState((int)FlightGlobals.ActiveVessel.situation);
-            GUI.enabled = canCommitTree && stableSituation;
-            if (GUILayout.Button(stableSituation
-                ? new GUIContent("Commit Recording to Timeline")
-                : new GUIContent("Commit Recording to Timeline", "Land or stop before committing.")))
-            {
-                ParsekLog.Verbose("UI", "Commit Flight button clicked");
-                flight.CommitTreeFlight();
-            }
-            GUI.enabled = true;
-        }
+        // Recording controls moved to GloopsRecorderUI (Gloops Flight Recorder window)
 
         /// <summary>
         /// Call after each window's GUILayoutWindow to log position/size changes (rate-limited).
@@ -606,6 +560,12 @@ namespace Parsek
         public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)
         {
             spawnControlUI.DrawIfOpen(mainWindowRect, flight, InFlight);
+        }
+
+        public void DrawGloopsRecorderWindowIfOpen(Rect mainWindowRect)
+        {
+            if (InFlight && flight != null)
+                gloopsUI.DrawIfOpen(mainWindowRect, flight);
         }
 
         public void DrawTestRunnerWindowIfOpen(Rect mainWindowRect, MonoBehaviour host)
