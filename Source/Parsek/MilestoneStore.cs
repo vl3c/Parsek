@@ -21,6 +21,24 @@ namespace Parsek
 
         internal static uint CurrentEpoch { get; set; }
 
+        /// <summary>
+        /// Returns the highest EndUT among all milestones in the current epoch.
+        /// Returns 0 if no milestones exist for the current epoch.
+        /// Used by GameStateStore.PruneProcessedEvents to determine the threshold
+        /// below which events have been consumed.
+        /// </summary>
+        internal static double GetLatestCommittedEndUT()
+        {
+            uint epoch = CurrentEpoch;
+            double latest = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Epoch == epoch && milestones[i].EndUT > latest)
+                    latest = milestones[i].EndUT;
+            }
+            return latest;
+        }
+
         internal static Milestone CreateMilestone(string recordingId, double currentUT)
         {
             double startUT = 0;

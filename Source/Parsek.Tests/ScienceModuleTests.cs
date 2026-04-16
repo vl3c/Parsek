@@ -1025,5 +1025,57 @@ namespace Parsek.Tests
 
             Assert.Equal(5.0, module.GetRunningScience(), 3);
         }
+
+        // ================================================================
+        // Regression: #399 — two ScienceSpending at same UT must both count
+        // ================================================================
+
+        [Fact]
+        public void ComputeTotalSpendings_TwoSpendingsSameUT_CountsBoth()
+        {
+            // Bug #399 suspected two ScienceSpending actions at the same UT with
+            // different nodeIds were collapsed to one. Verify both are counted.
+            var actions = new List<GameAction>
+            {
+                MakeSpending(420.54, "basicRocketry", 5f, 0),
+                MakeSpending(420.54, "engineering101", 5f, 1)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            Assert.Equal(10.0, module.GetTotalCommittedSpendings());
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("spendingCount=2") &&
+                l.Contains("totalCommittedSpendings="));
+        }
+
+        [Fact]
+        public void Recalculate_TwoScienceSpendingsSameUT_BothProcessed()
+        {
+            // Full integration through RecalculationEngine: seed 11.04, then two
+            // spendings of 5 each at the same UT. Final balance should be ~1.04.
+            RecalculationEngine.ClearModules();
+            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 0.0,
+                    Type = GameActionType.ScienceInitial,
+                    InitialScience = 11.04f
+                },
+                MakeSpending(420.54, "basicRocketry", 5f, 0),
+                MakeSpending(420.54, "engineering101", 5f, 1)
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(1.04, module.GetRunningScience(), 2);
+            Assert.Equal(10.0, module.GetTotalCommittedSpendings());
+
+            RecalculationEngine.ClearModules();
+        }
     }
 }

@@ -2432,6 +2432,9 @@ namespace Parsek
                         $"FallbackCommitSplitRecorder: cleared PendingScienceSubjects " +
                         $"(before={pendingBefore}, atClear={cleared})");
             }
+            // #390: prune consumed events after milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
+
             string chainInfo = chainManager.ActiveChainId != null
                 ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
                 : "";

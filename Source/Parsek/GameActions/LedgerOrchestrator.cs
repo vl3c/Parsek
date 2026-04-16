@@ -658,10 +658,73 @@ namespace Parsek
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                 milestonesModule, facilitiesModule, contractsModule);
 
+            // #391: rebuild committedScienceSubjects from the walk's authoritative
+            // per-subject credits. This prunes stale entries left behind when a
+            // recording was deleted (the old dictionary was only ever appended to,
+            // never pruned). Without this, TryRecoverBrokenLedgerOnLoad would
+            // synthesize ghost ScienceEarning actions for the stale subjects.
+            RebuildCommittedScienceFromWalk();
+
             ParsekLog.Info(Tag,
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Rebuilds <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
+        /// from the ledger's surviving <see cref="GameActionType.ScienceEarning"/>
+        /// actions — a lightweight pass that does NOT require a full recalculation
+        /// walk. Used by <see cref="TryRecoverBrokenLedgerOnLoad"/> which runs
+        /// before the first <see cref="RecalculateAndPatch"/> call. Sums
+        /// ScienceAwarded per subject (simple accumulation, no cap walk).
+        /// </summary>
+        private static void RebuildCommittedScienceFromLedger()
+        {
+            var ledgerActions = Ledger.Actions;
+            var perSubject = new Dictionary<string, float>();
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var a = ledgerActions[i];
+                if (a.Type != GameActionType.ScienceEarning) continue;
+                string id = a.SubjectId;
+                if (string.IsNullOrEmpty(id)) continue;
+
+                float existing;
+                perSubject.TryGetValue(id, out existing);
+                perSubject[id] = existing + a.ScienceAwarded;
+            }
+
+            var pairs = new List<KeyValuePair<string, float>>(perSubject.Count);
+            foreach (var kvp in perSubject)
+            {
+                if (kvp.Value > 0f)
+                    pairs.Add(kvp);
+            }
+
+            GameStateStore.RebuildCommittedScienceSubjects(pairs);
+        }
+
+        /// <summary>
+        /// Rebuilds <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
+        /// from the <see cref="ScienceModule"/> walk state. After a recalculation
+        /// walk, the module has authoritative per-subject credited totals — these
+        /// are the source of truth because they derive purely from surviving ledger
+        /// actions. Replaces the stale append-only dictionary.
+        /// </summary>
+        private static void RebuildCommittedScienceFromWalk()
+        {
+            if (scienceModule == null) return;
+
+            var walkSubjects = scienceModule.GetAllSubjects();
+            var pairs = new List<KeyValuePair<string, float>>(walkSubjects.Count);
+            foreach (var kvp in walkSubjects)
+            {
+                if (kvp.Value.CreditedTotal > 0.0)
+                    pairs.Add(new KeyValuePair<string, float>(kvp.Key, (float)kvp.Value.CreditedTotal));
+            }
+
+            GameStateStore.RebuildCommittedScienceSubjects(pairs);
         }
 
         /// <summary>
@@ -1122,6 +1185,13 @@ namespace Parsek
             }
 
             // 2) Committed science subjects
+            // #391: Rebuild committedScienceSubjects from the ledger's surviving
+            // ScienceEarning actions before iterating. The persisted dictionary may
+            // contain stale entries from deleted recordings whose ledger actions were
+            // pruned by Reconcile. Without this rebuild, we would synthesize ghost
+            // ScienceEarning actions for those stale subjects.
+            RebuildCommittedScienceFromLedger();
+
             var subjectIds = GameStateStore.GetCommittedScienceSubjectIds();
             if (subjectIds != null)
             {
@@ -1512,6 +1582,9 @@ namespace Parsek
                         $"(snapshot={pendingBefore}, owner='{scienceOwnerRecordingId ?? "(none)"}', " +
                         $"staticAtClear={cleared})");
             }
+
+            // #390: prune events consumed by milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
 
             ParsekLog.Verbose(Tag,
                 $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
