@@ -2930,10 +2930,10 @@ without unpacking the authoritative files first.
 Remaining high-value work should stay measurement-gated and follow
 `docs/dev/done/plans/phase-11-5-recording-storage-optimization.md`:
 
-- fresh live-corpus rebaseline against current `v3` sidecars
-- snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
+- ~~fresh live-corpus rebaseline against current `v3` sidecars~~ — done; the current post-compression split (`.prec` `46.3%`, `_vessel.craft` `8.0%`, `_ghost.craft` `45.7%` across five April-14-to-16 bundles) is captured in the `Post-Compression v3 Rebaseline` section of `docs/dev/research/phase-11-5-recording-storage-baseline.md`
+- any further snapshot-side work now has to clear a higher bar: `.prec` and `_ghost.craft` are already roughly equal buckets after compression, and `_vessel.craft` is small, so "focus on snapshots next" only applies if a future corpus shifts the split back toward snapshots
 - keep the readable mirror path strictly diagnostic: authoritative load/save stays on `.prec` / `.craft`, mirror failures stay non-fatal, and stale mirrors should continue to reconcile cleanly on flag changes
-- only pursue intra-save snapshot dedupe or any custom binary snapshot schema if the post-compression rebaseline still shows a meaningful measured win
+- only pursue intra-save snapshot dedupe or any custom binary snapshot schema if a future rebaseline against a larger / more vessel-heavy corpus shows a meaningful measured win
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
 - snapshot-only hydration salvage must keep the loaded disk trajectory authoritative; if pending-tree data is used to heal bad snapshot sidecars, it should restore only snapshot state, not overwrite trajectory/timing with future in-memory data
@@ -2941,12 +2941,12 @@ Remaining high-value work should stay measurement-gated and follow
 - any further snapshot-side work should preserve current alias semantics, keep the
   missing-only ghost fallback contract, keep partial-write rollback safety intact, and stay
   covered by sidecar/load diagnostics
-- add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
-  and clears `FilesDirty`
-- add a mixed-case salvage test where several recordings fail hydration but only a subset can be
-  restored from the matching pending tree
+- ~~add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
+  and clears `FilesDirty`~~ — done via `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromPendingTree_ThenSaveRecordingFiles_HealsSidecarsAndClearsFilesDirty`
+- ~~add a mixed-case salvage test where several recordings fail hydration but only a subset can be
+  restored from the matching pending tree~~ — done via `QuickloadResumeTests.RestoreHydrationFailedRecordingsFromPendingTree_MixedRestorabilitySubset_RestoresOnlyTheRecoverableRecordings`
 
-**Priority:** Current Phase 11.5 follow-on work
+**Priority:** Current Phase 11.5 follow-on work — the concrete shipped/rebaseline items above are closed; remaining bullets are measurement-gated guidance for future shrink work rather than active tasks
 
 ---
 
