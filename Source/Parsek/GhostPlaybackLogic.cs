@@ -2944,6 +2944,12 @@ namespace Parsek
                 return (false, "vessel destroyed");
             }
 
+            // Gloops Flight Recorder recordings are ghost-only — never spawn a real vessel
+            if (rec.IsGhostOnly)
+            {
+                return (false, "ghost-only recording (Gloops)");
+            }
+
             // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
             if (rec.ChainBranch > 0)
             {

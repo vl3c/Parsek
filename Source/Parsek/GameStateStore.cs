@@ -198,6 +198,38 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Removes events that have been consumed by milestone creation and ledger conversion.
+        /// Call after both CreateMilestone and OnRecordingCommitted have completed.
+        /// Events are pruned if they belong to an old epoch OR if their UT is at or below
+        /// the latest committed milestone EndUT in the current epoch.
+        /// </summary>
+        internal static int PruneProcessedEvents()
+        {
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            double threshold = MilestoneStore.GetLatestCommittedEndUT();
+
+            int pruned = 0;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (e.epoch != currentEpoch || e.ut <= threshold)
+                {
+                    events.RemoveAt(i);
+                    pruned++;
+                }
+            }
+
+            if (pruned > 0)
+            {
+                ParsekLog.Info("GameStateStore",
+                    $"PruneProcessedEvents: removed {pruned} events " +
+                    $"(epoch={currentEpoch}, threshold={threshold:F1}, remaining={events.Count})");
+            }
+
+            return pruned;
+        }
+
         internal static void ClearEvents()
         {
             int eventCount = events.Count;
@@ -262,6 +294,26 @@ namespace Parsek
         internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
         {
             return committedScienceSubjects.TryGetValue(subjectId, out science);
+        }
+
+        /// <summary>
+        /// Rebuilds the committed science subjects dictionary from the given
+        /// (subjectId, scienceAmount) pairs. Used after recording deletion or
+        /// ledger reconciliation to prune stale entries from deleted recordings.
+        /// </summary>
+        internal static void RebuildCommittedScienceSubjects(
+            IEnumerable<KeyValuePair<string, float>> subjectCredits)
+        {
+            int before = committedScienceSubjects.Count;
+            committedScienceSubjects.Clear();
+            int count = 0;
+            foreach (var kv in subjectCredits)
+            {
+                committedScienceSubjects[kv.Key] = kv.Value;
+                count++;
+            }
+            ParsekLog.Info("GameStateStore",
+                $"RebuildCommittedScienceSubjects: before={before}, rebuilt with {count} subjects");
         }
 
         internal static int CommittedScienceSubjectCount => committedScienceSubjects.Count;

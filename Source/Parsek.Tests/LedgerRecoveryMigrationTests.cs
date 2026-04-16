@@ -237,6 +237,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recovery_PartialExistingScienceEarning_SynthesizesOnlyMissingDelta()
+        {
+            LedgerOrchestrator.Initialize();
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "partial-sci",
+                ScienceAwarded = 5f,
+                SubjectMaxValue = 50f
+            });
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "partial-sci",
+                    science = 16.44f,
+                    subjectMaxValue = 50f
+                }
+            });
+
+            int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
+
+            Assert.Equal(1, recovered);
+            var earnings = Ledger.Actions.Where(a =>
+                a.Type == GameActionType.ScienceEarning && a.SubjectId == "partial-sci").ToList();
+            Assert.Equal(2, earnings.Count);
+            Assert.Contains(earnings, a => Math.Abs(a.ScienceAwarded - 11.44f) < 0.01f);
+            Assert.Equal(16.44f, earnings.Sum(a => a.ScienceAwarded), precision: 2);
+        }
+
+        [Fact]
         public void Recovery_MultipleEventTypes_AllSynthesized()
         {
             GameStateStore.AddEvent(new GameStateEvent

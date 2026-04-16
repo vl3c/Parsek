@@ -55,6 +55,11 @@ namespace Parsek
     {
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int CurrentRecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
+
+        /// <summary>
+        /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
+        /// </summary>
+        internal const string GloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
@@ -362,6 +367,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Commits a ghost-only Gloops recording: adds to committed list, flushes to disk,
+        /// but skips game-state side effects (science subjects, milestones, baselines) since
+        /// ghost-only recordings do not affect game state.
+        /// </summary>
+        internal static void CommitGloopsRecording(Recording rec)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Warn("RecordingStore", "CommitGloopsRecording called with null recording");
+                return;
+            }
+
+            rec.IsGhostOnly = true;
+            rec.FilesDirty = true;
+
+            // Assign to Gloops group
+            if (rec.RecordingGroups == null)
+                rec.RecordingGroups = new List<string>();
+            if (!rec.RecordingGroups.Contains(GloopsGroupName))
+                rec.RecordingGroups.Add(GloopsGroupName);
+
+            committedRecordings.Add(rec);
+            FlushDirtyFiles(committedRecordings);
+
+            ParsekLog.Info("RecordingStore",
+                $"Committed Gloops ghost-only recording \"{rec.VesselName}\" " +
+                $"({rec.Points.Count} points, id={rec.RecordingId}). " +
+                $"Total committed: {committedRecordings.Count}");
+        }
+
+        /// <summary>
         /// Adds a recording to the internal committed list without flushing or side effects.
         /// For production code paths (e.g., undock continuation) that need direct list access
         /// after CommittedRecordings became IReadOnlyList.
@@ -378,6 +414,15 @@ namespace Parsek
         internal static bool RemoveCommittedInternal(Recording rec)
         {
             return committedRecordings.Remove(rec);
+        }
+
+        /// <summary>
+        /// Returns the index of <paramref name="rec"/> in the committed list, or -1 if not present.
+        /// For production code that needs lookup after CommittedRecordings became IReadOnlyList.
+        /// </summary>
+        internal static int IndexOfCommitted(Recording rec)
+        {
+            return committedRecordings.IndexOf(rec);
         }
 
         /// <summary>

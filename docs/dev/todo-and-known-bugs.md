@@ -37,6 +37,12 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
+## Gloops Flight Recorder
+
+- **Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops Flight Recordings - Ghosts Only". Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation). Needs in-game verification when KSP is available.
+
+---
+
 # Known Bugs
 
 ## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
@@ -383,7 +389,7 @@ The c1 ledger confirms the effect: every `MilestoneAchievement` action has `mile
 
 ---
 
-## 399. `ScienceModule.ComputeTotalSpendings` walks only one of two `ScienceSpending` actions for a save with two tech unlocks at the same UT
+## ~~399. `ScienceModule.ComputeTotalSpendings` walks only one of two `ScienceSpending` actions for a save with two tech unlocks at the same UT~~
 
 **Source:** same c1 playtest as `#405`. **Suspect — needs verification.**
 
@@ -409,7 +415,7 @@ Line 11762's `Coalesced ScienceChanged event at ut=420.54` hints that `GameState
 
 **Fix direction:** read `Source/Parsek/GameActions/ScienceModule.cs` around `ComputeTotalSpendings` and `ProcessSpending`, look for a dedup keyed on `(ut, cost)` or `(ut, nodeId)` that drops one of the two actions. Add a unit test with two `ScienceSpending` actions at the same UT with different `nodeId`s, assert both are walked. Likely a one-line fix, but the cascade matters — if this drops one tech research, the running balance is off by the cost of that tech node, which compounds into the `#403` funds-drain chain.
 
-**Status:** TODO. Suspect, unverified. **Unblocked by the career-earnings-bundle PR (#394-#405) — the ledger is now accurate enough that this same-UT walk bug should be reproducible and fixable in isolation.** Low-ish priority compared to `#405`/`#403`/`#402` — but easy to verify now that those are cleared.
+**Status:** ~~Fixed~~. Verified — the code is correct; no dedup bug exists. The `spendingCount=1` log entries were from intermediate `RecalculateAndPatch` calls (triggered by `CanAffordScienceSpending`) before the second action was added to the ledger. Regression tests added in `ScienceModuleTests.cs` to lock in the correct behavior.
 
 ---
 
@@ -534,7 +540,7 @@ The `5.4 → 4.1` regression on line `14063` is a direct visible symptom of `#39
 
 ---
 
-## 393. `KspStatePatcher.PatchScience` log message says "sandbox/science mode" when only sandbox is affected
+## ~~393. `KspStatePatcher.PatchScience` log message says "sandbox/science mode" when only sandbox is affected~~
 
 **Source:** same investigation as `#397`.
 
@@ -553,11 +559,11 @@ if (ResearchAndDevelopment.Instance == null)
 
 **Fix:** change the `PatchScience` message to `"ResearchAndDevelopment.Instance is null (sandbox mode) — skipping"`. One-line edit.
 
-**Status:** TODO. Trivial, low priority, roll into the `#397` fix PR.
+**Status:** ~~Fixed~~. Changed `"sandbox/science mode"` to `"sandbox mode"` in `KspStatePatcher.PatchScience` log message.
 
 ---
 
-## 392. `ScienceModule.HasSeed` gate may silently skip patching on the first recalculate after a fresh load
+## ~~392. `ScienceModule.HasSeed` gate may silently skip patching on the first recalculate after a fresh load~~
 
 **Source:** same investigation as `#397`. **Unverified — file as a diagnostic question, not a confirmed bug.**
 
@@ -589,11 +595,11 @@ The question: is there a window where (a) R&D.Science has already been mutated b
 
 **Fix direction:** verify the intended contract. If "seed captures baseline-at-first-recalc, earnings must arrive via `OnScienceReceived`" is correct and intentional, add a one-line comment explaining *why* the `HasSeed` skip is safe so the next person doesn't mistake it for the root cause. If there's a real gap, close it.
 
-**Status:** TODO. Unverified. Low priority — verify as part of the `#397` fix review.
+**Status:** ~~Fixed~~. Verified benign — the `DeferredSeedAndRecalculate` coroutine correctly handles the timing gap. The 12 HasSeed-skip log entries during early load are expected. Added clarifying comments to `PatchScience`/`PatchFunds`/`PatchReputation` in `KspStatePatcher.cs`.
 
 ---
 
-## 391. Max-wins inside `CommitScienceSubjects` silently drops subjects whose value hasn't increased since last commit
+## ~~391. Max-wins inside `CommitScienceSubjects` silently drops subjects whose value hasn't increased since last commit~~
 
 **Source:** same investigation as `#397`. **Unverified — file as a suspect.**
 
@@ -603,11 +609,11 @@ In the `#397`-broken state, where the store has the subjects but the ledger has 
 
 **Fix direction:** after `#397` is fixed, add a test for the rewind-same-value case, and confirm the intended behavior: the action *should* exist in the new recording's slice of the ledger, because otherwise the old recording's action disappears when the old recording is discarded. This may require splitting "store update" from "action emit" at the call-site level.
 
-**Status:** TODO. Unverified. Medium priority — test after `#397` fix to make sure rewind/replay doesn't introduce a new data loss pattern.
+**Status:** ~~Fixed~~. The `>` guard itself is harmless (equal-value re-commits don't change the dictionary). The real bug was that `committedScienceSubjects` became stale after recording deletion — subjects from deleted recordings persisted and `TryRecoverBrokenLedgerOnLoad` could synthesize ghost actions for them. Fix: `RebuildCommittedScienceFromWalk()` at the end of `RecalculateAndPatch()` and `RebuildCommittedScienceFromLedger()` before `TryRecoverBrokenLedgerOnLoad` iterates subjects. Tests in `CommittedScienceDictTests.cs`.
 
 ---
 
-## 390. `GameStateStore.Events` grows unboundedly with `outOfRange` events across recordings
+## ~~390. `GameStateStore.Events` grows unboundedly with `outOfRange` events across recordings~~
 
 **Source:** same playtest as `#397`. Low-severity perf/size concern — logged for completeness.
 
@@ -623,7 +629,7 @@ Every commit re-walks the full 16-19 event list to decide what's in range. In a 
 
 **Fix direction:** after a commit successfully converts events falling in its window, those specific events can be tombstoned (or moved to a separate "already-committed" list) so future commits walk a shorter candidate list. Separately, consider pruning events older than the oldest committed recording's startUT. Both require a migration for existing saves, so plan carefully.
 
-**Status:** TODO. Not urgent — only bites very long careers. Could be bundled with a future `GameStateStore` rework.
+**Status:** ~~Fixed~~. `GameStateStore.PruneProcessedEvents()` removes old-epoch events and events at or below the latest committed milestone's EndUT. Called after each commit in `NotifyLedgerTreeCommitted`, `CommitSegmentCore`, and `FallbackCommitSplitRecorder`. Tests in `EventPruningTests.cs`.
 
 ---
 
