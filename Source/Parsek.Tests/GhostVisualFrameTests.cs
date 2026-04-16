@@ -8,28 +8,6 @@ namespace Parsek.Tests
     public class GhostVisualFrameTests
     {
         [Fact]
-        public void ComputeSnapshotVisualRootLocalOffset_DebrisLeavesVisualsUnshifted()
-        {
-            var snapshot = BuildSnapshot("1.25,-2.5,3.75");
-            var traj = new MockTrajectory { IsDebris = true };
-
-            Vector3 offset = GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset(traj, snapshot);
-
-            AssertVector3Close(Vector3.zero, offset);
-        }
-
-        [Fact]
-        public void ComputeSnapshotVisualRootLocalOffset_NonDebrisLeavesVisualsUnshifted()
-        {
-            var snapshot = BuildSnapshot("1.25,-2.5,3.75");
-            var traj = new MockTrajectory { IsDebris = false };
-
-            Vector3 offset = GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset(traj, snapshot);
-
-            AssertVector3Close(Vector3.zero, offset);
-        }
-
-        [Fact]
         public void TryGetSnapshotRootPartInfo_UsesSnapshotRootIndex()
         {
             var snapshot = new ConfigNode("VESSEL");
@@ -284,22 +262,6 @@ namespace Parsek.Tests
 
             Assert.True(resolved);
             Assert.Equal(122.60, endpointUT, 2);
-        }
-
-        private static ConfigNode BuildSnapshot(string coM)
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("root", "0");
-            snapshot.AddValue("CoM", coM);
-
-            var part = snapshot.AddNode("PART");
-            part.AddValue("name", "mk1pod.v2");
-            part.AddValue("persistentId", "1");
-            part.AddValue("parent", "0");
-            part.AddValue("position", "0,0,0");
-            part.AddValue("rotation", "0,0,0,1");
-
-            return snapshot;
         }
 
         private static void AssertVector3Close(Vector3 expected, Vector3 actual, float epsilon = 1e-4f)

@@ -301,14 +301,6 @@ namespace Parsek
 
             GameObject root = new GameObject(rootName);
             Transform visualsRoot = EnsureGhostVisualsRoot(root.transform);
-            Vector3 visualsRootLocalOffset = ComputeSnapshotVisualRootLocalOffset(rec, snapshotNode);
-            visualsRoot.localPosition = visualsRootLocalOffset;
-            if (visualsRootLocalOffset.sqrMagnitude > 1e-6f)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"debris-visual-root-{rootName}",
-                    $"Ghost '{rec?.VesselName ?? "unknown"}' visual-root offset applied: " +
-                    $"snapshotCoM={-visualsRootLocalOffset} visualsRootLocal={visualsRootLocalOffset}", 60.0);
-            }
             bool addedAnyVisual = false;
             int visualCount = 0;
             int skippedName = 0;
@@ -486,15 +478,6 @@ namespace Parsek
                 return null;
 
             return partContainer.Find($"ghost_part_{partPersistentId}");
-        }
-
-        internal static Vector3 ComputeSnapshotVisualRootLocalOffset(
-            IPlaybackTrajectory rec, ConfigNode snapshotNode)
-        {
-            // The playback root already uses the vessel/root transform reference from
-            // the recorded trajectory point. Debris-only CoM shifting moves split
-            // stages and boosters forward from their actual separation position.
-            return Vector3.zero;
         }
 
         internal static bool TryGetSnapshotCenterOfMass(ConfigNode snapshotNode, out Vector3 centerOfMass)

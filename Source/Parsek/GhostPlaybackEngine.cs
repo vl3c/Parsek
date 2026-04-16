@@ -583,12 +583,13 @@ namespace Parsek
             TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
                 reason: "playback", requestedPlaybackUT: ctx.currentUT);
 
-            if (allowEarlyDestroyedDebrisCompletion
-                && TryHandleEarlyDestroyedDebrisCompletion(
-                    i, traj, f, ctx, state, ghostActive, hasPointData))
-            {
-                return true;
-            }
+            // Run early-destroyed-debris completion for its side effects (event
+            // emission, explosion FX). The helper's return value doesn't gate
+            // the outer result: the ghost has already been rendered above this
+            // line, so RenderInRangeGhost must report true regardless of
+            // whether the completion fired or was skipped. #369 cosmetic.
+            if (allowEarlyDestroyedDebrisCompletion)
+                TryHandleEarlyDestroyedDebrisCompletion(i, traj, f, ctx, state, ghostActive, hasPointData);
 
             return true;
         }
@@ -2323,7 +2324,6 @@ namespace Parsek
             ConfigNode snapshotNode = GhostVisualBuilder.GetGhostSnapshot(traj);
             Vector3 snapshotCoM = Vector3.zero;
             bool hasSnapshotCoM = GhostVisualBuilder.TryGetSnapshotCenterOfMass(snapshotNode, out snapshotCoM);
-            Vector3 visualRootLocal = GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset(traj, snapshotNode);
 
             string rootPartSummary = "rootPart=unknown";
             Transform rootPartTransform = null;
@@ -2358,7 +2358,9 @@ namespace Parsek
                     $"rootPart-root={FormatVector3d(rootPartWorldPos - rootPos)}";
             }
 
-            ParsekLog.Info("GhostAppearance",
+            // #375: was Info, demoted to Verbose after the #258 fix (first-visible-frame
+            // activation) was field-validated. High-volume with many debris ghosts.
+            ParsekLog.Verbose("GhostAppearance",
                 $"Ghost #{index} \"{traj?.VesselName ?? state.vesselName ?? "unknown"}\" " +
                 $"appearance#{state.appearanceCount} reason={reason} " +
                 $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
@@ -2374,7 +2376,6 @@ namespace Parsek
                 $"part-root={FormatVector3d(firstVisiblePartRootDelta)} " +
                 $"{recordingStartSummary} " +
                 $"snapshotCoM={(hasSnapshotCoM ? FormatVector3(snapshotCoM) : "none")} " +
-                $"visualRootLocal={FormatVector3(visualRootLocal)} " +
                 $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}");
         }
 

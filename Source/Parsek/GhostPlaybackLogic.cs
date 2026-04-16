@@ -4272,7 +4272,9 @@ namespace Parsek
             if (double.IsNaN(continuationActivationUT) || continuationActivationUT <= currentUT)
                 return baseHoldSeconds;
 
-            float effectiveWarpRate = warpRate > 0.01f ? warpRate : 1f;
+            // #369: harden against NaN warp rate — Mathf.Ceil((x / NaN) + grace) is
+            // NaN and Mathf.Clamp on NaN silently falls through to the base hold.
+            float effectiveWarpRate = (!float.IsNaN(warpRate) && warpRate > 0.01f) ? warpRate : 1f;
             float requiredSeconds = Mathf.Ceil((float)((continuationActivationUT - currentUT) / effectiveWarpRate)
                 + PendingWatchPostActivationGraceSeconds);
             return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, MaxPendingWatchHoldSeconds);

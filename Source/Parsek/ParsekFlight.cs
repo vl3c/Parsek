@@ -981,6 +981,12 @@ namespace Parsek
             watchMode.ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
+            // Clear ghost-icon sticky state and force atlas re-init so the next
+            // scene loads its own sprite atlas (the tracking station and flight
+            // scenes may resolve different Texture2D instances for the same
+            // logical atlas). See MapMarkerRenderer.ResetForSceneChange.
+            MapMarkerRenderer.ResetForSceneChange();
+
             // Finalize continuation sampling before anything else
             chainManager.StopAllContinuations("scene change");
 
@@ -9717,6 +9723,24 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// Contract for the `allowActivation` parameter threaded through
+        /// IGhostPositioner / ParsekFlight positioning methods (bug #258 / #375):
+        ///
+        /// - `true` = positioner may call <c>ghost.SetActive(true)</c> after
+        ///   world-space placement. Default for routine playback frames.
+        /// - `false` = positioner leaves visibility untouched. Only use when a
+        ///   downstream step (e.g. <c>ActivateGhostVisualsIfNeeded</c> during loop
+        ///   sync or deferred-FF handoff) owns the SetActive decision and must
+        ///   run AFTER world-space positioning so the first visible frame is
+        ///   already aligned with playback.
+        ///
+        /// Every new positioning path must decide explicitly. Forgetting to thread
+        /// the flag (and defaulting to <c>true</c> blind) can re-introduce the
+        /// "first-visible-frame shows stale initial pose" regression that #258
+        /// fixed. <c>ShouldAutoActivateGhost</c> is the canonical source for the
+        /// value.
+        /// </summary>
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             return state == null || !state.deferVisibilityUntilPlaybackSync;
