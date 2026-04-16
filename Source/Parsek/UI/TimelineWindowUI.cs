@@ -62,6 +62,14 @@ namespace Parsek
         private string cachedStatsText;
         private bool filterDirty = true;
 
+        // Time-range filter UI state
+        private bool showCustomRange;
+        private float sliderMin;
+        private float sliderMax;
+        private float sliderBoundMin;
+        private float sliderBoundMax;
+        private bool sliderBoundsInitialized;
+
         // Cached recording lookup by ID — refreshed on cache rebuild
         private Dictionary<string, Recording> recordingById;
 
@@ -143,6 +151,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resets the time-range filter slider positions to full bounds.
+        /// Called when the filter is cleared from another window (e.g. Recordings table).
+        /// </summary>
+        internal void ResetTimeRangeSliders()
+        {
+            sliderMin = sliderBoundMin;
+            sliderMax = sliderBoundMax;
+            filterDirty = true;
+        }
+
+        /// <summary>
         /// Marks the cached timeline as stale so it rebuilds on next draw.
         /// Called by ParsekUI on cache invalidation triggers.
         /// </summary>
@@ -205,6 +224,9 @@ namespace Parsek
 
             // Zone 2: Filter Bar
             DrawFilterBar();
+
+            // Zone 2b: Time-Range Filter
+            DrawTimeRangeFilterBar();
 
             // Rebuild cache if dirty
             if (timelineDirty || cachedTimeline == null)
@@ -336,6 +358,138 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        private void DrawTimeRangeFilterBar()
+        {
+            var filter = parentUI.TimeRangeFilter;
+            var committed = RecordingStore.CommittedRecordings;
+            double currentUT = 0;
+            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+
+            // Recompute slider bounds when timeline data changes
+            if (!sliderBoundsInitialized || timelineDirty)
+            {
+                TimeRangeFilterLogic.ComputeSliderBounds(committed, currentUT,
+                    out double bMin, out double bMax);
+                sliderBoundMin = (float)bMin;
+                sliderBoundMax = (float)bMax;
+                if (!sliderBoundsInitialized)
+                {
+                    sliderMin = sliderBoundMin;
+                    sliderMax = sliderBoundMax;
+                    sliderBoundsInitialized = true;
+                }
+                else
+                {
+                    // Clamp slider positions to new bounds so thumbs don't
+                    // end up outside the track after data changes
+                    if (sliderMin < sliderBoundMin) sliderMin = sliderBoundMin;
+                    if (sliderMin > sliderBoundMax) sliderMin = sliderBoundMax;
+                    if (sliderMax < sliderBoundMin) sliderMax = sliderBoundMin;
+                    if (sliderMax > sliderBoundMax) sliderMax = sliderBoundMax;
+                }
+            }
+
+            bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
+
+            // Preset row
+            GUILayout.Space(2);
+            GUILayout.BeginHorizontal();
+
+            int secsPerDay = ParsekTimeFormat.SecsPerDay;
+            int secsPerYear = ParsekTimeFormat.SecsPerYear;
+
+            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT);
+            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT);
+            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT);
+
+            // "This Year" = current Kerbin/Earth calendar year boundaries
+            double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
+            double yearEnd = yearStart + secsPerYear;
+            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT);
+
+            // "All" = clear filter
+            bool allActive = !filter.IsActive;
+            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(40)) && !allActive)
+            {
+                filter.Clear();
+                sliderMin = sliderBoundMin;
+                sliderMax = sliderBoundMax;
+                filterDirty = true;
+                ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
+            }
+
+            GUILayout.EndHorizontal();
+
+            if (!hasRange) return;
+
+            // Disclosure header
+            GUILayout.BeginHorizontal();
+            string arrow = showCustomRange ? "\u25bc" : "\u25b6";
+            string headerLabel = arrow + " Custom range";
+            if (filter.IsActive && filter.ActivePresetName == null)
+            {
+                headerLabel += "  " + TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
+                    + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
+            }
+            if (GUILayout.Button(headerLabel, GUI.skin.label))
+            {
+                showCustomRange = !showCustomRange;
+            }
+            GUILayout.EndHorizontal();
+
+            // Custom range sliders
+            if (showCustomRange)
+            {
+                // From slider
+                GUILayout.BeginHorizontal();
+                string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
+                GUILayout.Label("From:", GUILayout.Width(38));
+                float newMin = GUILayout.HorizontalSlider(sliderMin, sliderBoundMin, sliderBoundMax);
+                GUILayout.Label(fromLabel, GUILayout.Width(120));
+                GUILayout.EndHorizontal();
+
+                // To slider
+                GUILayout.BeginHorizontal();
+                string toLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMax);
+                GUILayout.Label("To:", GUILayout.Width(38));
+                float newMax = GUILayout.HorizontalSlider(sliderMax, sliderBoundMin, sliderBoundMax);
+                GUILayout.Label(toLabel, GUILayout.Width(120));
+                GUILayout.EndHorizontal();
+
+                // Clamp so From <= To
+                if (newMin > newMax) newMin = newMax;
+
+                // Apply immediately on slider change
+                if (System.Math.Abs(newMin - sliderMin) > 0.5f || System.Math.Abs(newMax - sliderMax) > 0.5f)
+                {
+                    sliderMin = newMin;
+                    sliderMax = newMax;
+                    filter.SetRange(sliderMin, sliderMax);
+                    filterDirty = true;
+                }
+            }
+        }
+
+        private void DrawPresetButton(TimeRangeFilterState filter, string name,
+            double minUT, double maxUT, double currentUT)
+        {
+            bool isActive = filter.IsActive && filter.ActivePresetName == name;
+            if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(70)) && !isActive)
+            {
+                // Clamp to slider bounds so we don't filter outside the data range
+                double clampedMin = System.Math.Max(minUT, sliderBoundMin);
+                double clampedMax = System.Math.Min(maxUT, sliderBoundMax);
+                if (clampedMax < clampedMin) clampedMax = clampedMin;
+                filter.SetRange(clampedMin, clampedMax, name);
+                sliderMin = (float)clampedMin;
+                sliderMax = (float)clampedMax;
+                filterDirty = true;
+                ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
+                    $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} — " +
+                    $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
+            }
+        }
+
         private void DrawEntryList()
         {
             if (cachedTimeline == null || cachedTimeline.Count == 0)
@@ -417,6 +571,12 @@ namespace Parsek
                 if (entry.IsPlayerAction && !showActionEntries) return false;
                 if (!entry.IsPlayerAction && !showEventEntries) return false;
             }
+
+            // Time-range filter
+            var filter = parentUI.TimeRangeFilter;
+            if (filter.IsActive && !TimeRangeFilterLogic.IsUTInRange(entry.UT, filter.MinUT, filter.MaxUT))
+                return false;
+
             return true;
         }
 

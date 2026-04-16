@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- `#389` Timeline and Recordings windows now support a shared time-range filter. Quick presets (Last Day, Last 7d, Last 30d, This Year, All) and a collapsible custom-range dual-slider let you narrow both windows to a specific time slice — useful for navigating long careers with many missions. Recordings table shows a compact filter indicator with a Clear button so the active filter is visible even when the Timeline is closed.
 - Added an **L** (loop toggle) button to the timeline for recordings that are logically loopable — launches, atmospheric descents, surface departures, and docking segments. The button sits after the R (rewind) button and uses the recording's existing saved loop interval. Active loops show green text for quick scanning.
 
 ### Tests
