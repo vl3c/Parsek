@@ -62,9 +62,10 @@ The regression corpus now proves two size relations:
 1. binary `v2` is smaller than equivalent text `v1`
 2. sparse binary `v3` is smaller than equivalent legacy binary `v2` when those fields are stable
 
-## Live `v3` Rebaseline
+## Live `v3` Rebaseline (pre-compression)
 
-Measured from the live `v3` playtest bundles:
+Measured from the live `v3` playtest bundles written before the April 13 snapshot
+compression slice landed:
 
 - `logs/2026-04-12_1857_phase-11-5-storage-followup-test-career/`
 - `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`
@@ -86,12 +87,43 @@ Combined:
 - `_vessel.craft` snapshots: `370,479` bytes (`20.5%`)
 - `_ghost.craft` snapshots: `1,155,027` bytes (`63.9%`)
 
-This is the key Phase 11.5 storage outcome:
+That snapshot of the pre-compression world identified `_ghost.craft` as the next clear
+optimization target.
 
-1. trajectory sidecars stopped being the dominant storage bucket
-2. snapshot-side payload is now the next clear optimization target
-3. the next PR should focus on `_ghost.craft` / `_vessel.craft` size rather than more speculative
-   `.prec` work
+## Post-Compression `v3` Rebaseline
+
+The April 13 snapshot compression slice (Deflate-compressed `_vessel.craft` / `_ghost.craft`
+via `SnapshotSidecarCodec`) changes the picture. Measured across the five most recent playtest
+bundles that include a `parsek/Recordings/` payload, all post-compression:
+
+| bundle | `.prec` | `_vessel.craft` | `_ghost.craft` | AUTH total | readable-mirror total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `logs/2026-04-16_0100_383-flame-test/` | `321,885` B (`53.1%`) | `45,360` B (`7.5%`) | `239,030` B (`39.4%`) | `606,275` B | `1,227,458` B |
+| `logs/2026-04-15_2034_showcase-loop-perf/` | `639,778` B (`46.2%`) | `18,491` B (`1.3%`) | `726,752` B (`52.5%`) | `1,385,021` B | `1,227,458` B |
+| `logs/2026-04-15_0005_c1-career-bugs/` | `23,894` B (`57.9%`) | `4,105` B (`9.9%`) | `13,267` B (`32.1%`) | `41,266` B | `264,865` B |
+| `logs/2026-04-14_2108_watch-camera-final/` | `137,311` B (`37.4%`) | `105,253` B (`28.7%`) | `124,413` B (`33.9%`) | `366,977` B | `3,039,478` B |
+| `logs/2026-04-14_1459_ghost-engine-fix-smoke/` | `146,107` B (`42.7%`) | `47,275` B (`13.8%`) | `149,136` B (`43.5%`) | `342,518` B | `2,127,314` B |
+
+Combined across all five bundles:
+
+- total authoritative sidecar payload: `2,742,057` bytes (`2.62 MiB`)
+- `.prec` trajectory sidecars: `1,268,975` bytes (`46.3%`) across `585` distinct recording ids
+- `_vessel.craft` snapshots: `220,484` bytes (`8.0%`)
+- `_ghost.craft` snapshots: `1,252,598` bytes (`45.7%`)
+- readable-mirror total: `7,886,573` bytes (`7.52 MiB`)
+- authoritative payload is `34.8%` of the readable mirror size (`65.2%` saved)
+- recordings with both snapshots: `40`; vessel-only (alias or missing ghost): `10`; ghost-only:
+  `533` (most recordings in these bundles are showcase / gloops-style that never had a live
+  vessel counterpart, which is why `_vessel.craft` is so small)
+
+This is the current Phase 11.5 storage outcome after the compression + readable-mirror slices:
+
+1. `.prec` (`46.3%`) and `_ghost.craft` (`45.7%`) are now roughly equal buckets; neither
+   dominates
+2. `_vessel.craft` is small and mostly swallowed by alias mode or by the ghost-only recording
+   mix in recent bundles
+3. further snapshot-side or trajectory-side shrink work only makes sense if a future corpus
+   shows one of those buckets growing disproportionately against this baseline
 
 ## Current Format Pressure Points
 
