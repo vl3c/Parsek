@@ -4,19 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.8.3
+## 0.8.2
 
 ### Features
 
 - Add Gloops Flight Recorder window for manual ghost-only recordings. Manual recording controls (Start/Stop, Preview, Discard) moved from the main Parsek UI to a dedicated "Gloops Flight Recorder" window opened via a button in the main UI. Recordings are marked `IsGhostOnly` and never spawn a real vessel at playback end. They auto-commit on stop with looping enabled by default and are placed in the "Gloops Flight Recordings - Ghosts Only" group. Ghost-only recordings can run in parallel with the auto-recording system. An X (delete) button is added to the recordings table for ghost-only recordings.
 - `#385` New Kerbals window (reserved crew, active stand-ins, retired stand-ins) opened via a button in the main Parsek window; Retired Stand-ins removed from the Timeline footer.
-
----
-
-## 0.8.2
-
-### Features
-
 - `#389` Timeline and Recordings windows now support a shared time-range filter. Quick presets (Last Day, Last 7d, Last 30d, This Year, All) and a collapsible custom-range dual-slider let you narrow both windows to a specific time slice — useful for navigating long careers with many missions. Recordings table shows a compact filter indicator with a Clear button so the active filter is visible even when the Timeline is closed.
 - Added an **L** (loop toggle) button to the timeline for recordings that are logically loopable — launches, atmospheric descents, surface departures, and docking segments. The button sits after the R (rewind) button and uses the recording's existing saved loop interval. Active loops show green text for quick scanning.
 
@@ -34,6 +27,11 @@ All notable changes to Parsek are documented here.
 - `T67` Replaced the skipped Unity-GameObject xUnit priming test with an in-game runtime test (`GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame`) so `dotnet test` runs clean without losing `GhostPlaybackEngine.SpawnGhost` priming coverage.
 - `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster `Remove` path against a reflected `KerbalRoster` instance in `KerbalLoadDiagnosticsTests`, confirming unused displaced stand-in deletion works end-to-end through the real adapter.
 - `T66` Added in-game runtime regression for PR #288 fresh watch-entry camera orientation -- pins canonical pitch/heading and guards against the 180-degree flip.
+- `T61` Added two hydration-salvage regression tests: one drives a save after `RestoreHydrationFailedRecordingsFromPendingTree` and pins that the `.prec` sidecar is rewritten, the epoch advances, and `FilesDirty` clears; the other covers a mixed-case tree with three failed recordings where only a subset is restorable from the pending tree and asserts the restore count plus the snapshot-only/full accounting in the summary log.
+
+### Documentation
+
+- `T61` Refreshed the live storage rebaseline in `docs/dev/research/phase-11-5-recording-storage-baseline.md` against the April 14-16 playtest bundles; post-compression `.prec` and `_ghost.craft` are now roughly equal buckets at around 46% each of the authoritative payload, so further snapshot-side shrink work is measurement-gated rather than pre-committed.
 
 ### Bug Fixes
 
