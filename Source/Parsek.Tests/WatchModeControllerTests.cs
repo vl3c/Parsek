@@ -670,5 +670,65 @@ namespace Parsek.Tests
             Assert.False(canRestore);
         }
 
+        [Fact]
+        public void FinalizeAutomaticExit_ClearsEnsureGhostOrbitRenderersLatch()
+        {
+            // Regression for #377 follow-up review finding: the one-shot
+            // EnsureGhostOrbitRenderers latch must clear at watch-session
+            // end. Otherwise a fresh watch session that enters while map view
+            // is already open inherits a stale `true`, skipping renderer
+            // creation and leaving map-focus restore stuck until the player
+            // toggles map view.
+            var controller = MakeUninitializedWatchModeController();
+            controller.ensureGhostOrbitRenderersAttempted = true;
+
+            controller.FinalizeAutomaticExitForTesting();
+
+            Assert.False(controller.ensureGhostOrbitRenderersAttempted);
+        }
+
+        [Fact]
+        public void TryCommitWatchSessionStart_AfterPriorSessionLeftLatchSet_ClearsLatch()
+        {
+            // Regression for #377 follow-up review finding: the exit-side
+            // reset is not sufficient on its own — a prior session that
+            // landed via an alternate teardown path (or a controller state
+            // manipulated by some future refactor) could still leave the
+            // latch set. TryCommitWatchSessionStart must clear it too so a
+            // fresh watch entered while map view is already open still runs
+            // one EnsureGhostOrbitRenderers pass.
+            var originalRealtimeNow = WatchModeController.RealtimeNow;
+            WatchModeController.RealtimeNow = () => 0f;
+            try
+            {
+                var controller = MakeUninitializedWatchModeController();
+                controller.ensureGhostOrbitRenderersAttempted = true;
+
+                var rec = new Recording
+                {
+                    RecordingId = "watchtarget",
+                    VesselName = "watchtarget"
+                };
+                var state = new GhostPlaybackState();
+
+                controller.TryCommitWatchSessionStart(index: 7, rec: rec, loadedState: state);
+
+                Assert.False(controller.ensureGhostOrbitRenderersAttempted);
+            }
+            finally
+            {
+                WatchModeController.RealtimeNow = originalRealtimeNow;
+            }
+        }
+
+        private static WatchModeController MakeUninitializedWatchModeController()
+        {
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var engineField = typeof(ParsekFlight).GetField("engine",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            engineField.SetValue(host, engine);
+            return new WatchModeController(host);
+        }
     }
 }
