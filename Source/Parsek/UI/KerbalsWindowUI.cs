@@ -35,7 +35,7 @@ namespace Parsek
         {
             public List<ReservedEntry> Reserved;
             public List<ActiveStandInEntry> Active;
-            public List<string> Retired;
+            public List<RetiredEntry> Retired;
         }
 
         internal struct ReservedEntry
@@ -51,6 +51,13 @@ namespace Parsek
             public string StandIn;
             public string Owner;
             public string Trait;
+        }
+
+        internal struct RetiredEntry
+        {
+            public string StandIn;
+            public string FormerOwner;  // empty for orphans not linked to any slot
+            public string Trait;        // inherited from FormerOwner's slot
         }
 
         internal delegate int ActiveChainIndexFunc(KerbalsModule.KerbalSlot slot);
@@ -156,7 +163,7 @@ namespace Parsek
                     {
                         Reserved = new List<ReservedEntry>(),
                         Active = new List<ActiveStandInEntry>(),
-                        Retired = new List<string>()
+                        Retired = new List<RetiredEntry>()
                     };
                 }
                 else
@@ -228,7 +235,7 @@ namespace Parsek
             GUILayout.EndVertical();
         }
 
-        private void DrawRetiredSection(List<string> retired)
+        private void DrawRetiredSection(List<RetiredEntry> retired)
         {
             if (retired.Count == 0) return;
             GUILayout.Space(5);
@@ -236,9 +243,18 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             for (int i = 0; i < retired.Count; i++)
             {
-                GUILayout.Label(retired[i], grayStyle);
+                GUILayout.Label(FormatRetiredRow(retired[i]), grayStyle);
             }
             GUILayout.EndVertical();
+        }
+
+        internal static string FormatRetiredRow(RetiredEntry e)
+        {
+            if (string.IsNullOrEmpty(e.FormerOwner))
+                return e.StandIn;
+            return string.IsNullOrEmpty(e.Trait)
+                ? $"{e.StandIn} \u2014 stood in for {e.FormerOwner}"
+                : $"{e.StandIn} [{e.Trait}] \u2014 stood in for {e.FormerOwner}";
         }
 
         internal static string FormatReservedRow(ReservedEntry e)
@@ -256,18 +272,20 @@ namespace Parsek
             IReadOnlyList<string> retired,
             ActiveChainIndexFunc activeChainIndexOf)
         {
-            // Retired comes from a HashSet snapshot in KerbalsModule — iteration order is
-            // implementation-defined and reshuffles between recalculations. Sort ordinally
-            // so the rendered list is stable save-over-save.
-            var retiredSorted = retired != null ? new List<string>(retired) : new List<string>();
-            retiredSorted.Sort(StringComparer.Ordinal);
-
             var vm = new KerbalsViewModel
             {
                 Reserved = new List<ReservedEntry>(),
                 Active = new List<ActiveStandInEntry>(),
-                Retired = retiredSorted
+                Retired = new List<RetiredEntry>()
             };
+
+            // Map each stand-in name to the owner slot it belongs to, so retired rows can
+            // display the former-owner context (trait + owner name) instead of just a bare
+            // name. In the pathological case where the same name shows up in multiple slot
+            // chains, the first (lexicographically smallest owner) wins — keeps output
+            // deterministic without a hard guarantee from the data source.
+            var standInOwner = new Dictionary<string, KeyValuePair<string, string>>(
+                StringComparer.Ordinal);
 
             if (slots != null && reservations != null && activeChainIndexOf != null)
             {
@@ -310,6 +328,45 @@ namespace Parsek
                             });
                         }
                     }
+
+                    // Index every chain entry for retired-row enrichment below.
+                    if (slot.Chain != null)
+                    {
+                        for (int c = 0; c < slot.Chain.Count; c++)
+                        {
+                            string name = slot.Chain[c];
+                            if (string.IsNullOrEmpty(name)) continue;
+                            if (!standInOwner.ContainsKey(name))
+                                standInOwner[name] = new KeyValuePair<string, string>(
+                                    owner, slot.OwnerTrait);
+                        }
+                    }
+                }
+            }
+
+            // Retired comes from a HashSet snapshot in KerbalsModule — iteration order is
+            // implementation-defined and reshuffles between recalculations. Sort ordinally
+            // so the rendered list is stable save-over-save.
+            if (retired != null)
+            {
+                var retiredSorted = new List<string>(retired);
+                retiredSorted.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < retiredSorted.Count; i++)
+                {
+                    string name = retiredSorted[i];
+                    string formerOwner = "";
+                    string trait = "";
+                    if (standInOwner.TryGetValue(name, out var info))
+                    {
+                        formerOwner = info.Key;
+                        trait = info.Value;
+                    }
+                    vm.Retired.Add(new RetiredEntry
+                    {
+                        StandIn = name,
+                        FormerOwner = formerOwner,
+                        Trait = trait
+                    });
                 }
             }
 

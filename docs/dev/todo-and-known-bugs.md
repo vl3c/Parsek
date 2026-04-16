@@ -1019,6 +1019,61 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 ---
 
+## 415. Kerbals window follow-ups: per-recording crew end-states + chain topology view
+
+**Source:** follow-up after PR #320 (#385 extraction). That PR shipped the three flat sections (Reserved / Active stand-ins / Retired stand-ins) and enriched Retired rows with trait + former-owner context. The next expansion surfaces two Parsek-specific views that stock KSP's Astronaut Complex cannot show: per-mission kerbal fate history, and the replacement-chain topology.
+
+**Filter applied:** a standalone "Deceased" list is NOT included here — stock's KIA memorial already exposes that. The per-recording end-state view below inherently annotates which kerbals died in which mission, which is the Parsek-unique framing.
+
+**1. Per-recording crew end-state breakdown.** Join `RecordingStore.CommittedRecordings` with each recording's `CrewEndStates: Dictionary<string, KerbalEndState>` (populated by `KerbalsModule.PopulateCrewEndStates` at commit time — `KerbalsModule.cs:435-509`). Render a collapsible section grouped by kerbal, with one row per recording they appeared in: `Bill Kerman — Mun Hopper: Recovered (UT 12045); Duna Return 3: Dead (UT 88432)`. Or inverted — group by recording, one row per crew member — whichever scans better; try both and keep the winner.
+
+The data pipeline is fully in place; this is pure UI plumbing:
+- `Recording.CrewEndStates` — source of truth per recording (`Recording.cs:162,166`)
+- `Recording.CrewEndStatesResolved: bool` — skip recordings where this is false (not yet committed or still pending)
+- `KerbalEndState` enum (`KerbalEndState.cs:9-19`): Aboard / Dead / Recovered / Unknown — map each to a readable label + optional color (red for Dead, green for Recovered, neutral for Aboard/Unknown)
+
+**2. Chain topology view.** Today the three flat sections fragment the chain — a user cannot tell that Bill (active) displaced Hanley (retired) under Jeb's slot without mentally joining the lists. Replace (or supplement) the flat sections with a per-slot tree render:
+
+```
+Jebediah Kerman [Pilot] — reserved until UT 18230
+  ├─ Bill Kerman     (retired)
+  └─ Hanley Kerman   (active)
+```
+
+Data is already in `KerbalsModule.Slots: IReadOnlyDictionary<string, KerbalSlot>` — each `KerbalSlot` has `OwnerName`, `OwnerTrait`, `OwnerPermanentlyGone`, `Chain: List<string>`. Walk each chain once, label entries using the same canonical rules the current PR uses:
+- Tip = `GetActiveChainIndex(slot)` → label "active"
+- Entries in `Chain` also present in `retired` HashSet → label "retired"
+- Non-tip entries not in `retired` → displaced metadata; hide or gray out
+
+**3. Per-name filter search (polish — optional v2).** A text box at the top of the window filtering Reserved + Active + Retired + (future) end-state rows by partial name match. Low value in small careers, helpful in 100+ kerbal saves.
+
+**State sources to wire up:**
+
+- `RecordingStore.CommittedRecordings` joined with `rec.CrewEndStates` for section 1
+- `LedgerOrchestrator.Kerbals.Slots` / `.Reservations` / `.GetActiveChainIndex` / `.GetRetiredKerbals()` for section 2 (all `internal`, already reachable from UI code since #320 bumped `GetActiveChainIndex` to `internal`)
+- `ParsekUI.OnTimelineDataChanged → kerbalsUI.InvalidateCache()` already fan-outs cache invalidation; no new wiring
+
+**Interaction with existing PR (#320):**
+
+- PR #320 added a view-model layer (`KerbalsViewModel` with `ReservedEntry`, `ActiveStandInEntry`, `RetiredEntry` structs in `UI/KerbalsWindowUI.cs`). The chain topology section will need a new `SlotTopologyEntry` struct (owner + trait + nested chain with per-entry status tag).
+- PR #320's scroll view + resize handle remain — chain topology with collapsible nodes fits inside the existing scroll region.
+- The current three flat sections can either be replaced by the topology view OR kept as a "flat" mode with a toggle. Lean toward replace for simplicity; flat mode is what the topology implicitly expands.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/KerbalsWindowUI.cs` — new `SlotTopologyEntry` + `CrewEndStateEntry` structs, extend `KerbalsViewModel`, add two new `Draw*Section` methods (collapsible), update `Build()` to compute both. Grow from ~320 lines to ~500.
+- `Source/Parsek.Tests/KerbalsWindowUITests.cs` — new tests: `Build_SlotTopology_RendersOwnerAndChainWithStatusTags`, `Build_CrewEndStateBreakdown_GroupsByKerbal`, `Build_SkipsRecordingsWithUnresolvedEndStates`, empty-state variants.
+- `CHANGELOG.md` — under the appropriate version header (0.8.3 or later).
+
+**Out of scope for this entry (carve off as separate todos if needed):**
+
+- Contracts / Facilities / Strategies / Milestones visibility: these are the remaining modules with no UI today. They are career-scoped rather than roster-scoped and don't belong in the Kerbals window — they deserve their own "KSP Admin" / "Career State" window if implemented.
+- Linking end-state rows to Timeline cross-scroll (click "Duna Return 3" → Timeline jumps to that recording's rows). Easy extension if the flat-view is kept alongside topology; skip if topology-only.
+
+**Status:** TODO. Size: M. Two independent sub-features (end-states + topology) can ship as separate PRs if the combined diff is too large.
+
+---
+
 ## 384. Copy the Learstar A1 mission from the S16 career into the test-career injector fixture as a far-away / map-view smoke test
 
 **Source:** maintenance request `2026-04-14`. The injected test career has lots of near-KSC content (Pad Walk, KSC Hopper, Flea Flight, etc.) and a handful of reentry recordings, but no representative mission with significant map-view / far-away state. The S16 campaign has a Learstar A1 flight that is a natural smoke test for this category.

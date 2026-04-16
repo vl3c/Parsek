@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -100,7 +101,12 @@ namespace Parsek.Tests
 
             Assert.Empty(vm.Reserved);
             Assert.Empty(vm.Active);
-            Assert.Equal(new[] { "Bill Kerman", "Hanley Kerman" }, vm.Retired);
+            Assert.Equal(2, vm.Retired.Count);
+            Assert.Equal("Bill Kerman", vm.Retired[0].StandIn);
+            Assert.Equal("", vm.Retired[0].FormerOwner);
+            Assert.Equal("", vm.Retired[0].Trait);
+            Assert.Equal("Hanley Kerman", vm.Retired[1].StandIn);
+            Assert.Equal("", vm.Retired[1].FormerOwner);
         }
 
         [Fact]
@@ -123,7 +129,50 @@ namespace Parsek.Tests
 
             Assert.Equal(
                 new[] { "Adara Kerman", "Bill Kerman", "Hanley Kerman", "Zim Kerman" },
-                vm.Retired);
+                vm.Retired.Select(e => e.StandIn).ToArray());
+        }
+
+        [Fact]
+        public void Build_RetiredLinkedToFormerOwner_IncludesTraitAndOwner()
+        {
+            // Retired stand-in name appears in a slot's Chain → enrich the retired row
+            // with the owner's name and trait.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
+            {
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
+                    new List<string> { "Bill Kerman", "Hanley Kerman" }) }
+            };
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
+            };
+            // Bill retired; Hanley is the active stand-in (not reserved).
+            var retired = new List<string> { "Bill Kerman" };
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
+                ActiveChainIndexLike(reservations));
+
+            Assert.Single(vm.Retired);
+            Assert.Equal("Bill Kerman", vm.Retired[0].StandIn);
+            Assert.Equal("Jebediah Kerman", vm.Retired[0].FormerOwner);
+            Assert.Equal("Pilot", vm.Retired[0].Trait);
+        }
+
+        [Fact]
+        public void FormatRetiredRow_RendersTraitAndOwnerWhenPresent()
+        {
+            var orphan = new KerbalsWindowUI.RetiredEntry { StandIn = "Bill Kerman" };
+            Assert.Equal("Bill Kerman", KerbalsWindowUI.FormatRetiredRow(orphan));
+
+            var linked = new KerbalsWindowUI.RetiredEntry
+            {
+                StandIn = "Bill Kerman",
+                FormerOwner = "Jebediah Kerman",
+                Trait = "Pilot"
+            };
+            Assert.Equal(
+                "Bill Kerman [Pilot] \u2014 stood in for Jebediah Kerman",
+                KerbalsWindowUI.FormatRetiredRow(linked));
         }
 
         [Fact]
@@ -172,7 +221,11 @@ namespace Parsek.Tests
 
             Assert.Empty(vm.Reserved);
             Assert.Empty(vm.Active);
-            Assert.Equal(new[] { "Bill Kerman" }, vm.Retired);
+            Assert.Single(vm.Retired);
+            Assert.Equal("Bill Kerman", vm.Retired[0].StandIn);
+            // Owner walked back into the seat but the slot record still links Bill to Jeb.
+            Assert.Equal("Jebediah Kerman", vm.Retired[0].FormerOwner);
+            Assert.Equal("Pilot", vm.Retired[0].Trait);
         }
 
         [Fact]
