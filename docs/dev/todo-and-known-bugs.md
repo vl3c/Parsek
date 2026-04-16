@@ -3068,15 +3068,17 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
-### T66. Add an in-game regression for fresh active-vessel -> ghost watch entry orientation
+### ~~T66. Add an in-game regression for fresh active-vessel -> ghost watch entry orientation~~
 
 PR `#288` fixed the first `Watch Ghost` transition so it preserves the active-vessel camera basis and no longer flips the camera to the opposite side of the pad on entry. The current automated coverage only pins the fresh-entry mode/distance state prep plus the shared target-basis compensation math; it does not execute the exact stock `FlightCamera` capture -> ghost retarget path in a live KSP scene.
 
 **Follow-up:** add an in-game/runtime repro that starts from a known pad-side anchor-camera view, enters watch mode on a same-body ghost, and asserts the watched first frame preserves the same world-side orientation relative to the vessel/body instead of mirroring to the opposite side.
 
+**Fix:** Added `GhostPlayback.WatchEntry_SameBody_PreservesFreshEntryAngles` in `Source/Parsek/InGameTests/RuntimeTests.cs`. The test finds a same-body ghost, enters watch mode, waits one frame, and asserts that `FlightCamera.fetch.camPitch/camHdg` match the canonical fresh-entry defaults (`DefaultWatchEntryPitch=12 deg` / `DefaultWatchEntryHeading=0 deg`) within 1 degree. A secondary safety-net asserts the camera's world-space forward direction did not flip ~180 degrees (the pre-#288 regression). Teardown calls `ExitWatchMode()` to restore state.
+
 **Priority:** Medium — the core fix is in, but only live KSP can prove the exact first-entry camera handoff end-to-end
 
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
@@ -3114,21 +3116,20 @@ That gives us a dedicated restart-path regression test for the exact slot-load +
 
 ---
 
-### T63. Expand true `ApplyToRoster()` end-to-end coverage for repaired historical stand-ins
+### ~~T63. Expand true `ApplyToRoster()` end-to-end coverage for repaired historical stand-ins~~
 
-Most of this TODO is now covered. `KerbalLoadDiagnosticsTests` pins:
+`KerbalLoadDiagnosticsTests` now pins all three adapter-seam categories:
 
-- retired stand-in recreation and unused stand-in deletion through the roster-application pass
-- failed historical recreation not producing a false "kept" repair summary
+- retired stand-in recreation and unused stand-in deletion through the facade path
+- failed historical recreation not producing a false "kept" repair summary (facade path)
 - a minimal real-`KerbalRoster` wrapper path for the steady-state retired-history case
+- **real-roster `Remove` mutation path**: `ApplyToRoster_WrapperPath_DeletesUnusedDisplacedStandIn` exercises the full pipeline (slots, ledger walk, `ApplyToRoster(KerbalRoster)`) against a reflected `KerbalRoster` instance, confirming that displaced+unused stand-ins are deleted via the real `KerbalRosterFacade.TryRemove` adapter and that displaced+used stand-ins (retired) survive
 
-What still remains is the deeper real-roster mutation path. The production `KerbalRosterFacade` branches for generated stand-ins, recreated stand-ins, and deletions are still validated mainly through the fake roster facade because KSP's native crew-generation path is awkward to exercise safely in xUnit.
+A smoke probe confirmed that `KerbalRoster.Remove(pcm)` survives xUnit (dict remove + `GameEvents.onKerbalRemoved.Fire` works), while `roster.GetNewKerbal(Crew)` NREs due to missing `CrewGenerator`/`GameDatabase`. The `TryCreateGeneratedStandIn` and `TryRecreateStandIn` branches therefore remain covered only by the fake facade in xUnit and by in-game `CrewReservation` runtime tests.
 
-The follow-up worth keeping open is a true mutation-heavy wrapper test that proves the real `KerbalRoster` adapter preserves the same recreated/deleted outcomes as the facade-path regression tests.
+**Fix:** Added `ApplyToRoster_WrapperPath_DeletesUnusedDisplacedStandIn` test exercising the real `KerbalRoster` adapter's Remove path end-to-end.
 
-**Priority:** Low — the behavioral risk is now concentrated in the real-roster adapter seam, not the reservation logic itself
-
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
@@ -3280,7 +3281,7 @@ The R button never appears in the recordings table because `RewindSaveFileName` 
 
 ## TODO — Nice to have
 
-### T67. Investigate the unrelated full-suite `GhostPlaybackEngineTests` Unity-host `SecurityException`
+### ~~T67. Investigate the unrelated full-suite `GhostPlaybackEngineTests` Unity-host `SecurityException`~~
 
 The current `Parsek.Tests` full-suite run still has a pre-existing unrelated failure in `GhostPlaybackEngineTests.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT`, throwing `System.Security.SecurityException: ECall methods must be packaged into a system module.` The focused watch-camera slices pass, so this did not block PR `#288`, but the failure still weakens the normal full-suite signal.
 
@@ -3288,7 +3289,9 @@ The current `Parsek.Tests` full-suite run still has a pre-existing unrelated fai
 
 **Priority:** Low — unrelated to the watch-camera fix, but worth cleaning up so the normal full suite becomes trustworthy again
 
-**Status:** Open
+**Fix:** Root cause is `GhostPlaybackEngine.SpawnGhost` calling Unity's `new GameObject(...)` (an ECall) from inside an xUnit run, which throws `SecurityException: ECall methods must be packaged into a system module` outside the Unity runtime. The xUnit case was already skipped with `[Fact(Skip = ...)]` in commit 87a93389, but that left the priming assertions uncovered. The replacement in-game test now lives at `GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame` in `Source/Parsek/InGameTests/RuntimeTests.cs` — it picks a committed recording, drives `engine.SpawnGhost` with a sentinel index at a midpoint UT, and asserts the same invariants (`state.ghost != null`, `deferVisibilityUntilPlaybackSync == true`, inactive ghost, populated `lastInterpolatedBodyName`, created `cameraPivot`/`horizonProxy`, ghost moved off origin). The xUnit full suite now runs with 0 failures and 1 intentional skip.
+
+**Status:** ~~Fixed~~
 
 ### ~~T53. Watch camera mode selection~~
 

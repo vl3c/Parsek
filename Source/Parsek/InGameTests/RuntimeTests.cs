@@ -355,6 +355,9 @@ namespace Parsek.InGameTests
     /// </summary>
     public class GhostPlaybackTests
     {
+        private readonly InGameTestRunner runner;
+        public GhostPlaybackTests(InGameTestRunner runner) { this.runner = runner; }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere can be created and destroyed")]
         public void GhostSphereLifecycle()
@@ -594,6 +597,174 @@ namespace Parsek.InGameTests
             float dot = Vector3.Dot(oldWorldDir.normalized, newWorldDir.normalized);
             InGameAssert.IsTrue(dot > 0.99f,
                 $"Transferred watch direction should be preserved, got dot={dot}");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "SpawnGhost primes fresh ghost to current playback UT (in-game replacement for xUnit SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT)")]
+        public IEnumerator SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight");
+
+            var engine = flight.Engine;
+            if (engine == null)
+                InGameAssert.Skip("no GhostPlaybackEngine");
+
+            var committed = RecordingStore.CommittedRecordings;
+            Recording rec = null;
+            int recordingIndex = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var candidate = committed[i];
+                if (candidate != null
+                    && candidate.Points != null
+                    && candidate.Points.Count >= 2
+                    && !string.IsNullOrEmpty(candidate.Points[0].bodyName))
+                {
+                    rec = candidate;
+                    recordingIndex = i;
+                    break;
+                }
+            }
+
+            if (rec == null)
+                InGameAssert.Skip("needs a committed recording with a non-empty trajectory");
+
+            int sentinelIndex = committed.Count + 1000;
+            if (engine.ghostStates.ContainsKey(sentinelIndex))
+                InGameAssert.Skip("sentinel index collision");
+
+            double primingUT = rec.Points[rec.Points.Count / 2].ut;
+
+            GhostPlaybackState state = null;
+            try
+            {
+                engine.SpawnGhost(sentinelIndex, rec as IPlaybackTrajectory, primingUT);
+
+                bool found = engine.ghostStates.TryGetValue(sentinelIndex, out state);
+                InGameAssert.IsTrue(found,
+                    $"ghostStates should contain sentinel index {sentinelIndex} after SpawnGhost");
+                InGameAssert.IsNotNull(state, "state should not be null after SpawnGhost");
+                InGameAssert.IsNotNull(state.ghost, "state.ghost should not be null after SpawnGhost");
+                InGameAssert.IsTrue(state.deferVisibilityUntilPlaybackSync,
+                    "fresh spawn should set deferVisibilityUntilPlaybackSync=true");
+                InGameAssert.IsFalse(state.ghost.activeSelf,
+                    "fresh spawn should leave ghost GameObject inactive until playback sync");
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(state.lastInterpolatedBodyName),
+                    "priming pass should have populated lastInterpolatedBodyName");
+                InGameAssert.IsNotNull(state.cameraPivot, "state.cameraPivot should be created");
+                InGameAssert.IsNotNull(state.horizonProxy, "state.horizonProxy should be created");
+
+                float ghostOriginDist = Vector3.Distance(state.ghost.transform.position, Vector3.zero);
+                InGameAssert.IsTrue(ghostOriginDist > 1f,
+                    $"priming should move ghost away from origin, got distance={ghostOriginDist:F2}");
+
+                ParsekLog.Verbose("TestRunner",
+                    $"SpawnGhost priming in-game: recordingIndex={recordingIndex} " +
+                    $"vessel=\"{rec.VesselName}\" sentinelIndex={sentinelIndex} " +
+                    $"primingUT={primingUT:F2} body=\"{state.lastInterpolatedBodyName}\" " +
+                    $"altitude={state.lastInterpolatedAltitude:F1} " +
+                    $"ghostPosMag={ghostOriginDist:F2} " +
+                    $"deferVis={state.deferVisibilityUntilPlaybackSync} " +
+                    $"activeSelf={state.ghost.activeSelf}");
+            }
+            finally
+            {
+                engine.ghostStates.Remove(sentinelIndex);
+                if (state != null && state.ghost != null)
+                    runner.TrackForCleanup(state.ghost);
+            }
+
+            yield break;
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "EnterWatchMode on a same-body ghost applies canonical fresh-entry angles, not the active vessel's camera state (PR #288 regression)")]
+        public IEnumerator WatchEntry_SameBody_PreservesFreshEntryAngles()
+        {
+            // --- Preconditions ---
+            if (ParsekFlight.Instance == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("no ActiveVessel");
+            if (FlightCamera.fetch == null)
+                InGameAssert.Skip("no FlightCamera");
+
+            var engine = ParsekFlight.Instance.Engine;
+            if (engine == null)
+                InGameAssert.Skip("no GhostPlaybackEngine");
+
+            var committed = RecordingStore.CommittedRecordings;
+            string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+
+            // --- Find a watchable same-body ghost ---
+            int index = -1;
+            GhostPlaybackState state = null;
+            foreach (var kvp in engine.ghostStates)
+            {
+                var gs = kvp.Value;
+                if (gs == null) continue;
+                if (gs.lastInterpolatedBodyName != activeBodyName) continue;
+                if (gs.ghost == null) continue;
+                if (kvp.Key >= committed.Count) continue;
+                // Require at least one update frame so lastDistance is real — zero means
+                // the ghost was just spawned and the range check would be vacuously true.
+                if (gs.lastDistance <= 0.0) continue;
+                if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
+
+                index = kvp.Key;
+                state = gs;
+                break;
+            }
+
+            if (index < 0)
+                InGameAssert.Skip("no same-body ghost available for watch-entry regression");
+
+            // --- Capture pre-entry camera forward direction (for 180-flip safety net) ---
+            Vector3 cameraForwardBefore = FlightCamera.fetch.transform.forward;
+
+            // --- Enter watch mode ---
+            ParsekFlight.Instance.EnterWatchMode(index);
+            yield return null; // let camera apply
+
+            try
+            {
+                // --- Assert watch mode entered ---
+                InGameAssert.IsTrue(ParsekFlight.Instance.IsWatchingGhost, "should be in watch mode");
+                InGameAssert.AreEqual(index, ParsekFlight.Instance.WatchedRecordingIndex, "watching wrong index");
+
+                // --- Core assertions: tight angle check on canonical defaults ---
+                float expectedPitchRad = WatchModeController.DefaultWatchEntryPitch * Mathf.Deg2Rad;
+                float actualPitchRad = FlightCamera.fetch.camPitch;
+                float actualHdgRad = FlightCamera.fetch.camHdg;
+                float pitchDeg = Mathf.Abs(actualPitchRad - expectedPitchRad) * Mathf.Rad2Deg;
+                float hdgDeg = Mathf.Abs(Mathf.DeltaAngle(actualHdgRad * Mathf.Rad2Deg, WatchModeController.DefaultWatchEntryHeading));
+                InGameAssert.IsTrue(pitchDeg < 1f,
+                    $"pitch should be near {WatchModeController.DefaultWatchEntryPitch} deg, got delta={pitchDeg:F2} deg");
+                InGameAssert.IsTrue(hdgDeg < 1f,
+                    $"heading should be near {WatchModeController.DefaultWatchEntryHeading} deg, got delta={hdgDeg:F2} deg");
+
+                // --- Safety-net assertion: no 180-degree camera flip ---
+                Vector3 cameraForwardAfter = FlightCamera.fetch.transform.forward;
+                float worldDot = Vector3.Dot(cameraForwardBefore, cameraForwardAfter);
+                InGameAssert.IsTrue(worldDot > -0.5f,
+                    $"camera should not flip ~180 degrees on watch entry, dot={worldDot:F3}");
+
+                // --- Verbose diagnostic log ---
+                ParsekLog.Verbose("TestRunner",
+                    $"WatchEntry_SameBody: index={index} body={state.lastInterpolatedBodyName} " +
+                    $"camPitchDeg={actualPitchRad * Mathf.Rad2Deg:F2} camHdgDeg={actualHdgRad * Mathf.Rad2Deg:F2} " +
+                    $"expectedPitch={WatchModeController.DefaultWatchEntryPitch:F1} expectedHdg={WatchModeController.DefaultWatchEntryHeading:F1} " +
+                    $"worldDot={worldDot:F3}");
+            }
+            finally
+            {
+                ParsekFlight.Instance.ExitWatchMode();
+            }
+
+            InGameAssert.IsFalse(ParsekFlight.Instance.IsWatchingGhost, "should have exited watch mode");
         }
     }
 

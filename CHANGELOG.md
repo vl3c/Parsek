@@ -30,6 +30,9 @@ All notable changes to Parsek are documented here.
 - `#399` Added regression tests confirming `ScienceModule.ComputeTotalSpendings` correctly counts two `ScienceSpending` actions at the same UT — the suspected dedup bug was a log-reading artifact from intermediate `RecalculateAndPatch` calls.
 - `#390` Added 10 unit tests for `GameStateStore.PruneProcessedEvents` and `MilestoneStore.GetLatestCommittedEndUT` covering epoch filtering, threshold pruning, empty store, and mixed scenarios.
 - `#391` Added 6 unit tests for `GameStateStore.RebuildCommittedScienceSubjects` covering repopulation, clearing, value overwrite, and log output.
+- `T67` Replaced the skipped Unity-GameObject xUnit priming test with an in-game runtime test (`GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame`) so `dotnet test` runs clean without losing `GhostPlaybackEngine.SpawnGhost` priming coverage.
+- `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster `Remove` path against a reflected `KerbalRoster` instance in `KerbalLoadDiagnosticsTests`, confirming unused displaced stand-in deletion works end-to-end through the real adapter.
+- `T66` Added in-game runtime regression for PR #288 fresh watch-entry camera orientation -- pins canonical pitch/heading and guards against the 180-degree flip.
 
 ### Bug Fixes
 

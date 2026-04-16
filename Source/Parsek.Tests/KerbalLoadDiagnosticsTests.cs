@@ -449,6 +449,80 @@ namespace Parsek.Tests
                 && l.Contains("repair summary:"));
         }
 
+        [Fact]
+        public void ApplyToRoster_WrapperPath_DeletesUnusedDisplacedStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+
+            // Val's slot: chain ["Hanley", "Padme"]
+            var valSlot = slotsNode.AddNode("SLOT");
+            valSlot.AddValue("owner", "Val");
+            valSlot.AddValue("trait", "Pilot");
+            var valFirst = valSlot.AddNode("CHAIN_ENTRY");
+            valFirst.AddValue("name", "Hanley");
+            var valSecond = valSlot.AddNode("CHAIN_ENTRY");
+            valSecond.AddValue("name", "Padme");
+
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            // rec-val: uses only Val (owner is active occupant; stand-ins are displaced)
+            var valRec = MakeSnapshotRecording("rec-val", "Val Ship", new[] { "Val" },
+                TerminalState.Recovered, 20);
+            RecordingStore.AddRecordingWithTreeForTesting(valRec);
+
+            // rec-hanley: uses Hanley (so Hanley is displaced BUT used in a recording = retired)
+            var hanleyRec = MakeGhostOnlyRepairRecording(
+                "rec-hanley",
+                "Hanley Ship",
+                "Hanley",
+                "Val",
+                KerbalEndState.Recovered);
+            RecordingStore.AddRecordingWithTreeForTesting(hanleyRec);
+
+            // No recording uses Padme — she is displaced AND unused = should be deleted
+
+            var actions = new List<GameAction>();
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-val", 0.0, 20.0));
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-hanley", 0.0, 20.0));
+
+            module.Reset();
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+            module.PostWalk();
+
+            // Build real KerbalRoster via reflection
+            var roster = CreateRealRoster();
+            AddToRealRoster(roster, "Val", ProtoCrewMember.RosterStatus.Assigned, "Pilot");
+            AddToRealRoster(roster, "Hanley", ProtoCrewMember.RosterStatus.Available, "Pilot");
+            AddToRealRoster(roster, "Padme", ProtoCrewMember.RosterStatus.Available, "Pilot");
+
+            logLines.Clear();
+            KerbalLoadRepairDiagnostics.Begin();
+            module.ApplyToRoster(roster);
+            KerbalLoadRepairDiagnostics.EmitAndReset();
+
+            // Padme: displaced + unused — should be removed from real roster
+            Assert.False(RosterContains(roster, "Padme"), "Padme should be deleted (displaced, unused)");
+            // Hanley: displaced + used in recording — retired, kept in roster
+            Assert.True(RosterContains(roster, "Hanley"), "Hanley should survive (retired, used in recording)");
+            // Val: owner, always preserved
+            Assert.True(RosterContains(roster, "Val"), "Val should survive (slot owner)");
+
+            // Assert log contains deletedUnused count
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("repair summary:")
+                && l.Contains("deletedUnused=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalLoad]")
+                && l.Contains("deleted-unused Padme"));
+        }
+
         private static HashSet<string> CollectRecordingIds()
         {
             var validIds = new HashSet<string>();
