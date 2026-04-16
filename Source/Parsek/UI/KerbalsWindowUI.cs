@@ -17,7 +17,13 @@ namespace Parsek
         private bool showKerbalsWindow;
         private Rect kerbalsWindowRect;
         private bool kerbalsWindowHasInputLock;
+        private bool isResizingKerbalsWindow;
+        private Vector2 kerbalsScrollPos;
         private const string KerbalsInputLockId = "Parsek_KerbalsWindow";
+        private const float MinWindowWidth = 280f;
+        private const float MinWindowHeight = 150f;
+        private const float DefaultWindowWidth = 320f;
+        private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 
         private KerbalsViewModel? cachedVM;
@@ -79,21 +85,25 @@ namespace Parsek
                 kerbalsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    320, 10);
+                    DefaultWindowWidth,
+                    DefaultWindowHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Kerbals window initial position: x={kerbalsWindowRect.x.ToString("F0", ic)} y={kerbalsWindowRect.y.ToString("F0", ic)}");
             }
 
+            ParsekUI.HandleResizeDrag(ref kerbalsWindowRect, ref isResizingKerbalsWindow,
+                MinWindowWidth, MinWindowHeight, "Kerbals window");
+
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            kerbalsWindowRect.height = 10;
             kerbalsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekKerbals".GetHashCode(),
                 kerbalsWindowRect,
                 DrawKerbalsWindow,
                 "Parsek \u2014 Kerbals",
                 opaqueWindowStyle,
-                GUILayout.Width(320)
+                GUILayout.Width(kerbalsWindowRect.width),
+                GUILayout.Height(kerbalsWindowRect.height)
             );
             parentUI.LogWindowPosition("Kerbals", ref lastKerbalsWindowRect, kerbalsWindowRect);
 
@@ -161,6 +171,8 @@ namespace Parsek
 
             var vm = cachedVM.Value;
 
+            kerbalsScrollPos = GUILayout.BeginScrollView(kerbalsScrollPos, GUILayout.ExpandHeight(true));
+
             if (vm.Reserved.Count == 0 && vm.Active.Count == 0 && vm.Retired.Count == 0)
             {
                 GUILayout.Label("No reserved crew, stand-ins, or retired kerbals.", grayStyle);
@@ -172,13 +184,16 @@ namespace Parsek
                 DrawRetiredSection(vm.Retired);
             }
 
-            GUILayout.FlexibleSpace();
+            GUILayout.EndScrollView();
 
             if (GUILayout.Button("Close"))
             {
                 showKerbalsWindow = false;
                 ParsekLog.Verbose("UI", "Kerbals window closed via button");
             }
+
+            ParsekUI.DrawResizeHandle(kerbalsWindowRect, ref isResizingKerbalsWindow,
+                "Kerbals window");
 
             GUI.DragWindow();
         }
@@ -241,11 +256,17 @@ namespace Parsek
             IReadOnlyList<string> retired,
             ActiveChainIndexFunc activeChainIndexOf)
         {
+            // Retired comes from a HashSet snapshot in KerbalsModule — iteration order is
+            // implementation-defined and reshuffles between recalculations. Sort ordinally
+            // so the rendered list is stable save-over-save.
+            var retiredSorted = retired != null ? new List<string>(retired) : new List<string>();
+            retiredSorted.Sort(StringComparer.Ordinal);
+
             var vm = new KerbalsViewModel
             {
                 Reserved = new List<ReservedEntry>(),
                 Active = new List<ActiveStandInEntry>(),
-                Retired = retired != null ? new List<string>(retired) : new List<string>()
+                Retired = retiredSorted
             };
 
             if (slots != null && reservations != null && activeChainIndexOf != null)

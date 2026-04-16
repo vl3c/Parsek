@@ -104,6 +104,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_RetiredUnsorted_ReturnsOrdinallySorted()
+        {
+            // KerbalsModule.GetRetiredKerbals() returns a snapshot of a HashSet, so iteration
+            // order is nondeterministic. Build() must sort for stable save-over-save display.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
+            var retired = new List<string>
+            {
+                "Hanley Kerman",
+                "Bill Kerman",
+                "Adara Kerman",
+                "Zim Kerman"
+            };
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
+                ActiveChainIndexLike(reservations));
+
+            Assert.Equal(
+                new[] { "Adara Kerman", "Bill Kerman", "Hanley Kerman", "Zim Kerman" },
+                vm.Retired);
+        }
+
+        [Fact]
         public void Build_SlotWithActiveStandIn_PopulatesReservedAndActive()
         {
             // Jeb reserved, Bill is Jeb's stand-in (not reserved) → Bill is the active occupant.
