@@ -51,6 +51,7 @@ namespace Parsek
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
+        private GUIStyle loopActiveButtonStyle;
 
         private int lastRetiredKerbalCount = -1;
 
@@ -207,6 +208,11 @@ namespace Parsek
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
+
+            // Loop active button: green-tinted text so active loops stand out in the timeline
+            loopActiveButtonStyle = new GUIStyle(GUI.skin.button);
+            loopActiveButtonStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
+            loopActiveButtonStyle.hover.textColor = new Color(0.5f, 1f, 0.5f);
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -649,6 +655,23 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
+                    // L (loop toggle) — show for past/active recordings that are loopable,
+                    // or any recording already looping so the timeline can still disable it.
+                    if (ShouldShowLoopToggle(rec, isFuture))
+                    {
+                        GUIStyle lStyle = rec.LoopPlayback ? loopActiveButtonStyle : GUI.skin.button;
+                        string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
+                        if (GUILayout.Button(new GUIContent("L", lTooltip), lStyle, GUILayout.Width(25)))
+                        {
+                            rec.LoopPlayback = !rec.LoopPlayback;
+                            RecordingsTableUI.ApplyAutoLoopRange(rec, rec.LoopPlayback);
+                            if (!rec.LoopPlayback)
+                                tableUI?.ClearLoopPeriodFocus();
+                            ParsekLog.Info("UI",
+                                $"Timeline loop toggled {(rec.LoopPlayback ? "ON" : "OFF")} for \"{rec.VesselName}\" id={rec.RecordingId}");
+                        }
+                    }
+
                     // GoTo button — always last, right-aligned
                     if (GUILayout.Button(new GUIContent("GoTo", "Show in Recordings Manager"), GUILayout.Width(48)))
                     {
@@ -662,6 +685,13 @@ namespace Parsek
             }
 
             GUILayout.EndHorizontal();
+        }
+
+        internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture)
+        {
+            return !isFuture
+                && rec != null
+                && (rec.LoopPlayback || Recording.IsLoopableRecording(rec));
         }
 
         private GUIStyle GetStyleForColor(Color color)

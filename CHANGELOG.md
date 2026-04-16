@@ -4,20 +4,35 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Features
+
+- Add Gloops Flight Recorder window for manual ghost-only recordings. Manual recording controls (Start/Stop, Preview, Discard) moved from the main Parsek UI to a dedicated "Gloops Flight Recorder" window opened via a button in the main UI. Recordings are marked `IsGhostOnly` and never spawn a real vessel at playback end. They auto-commit on stop with looping enabled by default and are placed in the "Gloops Flight Recordings - Ghosts Only" group. Ghost-only recordings can run in parallel with the auto-recording system. An X (delete) button is added to the recordings table for ghost-only recordings.
+
+---
+
 ## 0.8.2
 
 ### Features
 
 - `#389` Timeline and Recordings windows now support a shared time-range filter. Quick presets (Last Day, Last 7d, Last 30d, This Year, All) and a collapsible custom-range dual-slider let you narrow both windows to a specific time slice — useful for navigating long careers with many missions. Recordings table shows a compact filter indicator with a Clear button so the active filter is visible even when the Timeline is closed.
+- Added an **L** (loop toggle) button to the timeline for recordings that are logically loopable — launches, atmospheric descents, surface departures, and docking segments. The button sits after the R (rewind) button and uses the recording's existing saved loop interval. Active loops show green text for quick scanning.
 
 ### Tests
 
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.
 - `#384` Added the Learstar A1 mission from the S16 career to the `DefaultCareer` test fixture so `dotnet test --filter InjectAllRecordings` now covers a far-away / map-view smoke-test recording.
+- `#399` Added regression tests confirming `ScienceModule.ComputeTotalSpendings` correctly counts two `ScienceSpending` actions at the same UT — the suspected dedup bug was a log-reading artifact from intermediate `RecalculateAndPatch` calls.
+- `#390` Added 10 unit tests for `GameStateStore.PruneProcessedEvents` and `MilestoneStore.GetLatestCommittedEndUT` covering epoch filtering, threshold pruning, empty store, and mixed scenarios.
+- `#391` Added 6 unit tests for `GameStateStore.RebuildCommittedScienceSubjects` covering repopulation, clearing, value overwrite, and log output.
 
 ### Bug Fixes
 
 - `#394`, `#395`, `#396`, `#397`, `#398`, `#400`, `#401`, `#402`, `#403`, `#404`, `#405` Fixed a cascade of career-mode ledger bugs that drained funds to zero, lost accepted contracts on scene transition, pinned science at the starting seed, and zeroed out milestone funds/rep rewards. Broken sci1/c1 saves are repaired automatically on first load.
+- `#391` `committedScienceSubjects` dictionary is now rebuilt from the ledger after every recalculation and before load-time recovery, so deleting a recording no longer leaves stale science entries that could be re-synthesized as ghost `ScienceEarning` actions on the next load.
+- `#390` `GameStateStore.Events` is now pruned after each commit — old-epoch events and events already swept into milestones are removed, preventing unbounded growth in long careers.
+- `#393` Fixed misleading "sandbox/science mode" log message in `PatchScience` — `ResearchAndDevelopment.Instance` is only null in sandbox mode, not science mode.
 - `#406` Map-view framerate with many looping showcase ghosts no longer collapses — stationary and slow recordings skip the reentry FX build that was being thrown away and rebuilt on every loop-cycle boundary.
 - `#362` Terminal crash-end decouple fragments (parachutes, heat shields, late shrapnel) now become proper debris branches at the very end of a recording instead of being silently dropped when the parent vessel is already in its destruction frame.
 - `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
@@ -31,6 +46,7 @@ All notable changes to Parsek are documented here.
 
 ### Maintenance
 
+- `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation` explaining the expected skip during early load.
 - `#372` Removed orphaned synthetic-scenario test helpers left behind after the live FLIGHT save/load round-trip test infrastructure was reverted.
 
 ---

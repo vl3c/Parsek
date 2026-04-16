@@ -63,10 +63,12 @@ namespace Parsek
             if (ResearchAndDevelopment.Instance == null)
             {
                 ParsekLog.Verbose(Tag,
-                    "PatchScience: ResearchAndDevelopment.Instance is null (sandbox/science mode) — skipping");
+                    "PatchScience: ResearchAndDevelopment.Instance is null (sandbox mode) — skipping");
                 return;
             }
 
+            // Expected during early load: DeferredSeedAndRecalculate will re-trigger
+            // once KSP singletons report non-zero values. See bug #392.
             if (!science.HasSeed)
             {
                 ParsekLog.Verbose(Tag,
@@ -128,6 +130,8 @@ namespace Parsek
                 return;
             }
 
+            // Expected during early load: DeferredSeedAndRecalculate will re-trigger
+            // once KSP singletons report non-zero values. See bug #392.
             if (!funds.HasSeed)
             {
                 ParsekLog.Verbose(Tag,
@@ -189,6 +193,8 @@ namespace Parsek
                 return;
             }
 
+            // Expected during early load: DeferredSeedAndRecalculate will re-trigger
+            // once KSP singletons report non-zero values. See bug #392.
             if (!reputation.HasSeed)
             {
                 ParsekLog.Verbose(Tag,

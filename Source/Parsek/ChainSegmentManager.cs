@@ -542,6 +542,9 @@ namespace Parsek
                         $"CommitSegmentCore: cleared PendingScienceSubjects " +
                         $"(before={pendingBefore}, atClear={cleared})");
             }
+            // #390: prune consumed events after milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
+
             CrewReservationManager.SwapReservedCrewInFlight();
 
             if (advanceChain)

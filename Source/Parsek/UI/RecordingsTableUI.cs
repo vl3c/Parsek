@@ -154,6 +154,9 @@ namespace Parsek
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
 
+        // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
+        private int pendingDeleteGhostOnlyIndex = -1;
+
         // Window drag tracking for position logging
         private Rect lastRecordingsWindowRect;
 
@@ -727,6 +730,14 @@ namespace Parsek
 
         private void DrawRecordingsWindow(int windowID)
         {
+            // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
+            if (pendingDeleteGhostOnlyIndex >= 0)
+            {
+                int delIdx = pendingDeleteGhostOnlyIndex;
+                pendingDeleteGhostOnlyIndex = -1;
+                DeleteGhostOnlyRecording(delIdx);
+            }
+
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
 
@@ -1033,12 +1044,30 @@ namespace Parsek
             var statusContent = new GUIContent(statusText, chainStatusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
 
-            // Group assignment button
-            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+            // Group assignment button (split with X delete for ghost-only recordings)
+            if (rec.IsGhostOnly)
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                groupPicker.OpenForRecording(ri, mousePos);
-                ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
+                float halfGroup = (ColW_Group - 4f) * 0.5f;
+                if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
+                {
+                    var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                    groupPicker.OpenForRecording(ri, mousePos);
+                    ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
+                }
+                if (GUILayout.Button("X", GUILayout.Width(halfGroup)))
+                {
+                    pendingDeleteGhostOnlyIndex = ri;
+                    ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} name='{rec.VesselName}'");
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+                {
+                    var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                    groupPicker.OpenForRecording(ri, mousePos);
+                    ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
+                }
             }
 
             // Loop checkbox
@@ -2090,6 +2119,43 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
+        /// <summary>
+        /// Deletes a ghost-only recording by index. No confirmation dialog — ghost-only
+        /// recordings are low-commitment.
+        /// </summary>
+        private void DeleteGhostOnlyRecording(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (index < 0 || index >= committed.Count)
+            {
+                ParsekLog.Warn("UI", $"DeleteGhostOnlyRecording: index {index} out of range");
+                return;
+            }
+
+            var rec = committed[index];
+            if (!rec.IsGhostOnly)
+            {
+                ParsekLog.Warn("UI", $"DeleteGhostOnlyRecording: recording at index {index} is not ghost-only");
+                return;
+            }
+
+            var flight = parentUI.Flight;
+            if (flight != null && parentUI.InFlightMode)
+            {
+                // Flight scene: use ParsekFlight.DeleteRecording for ghost cleanup
+                flight.DeleteGhostOnlyRecording(index);
+            }
+            else
+            {
+                // KSC scene: direct store deletion
+                RecordingStore.DeleteRecordingFull(index);
+            }
+
+            InvalidateSort();
+            ParsekLog.Info("UI",
+                $"Deleted ghost-only recording \"{rec.VesselName}\" (id={rec.RecordingId})");
+        }
+
         private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
         {
             parentUI.DrawSortableHeaderCore(label, col, ref sortColumn, ref sortAscending, width, expand, () =>
@@ -3080,6 +3146,15 @@ namespace Parsek
                     ParsekLog.Info("UI", $"Loop range cleared for '{rec.VesselName}'");
                 }
             }
+        }
+
+        /// <summary>
+        /// Clears any active loop-period text-edit focus. Called by TimelineWindowUI
+        /// when the L button toggles loop off, so a stale edit field doesn't linger.
+        /// </summary>
+        internal void ClearLoopPeriodFocus()
+        {
+            loopPeriodFocusedRi = -1;
         }
 
         // --- Loop period cell ---
