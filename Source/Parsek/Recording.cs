@@ -691,6 +691,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if this recording is "logically loopable" — a launch, atmospheric
+        /// descent, surface departure, or docking segment whose loop replay has visual value.
+        /// Used by the timeline L button to decide which entries get a loop toggle.
+        /// </summary>
+        internal static bool IsLoopableRecording(Recording rec)
+        {
+            if (rec == null || rec.IsDebris)
+                return false;
+
+            // Launch from pad/runway
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName))
+                return true;
+
+            // Prelaunch start (e.g. pad without a named site)
+            if (rec.StartSituation == "Prelaunch")
+                return true;
+
+            // Atmospheric entry/exit or high-altitude approach
+            if (rec.SegmentPhase == "atmo" || rec.SegmentPhase == "approach" || rec.SegmentPhase == "surface")
+                return true;
+
+            // Actual docking segments record the other vessel's PID at the boundary.
+            // A plain Docked terminal state is too broad: some recordings simply stay
+            // docked in orbit and should not get the timeline loop toggle.
+            if (rec.DockTargetVesselPid != 0)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
         /// Resolves KSP localization keys (e.g., "#autoLOC_501220") to human-readable text
         /// via KSP.Localization.Localizer. Returns the input unchanged if it is not a
         /// localization key or if the Localizer is unavailable (e.g., unit tests).
