@@ -61,6 +61,7 @@ All notable changes to Parsek are documented here.
 - `#387` Ghost map icons now match stock ProtoVessel icons for each vessel type (Ship, Plane, Probe, Station, …).
 - Fixed a per-frame `ResolveLoopInterval` clamp-warning log storm (over 1 million entries in a 6-minute session on saves with legacy loop data) — each affected recording now warns at most once per session while the defensive 1s clamp is unchanged.
 - `#412` Fixed looping showcase recordings (both newly injected and any already on disk) reaching playback with a loop period of 0 seconds: the synthetic RecordingBuilder now auto-derives the period from trajectory duration, and any recording loaded with a degenerate sub-1s period is auto-repaired once to the recording's own duration.
+- `InjectAllRecordings` test fixture now purges stale recording sidecars from the previous run before writing fresh ones, so re-injects no longer leave orphan `.prec` / `_ghost.craft` files that KSP's load-time orphan sweep later deletes (causing "showcases disappeared" on playtest).
 
 ### Maintenance
 
