@@ -3008,7 +3008,10 @@ namespace Parsek.Tests
                 .BuildV3Metadata();
 
             Assert.Equal("True", node.GetValue("loopPlayback"));
-            Assert.Equal("0", node.GetValue("loopIntervalSeconds"));
+            // #412: builder now auto-derives the interval from trajectory duration (3 s here)
+            // when the caller leaves intervalSeconds=0 with loop=true, so fixtures never
+            // persist a degenerate value that triggers the ResolveLoopInterval clamp warning.
+            Assert.Equal("3", node.GetValue("loopIntervalSeconds"));
         }
 
         [Fact]
@@ -3073,7 +3076,10 @@ namespace Parsek.Tests
             Assert.Equal("Part Showcase - Lights v1", first.GetValue("vesselName"));
             Assert.Equal("9", first.GetValue("pointCount"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal("0", first.GetValue("loopIntervalSeconds"));
+            // #412: builder derives the interval from the 24 s static showcase trajectory so
+            // playback loops seamlessly at the recording's own length instead of storing 0
+            // (which would spam ResolveLoopInterval's clamp warning at playback time).
+            Assert.Equal("24", first.GetValue("loopIntervalSeconds"));
             Assert.Equal(7, first.GetNodes("PART_EVENT").Length);
 
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");

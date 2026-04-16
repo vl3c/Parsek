@@ -24,8 +24,19 @@ namespace Parsek
         /// <summary>Tracks the last known committed recording count for live-update detection.</summary>
         private int lastKnownCommittedCount;
 
+        /// <summary>
+        /// Tracks the last-known value of <c>ParsekSettings.Current.showGhostsInTrackingStation</c>.
+        /// When the flag flips we force a lifecycle tick so ghosts appear/disappear
+        /// immediately without waiting for the 2-second interval.
+        /// </summary>
+        private bool lastKnownShowGhosts = true;
+
         void Start()
         {
+            // Read through the persistence store so the startup tick uses the
+            // recorded user preference even when ParsekSettings.Current isn't
+            // resolved yet (early-scene-load case, see ParsekScenario.cs:546).
+            lastKnownShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
 
@@ -35,7 +46,8 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
-                $"fixed {renderersFixed} orbit renderer(s)");
+                $"fixed {renderersFixed} orbit renderer(s), " +
+                $"showGhostsInTrackingStation={lastKnownShowGhosts}");
         }
 
         void Update()
@@ -56,6 +68,23 @@ namespace Parsek
                 nextLifecycleCheckTime = 0f; // force tick this frame
             }
 
+            // #388: detect the ghost visibility flag flipping and react immediately.
+            // On off-flip, remove every ghost ProtoVessel so the vessel list empties
+            // without waiting for a committed-count change. On on-flip, force a tick
+            // so the Phase-2 loop in UpdateTrackingStationGhostLifecycle recreates
+            // ghosts for every eligible recording.
+            bool currentShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
+            if (currentShowGhosts != lastKnownShowGhosts)
+            {
+                ParsekLog.Info(Tag,
+                    $"showGhostsInTrackingStation flipped {lastKnownShowGhosts} → {currentShowGhosts} " +
+                    "— forcing immediate lifecycle tick");
+                lastKnownShowGhosts = currentShowGhosts;
+                if (!currentShowGhosts)
+                    GhostMapPresence.RemoveAllGhostVessels("ghost-filter-disabled");
+                nextLifecycleCheckTime = 0f;
+            }
+
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
@@ -67,8 +96,19 @@ namespace Parsek
             // Draw icons for recordings in atmospheric phases (no ProtoVessel).
             // Position comes directly from trajectory point interpolation —
             // same approach as ParsekUI.DrawMapMarkers in the flight scene.
-            if (Event.current.type != EventType.Repaint) return;
+            // NOTE: we must let MouseDown events through so the hover/click
+            // sticky-label handling in MapMarkerRenderer (#386) can consume
+            // clicks. Previously this gate short-circuited on anything but
+            // Repaint, which made the click-to-pin interaction dead in TS.
+            var etype = Event.current.type;
+            if (etype != EventType.Repaint
+                && etype != EventType.MouseDown
+                && etype != EventType.MouseUp) return;
             if (PlanetariumCamera.Camera == null) return;
+
+            // #388: skip the whole atmospheric-marker pass when the user has
+            // hidden ghosts in the tracking station.
+            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation()) return;
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0) return;
@@ -99,7 +139,8 @@ namespace Parsek
 
                 VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
-                MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", markerColor, vtype);
+                MapMarkerRenderer.DrawMarker(
+                    worldPos, rec.RecordingId, rec.VesselName ?? "(unknown)", markerColor, vtype);
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
@@ -166,6 +207,10 @@ namespace Parsek
         void OnDestroy()
         {
             GhostMapPresence.RemoveAllGhostVessels("tracking-station-cleanup");
+            // Clear ghost-icon sticky state and force atlas re-init when leaving TS.
+            // Flight scene's own OnSceneChangeRequested hook runs too, but this
+            // addon is the only always-present TS listener — keep it defensive.
+            MapMarkerRenderer.ResetForSceneChange();
             ParsekLog.Info(Tag, "ParsekTrackingStation destroyed");
         }
     }

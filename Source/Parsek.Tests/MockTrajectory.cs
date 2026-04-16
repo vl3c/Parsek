@@ -21,6 +21,7 @@ namespace Parsek.Tests
         public ConfigNode GhostVisualSnapshot { get; set; }
         public ConfigNode VesselSnapshot { get; set; }
         public string VesselName { get; set; } = "MockVessel";
+        public string RecordingId { get; set; }
         public bool LoopPlayback { get; set; }
         public double LoopIntervalSeconds { get; set; } = 10;
         public LoopTimeUnit LoopTimeUnit { get; set; }

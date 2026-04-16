@@ -9,11 +9,13 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Add Gloops Flight Recorder window for manual ghost-only recordings. Manual recording controls (Start/Stop, Preview, Discard) moved from the main Parsek UI to a dedicated "Gloops Flight Recorder" window opened via a button in the main UI. Recordings are marked `IsGhostOnly` and never spawn a real vessel at playback end. They auto-commit on stop with looping enabled by default and are placed in the "Gloops Flight Recordings - Ghosts Only" group. Ghost-only recordings can run in parallel with the auto-recording system. An X (delete) button is added to the recordings table for ghost-only recordings.
+- `#388` New **Show ghosts in Tracking Station** toggle (Settings → Ghosts) hides Parsek ghost ProtoVessels and atmospheric ghost markers from the tracking station when off. The setting is sticky across rewind, quickload, and KSP session restart.
 - `#389` Timeline and Recordings windows now support a shared time-range filter. Quick presets (Last Day, Last 7d, Last 30d, This Year, All) and a collapsible custom-range dual-slider let you narrow both windows to a specific time slice — useful for navigating long careers with many missions. Recordings table shows a compact filter indicator with a Clear button so the active filter is visible even when the Timeline is closed.
 - Added an **L** (loop toggle) button to the timeline for recordings that are logically loopable — launches, atmospheric descents, surface departures, and docking segments. The button sits after the R (rewind) button and uses the recording's existing saved loop interval. Active loops show green text for quick scanning.
 
 ### Enhancements
 
+- `#386` Ghost map and tracking station icons now hide their label by default, show it on hover, and pin it on click — matching stock KSP vessel icons.
 - Replaced the four individual sampling sliders (min/max interval, direction threshold, speed threshold) with a single **Recorder Sample Density** setting offering three presets: Low (fewer samples, smaller files), Medium (balanced, same as previous defaults), and High (dense sampling for cinematic recordings). Existing slider-based saves now migrate their legacy thresholds to the nearest preset on load instead of silently defaulting to Medium, and the preset remains available from both the Parsek settings window and KSP's stock Game Parameters UI.
 - `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose and documented the `allowActivation` contract threaded through `IGhostPositioner` positioning methods.
 - `#378` Added a rate-limited warn when the on-save exact-match rebuild-and-compare of flat trajectory vs. track sections exceeds 5 ms on a single recording, so large-recording save stutter becomes visible in `KSP.log`.
@@ -54,6 +56,9 @@ All notable changes to Parsek are documented here.
 - `#409` Fixed a watch-mode overlap-vs-single dispatch mismatch for recordings with a loop subrange: `ResolveWatchPlaybackUT` and `TryStartWatchSession` now read the same `EffectiveLoopDuration` and cycle-start reference, so the two sites can no longer disagree on which playback path to take.
 - `#410` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries — `ComputeLoopPhaseFromUT`, `TryComputeLoopPlaybackUT`, and the live flight/KSC loop schedulers now share a `BoundaryEpsilon` tolerance so they agree on the `isInPause` flag at `phase == duration`.
 - `#411` Loop playback now uses the effective loop subrange consistently in flight and KSC: the overlap-vs-single dispatch, overlap active-cycle bounds, overlap phase anchoring, and loop-end teardown/pause holds now read `EffectiveLoopDuration` / `EffectiveLoopStartUT` / `EffectiveLoopEndUT` instead of raw or hybrid recording ranges.
+- `#387` Ghost map icons now match stock ProtoVessel icons for each vessel type (Ship, Plane, Probe, Station, …).
+- Fixed a per-frame `ResolveLoopInterval` clamp-warning log storm (over 1 million entries in a 6-minute session on saves with legacy loop data) — each affected recording now warns at most once per session while the defensive 1s clamp is unchanged.
+- `#412` Fixed looping showcase recordings (both newly injected and any already on disk) reaching playback with a loop period of 0 seconds: the synthetic RecordingBuilder now auto-derives the period from trajectory duration, and any recording loaded with a degenerate sub-1s period is auto-repaired once to the recording's own duration.
 
 ### Maintenance
 

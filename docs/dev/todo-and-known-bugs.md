@@ -45,6 +45,69 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~412. Synthetic showcase recordings reach ghost playback with `LoopIntervalSeconds=0`, firing the `ResolveLoopInterval` clamp warning forever~~
+
+Pre-existing symptom: `GhostPlaybackLogic.ResolveLoopInterval` emitted an
+unrate-limited `ParsekLog.Warn` every time it observed a loop period below
+`MinCycleDuration`. On a save with ~20 affected recordings (`Pad Walk`,
+`KSC Hopper`, `Flea Chain`, `Reentry South`, `Jebediah Kerman`, `Bill Kerman`,
+etc.) a 6-minute session produced 1,298,168 lines (~3,600/sec). The spam itself
+was fixed by PR #322 (per-`RecordingId` dedupe) — each offender now warns at
+most once per session.
+
+**Root cause.** The affected recordings are not legacy player data. All the
+listed vessel names are synthetic fixtures created by
+`SyntheticRecordingTests.cs` and injected via
+`scripts/inject-recordings.ps1` / `dotnet test --filter InjectAllRecordings`.
+`RecordingBuilder.WithLoopPlayback(bool loop = true, double intervalSeconds = 0.0)`
+defaulted `intervalSeconds` to `0.0` (valid pre-#381 as "relaunch with no gap"),
+and 27 call sites in the synthetic tests either accepted that default or passed
+`intervalSeconds: 0.0` explicitly. The builder stamped recordings at the current
+`RecordingFormatVersion = 4`, so the load path took the non-migration branch
+and persisted `0.0` verbatim; at playback, with `LoopTimeUnit = Sec`,
+`ResolveLoopInterval` saw `0 < MinCycleDuration = 1`, clamped to `1`, and warned
+every frame.
+
+**Fix.**
+
+- `RecordingBuilder.GetLoopIntervalSeconds` now auto-derives the period from
+  trajectory duration when the caller enabled loop playback but left the
+  interval below `MinCycleDuration` — matching the UI's seamless-loop default.
+  Falls back to `DefaultLoopIntervalSeconds` (10 s) when the trajectory is empty
+  or itself below the floor. `GetRawLoopIntervalSeconds` retained for tests that
+  need to inspect the raw field. All three emission paths (`Build`,
+  `BuildV3Metadata`, `ScenarioWriter.BuildRecording`) route through the
+  resolver.
+- `RecordingStore.NormalizeDegenerateLoopInterval` runs in
+  `LoadRecordingFilesFromPathsInternal` immediately after trajectory
+  deserialization (paired with the pre-existing
+  `MigrateLegacyLoopIntervalAfterHydration`), *before* snapshot-sidecar loading.
+  Positioning matters: a snapshot-sidecar failure early-returns `false` from
+  `LoadRecordingFiles` while leaving trajectory points hydrated, and
+  `ParsekScenario.OnLoad` still commits that recording to
+  `CommittedRecordings` where `ParsekKSC` schedules it as playback-eligible on
+  `Points.Count >= 2` + `PlaybackEnabled`. Placing the normalization downstream
+  of the snapshot check would let a degenerate period slip past the auto-repair
+  exactly in the broken-snapshot case. Any recording loaded with
+  `LoopPlayback = true`, `LoopTimeUnit != Auto`, and
+  `LoopIntervalSeconds < MinCycleDuration` is auto-repaired to its
+  `EffectiveLoopDuration` (or `DefaultLoopIntervalSeconds` when the trajectory
+  can't supply a usable duration) with a one-shot warning. Saves already
+  injected with the broken fixture repair on first reload.
+- `SyntheticRecordingTests.cs` shape tests updated to assert the derived
+  interval instead of `"0"`.
+
+**Tests.** `RecordingBuilderLoopIntervalTests` (5 tests) covers the builder's
+auto-derivation across loop-on-with-zero, loop-on-explicit, empty-trajectory,
+short-trajectory, and loop-off paths. `LoopIntervalLoadNormalizationTests`
+(7 tests) pins the load-path auto-repair on the happy path and on the
+snapshot-sidecar-failure early return (proves the normalization runs before
+the snapshot check), the no-op on loop-disabled / auto-mode / already-healthy
+recordings, and end-to-end proves that after normalization a recording can
+cycle through `ResolveLoopInterval` 100× without firing the clamp warning.
+
+---
+
 ## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
 
 **Source:** `#409` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#409` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
@@ -713,7 +776,11 @@ Start with **option 1** (sliders + presets). Simplest path to a working filter, 
 
 ---
 
-## 388. Tracking station: add a Ghost visibility toggle alongside the stock type filters
+## ~~388. Tracking station: add a Ghost visibility toggle alongside the stock type filters~~ (DONE — 0.8.2)
+
+Fixed by adding `ParsekSettings.showGhostsInTrackingStation` (default `true`, with `[CustomParameterUI]` for KSP's Game Parameters menu), a checkbox in `SettingsWindowUI.DrawGhostSettings`, and a force-tick path in `ParsekTrackingStation.Update` that detects the flag flip, calls `GhostMapPresence.RemoveAllGhostVessels("ghost-filter-disabled")` on off-flip, and zeroes `nextLifecycleCheckTime` so the Phase-2 creation loop reruns immediately. `GhostMapPresence.CreateGhostVesselsFromCommittedRecordings` and `UpdateTrackingStationGhostLifecycle` short-circuit when the flag is off. The atmospheric-marker pass in `ParsekTrackingStation.OnGUI` gets its own early-return. Sticky labels keyed by `RecordingId` in `MapMarkerRenderer` survive the toggle cycle.
+
+Treated as sticky user intent — mirrored through `ParsekSettingsPersistence` alongside `ghostCameraCutoffKm` and `writeReadableSidecarMirrors`. The checkbox and the Defaults reset both call `RecordShowGhostsInTrackingStation`, and `ParsekScenario.OnLoad` runs `ApplyTo(ParsekSettings.Current)` which restores the stored value over whatever KSP's `GameParameters` loaded from the save. This is what keeps the toggle sticky across rewind, quickload, and session restart; without it the user's choice would revert to the default on the next load.
 
 **Source:** maintenance request `2026-04-14`. Stock KSP's tracking station has a row of show/hide toggles (asteroids, debris, probes, rovers, landers, ships, stations, bases, EVAs, planes, relays, flags). Parsek adds a *new* category of entries — "ghosts" — but there's no user control to hide them in bulk. Users need a single toggle that collapses all Parsek ghosts out of both the vessel list and the map view simultaneously.
 
@@ -776,7 +843,9 @@ Start with **option 1** (SettingsWindowUI checkbox). It's enough for the feature
 
 ---
 
-## 387. Ghost map icons don't match stock ProtoVessel icons for the same VesselType
+## ~~387. Ghost map icons don't match stock ProtoVessel icons for the same VesselType~~ (DONE — 0.8.2)
+
+Fixed by replacing the sequential-index loop in `MapMarkerRenderer.InitVesselTypeIcons` with a `StockIconIndexByVesselType` dict taken from the decompiled `KSP.UI.Screens.Mapview.MapNode` icon lookup, and consolidating the duplicate flight-scene copy in `ParsekUI.cs` into the same renderer. In-game runtime test `MapMarkerIconsMatchStockAtlas` pins every vessel type's UV against the live `MapNode.iconSprites` array.
 
 **Source:** maintenance request `2026-04-14`. Users report that Parsek's custom ghost icon in map view / tracking station sometimes looks different from the stock icon for the same vessel type. Root cause confirmed by decompiling `KSP.UI.Screens.Mapview.MapNode` — Parsek's atlas-indexing logic is wrong.
 
@@ -887,7 +956,9 @@ A unit test is insufficient here — this needs the live `MapView` reflection ta
 
 ---
 
-## 386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click
+## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2)
+
+Fixed by adding a `stickyMarkers` set and `markerKey` parameter to `MapMarkerRenderer.DrawMarker`/`DrawMarkerAtScreen`, threading `rec.RecordingId` from both call sites (`ParsekUI.DrawMapMarkers`, `ParsekTrackingStation.OnGUI`), and resetting stickies on scene change from `ParsekFlight.OnSceneChangeRequested` + `ParsekTrackingStation.OnDestroy`. Click interaction is gated to `MapView.MapIsEnabled || TRACKSTATION` so flight main-window clicks don't double-fire.
 
 **Source:** maintenance request `2026-04-14`. Parsek's custom ghost map icon currently always draws a `"Ghost: <name>"` text label directly below it. Stock KSP vessel icons don't — they only show the name on hover (and clicking enters/pins the target). The ghost icon should match that behavior so the map view isn't cluttered with permanent text for every ghost.
 
