@@ -1950,5 +1950,242 @@ namespace Parsek.Tests
 
             return rec;
         }
+
+        // -----------------------------------------------------------------------
+        // Codec round-trip matrix (1 theory)
+        // -----------------------------------------------------------------------
+
+        [Theory]
+        [InlineData("v0Flat")]
+        [InlineData("v1FlatSectionsDuplicated")]
+        [InlineData("v1SectionAuthoritative")]
+        [InlineData("v2Binary")]
+        [InlineData("v3Sparse")]
+        [InlineData("aliasSnapshot")]
+        public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
+        {
+            var fixture = BuildBoundaryCodecFixture();
+
+            TrajectorySidecarEncoding expectedEncoding;
+            Recording writeRec;
+
+            switch (caseName)
+            {
+                case "v0Flat":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 0;
+                    writeRec.TrackSections.Clear();
+                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    break;
+
+                case "v1FlatSectionsDuplicated":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 1;
+                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    break;
+
+                case "v1SectionAuthoritative":
+                    // The fixture has flat Points that exactly match what gets rebuilt from TrackSections,
+                    // so ShouldWriteSectionAuthoritativeTrajectory returns true and the writer uses the
+                    // section-authoritative path (sections only, no top-level POINT nodes).
+                    // On read, the reader sees no POINTs + has TRACK_SECTIONs => rebuilds flat from sections.
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 1;
+                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    break;
+
+                case "v2Binary":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 2;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV2;
+                    break;
+
+                case "v3Sparse":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 3;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    break;
+
+                case "aliasSnapshot":
+                    writeRec = fixture;
+                    writeRec.RecordingFormatVersion = 3;
+                    // Set alias snapshot mode: GhostVisualSnapshot == VesselSnapshot
+                    writeRec.VesselSnapshot = BuildSnapshot("CodecMatrix Vessel", pid: 9901u);
+                    writeRec.GhostVisualSnapshot = writeRec.VesselSnapshot;
+                    writeRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Unknown case: {caseName}");
+            }
+
+            string path = Path.Combine(tempDir, $"codec-matrix-{caseName}.prec");
+            RecordingStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe),
+                $"TryProbe failed for case {caseName}");
+            Assert.Equal(expectedEncoding, probe.Encoding);
+
+            var restored = new Recording { RecordingId = writeRec.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            // The fixture has matching flat and section data. For section-authoritative the restored
+            // Points are rebuilt from sections and should equal the fixture's flat Points.
+            AssertSemanticTrajectoryEqual(fixture, restored);
+
+            // Boundary-pair assertions on points.
+            if (fixture.Points.Count > 0)
+            {
+                AssertPointEqual(fixture.Points[0], restored.Points[0], $"{caseName} firstPoint");
+                AssertPointEqual(fixture.Points[fixture.Points.Count - 1],
+                    restored.Points[restored.Points.Count - 1], $"{caseName} lastPoint");
+            }
+
+            // Boundary-pair assertions on orbit segments.
+            if (fixture.OrbitSegments.Count > 0)
+            {
+                AssertOrbitSegmentEqual(fixture.OrbitSegments[0], restored.OrbitSegments[0],
+                    $"{caseName} firstOrbit");
+                AssertOrbitSegmentEqual(fixture.OrbitSegments[fixture.OrbitSegments.Count - 1],
+                    restored.OrbitSegments[restored.OrbitSegments.Count - 1], $"{caseName} lastOrbit");
+            }
+
+            // For aliasSnapshot case: verify the original's GhostSnapshotMode is AliasVessel.
+            // The trajectory sidecar does not store snapshot mode; it is loaded separately from .craft files,
+            // so we only assert the write-side state and the DetermineGhostSnapshotMode computation.
+            if (caseName == "aliasSnapshot")
+            {
+                Assert.Equal(GhostSnapshotMode.AliasVessel, writeRec.GhostSnapshotMode);
+                Assert.Equal(GhostSnapshotMode.AliasVessel,
+                    RecordingStore.DetermineGhostSnapshotMode(writeRec));
+            }
+        }
+
+        private static Recording BuildBoundaryCodecFixture()
+        {
+            const double t0 = 20000.0;
+
+            // Shared boundary point appears in both sections and in the flat list.
+            var boundary = new TrajectoryPoint
+            {
+                ut = t0 + 10,
+                latitude = -0.09,
+                longitude = -74.55,
+                altitude = 500,
+                rotation = new Quaternion(0, 0, 0.1f, 0.99f),
+                velocity = new Vector3(0, 100, 0),
+                bodyName = "Kerbin",
+                funds = 20000.0,
+                science = 1.0f,
+                reputation = 0.5f
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "codec-matrix-boundary",
+                RecordingFormatVersion = 3
+            };
+
+            // Flat point list: 3 points (first, boundary, last)
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = t0,
+                latitude = -0.10,
+                longitude = -74.56,
+                altitude = 100,
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = new Vector3(0, 50, 0),
+                bodyName = "Kerbin",
+                funds = 19000.0,
+                science = 0f,
+                reputation = 0f
+            });
+            rec.Points.Add(boundary);
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = t0 + 20,
+                latitude = -0.08,
+                longitude = -74.54,
+                altitude = 1000,
+                rotation = new Quaternion(0, 0, 0.2f, 0.98f),
+                velocity = new Vector3(0, 200, 0),
+                bodyName = "Kerbin",
+                funds = 21000.0,
+                science = 2.0f,
+                reputation = 1.0f
+            });
+
+            // 2 orbit segments
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = t0 + 30,
+                endUT = t0 + 330,
+                inclination = 28.5,
+                eccentricity = 0.002,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = t0 + 30,
+                bodyName = "Kerbin"
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = t0 + 330,
+                endUT = t0 + 630,
+                inclination = 30.0,
+                eccentricity = 0.001,
+                semiMajorAxis = 710000.0,
+                longitudeOfAscendingNode = 95.0,
+                argumentOfPeriapsis = 50.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = t0 + 330,
+                bodyName = "Kerbin"
+            });
+
+            // 2 track sections; boundary point shared between them.
+            // The sections produce the same flat list when deduped, satisfying
+            // FlatTrajectoryExactlyMatchesTrackSectionPayload for the v1SectionAuthoritative case.
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = t0,
+                endUT = t0 + 10,
+                sampleRateHz = 10f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = 100f,
+                maxAltitude = 500f,
+                frames = new List<TrajectoryPoint>
+                {
+                    rec.Points[0],
+                    boundary
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = t0 + 10,
+                endUT = t0 + 20,
+                sampleRateHz = 10f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = 500f,
+                maxAltitude = 1000f,
+                frames = new List<TrajectoryPoint>
+                {
+                    boundary,
+                    rec.Points[2]
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
     }
 }

@@ -36,6 +36,7 @@ All notable changes to Parsek are documented here.
 - `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster `Remove` path against a reflected `KerbalRoster` instance in `KerbalLoadDiagnosticsTests`, confirming unused displaced stand-in deletion works end-to-end through the real adapter.
 - `T66` Added in-game runtime regression for PR #288 fresh watch-entry camera orientation -- pins canonical pitch/heading and guards against the 180-degree flip.
 - `T61` Added two hydration-salvage regression tests: one drives a save after `RestoreHydrationFailedRecordingsFromPendingTree` and pins that the `.prec` sidecar is rewritten, the epoch advances, and `FilesDirty` clears; the other covers a mixed-case tree with three failed recordings where only a subset is restorable from the pending tree and asserts the restore count plus the snapshot-only/full accounting in the summary log.
+- `#365` Added unit coverage for v2/v3 binary sidecar reader bounds, sparse v3 flag combinations, and full codec round-trip matrix (#365).
 
 ### Documentation
 
