@@ -10,6 +10,9 @@ All notable changes to Parsek are documented here.
 
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.
 - `#384` Added the Learstar A1 mission from the S16 career to the `DefaultCareer` test fixture so `dotnet test --filter InjectAllRecordings` now covers a far-away / map-view smoke-test recording.
+- `T67` Replaced the skipped Unity-GameObject xUnit priming test with an in-game runtime test (`GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame`) so `dotnet test` runs clean without losing `GhostPlaybackEngine.SpawnGhost` priming coverage.
+- `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster `Remove` path against a reflected `KerbalRoster` instance in `KerbalLoadDiagnosticsTests`, confirming unused displaced stand-in deletion works end-to-end through the real adapter.
+- `T66` Added in-game runtime regression for PR #288 fresh watch-entry camera orientation -- pins canonical pitch/heading and guards against the 180-degree flip.
 
 ### Bug Fixes
 
