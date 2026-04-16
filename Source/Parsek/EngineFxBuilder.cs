@@ -278,7 +278,7 @@ namespace Parsek
                         if (addedSystems > 0)
                         {
                             GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                                fxClone, GhostVisualBuilder.GhostEngineFxSizeBoost);
+                                fxClone, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                             clonesAdded++;
                             GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD",
                                 srcLegacyAnchor.name, child.name, prefab.transform, ghostModelNode,
@@ -312,7 +312,7 @@ namespace Parsek
                     if (addedSystems > 0)
                     {
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                            fxClone, GhostVisualBuilder.GhostEngineFxSizeBoost);
+                            fxClone, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         Transform fallbackParent = fxClone.transform.parent != null
                             ? fxClone.transform.parent : ghostModelNode;
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD_FALLBACK",
@@ -396,7 +396,7 @@ namespace Parsek
                             if (addedSystems > 0)
                             {
                                 GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                                    fxInstance, GhostVisualBuilder.GhostEngineFxSizeBoost);
+                                    fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
                                     modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                                     fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
@@ -531,7 +531,7 @@ namespace Parsek
                     if (addedSystems > 0)
                     {
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                            fxInstance, GhostVisualBuilder.GhostEngineFxSizeBoost);
+                            fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
