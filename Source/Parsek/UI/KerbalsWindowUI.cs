@@ -28,10 +28,14 @@ namespace Parsek
 
         private KerbalsViewModel? cachedVM;
 
+        // Fold-toggle arrow glyphs; match the chain-block pattern in RecordingsTableUI.
+        private const string FoldedArrow = "\u25b6";
+        private const string UnfoldedArrow = "\u25bc";
+
         // Transient fold state for Per-Recording Fates groups. Default-unfolded means we
         // only store names that are currently folded, so HashSet fits the access pattern.
         // InvalidateCache does NOT clear this — fold is UI preference, not data.
-        private readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
+        internal readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
 
         private GUIStyle grayStyle;
         private GUIStyle sectionHeaderStyle;
@@ -316,17 +320,18 @@ namespace Parsek
                 first = false;
 
                 bool folded = foldedKerbals.Contains(name);
-                string arrow = folded ? "\u25b6" : "\u25bc";
+                string arrow = folded ? FoldedArrow : UnfoldedArrow;
                 string headerText = folded
                     ? FormatKerbalSummary(name, endStates, i, j)
                     : name;
 
-                if (GUILayout.Button($"{arrow} {headerText}", GUI.skin.label, GUILayout.ExpandWidth(true)))
+                // Use groupHeaderStyle (bold) as the button style so unfolded output stays
+                // visually identical to the pre-fold-toggle design — only the arrow prefix
+                // is new. RecordingsTableUI uses GUI.skin.label for its chain blocks because
+                // those are body rows; Per-Recording Fates headers are group headers.
+                if (GUILayout.Button($"{arrow} {headerText}", groupHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
-                    if (folded) foldedKerbals.Remove(name);
-                    else foldedKerbals.Add(name);
-                    ParsekLog.Verbose("UI",
-                        $"Kerbals fold toggled: '{name}' -> {(folded ? "unfolded" : "folded")} ({j - i} missions)");
+                    ToggleFold(foldedKerbals, name, j - i);
                 }
 
                 if (!folded)
@@ -341,6 +346,19 @@ namespace Parsek
             }
 
             GUILayout.EndVertical();
+        }
+
+        // Pure mutation + log helper so the toggle contract is unit-testable outside IMGUI.
+        // Returns the new folded state (true = now folded, false = now unfolded).
+        internal static bool ToggleFold(
+            HashSet<string> foldedKerbals, string kerbalName, int missionCount)
+        {
+            bool wasFolded = foldedKerbals.Contains(kerbalName);
+            if (wasFolded) foldedKerbals.Remove(kerbalName);
+            else foldedKerbals.Add(kerbalName);
+            ParsekLog.Verbose("UI",
+                $"Kerbals fold toggled: '{kerbalName}' -> {(wasFolded ? "unfolded" : "folded")} ({missionCount} missions)");
+            return !wasFolded;
         }
 
         internal static string FormatKerbalSummary(

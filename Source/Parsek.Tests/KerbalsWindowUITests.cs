@@ -636,6 +636,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ToggleFold_WhenNotFolded_AddsToSetAndLogsFolded()
+        {
+            var folded = new HashSet<string>(StringComparer.Ordinal);
+
+            bool nowFolded = KerbalsWindowUI.ToggleFold(folded, "Bill Kerman", 3);
+
+            Assert.True(nowFolded);
+            Assert.Contains("Bill Kerman", folded);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals fold toggled")
+                && l.Contains("'Bill Kerman'")
+                && l.Contains("-> folded")
+                && l.Contains("(3 missions)"));
+        }
+
+        [Fact]
+        public void ToggleFold_WhenAlreadyFolded_RemovesFromSetAndLogsUnfolded()
+        {
+            var folded = new HashSet<string>(StringComparer.Ordinal) { "Jebediah Kerman" };
+
+            bool nowFolded = KerbalsWindowUI.ToggleFold(folded, "Jebediah Kerman", 5);
+
+            Assert.False(nowFolded);
+            Assert.DoesNotContain("Jebediah Kerman", folded);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals fold toggled")
+                && l.Contains("'Jebediah Kerman'")
+                && l.Contains("-> unfolded")
+                && l.Contains("(5 missions)"));
+        }
+
+        [Fact]
+        public void InvalidateCache_DoesNotClearFoldedKerbals()
+        {
+            // Fold state is transient UI preference — it must survive cachedVM invalidation
+            // (e.g. after a ledger recalc) so the user doesn't silently lose their fold
+            // choices mid-session.
+            var ui = new KerbalsWindowUI(null);
+            ui.foldedKerbals.Add("Bill Kerman");
+            ui.foldedKerbals.Add("Jebediah Kerman");
+
+            ui.InvalidateCache();
+
+            Assert.Contains("Bill Kerman", ui.foldedKerbals);
+            Assert.Contains("Jebediah Kerman", ui.foldedKerbals);
+        }
+
+        [Fact]
         public void Build_EmitsVerboseLog_WithSectionCounts()
         {
             var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
