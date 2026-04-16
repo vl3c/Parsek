@@ -110,13 +110,13 @@ namespace Parsek
 
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
         private static float ContinuationMinInterval =>
-            ParsekSettings.Current?.minSampleInterval ?? 0.2f;
+            ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
         private static float ContinuationMaxInterval =>
-            ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
+            ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
         private static float ContinuationVelDirThreshold =>
-            ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
+            ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
         private static float ContinuationSpeedThreshold =>
-            (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
+            (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
 
         internal ChainSegmentManager()
         {
