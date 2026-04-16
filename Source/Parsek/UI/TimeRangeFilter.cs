@@ -54,7 +54,7 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if a recording's [startUT, endUT] interval overlaps the filter range.
-        /// A recording with endUT &lt;= startUT is treated as in-progress (unbounded end),
+        /// A recording with endUT &lt; startUT is treated as in-progress (unbounded end),
         /// so it overlaps any range whose min is before the current moment.
         /// </summary>
         internal static bool DoesRecordingOverlapRange(double startUT, double endUT,
@@ -64,7 +64,7 @@ namespace Parsek
             if (!filterMinUT.HasValue && !filterMaxUT.HasValue) return true;
 
             // In-progress recording (endUT not yet set or invalid): treat end as +∞
-            bool inProgress = endUT <= startUT;
+            bool inProgress = endUT < startUT;
 
             // Standard overlap test: two intervals [a,b] and [c,d] overlap iff a <= d && b >= c
             // With null bounds treated as ±∞

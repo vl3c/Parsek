@@ -155,6 +155,15 @@ namespace Parsek.Tests
 
     public class TimeRangeFilter_ComputeSliderBounds_Tests
     {
+        private static Recording MakeRecording(double startUT, double endUT)
+        {
+            return new Recording
+            {
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT
+            };
+        }
+
         [Fact]
         public void EmptyList_ReturnsZero()
         {
@@ -176,7 +185,7 @@ namespace Parsek.Tests
         [Fact]
         public void SingleRecording_BoundsMatchRecording()
         {
-            var rec = new Recording { StartUT = 100, EndUT = 500 };
+            var rec = MakeRecording(100, 500);
             var list = new List<Recording> { rec };
             TimeRangeFilterLogic.ComputeSliderBounds(
                 list, 300, out double min, out double max);
@@ -187,7 +196,7 @@ namespace Parsek.Tests
         [Fact]
         public void CurrentUT_ExtendsMaxBound()
         {
-            var rec = new Recording { StartUT = 100, EndUT = 500 };
+            var rec = MakeRecording(100, 500);
             var list = new List<Recording> { rec };
             TimeRangeFilterLogic.ComputeSliderBounds(
                 list, 1000, out double min, out double max);
@@ -200,14 +209,42 @@ namespace Parsek.Tests
         {
             var list = new List<Recording>
             {
-                new Recording { StartUT = 200, EndUT = 400 },
-                new Recording { StartUT = 50, EndUT = 150 },
-                new Recording { StartUT = 300, EndUT = 800 },
+                MakeRecording(200, 400),
+                MakeRecording(50, 150),
+                MakeRecording(300, 800),
             };
             TimeRangeFilterLogic.ComputeSliderBounds(
                 list, 600, out double min, out double max);
             Assert.Equal(50, min);
             Assert.Equal(800, max);
+        }
+
+        [Fact]
+        public void ZeroDurationRecording_UsesExactInstantBounds()
+        {
+            var rec = MakeRecording(500, 500);
+            var list = new List<Recording> { rec };
+            TimeRangeFilterLogic.ComputeSliderBounds(
+                list, 300, out double min, out double max);
+            Assert.Equal(500, min);
+            Assert.Equal(500, max);
+        }
+    }
+
+    public class TimeRangeFilter_ZeroDurationRecording_Tests
+    {
+        [Fact]
+        public void ZeroDurationRecording_AfterFilter_DoesNotOverlap()
+        {
+            Assert.False(TimeRangeFilterLogic.DoesRecordingOverlapRange(
+                100, 100, 150.0, 200.0));
+        }
+
+        [Fact]
+        public void ZeroDurationRecording_AtFilterInstant_Overlaps()
+        {
+            Assert.True(TimeRangeFilterLogic.DoesRecordingOverlapRange(
+                100, 100, 100.0, 100.0));
         }
     }
 

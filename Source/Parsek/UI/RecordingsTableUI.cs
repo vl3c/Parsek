@@ -787,6 +787,11 @@ namespace Parsek
                 // -- Build unified sorted root items --
                 var rootItems = new List<RootDrawItem>();
 
+                // Time-range filter state for skipping non-overlapping items
+                var timeFilter = parentUI.TimeRangeFilter;
+                double? tfMin = timeFilter.MinUT;
+                double? tfMax = timeFilter.MaxUT;
+
                 // Add root groups
                 for (int g = 0; g < rootGrps.Count; g++)
                 {
@@ -808,11 +813,6 @@ namespace Parsek
                         RecIdx = -1
                     });
                 }
-
-                // Time-range filter state for skipping non-overlapping items
-                var timeFilter = parentUI.TimeRangeFilter;
-                double? tfMin = timeFilter.MinUT;
-                double? tfMax = timeFilter.MaxUT;
 
                 // Add root chains and standalone recordings from sortedIndices
                 var seenChains = new HashSet<string>();
