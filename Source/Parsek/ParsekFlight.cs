@@ -542,6 +542,9 @@ namespace Parsek
             ClearStaleConfirmations();
             HandleMissedVesselSwitchRecovery();
 
+            // Gloops: auto-commit if vessel switch auto-stopped the recorder
+            CheckGloopsAutoStoppedByVesselSwitch();
+
             HandleTreeDockMerge();
             HandleDockUndockCommitRestart();
 
@@ -7454,14 +7457,41 @@ namespace Parsek
         /// </summary>
         internal void StopGloopsRecording()
         {
-            if (gloopsRecorder == null || !gloopsRecorder.IsRecording)
+            if (gloopsRecorder == null)
             {
-                ParsekLog.Warn("Flight", "StopGloopsRecording: no active Gloops recorder");
+                ParsekLog.Warn("Flight", "StopGloopsRecording: no Gloops recorder");
                 return;
             }
 
-            gloopsRecorder.StopRecording();
+            // Normal stop: recorder still running
+            if (gloopsRecorder.IsRecording)
+                gloopsRecorder.StopRecording();
 
+            CommitGloopsRecorderData("StopGloopsRecording");
+        }
+
+        /// <summary>
+        /// Called each frame to detect Gloops recordings auto-stopped by vessel switch
+        /// and commit them automatically so recording data is not lost.
+        /// </summary>
+        private void CheckGloopsAutoStoppedByVesselSwitch()
+        {
+            if (gloopsRecorder == null) return;
+            if (!gloopsRecorder.GloopsAutoStoppedByVesselSwitch) return;
+
+            gloopsRecorder.GloopsAutoStoppedByVesselSwitch = false;
+            ParsekLog.Info("Flight", "Gloops recorder was auto-stopped by vessel switch — committing");
+            CommitGloopsRecorderData("GloopsAutoCommit");
+            ParsekLog.ScreenMessage("Gloops recording auto-saved (vessel switched)", 3f);
+        }
+
+        /// <summary>
+        /// Shared commit path for Gloops recordings: builds a Recording from the
+        /// FlightRecorder's buffers, sets ghost-only + looping, and commits.
+        /// Used by both manual StopGloopsRecording and vessel-switch auto-commit.
+        /// </summary>
+        private void CommitGloopsRecorderData(string logTag)
+        {
             Recording rec = RecordingStore.CreateRecordingFromFlightData(
                 gloopsRecorder.Recording,
                 FlightGlobals.ActiveVessel?.vesselName ?? "Gloops Recording",
@@ -7473,7 +7503,7 @@ namespace Parsek
 
             if (rec == null)
             {
-                ParsekLog.Warn("Flight", "StopGloopsRecording: not enough points (< 2)");
+                ParsekLog.Warn("Flight", $"{logTag}: not enough points (< 2)");
                 gloopsRecorder = null;
                 ParsekLog.ScreenMessage("Gloops recording too short — discarded", 2f);
                 return;
@@ -7497,9 +7527,8 @@ namespace Parsek
             gloopsRecorder = null;
 
             ParsekLog.Info("Flight",
-                $"Gloops recording committed: \"{rec.VesselName}\" " +
+                $"{logTag}: Gloops recording committed \"{rec.VesselName}\" " +
                 $"({rec.Points.Count} points, id={rec.RecordingId})");
-            ParsekLog.ScreenMessage("Gloops Recording SAVED", 2f);
         }
 
         /// <summary>
@@ -7523,6 +7552,8 @@ namespace Parsek
 
         /// <summary>
         /// Deletes the most recently committed Gloops recording.
+        /// Delegates to DeleteGhostOnlyRecording for full cleanup (ghost destroy,
+        /// engine reindex, orbit cache clear, etc.).
         /// </summary>
         internal void DiscardLastGloopsRecording()
         {
@@ -7535,14 +7566,7 @@ namespace Parsek
             int idx = RecordingStore.CommittedRecordings.IndexOf(lastGloopsRecording);
             if (idx >= 0)
             {
-                // Destroy ghost if active
-                if (engine.ghostStates.ContainsKey(idx))
-                    engine.DestroyGhost(idx);
-
-                RecordingStore.RemoveRecordingAt(idx);
-                ParsekLog.Info("Flight",
-                    $"Deleted Gloops recording \"{lastGloopsRecording.VesselName}\" " +
-                    $"(id={lastGloopsRecording.RecordingId})");
+                DeleteGhostOnlyRecording(idx);
             }
             else
             {
@@ -7552,7 +7576,6 @@ namespace Parsek
             }
 
             lastGloopsRecording = null;
-            ParsekLog.ScreenMessage("Gloops recording deleted", 2f);
         }
 
         /// <summary>

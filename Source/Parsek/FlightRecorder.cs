@@ -125,6 +125,12 @@ namespace Parsek
         /// </summary>
         internal ConfigNode GloopsGhostVisualSnapshot { get; set; }
 
+        /// <summary>
+        /// Set true when the Gloops recorder is auto-stopped by a vessel switch.
+        /// ParsekFlight checks this flag to auto-commit the orphaned recording.
+        /// </summary>
+        internal bool GloopsAutoStoppedByVesselSwitch { get; set; }
+
         public uint RecordingVesselId { get; private set; }
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
@@ -5131,15 +5137,16 @@ namespace Parsek
         /// </summary>
         private bool HandleVesselSwitchDuringRecording(Vessel v)
         {
-            // Gloops mode: auto-stop on vessel switch (no tree/chain logic)
+            // Gloops mode: auto-stop on vessel switch (no tree/chain logic).
+            // Call StopRecording (not bare FinalizeRecordingState) so CaptureAtStop
+            // is built — ParsekFlight detects the auto-stopped state and commits.
             if (IsGloopsMode)
             {
                 ParsekLog.Info("Recorder",
                     $"Gloops recorder auto-stopping on vessel switch " +
                     $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
-                FinalizeRecordingState(emitTerminalEvents: true,
-                    clearRelativeMode: true, sampleBoundaryOnRails: false,
-                    logTag: "GloopsVesselSwitch");
+                StopRecording();
+                GloopsAutoStoppedByVesselSwitch = true;
                 return true;
             }
 

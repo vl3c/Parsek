@@ -47,9 +47,6 @@ namespace Parsek.Patches
                 lastObservedRecorder = ActiveRecorder;
             }
 
-            if (ActiveRecorder == null && GloopsRecorderInstance == null && BackgroundRecorderInstance == null)
-                return;
-
             if (GloopsRecorderInstance != lastObservedGloopsRecorder)
             {
                 if (GloopsRecorderInstance == null)
@@ -58,6 +55,9 @@ namespace Parsek.Patches
                     ParsekLog.Info("PhysicsPatch", "Gloops recorder attached");
                 lastObservedGloopsRecorder = GloopsRecorderInstance;
             }
+
+            if (ActiveRecorder == null && GloopsRecorderInstance == null && BackgroundRecorderInstance == null)
+                return;
 
             // VesselPrecalculate.vessel is protected; resolve the vessel
             // via the GameObject instead.
