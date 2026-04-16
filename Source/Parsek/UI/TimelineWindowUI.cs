@@ -51,6 +51,7 @@ namespace Parsek
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
+        private GUIStyle loopActiveButtonStyle;
 
         private int lastRetiredKerbalCount = -1;
 
@@ -188,6 +189,11 @@ namespace Parsek
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
+
+            // Loop active button: green-tinted text so active loops stand out in the timeline
+            loopActiveButtonStyle = new GUIStyle(GUI.skin.button);
+            loopActiveButtonStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
+            loopActiveButtonStyle.hover.textColor = new Color(0.5f, 1f, 0.5f);
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -487,6 +493,20 @@ namespace Parsek
                             tableUI.ShowRewindConfirmation(rec);
                         }
                         GUI.enabled = true;
+                    }
+
+                    // L (loop toggle) — only for past/active loopable recordings
+                    if (!isFuture && Recording.IsLoopableRecording(rec))
+                    {
+                        GUIStyle lStyle = rec.LoopPlayback ? loopActiveButtonStyle : GUI.skin.button;
+                        string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
+                        if (GUILayout.Button(new GUIContent("L", lTooltip), lStyle, GUILayout.Width(25)))
+                        {
+                            rec.LoopPlayback = !rec.LoopPlayback;
+                            RecordingsTableUI.ApplyAutoLoopRange(rec, rec.LoopPlayback);
+                            ParsekLog.Info("Timeline",
+                                $"Loop toggled {(rec.LoopPlayback ? "ON" : "OFF")} for \"{rec.VesselName}\" id={rec.RecordingId}");
+                        }
                     }
 
                     // GoTo button — always last, right-aligned
