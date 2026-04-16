@@ -495,8 +495,9 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
-                    // L (loop toggle) — only for past/active loopable recordings
-                    if (!isFuture && Recording.IsLoopableRecording(rec))
+                    // L (loop toggle) — show for past/active recordings that are loopable,
+                    // or any recording already looping so the timeline can still disable it.
+                    if (ShouldShowLoopToggle(rec, isFuture))
                     {
                         GUIStyle lStyle = rec.LoopPlayback ? loopActiveButtonStyle : GUI.skin.button;
                         string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
@@ -524,6 +525,13 @@ namespace Parsek
             }
 
             GUILayout.EndHorizontal();
+        }
+
+        internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture)
+        {
+            return !isFuture
+                && rec != null
+                && (rec.LoopPlayback || Recording.IsLoopableRecording(rec));
         }
 
         private GUIStyle GetStyleForColor(Color color)

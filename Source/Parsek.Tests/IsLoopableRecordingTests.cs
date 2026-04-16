@@ -60,9 +60,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TerminalStateDocked_ReturnsTrue()
+        public void DockedTerminalState_WithoutDockTarget_ReturnsFalse()
         {
             var rec = new Recording { TerminalStateValue = TerminalState.Docked };
+            Assert.False(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void DockedTerminalState_WithDockTarget_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                DockTargetVesselPid = 12345,
+                TerminalStateValue = TerminalState.Docked
+            };
             Assert.True(Recording.IsLoopableRecording(rec));
         }
 
@@ -83,7 +94,12 @@ namespace Parsek.Tests
         [Fact]
         public void Debris_ExcludedEvenWithDocking()
         {
-            var rec = new Recording { TerminalStateValue = TerminalState.Docked, IsDebris = true };
+            var rec = new Recording
+            {
+                DockTargetVesselPid = 12345,
+                TerminalStateValue = TerminalState.Docked,
+                IsDebris = true
+            };
             Assert.False(Recording.IsLoopableRecording(rec));
         }
 
@@ -122,7 +138,7 @@ namespace Parsek.Tests
             {
                 LaunchSiteName = "Runway",
                 SegmentPhase = "atmo",
-                TerminalStateValue = TerminalState.Docked
+                DockTargetVesselPid = 12345
             };
             Assert.True(Recording.IsLoopableRecording(rec));
         }

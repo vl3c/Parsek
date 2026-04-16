@@ -712,10 +712,10 @@ namespace Parsek
             if (rec.SegmentPhase == "atmo" || rec.SegmentPhase == "approach" || rec.SegmentPhase == "surface")
                 return true;
 
-            // Docking segment (either started from dock or ended with dock)
+            // Actual docking segments record the other vessel's PID at the boundary.
+            // A plain Docked terminal state is too broad: some recordings simply stay
+            // docked in orbit and should not get the timeline loop toggle.
             if (rec.DockTargetVesselPid != 0)
-                return true;
-            if (rec.TerminalStateValue == TerminalState.Docked)
                 return true;
 
             return false;
