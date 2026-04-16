@@ -583,8 +583,11 @@ namespace Parsek
             TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
                 reason: "playback", requestedPlaybackUT: ctx.currentUT);
 
-            // Run early-destroyed-debris completion for side effects; both branches
-            // return true (#369 cosmetic — dropped redundant return).
+            // Run early-destroyed-debris completion for its side effects (event
+            // emission, explosion FX). The helper's return value doesn't gate
+            // the outer result: the ghost has already been rendered above this
+            // line, so RenderInRangeGhost must report true regardless of
+            // whether the completion fired or was skipped. #369 cosmetic.
             if (allowEarlyDestroyedDebrisCompletion)
                 TryHandleEarlyDestroyedDebrisCompletion(i, traj, f, ctx, state, ghostActive, hasPointData);
 
