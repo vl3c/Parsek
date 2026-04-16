@@ -196,6 +196,7 @@ namespace Parsek
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
+                s.showGhostsInTrackingStation = true;
                 ParsekSettingsPersistence.RecordGhostCameraCutoff(s.ghostCameraCutoffKm);
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
@@ -383,6 +384,17 @@ namespace Parsek
             }
             GUILayout.Label("km");
             GUILayout.EndHorizontal();
+
+            GUILayout.Space(SpacingSmall);
+
+            bool showGhostsTS = GUILayout.Toggle(s.showGhostsInTrackingStation,
+                new GUIContent(" Show ghosts in Tracking Station",
+                    "When off, Parsek ghosts are hidden from the tracking station vessel list and map view"));
+            if (showGhostsTS != s.showGhostsInTrackingStation)
+            {
+                s.showGhostsInTrackingStation = showGhostsTS;
+                ParsekLog.Info("UI", $"Setting changed: showGhostsInTrackingStation={showGhostsTS}");
+            }
         }
 
         private void DrawDiagnosticsSettings(ParsekSettings s)

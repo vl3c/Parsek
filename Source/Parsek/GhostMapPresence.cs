@@ -458,6 +458,21 @@ namespace Parsek
         /// </summary>
         internal static void UpdateTrackingStationGhostLifecycle()
         {
+            // #388: respect the user's tracking-station ghost visibility toggle.
+            // ParsekTrackingStation.Update already handles the off-flip transition
+            // (calls RemoveAllGhostVessels); here we simply skip creation so the
+            // list stays empty while the flag is off. An empty-committed cache is
+            // still published so ParsekTrackingStation.OnGUI guards still work.
+            if (!(ParsekSettings.Current?.showGhostsInTrackingStation ?? true))
+            {
+                CachedSupersededIds = new HashSet<string>();
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ts-lifecycle-disabled",
+                    "UpdateTrackingStationGhostLifecycle: showGhostsInTrackingStation=false — skip",
+                    2.0);
+                return;
+            }
+
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
@@ -835,6 +850,19 @@ namespace Parsek
         /// </summary>
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
+            // #388: respect the user's tracking-station ghost visibility toggle.
+            // ParsekSettings.Current may be null outside an active game — default to visible.
+            if (!(ParsekSettings.Current?.showGhostsInTrackingStation ?? true))
+            {
+                int commCount = RecordingStore.CommittedRecordings?.Count ?? 0;
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "CreateGhostVesselsFromCommittedRecordings: " +
+                        "showGhostsInTrackingStation=false — skipping {0} committed recording(s)",
+                        commCount));
+                return 0;
+            }
+
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0) return 0;
 

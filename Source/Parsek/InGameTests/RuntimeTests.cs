@@ -347,6 +347,73 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner", "Verbose logging verification test");
         }
 
+        [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
+            Description = "#388 — flipping showGhostsInTrackingStation removes and recreates ghost ProtoVessels")]
+        public void ShowGhostsInTrackingStation_FlipRemovesAndRecreates()
+        {
+            if (ParsekSettings.Current == null)
+            {
+                ParsekLog.Warn("TestRunner",
+                    "ShowGhostsInTrackingStation_FlipRemovesAndRecreates: ParsekSettings.Current is null — skipping");
+                return;
+            }
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+            {
+                ParsekLog.Info("TestRunner",
+                    "ShowGhostsInTrackingStation_FlipRemovesAndRecreates: no committed recordings — skipping (test needs at least one orbital ghost to be meaningful)");
+                return;
+            }
+
+            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
+
+            try
+            {
+                // Ensure we start in the "visible" state for the off-flip leg and
+                // rebuild ghosts so we have a non-zero baseline. Without this the
+                // test would pass vacuously against a save with no orbital ghosts.
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                int baselineCount = GhostMapPresence.ghostMapVesselPids.Count;
+                if (baselineCount == 0)
+                {
+                    ParsekLog.Info("TestRunner",
+                        $"ShowGhostsInTrackingStation_FlipRemovesAndRecreates: " +
+                        $"baselineCount=0 from {committed.Count} recordings (none qualify for TS ghost) — skipping");
+                    return;
+                }
+
+                // Flip off — short-circuits in CreateGhost/UpdateLifecycle stop
+                // new creation; manually call RemoveAllGhostVessels to simulate
+                // the ParsekTrackingStation.Update force-tick behavior without
+                // depending on the MonoBehaviour timing window.
+                ParsekSettings.Current.showGhostsInTrackingStation = false;
+                GhostMapPresence.RemoveAllGhostVessels("ingame-test-flip-off");
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                int offCount = GhostMapPresence.ghostMapVesselPids.Count;
+                InGameAssert.IsTrue(offCount == 0,
+                    $"Expected 0 ghost vessels with flag=off, got {offCount}");
+
+                // Flip back on — UpdateLifecycle Phase 2 must rebuild the
+                // same set of eligible ghosts.
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                int onCount = GhostMapPresence.ghostMapVesselPids.Count;
+                InGameAssert.IsTrue(onCount == baselineCount,
+                    $"Expected {baselineCount} ghost vessels after flipping flag back on, got {onCount}");
+
+                ParsekLog.Info("TestRunner",
+                    $"ShowGhostsInTrackingStation flip: baseline={baselineCount} offCount={offCount} onCount={onCount}");
+            }
+            finally
+            {
+                // Restore user's original setting regardless of test outcome.
+                ParsekSettings.Current.showGhostsInTrackingStation = original;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            }
+        }
+
         #endregion
     }
 

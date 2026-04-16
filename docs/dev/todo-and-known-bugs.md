@@ -713,7 +713,9 @@ Start with **option 1** (sliders + presets). Simplest path to a working filter, 
 
 ---
 
-## 388. Tracking station: add a Ghost visibility toggle alongside the stock type filters
+## ~~388. Tracking station: add a Ghost visibility toggle alongside the stock type filters~~ (DONE — 0.8.2)
+
+Fixed by adding `ParsekSettings.showGhostsInTrackingStation` (default `true`, auto-persisted by KSP's `GameParameters.CustomParameterUI` framework), a checkbox in `SettingsWindowUI.DrawGhostSettings`, and a force-tick path in `ParsekTrackingStation.Update` that detects the flag flip, calls `GhostMapPresence.RemoveAllGhostVessels("ghost-filter-disabled")` on off-flip, and zeroes `nextLifecycleCheckTime` so the Phase-2 creation loop reruns immediately. `GhostMapPresence.CreateGhostVesselsFromCommittedRecordings` and `UpdateTrackingStationGhostLifecycle` short-circuit when the flag is off. The atmospheric-marker pass in `ParsekTrackingStation.OnGUI` gets its own early-return. Sticky labels keyed by `RecordingId` in `MapMarkerRenderer` survive the toggle cycle.
 
 **Source:** maintenance request `2026-04-14`. Stock KSP's tracking station has a row of show/hide toggles (asteroids, debris, probes, rovers, landers, ships, stations, bases, EVAs, planes, relays, flags). Parsek adds a *new* category of entries — "ghosts" — but there's no user control to hide them in bulk. Users need a single toggle that collapses all Parsek ghosts out of both the vessel list and the map view simultaneously.
 
