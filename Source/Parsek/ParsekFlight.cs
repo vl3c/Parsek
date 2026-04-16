@@ -3052,6 +3052,30 @@ namespace Parsek
                 Generation = parentGeneration + 1
             };
 
+            // Bug #419 — invariant-enforcement: before any seed-point or snapshot code
+            // runs, trim any pre-existing trajectory points at or after the breakup UT.
+            // Debris recordings start empty in the normal path (CreateBreakupChildRecording
+            // allocates a fresh Recording via `new Recording { ... }`), so this is a no-op
+            // under current callers; but if any future inheritance path grafts parent
+            // samples into the child Recording before this function runs, those samples
+            // would stitch onto the post-boundary sampler stream and produce the
+            // Points[n].ut < Points[n-1].ut failure signature that
+            // `CommittedRecordingsHaveValidData` flags. Inclusive trim at breakupBp.UT
+            // guarantees the authoritative seed at breakupBp.UT (either fallbackTrajectoryPoint
+            // below, or OnVesselBackgrounded's pendingInitialTrajectoryPoint) becomes
+            // Points[0] cleanly. The fallbackTrajectoryPoint path supplies its own
+            // post-boundary seed (captured during the coalescing window, UT > breakupBp.UT
+            // in the vessel-destroyed-during-window scenario) and is applied AFTER the
+            // trim, so it is never mistakenly removed.
+            int trimmedAtBoundary = FlightRecorder.TrimPointsAtOrAfterUT(childRec.Points, breakupBp.UT);
+            if (trimmedAtBoundary > 0)
+            {
+                ParsekLog.Warn("Coalescer",
+                    $"CreateBreakupChildRecording: trimmed {trimmedAtBoundary} inherited point(s) at/after " +
+                    $"breakup UT={breakupBp.UT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"from child recId={childRec.RecordingId} (pid={pid}) to preserve monotonicity (#419)");
+            }
+
             if (vessel != null)
             {
                 ConfigNode liveSnapshot = VesselSpawner.TryBackupSnapshot(vessel);

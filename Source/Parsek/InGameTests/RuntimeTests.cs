@@ -1378,12 +1378,19 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            int checkedCount = 0;
+            int checkedCount = 0, skippedRoots = 0;
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
                 if (rec == null || rec.RecordingFormatVersion < 2 || string.IsNullOrEmpty(rec.RecordingId))
                     continue;
+
+                // Tree root recordings are structural containers with no trajectory — no .prec expected (#420).
+                if (rec.Points == null || rec.Points.Count == 0)
+                {
+                    skippedRoots++;
+                    continue;
+                }
 
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
                     Path.Combine("Parsek", "Recordings", rec.RecordingId + ".prec"));
@@ -1402,12 +1409,14 @@ namespace Parsek.InGameTests
 
             if (checkedCount == 0)
             {
+                ParsekLog.Verbose("TestRunner",
+                    $"Binary sidecar check: no current-format trajectory recordings in this save ({skippedRoots} tree root(s) skipped)");
                 InGameAssert.Skip("no current-format committed recordings in this save");
                 return;
             }
 
             ParsekLog.Verbose("TestRunner",
-                $"Binary sidecar check: verified {checkedCount} current-format recording(s)");
+                $"Binary sidecar check: verified {checkedCount} current-format recording(s), {skippedRoots} tree root(s) skipped");
         }
     }
 

@@ -1719,12 +1719,22 @@ namespace Parsek
 
                     var tree = RecordingTree.Load(treeNode);
                     int sidecarHydrationFailures = 0;
+                    int syntheticFixtureFailures = 0;
 
                     // Load bulk data from external files for each recording in the tree
                     foreach (var rec in tree.Recordings.Values)
                     {
                         if (!RecordingStore.LoadRecordingFiles(rec))
+                        {
                             sidecarHydrationFailures++;
+                            // Bug #422: distinguish synthetic-fixture markers (no .prec sidecar,
+                            // zero trajectory points — expected for injected test recordings)
+                            // from genuine degradations (parse error, id mismatch, stale epoch,
+                            // snapshot failure, etc). The per-recording INFO line already
+                            // describes the synthetic case; the roll-up WARN would duplicate it.
+                            if (IsSyntheticFixtureSidecarMarker(rec))
+                                syntheticFixtureFailures++;
+                        }
                     }
 
                     committedTrees.Add(tree);
@@ -1743,12 +1753,8 @@ namespace Parsek
 
                     ScenarioLog($"[Parsek Scenario] Loaded tree '{tree.TreeName}': " +
                         $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
-                    if (sidecarHydrationFailures > 0)
-                    {
-                        ParsekLog.Warn("Scenario",
-                            $"OnLoad: committed tree '{tree.TreeName}' had {sidecarHydrationFailures} " +
-                            $"recording(s) with sidecar hydration failures");
-                    }
+                    EmitSidecarHydrationRollup(
+                        tree.TreeName, sidecarHydrationFailures, syntheticFixtureFailures);
                 }
                 ParsekLog.Verbose("Scenario",
                     $"Loaded {treeNodes.Length} tree nodes ({treeRecCount} committed recordings + " +
@@ -1756,6 +1762,50 @@ namespace Parsek
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
+        }
+
+        /// <summary>
+        /// Bug #422: a sidecar-hydration failure is a "synthetic-fixture marker" — not a
+        /// genuine degradation — when the <c>.prec</c> trajectory file is simply missing
+        /// and the recording carries zero trajectory points. That combination is the
+        /// expected shape of an injected test recording whose <c>.prec</c> was never
+        /// written. All other failure reasons (parse errors, id mismatches, stale
+        /// epochs, snapshot failures, exceptions) indicate real data problems.
+        /// </summary>
+        internal static bool IsSyntheticFixtureSidecarMarker(Recording rec)
+        {
+            if (rec == null) return false;
+            if (rec.SidecarLoadFailureReason != "trajectory-missing") return false;
+            return rec.Points == null || rec.Points.Count == 0;
+        }
+
+        /// <summary>
+        /// Bug #422: emits the per-tree sidecar-hydration roll-up. Suppresses the WARN
+        /// (downgrades to INFO) when every failure in the batch is the synthetic-fixture
+        /// marker — the per-recording INFO lines above already describe those cases and
+        /// the WARN would duplicate them, making a clean test save look unhealthy. Any
+        /// genuine degradation in the batch still emits the WARN. Internal so unit tests
+        /// can exercise both branches without building a full RecordingTree fixture.
+        /// </summary>
+        internal static void EmitSidecarHydrationRollup(
+            string treeName, int totalFailures, int syntheticFixtureFailures)
+        {
+            if (totalFailures <= 0) return;
+
+            if (syntheticFixtureFailures >= totalFailures)
+            {
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: committed tree '{treeName}' had {totalFailures} " +
+                    $"synthetic-fixture recording(s) with missing .prec sidecar " +
+                    $"(no genuine degradations; per-recording INFO lines above describe each)");
+                return;
+            }
+
+            int genuineFailures = totalFailures - syntheticFixtureFailures;
+            ParsekLog.Warn("Scenario",
+                $"OnLoad: committed tree '{treeName}' had {totalFailures} " +
+                $"recording(s) with sidecar hydration failures " +
+                $"({genuineFailures} genuine, {syntheticFixtureFailures} synthetic-fixture)");
         }
 
         /// <summary>

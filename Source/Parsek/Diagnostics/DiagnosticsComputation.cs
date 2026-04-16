@@ -687,20 +687,83 @@ namespace Parsek
         internal const double RecordingBudgetThresholdMs = 4.0;
 
         /// <summary>
+        /// One-shot latch for the bug #414 per-phase breakdown log. Flipped true the first
+        /// time a playback-budget-exceeded warning fires in the session; once latched, the
+        /// breakdown is never re-emitted even on subsequent spikes. This keeps the steady-state
+        /// cost at zero (no extra log lines, no allocations) while preserving the one
+        /// diagnostic snapshot that localizes which phase blew the budget.
+        /// </summary>
+        private static bool s_playbackBreakdownOneShotFired;
+
+        /// <summary>
         /// Checks the playback budget and emits a rate-limited WARN if exceeded.
         /// Called by GhostPlaybackEngine after each frame. Pure static, testable.
+        /// Kept for back-compat with existing call sites and tests that have no phase breakdown.
         /// </summary>
         internal static void CheckPlaybackBudgetThreshold(long totalMicroseconds, int ghostsProcessed, float warpRate)
         {
+            CheckPlaybackBudgetThresholdWithBreakdown(
+                totalMicroseconds, ghostsProcessed, warpRate, default);
+        }
+
+        /// <summary>
+        /// Bug #414 instrumentation: same as <see cref="CheckPlaybackBudgetThreshold"/> but
+        /// additionally emits a one-shot per-phase breakdown WARN the very first time the
+        /// budget is exceeded in the session. The intent is NOT to fix the spike — it is to
+        /// expose which sub-phase (main loop, spawn, destroy, explosion cleanup, deferred
+        /// event invocations, observability capture) is actually responsible, so the root
+        /// cause can be localized on the next playtest. After the first fire the latch is
+        /// set and subsequent exceeded frames behave exactly like the legacy path.
+        /// Pure static, testable.
+        /// </summary>
+        internal static void CheckPlaybackBudgetThresholdWithBreakdown(
+            long totalMicroseconds, int ghostsProcessed, float warpRate, PlaybackBudgetPhases phases)
+        {
             double totalMs = totalMicroseconds / 1000.0;
-            if (totalMs > PlaybackBudgetThresholdMs)
-            {
-                ParsekLog.WarnRateLimited("Diagnostics", "playback-budget",
-                    string.Format(Inv,
-                        "Playback frame budget exceeded: {0}ms ({1} ghosts, warp: {2}x)",
-                        totalMs.ToString("F1", Inv), ghostsProcessed, warpRate.ToString("F0", Inv)),
-                    30.0);
-            }
+            if (totalMs <= PlaybackBudgetThresholdMs)
+                return;
+
+            ParsekLog.WarnRateLimited("Diagnostics", "playback-budget",
+                string.Format(Inv,
+                    "Playback frame budget exceeded: {0}ms ({1} ghosts, warp: {2}x)",
+                    totalMs.ToString("F1", Inv), ghostsProcessed, warpRate.ToString("F0", Inv)),
+                30.0);
+
+            if (s_playbackBreakdownOneShotFired)
+                return;
+
+            // One-shot: emit the phase breakdown on the very first exceeded frame. The breakdown
+            // is a plain WARN (not rate-limited) so it always lands next to the triggering
+            // budget-exceeded line in KSP.log regardless of the rate limiter's state for any
+            // future spikes. See bug #414 in docs/dev/todo-and-known-bugs.md.
+            s_playbackBreakdownOneShotFired = true;
+            ParsekLog.Warn("Diagnostics",
+                string.Format(Inv,
+                    "Playback budget breakdown (one-shot, first exceeded frame): total={0}ms"
+                    + " mainLoop={1}ms spawn={2}ms destroy={3}ms explosionCleanup={4}ms"
+                    + " deferredCreated={5}ms ({6} evts) deferredCompleted={7}ms ({8} evts)"
+                    + " observabilityCapture={9}ms trajectories={10} ghosts={11} warp={12}x",
+                    totalMs.ToString("F1", Inv),
+                    (phases.mainLoopMicroseconds / 1000.0).ToString("F2", Inv),
+                    (phases.spawnMicroseconds / 1000.0).ToString("F2", Inv),
+                    (phases.destroyMicroseconds / 1000.0).ToString("F2", Inv),
+                    (phases.explosionCleanupMicroseconds / 1000.0).ToString("F2", Inv),
+                    (phases.deferredCreatedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                    phases.createdEventsFired,
+                    (phases.deferredCompletedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                    phases.completedEventsFired,
+                    (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
+                    phases.trajectoriesIterated,
+                    ghostsProcessed,
+                    warpRate.ToString("F0", Inv)));
+        }
+
+        /// <summary>
+        /// Test-only: reset the bug #414 one-shot breakdown latch so each test starts clean.
+        /// </summary>
+        internal static void ResetPlaybackBreakdownOneShotForTesting()
+        {
+            s_playbackBreakdownOneShotFired = false;
         }
 
         /// <summary>
@@ -764,6 +827,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             ClockSource = null;
+            s_playbackBreakdownOneShotFired = false;
         }
     }
 }

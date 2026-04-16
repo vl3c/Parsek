@@ -2394,6 +2394,28 @@ namespace Parsek
             if (treeRec == null)
                 return;
 
+            // Bug #419: enforce monotonicity at the choke point. Every sampler path that
+            // appends to treeRec.Points — breakup initial seeds, on-rails seeds,
+            // background fallback seeds — funnels through here. If a caller tries to
+            // append a point whose UT is strictly less than the current last point's UT
+            // (e.g., a belated breakup-initial seed consumed after physics-frame samples
+            // already advanced, or a duplicate suffix re-append from a flush path),
+            // reject the point with a warn log so binary-search and interpolation
+            // consumers keep their monotonicity invariant. Equal UTs are tolerated —
+            // duplicate-UT samples occur at boundary seeds and are deduped downstream.
+            if (!FlightRecorder.IsAppendUTMonotonic(treeRec.Points, point.ut))
+            {
+                TrajectoryPoint last = treeRec.Points[treeRec.Points.Count - 1];
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Warn("BgRecorder",
+                    $"ApplyTrajectoryPointToRecording: rejected non-monotonic UT " +
+                    $"recId={treeRec.RecordingId} " +
+                    $"incoming ut={point.ut.ToString("R", ic)} " +
+                    $"< last ut={last.ut.ToString("R", ic)} " +
+                    $"(points={treeRec.Points.Count}, dropped to preserve monotonicity — #419)");
+                return;
+            }
+
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
             if (double.IsNaN(treeRec.ExplicitEndUT) || treeRec.ExplicitEndUT < point.ut)

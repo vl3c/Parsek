@@ -5521,6 +5521,56 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Bug #419 — pure monotonicity predicate for trajectory-point appends.
+        /// Returns true when appending <paramref name="incomingUT"/> to
+        /// <paramref name="points"/> preserves the monotonically-non-decreasing UT
+        /// invariant that <c>CommittedRecordingsHaveValidData</c> checks
+        /// (<c>points[i].ut &gt;= points[i-1].ut</c>). Equal UTs are accepted —
+        /// boundary seeds and flush-time overlap dedup can produce same-UT duplicates
+        /// that are harmless to downstream consumers. Empty / null <paramref name="points"/>
+        /// always returns true (first append is trivially monotonic).
+        /// </summary>
+        internal static bool IsAppendUTMonotonic(List<TrajectoryPoint> points, double incomingUT)
+        {
+            if (points == null || points.Count == 0)
+                return true;
+            return incomingUT >= points[points.Count - 1].ut;
+        }
+
+        /// <summary>
+        /// Bug #419 — pure helper that trims trajectory points at or after
+        /// <paramref name="boundaryUT"/> from <paramref name="points"/>, preserving all
+        /// earlier points. Returns the number of points removed. Null / empty input
+        /// is a no-op that returns 0. Callers use this to guarantee that a freshly
+        /// spawned debris/breakup child recording cannot hold any inherited sample
+        /// whose UT would collide with the post-boundary sampler stream.
+        /// The comparison is inclusive of <paramref name="boundaryUT"/> — the caller
+        /// is expected to re-seed the child with an authoritative initial point at
+        /// exactly <paramref name="boundaryUT"/>, so any pre-existing point at that
+        /// UT would be a duplicate anyway.
+        /// </summary>
+        internal static int TrimPointsAtOrAfterUT(List<TrajectoryPoint> points, double boundaryUT)
+        {
+            if (points == null || points.Count == 0)
+                return 0;
+
+            int trimIdx = points.Count;
+            for (int i = 0; i < points.Count; i++)
+            {
+                if (points[i].ut >= boundaryUT)
+                {
+                    trimIdx = i;
+                    break;
+                }
+            }
+
+            int removed = points.Count - trimIdx;
+            if (removed > 0)
+                points.RemoveRange(trimIdx, removed);
+            return removed;
+        }
+
+        /// <summary>
         /// Constructs a TrajectoryPoint from the vessel's current state and the given velocity.
         /// Extracted to deduplicate the identical construction in OnPhysicsFrame and SamplePosition.
         /// </summary>

@@ -104,6 +104,7 @@ namespace Parsek.InGameTests
         public void RunAll()
         {
             if (isRunning) return;
+            PerformBetweenRunCleanup("run-all");
             var eligible = PrepareBatchExecution(allTests.Where(t => IsEligibleForScene(t)));
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
@@ -112,6 +113,7 @@ namespace Parsek.InGameTests
         public void RunCategory(string category)
         {
             if (isRunning) return;
+            PerformBetweenRunCleanup("run-category:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecution(allTests
                 .Where(t => t.Category == category && IsEligibleForScene(t)));
             RecountResults();
@@ -122,6 +124,84 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(new List<InGameTestInfo> { test }));
+        }
+
+        /// <summary>
+        /// Between-run cleanup hook invoked before Run All / Run Category (#417/#418).
+        /// Destroys any ghosts and ghost-map ProtoVessels left alive from a previous
+        /// batch so the next pass starts from a known-empty state. Without this, the
+        /// second Run All spawns fresh ghosts on top of the first run's residue,
+        /// which compounds GhostCount (tripping GhostCountReasonable's 200-cap) and
+        /// races the ghost-map vs. ProtoVessel registration order (tripping
+        /// GhostPidsResolveToProtoVessels).
+        ///
+        /// Order (matches the rewind path in ParsekFlight.DestroyAllTimelineGhosts):
+        /// 1. Delegate to ParsekFlight.Instance.DestroyAllTimelineGhosts() when available
+        ///    — this does RemoveAllGhostVessels (vessel.Die + dict clear) followed by
+        ///    engine.DestroyAllGhosts (primary + overlap GO destroy + engine dict clear).
+        /// 2. Safety net: ResetBetweenTestRuns on GhostMapPresence, idempotent and
+        ///    synchronous, catches any PID that lingered past step 1 (e.g. if Die()
+        ///    throws, or if we are not in the flight scene and ParsekFlight.Instance is
+        ///    null but ghost-map bookkeeping is somehow non-empty from a previous scene).
+        ///
+        /// Idempotent: calling with zero ghosts just emits verbose no-op logs.
+        /// Exceptions from Die() or engine cleanup are swallowed so a single broken
+        /// ghost cannot abort the test run.
+        /// </summary>
+        internal void PerformBetweenRunCleanup(string reason)
+        {
+            ParsekLog.Info(Tag,
+                $"PerformBetweenRunCleanup: begin reason={reason} scene={HighLogic.LoadedScene}");
+
+            int ghostsBefore = 0;
+            int mapPidsBefore = GhostMapPresence.ghostMapVesselPids.Count;
+
+            var flight = ParsekFlight.Instance;
+            if (flight != null)
+            {
+                try
+                {
+                    ghostsBefore = flight.Engine?.GhostCount ?? 0;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"PerformBetweenRunCleanup: failed to read pre-cleanup GhostCount: {ex.Message}");
+                }
+
+                try
+                {
+                    flight.DestroyAllTimelineGhosts();
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"PerformBetweenRunCleanup: DestroyAllTimelineGhosts threw: {ex.Message}");
+                }
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "PerformBetweenRunCleanup: no ParsekFlight.Instance — skipping flight-scene ghost teardown");
+            }
+
+            // Safety net: clear any ghost-map bookkeeping that survived step 1.
+            // Also covers the case where ParsekFlight.Instance was null but
+            // GhostMapPresence dicts are non-empty from a previous scene.
+            try
+            {
+                GhostMapPresence.ResetBetweenTestRuns(reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PerformBetweenRunCleanup: ResetBetweenTestRuns threw: {ex.Message}");
+            }
+
+            int mapPidsAfter = GhostMapPresence.ghostMapVesselPids.Count;
+            ParsekLog.Info(Tag,
+                $"PerformBetweenRunCleanup: end reason={reason} " +
+                $"ghostsBefore={ghostsBefore} mapPidsBefore={mapPidsBefore} mapPidsAfter={mapPidsAfter}");
         }
 
         public void Cancel()

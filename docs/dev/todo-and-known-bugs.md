@@ -45,35 +45,58 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 420. `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` fails on tree-root recordings with `pointCount=0` (no `.prec` expected)
+## ~~420. `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` fails on tree-root recordings with `pointCount=0` (no `.prec` expected)~~
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Current-format recording 'e1-root' is missing its .prec sidecar`.
 
 **Investigation:** `e1-root` is a synthetic injected `Undock Test Tree` ROOT recording (`InjectAllRecordings` fixture, `pointCount=0`, `recordingFormatVersion=4`). Tree-root recordings legitimately carry no trajectory — they're structural parents for child branches. The sibling test `ExternalFilesExist` is tolerant of missing `.prec` ("Don't fail on missing here"), but the newer binary-probe test (added in commit `3fe7c72e`) only filters by `RecordingFormatVersion < 2` and doesn't skip `pointCount==0` tree-roots.
 
-**Fix direction:** extend the probe test's skip predicate to also skip recordings with `pointCount == 0` (or equivalently, recordings that don't have a trajectory file path registered). Same logic as `ExternalFilesExist`.
+**Fix:** Extended the skip predicate in `CurrentFormatTrajectorySidecarsProbeAsBinary` (in `Source/Parsek/InGameTests/RuntimeTests.cs`) to also skip recordings with null or empty `Points` — matching the pattern used by `CommittedRecordingsHaveValidData` and `LogContractTests.RecordingStopMetricsValid`. The skipped-roots count is now logged alongside the verified-recording count, and the zero-checked-count log line also reports how many roots were skipped so the trajectory-less path is visible in `KSP.log`.
 
-**Files to touch:** `Source/Parsek/InGameTests/SaveLoadTests.cs` (look for `CurrentFormatTrajectorySidecarsProbeAsBinary`).
+**Files touched:** `Source/Parsek/InGameTests/RuntimeTests.cs` (`CurrentFormatTrajectorySidecarsProbeAsBinary`).
 
-**Status:** TODO. Size: XS.
+**Status:** Fixed. Size: XS.
 
 ---
 
-## 419. Debris recording trajectory non-monotonic at parent-breakup boundary (point N UT < point N-1)
+## ~~419. Debris recording trajectory non-monotonic at parent-breakup boundary (point N UT < point N-1)~~
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Recording 393b82ccb697492bb7b35c6c621f9d07: point 13 UT 155.840000000006 < previous 170.920000000014`.
 
-**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Probable cause: when a debris recording is spawned from a breakup, the sampler writes a new point-0 at the breakup UT, but points 0-12 inherited from the parent's pre-breakup samples run past 170.92 — the inheritance + post-breakup stitch creates a non-monotonic boundary.
+**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the on-disk `.prec` sidecar from `logs/2026-04-14_1801_orbital-spawn-bug/parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt` showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
 
-**Concern:** Consumers that assume monotonic UTs (binary-search lookups, interpolation) will behave unpredictably on the non-monotonic pair. Not blocking gameplay today but a latent source of playback bugs.
+**Concern:** Consumers that assume monotonic UTs (binary-search lookups, interpolation, playback cursor advance) behave unpredictably on the non-monotonic pair.
 
-**Files to touch:** whichever code path back-fills debris-at-breakup samples (grep for CRASH branch-event handling, `BranchEventType`, `CreateDebrisRecording` or similar). The `CommittedRecordingsHaveValidData` in-game test is the regression gate.
+**Fix:** enforce the monotonicity invariant at the sampler choke point and defensively trim at the breakup boundary before seeding. Two pure static helpers added to `FlightRecorder`:
 
-**Status:** TODO. Size: S-M (trace the stitch path; likely a single-line invariant fix + regression test).
+- `IsAppendUTMonotonic(List<TrajectoryPoint>, double incomingUT)` — returns true when the incoming UT is `>=` the current last-point UT (empty/null list returns true). Same-UT duplicates are tolerated — boundary seeds and overlap dedup legitimately produce them, and downstream consumers deduplicate by value.
+- `TrimPointsAtOrAfterUT(List<TrajectoryPoint>, double boundaryUT)` — inclusive trim used at the breakup boundary. Removes points with `UT >= boundaryUT` so the subsequent authoritative seed at `boundaryUT` becomes `Points[0]` (or the next monotonic append) cleanly.
+
+`BackgroundRecorder.ApplyTrajectoryPointToRecording` now calls `IsAppendUTMonotonic` before the `treeRec.Points.Add(point)` line and `Warn`-logs + skips the append when the invariant would be violated (tagged `#419` in the message so the failure mode is greppable). `CreateBreakupChildRecording` in `ParsekFlight.cs` now calls `TrimPointsAtOrAfterUT(childRec.Points, breakupBp.UT)` **before** the seed-point / snapshot-inheritance code runs. Under the current callers this is a no-op (the `new Recording { ... }` allocation is empty), but any future inheritance path that grafts parent samples into the child before handoff will be caught by the trim — the `fallbackTrajectoryPoint` path (UT > breakup for the vessel-destroyed-during-coalescing-window scenario, covered by `Bug157_FallbackSnapshotTests.NullVessel_WithFallbackTrajectoryPoint_SeedsRecordingPoint`) applies its seed *after* the trim so it is never mistakenly removed. Option 2 (sampler guard) alone would leave duplicate points in place on rejection, while option 1 (trim-at-boundary) alone would not catch late same-boundary-UT re-seeds; landing both in concert plus the monotonic-append guard makes the invariant defense-in-depth.
+
+**Tests:** 21 unit tests in `Source/Parsek.Tests/Bug419DebrisMonotonicityTests.cs`:
+
+- `IsAppendUTMonotonic_*` — null / empty / strictly-increasing / equal / strictly-decreasing UT cases.
+- `TrimPointsAtOrAfterUT_*` — null / empty / all-before / grid-aligned / off-grid / all-after cases, including the "breakup UT falls between two samples" case the bug ticket flagged.
+- `ApplyTrajectoryPointToRecording_*` — first-append populates `ExplicitEndUT`, monotonic appends go through, equal-UT duplicates pass, strictly-decreasing UTs are rejected with a `#419` log line captured via `ParsekLog.TestSinkForTesting`, rejected appends do not poison `ExplicitEndUT`, null-recording is tolerated.
+- `Regression_DuplicateThirteenPointBlock_GuardRejectsAllDuplicates` — pins the exact `.prec` UT grid from `logs/2026-04-14_1801_orbital-spawn-bug` (13 samples from 155.84 → 170.92, then the same block re-appended). Without the guard, this produced the reported failure; with the guard, 12 strict regressions are rejected (logged), the equal-UT duplicate at 170.92 passes (by design), and the final Points list is monotonic.
+- `TrimAtBreakupBoundary_*` — empty child is a no-op; grid-aligned breakup leaves the last inherited UT strictly before the breakup; off-grid breakup does the same; subsequent seed + physics-frame samples extend the list monotonically.
+
+The in-game `CommittedRecordingsHaveValidData` test remains the ultimate regression gate — the unit tests pin the helpers and the sampler guard, but only an in-game playtest with a live breakup exercises the exact stitch path.
+
+**Files touched:**
+
+- `Source/Parsek/FlightRecorder.cs` — added `IsAppendUTMonotonic` and `TrimPointsAtOrAfterUT` pure static helpers.
+- `Source/Parsek/BackgroundRecorder.cs` — `ApplyTrajectoryPointToRecording` now rejects non-monotonic appends with a warn log.
+- `Source/Parsek/ParsekFlight.cs` — `CreateBreakupChildRecording` trims at `breakupBp.UT` before seeding.
+- `Source/Parsek.Tests/Bug419DebrisMonotonicityTests.cs` — 21 new xUnit tests.
+- `CHANGELOG.md`, this file.
+
+**Status:** Fixed. Size: S-M.
 
 ---
 
-## 418. `GhostMapPresence` orphan PID in `ghostMapVesselPids` after consecutive "Run All" passes
+## ~~418. `GhostMapPresence` orphan PID in `ghostMapVesselPids` after consecutive "Run All" passes~~
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `1 ghost map PIDs have no corresponding ProtoVessel (leak)` — passed on first Run All at 22:31, failed on second Run All at 22:33 in the same session.
 
@@ -83,11 +106,13 @@ are fixed in the same PR branch with additional commits:
 
 **Files to touch:** `Source/Parsek/GhostMapPresence.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`.
 
-**Status:** TODO. Size: S.
+**Fix:** chose option (a) — fixed alongside #417 as a single between-run cleanup hook in `InGameTestRunner.PerformBetweenRunCleanup`, invoked from `RunAll` and `RunCategory`. The hook first calls `ParsekFlight.Instance.DestroyAllTimelineGhosts()` (same rewind path that already pairs `GhostMapPresence.RemoveAllGhostVessels` with `engine.DestroyAllGhosts`), then as a safety net calls the new synchronous `GhostMapPresence.ResetBetweenTestRuns(reason)` which clears `ghostMapVesselPids`, `ghostsWithSuppressedIcon`, `ghostOrbitBounds`, `vesselsByChainPid`, `vesselsByRecordingIndex`, and `vesselPidToRecordingIndex` without calling `vessel.Die()` — the Vessel-layer destruction already ran in step 1, so this is pure bookkeeping cleanup. The safety-net reset also covers the hypothesized race where a ghost's ProtoVessel is already killed by an engine-driven overlap/loop end but its PID lingered in the HashSet past that teardown; the synchronous bulk clear collapses that window to zero. No async/deferred PID-removal path exists in `GhostMapPresence` today — every `RemoveGhostVessel` / `RemoveGhostVesselForRecording` / `RemoveAllGhostVessels` path removes the PID from `ghostMapVesselPids` inline with `vessel.Die()`, so no coroutine flush is needed. Unit tests in `GhostMapPresenceTests.ResetBetweenTestRuns_*` cover the four cleanup paths (PID-only clear, full dicts, idempotent second call, null reason). See #417 for the matching test-runner side of the fix.
+
+**Status:** DONE in v0.8.2.
 
 ---
 
-## 417. In-game TestRunner leaks ghosts across consecutive "Run All" passes, tripping `GhostCountReasonable`
+## ~~417. In-game TestRunner leaks ghosts across consecutive "Run All" passes, tripping `GhostCountReasonable`~~
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Suspiciously high ghost count: 249 (potential leak)`. Session ran Run All twice: the first pass at 22:31 had no ghost-count failure; the second at 22:33 reported 249 valid ghost GameObjects against `CommittedRecordings count: 289` (synthetic-injected fixtures).
 
@@ -97,11 +122,13 @@ are fixed in the same PR branch with additional commits:
 
 **Files to touch:** `Source/Parsek/InGameTests/InGameTestRunner.cs`, possibly `GhostPlaybackEngine.cs` for a reset API.
 
-**Status:** TODO. Size: S.
+**Fix:** added `InGameTestRunner.PerformBetweenRunCleanup(reason)` and call it from `RunAll` and `RunCategory` before test execution begins (NOT from `RunSingle` — a single intentional test run should never wipe the ghost state the user may be inspecting). The method logs a begin/end summary with `scene`, pre-cleanup `GhostCount`, and pre/post `mapPidsBefore/After` counts so the post-run `parsek-test-results.txt` + KSP.log pair shows exactly how much residue the previous run left behind. Internally it delegates to `ParsekFlight.Instance.DestroyAllTimelineGhosts()` when available (the same full teardown path used by rewind: `GhostMapPresence.RemoveAllGhostVessels` → `engine.DestroyAllGhosts` → clear `orbitCache`/spawn caches), which ensures primary ghosts, overlap ghosts, ghost-map ProtoVessels, `ghostStates`, `overlapGhosts`, `loopPhaseOffsets`, `loadedAnchorVessels`, `completedEventFired`, and `earlyDestroyedDebrisCompleted` are all reset to empty. Exceptions from `DestroyAllTimelineGhosts` or the safety-net `GhostMapPresence.ResetBetweenTestRuns` are swallowed and warn-logged so a single corrupted ghost cannot abort the test run. Idempotent — with zero ghosts alive, both the ParsekFlight call and `ResetBetweenTestRuns` short-circuit to verbose no-op logs. See #418 for the `GhostMapPresence.ResetBetweenTestRuns` side of the fix.
+
+**Status:** DONE in v0.8.2.
 
 ---
 
-## 422. Sidecar-hydration WARN lines duplicate matching INFO-level "trajectory file missing" entries on freshly-loaded test saves
+## ~~422. Sidecar-hydration WARN lines duplicate matching INFO-level "trajectory file missing" entries on freshly-loaded test saves~~
 
 **Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:10529-10605`. Ten trees log a WARN `"N recording(s) with sidecar hydration failures"` immediately after N INFO lines of the form `"Trajectory file missing for <recording> — recording degraded (0 points)"`.
 
@@ -109,21 +136,25 @@ are fixed in the same PR branch with additional commits:
 
 **Files to touch:** wherever the roll-up WARN is emitted (grep for `"recording(s) with sidecar hydration failures"` in `Source/Parsek/RecordingStore.cs` or `Scenario`-adjacent code).
 
-**Status:** TODO. Size: XS.
+**Fix:** `ParsekScenario.LoadRecordingTrees` now classifies each sidecar-hydration failure. The new `IsSyntheticFixtureSidecarMarker(Recording)` helper recognizes the "trajectory-missing + Points.Count == 0" shape as an injected-test-save marker; all other `SidecarLoadFailureReason` values (parse errors, id mismatches, stale epochs, snapshot failures, exceptions) remain genuine degradations. The emission path was extracted into `EmitSidecarHydrationRollup(treeName, total, synthetic)` and now emits an INFO roll-up instead of WARN when `synthetic == total`; mixed batches still emit WARN with a `(N genuine, M synthetic-fixture)` breakdown. Unit tests in `Bug422SidecarHydrationRollupTests.cs` cover the helper's classification (5 cases), all-synthetic suppression, mixed-batch WARN, all-genuine WARN, empty batch silence, and single-synthetic suppression via `ParsekLog.TestSinkForTesting`.
+
+**Status:** Done. Size: XS.
 
 ---
 
-## 421. `GhostAudio` logs "AudioClip not found: 'sound_IonEngine'" per-event without dedupe
+## ~~421. `GhostAudio` logs "AudioClip not found: 'sound_IonEngine'" per-event without dedupe~~
 
 **Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:15772, 18092, 22369, 26985, 35917, 41246, 45772`. The missing clip warning fired 7 times over ~3.5 minutes for the same `ionEngine` pid=100000. Pre-existing; not introduced by #316.
 
 **Concern:** The ion engine's audio clip isn't found on ghost playback — likely a lookup path mismatch (stock path / missing from `GameDatabase` at ghost-build time / different clip naming after a KSP update). Separately, even if the clip genuinely is missing, the warning should dedupe per (pid, clip-name) so it fires once per ghost instead of per audio event.
 
-**Investigation hints:** Grep for `"sound_IonEngine"` in `Source/Parsek/GhostVisualBuilder.cs` and `GhostAudioBuilder.cs` (or wherever ghost audio is built from vessel snapshots). Check whether the stock ion engine cfg ships that clip name, or whether Parsek is synthesizing the wrong key.
+**Fix:** Added a per-ghost dedupe set in `GhostVisualBuilder` keyed by ghost root GameObject name → set of `"pid|clipPath"` entries. The warn callsite in `TryBuildAudioFX` now routes through `WarnMissingAudioClipOnce(ghostRoot?.name, pid, clipPath, partName)`, which emits `ParsekLog.Warn` on the first hit and silently drops repeats. `GhostPlaybackEngine.DestroyGhost` captures the ghost's root name before resource teardown and calls `GhostVisualBuilder.ClearMissingAudioClipWarnings(rootName)` after the state is removed, so a fresh spawn on the same slot (loop rebuild) gets one fresh warn if the clip is still missing. No message-format change — the emitted line still names clip path, part name, and pid.
 
-**Files to touch:** audio-building site(s) + the `GhostAudio` warn callsite.
+**Files touched:** `Source/Parsek/GhostVisualBuilder.cs` (dedupe map + `WarnMissingAudioClipOnce` / `ClearMissingAudioClipWarnings` / `ResetMissingAudioClipWarningsForTesting`; callsite routed through the helper), `Source/Parsek/GhostPlaybackEngine.cs` (`DestroyGhost` clears the dedupe bucket), `Source/Parsek.Tests/Bug421GhostAudioDedupeTests.cs` (new), `CHANGELOG.md`.
 
-**Status:** TODO. Size: S.
+**Follow-up:** The dedupe is cosmetic — it collapses the log noise but does not fix the underlying "clip genuinely missing" case. Investigating whether the stock ion engine cfg actually ships `sound_IonEngine` at ghost-build time (or whether `GhostAudioPresets.presetMap` is synthesizing the wrong key for the `XenonGas` / `ElectricCharge` branches that map to `sound_IonEngine`) is still open. Once the root cause is confirmed, fix either the cfg scan or the preset map and drop `sound_IonEngine` from the missing-clip list — if the clip resolves, the dedupe machinery never fires and can stay in place as a cheap safety net for other genuinely-missing clips.
+
+**Status:** Fixed (dedupe only — clip-missing root cause still TODO). Size: S.
 
 ---
 
@@ -137,21 +168,27 @@ are fixed in the same PR branch with additional commits:
 
 **Files to touch:** wherever the `"Playback frame budget exceeded"` warn lives (grep the string).
 
-**Status:** TODO. Size: S (investigation) + depends on root cause.
+**Diagnostic added:** `GhostPlaybackEngine.UpdatePlayback` now records per-phase microseconds using reusable `Stopwatch` instances (zero per-frame GC) for: main-loop dispatch (total-at-loop-end minus the existing spawn/destroy accumulators), explosion-cleanup sweep, deferred `OnGhostCreated` invocations, deferred `OnPlaybackCompleted` invocations, and the post-loop `CaptureGhostObservability` call. Spawn and destroy continue to use the existing per-frame accumulators. The populated `PlaybackBudgetPhases` struct is passed to the new `DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown`, which (in addition to the rate-limited `"Playback frame budget exceeded"` WARN already in place) emits a single one-shot `"Playback budget breakdown (one-shot, first exceeded frame): total=Xms mainLoop=... spawn=... destroy=... explosionCleanup=... deferredCreated=... (N evts) deferredCompleted=... (N evts) observabilityCapture=... trajectories=... ghosts=... warp=..."` line the **first** time a spike fires in a session. A session-scoped latch (`s_playbackBreakdownOneShotFired`) guarantees that subsequent spikes do not re-spam the breakdown. Steady-state cost on frames that stayed within budget is zero log lines and zero extra allocations (only stopwatch `Reset/Start/Stop` + a handful of tick divisions on the rare exceeded frame). Adjacent log lines at `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:12745-12757` show the spike landed right as four `PlaybackCompleted` policy callbacks fired for Learstar A1 debris indices 284-287, which the breakdown will either confirm (deferredCompleted dominates) or rule out (mainLoop dominates pointing at the per-trajectory dispatch during scenario hydration).
+
+**Files touched (diagnostic-only, no behavior change):** `Source/Parsek/GhostPlaybackEngine.cs` (per-phase stopwatches + breakdown callsite), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (`PlaybackBudgetPhases` struct), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (`CheckPlaybackBudgetThresholdWithBreakdown`, one-shot latch, `ResetPlaybackBreakdownOneShotForTesting`), `Source/Parsek.Tests/Bug414BudgetBreakdownTests.cs` (new — 8 tests), `CHANGELOG.md`.
+
+**Status:** TODO. Size: S (investigation) + depends on root cause. Next playtest will capture the breakdown line on the first spike and identify the responsible phase; only then should a fix be proposed.
 
 ---
 
-## 413. `CrewReservation` orphan-placement with `snapshot pid=0` fails to seat replacement kerbal
+## ~~413. `CrewReservation` orphan-placement with `snapshot pid=0` fails to seat replacement kerbal~~
 
 **Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:13251`. `[CrewReservation] Orphan placement: no matching part with free seat in active vessel for 'Bill Kerman' -> 'Gus Kerman' (snapshot pid=0 name='mk1pod.v2')`.
 
 **Concern:** The snapshot being serialized for the replacement reservation carries `pid=0` instead of the real part pid, so `CrewReservationManager`'s seat matcher can't locate the destination part in the active vessel. Result: the replacement kerbal is left unplaced (stand-in / orphan), which may cascade into a missing-crew gameplay bug.
 
-**Hypothesis:** Either the replacement path isn't capturing the current `part.persistentId` when it records the snapshot, or the matcher is looking at a different pid field (name vs persistent id). Single occurrence in this session, but the `pid=0` value points at a systematic capture gap, not a transient miss.
+**Root cause (matcher-side, not capture-side):** KSP's `ProtoPartSnapshot.Save` serializes a PART's 32-bit persistent id under the key **`persistentId`** (verified in `Source/Parsek.Tests/Fixtures/DefaultCareer/persistent.sfs` and consistent with every other reader in this codebase — `GhostVisualBuilder.cs:336`, `VesselSpawner.cs:2725/2757`). `CrewReservationManager.ResolveOrphanSeatFromSnapshots` was reading `partNode.GetValue("pid")`, which only exists on the VESSEL node (a guid-hex string) — so `uint.TryParse` received `null`, left `pid = 0`, and the seat matcher's tier-1 persistentId lookup always missed. Tier 2 (partInfo.name + free seat) worked only when the pre-revert part name and seat capacity survived; when it didn't, the stand-in was left orphaned. The capture path was always correct — the `initialGhostVisualSnapshot` comes from `VesselSpawner.TryBackupSnapshot` which calls KSP's own `ProtoVessel.Save`, so the real part pid was always in the ConfigNode, just under the key the matcher wasn't reading.
 
-**Files to touch:** `Source/Parsek/CrewReservationManager.cs`, possibly the crew-snapshot writer.
+**Fix:** `ResolveOrphanSeatFromSnapshots` now reads `persistentId` first (the real KSP field), with a fallback to the legacy `pid` key so test-authored snapshots and the existing `Bug277OrphanCrewPlacementTests` fixtures keep matching unchanged. Parsing is pinned to `InvariantCulture`. The downstream orphan-placement warn log is extended so a future real `pid=0` orphan (genuine capture-site regression, not this parser bug) is still called out distinctly — the message now reads `snapshot pid=0 (suspicious: snapshot missing persistentId) name='…'`. Added 7 new unit tests in `Bug277OrphanCrewPlacementTests.cs` covering KSP-format snapshots, both-fields-present precedence, legacy fallback, multi-part vessels, missing-both-fields, the exact Bill-Kerman regression scenario, and InvariantCulture parsing under a `de-DE` thread culture.
 
-**Status:** TODO. Size: S. Reproduce with a crew-replacement scenario (kerbal dies/retires, roster picks replacement) and add a regression test once the capture-site gap is found.
+**Files touched:** `Source/Parsek/CrewReservationManager.cs`, `Source/Parsek.Tests/Bug277OrphanCrewPlacementTests.cs`.
+
+**Status:** Fixed. Size: S.
 
 ---
 

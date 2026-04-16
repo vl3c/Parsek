@@ -1508,5 +1508,87 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ResetBetweenTestRuns (#417 / #418)
+
+        /// <summary>
+        /// #417/#418: ResetBetweenTestRuns clears the PID tracking HashSet so the next
+        /// Run All's GhostPidsResolveToProtoVessels probe does not see stale ghost PIDs
+        /// from the previous pass after ProtoVessels were destroyed.
+        /// </summary>
+        [Fact]
+        public void ResetBetweenTestRuns_ClearsGhostMapVesselPids()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(12345u);
+            GhostMapPresence.ghostMapVesselPids.Add(67890u);
+
+            GhostMapPresence.ResetBetweenTestRuns("unit-test-pid-clear");
+
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") && l.Contains("ResetBetweenTestRuns")
+                && l.Contains("unit-test-pid-clear") && l.Contains("pids=2"));
+        }
+
+        /// <summary>
+        /// #417/#418: ResetBetweenTestRuns clears every per-ghost dictionary in one
+        /// synchronous call so no bookkeeping survives across a Run All boundary.
+        /// </summary>
+        [Fact]
+        public void ResetBetweenTestRuns_ClearsAllPerGhostDicts()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(100u);
+            GhostMapPresence.ghostsWithSuppressedIcon.Add(100u);
+            GhostMapPresence.ghostOrbitBounds[100u] = (10.0, 20.0);
+
+            GhostMapPresence.ResetBetweenTestRuns("unit-test-all-dicts");
+
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+            Assert.Empty(GhostMapPresence.ghostsWithSuppressedIcon);
+            Assert.Empty(GhostMapPresence.ghostOrbitBounds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") && l.Contains("ResetBetweenTestRuns")
+                && l.Contains("suppressedIcons=1") && l.Contains("orbitBounds=1"));
+        }
+
+        /// <summary>
+        /// #417/#418: ResetBetweenTestRuns is idempotent — calling it twice back-to-back
+        /// must not throw and the second call must emit the empty-dictionary noop log.
+        /// Matches the real TestRunner flow where Run All clears, then Run All clears
+        /// again on the next invocation with nothing to do.
+        /// </summary>
+        [Fact]
+        public void ResetBetweenTestRuns_IsIdempotent()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(1u);
+
+            GhostMapPresence.ResetBetweenTestRuns("first-call");
+            logLines.Clear();
+
+            // Second call on an already-empty state
+            GhostMapPresence.ResetBetweenTestRuns("second-call");
+
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") && l.Contains("ResetBetweenTestRuns")
+                && l.Contains("second-call") && l.Contains("already empty"));
+        }
+
+        /// <summary>
+        /// #417/#418: ResetBetweenTestRuns handles a null reason gracefully (should
+        /// never fail even if the caller drops the reason plumbing).
+        /// </summary>
+        [Fact]
+        public void ResetBetweenTestRuns_NullReason_DoesNotThrow()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(42u);
+
+            var ex = Record.Exception(() => GhostMapPresence.ResetBetweenTestRuns(null));
+
+            Assert.Null(ex);
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+        }
+
+        #endregion
     }
 }

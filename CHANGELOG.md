@@ -43,6 +43,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#419` Debris recordings spawned from a crash-breakup no longer violate monotonic-UT invariants at the parent-breakup boundary. `BackgroundRecorder.ApplyTrajectoryPointToRecording` now rejects appends whose UT is strictly less than the recording's current last-point UT, and `CreateBreakupChildRecording` trims any pre-existing points at or after the breakup UT before seeding so the `CommittedRecordingsHaveValidData` in-game test is no longer tripped by a duplicated inherited sample block.
 - `#383` Ghost engine flames now render at roughly stock full-thrust size via a one-shot 1.5x `startSizeMultiplier`/`startLifetimeMultiplier` boost applied when each engine FX instance is cloned; preserves prefab particle curve modes and adds zero per-frame cost.
 - `#366` Wrapped each step of the staged-sidecar rollback in its own try/catch so a rollback exception on one file (e.g. external process deleting a `.bak`) no longer aborts the remaining rollback — best-effort atomicity is preserved and each failure is warn-logged.
 - `#369` Hardened `GhostPlaybackLogic.ComputePendingWatchHoldSeconds` against a NaN warp rate (previously fell through to the base hold via NaN arithmetic); cleaned up a cosmetic double `return true;` in `GhostPlaybackEngine.RenderInRangeGhost`.
@@ -65,6 +66,12 @@ All notable changes to Parsek are documented here.
 - Fixed a per-frame `ResolveLoopInterval` clamp-warning log storm (over 1 million entries in a 6-minute session on saves with legacy loop data) — each affected recording now warns at most once per session while the defensive 1s clamp is unchanged.
 - `#412` Fixed looping showcase recordings (both newly injected and any already on disk) reaching playback with a loop period of 0 seconds: the synthetic RecordingBuilder now auto-derives the period from trajectory duration, and any recording loaded with a degenerate sub-1s period is auto-repaired once to the recording's own duration.
 - `InjectAllRecordings` test fixture now purges stale recording sidecars from the previous run before writing fresh ones, so re-injects no longer leave orphan `.prec` / `_ghost.craft` files that KSP's load-time orphan sweep later deletes (causing "showcases disappeared" on playtest).
+- `#420` In-game test `CurrentFormatTrajectorySidecarsProbeAsBinary` no longer fails on tree-root recordings that legitimately have no `.prec` sidecar — trajectory-less tree roots are now skipped, matching the sibling `ExternalFilesExist` test.
+- `#421` Ghost audio "AudioClip not found" warnings are now deduped per (ghost, pid, clip) — a missing stock clip logs once per ghost lifetime instead of repeating on every loop rebuild (previously up to 7 identical warns in ~3.5 min on a looping ion-engine showcase).
+- `#417`, `#418` Running the in-game test runner's Run All / Run Category twice in the same session no longer compounds leftover ghosts and orphan ghost-map PIDs — the runner now destroys all ghosts and clears ghost-map bookkeeping before each batch, so `GhostCountReasonable` and `GhostPidsResolveToProtoVessels` pass on every consecutive pass.
+- `#422` Freshly-loaded test saves no longer emit a per-tree WARN roll-up on top of the per-recording "trajectory file missing" INFO lines when every failure is a synthetic-fixture marker (missing `.prec` + zero points); mixed batches with any genuine degradation still warn.
+- `#413` Replacement kerbals are now seated in the correct part after revert/merge — the orphan-placement seat matcher was reading a non-existent `pid` key on snapshot PART nodes, so every lookup returned `pid=0` and fell through to name-only matching (or failed entirely, leaving the stand-in unseated).
+- `#414` Added a one-shot per-phase breakdown WARN next to the first `Playback frame budget exceeded` line in each session so the responsible sub-phase (main loop, spawn, destroy, explosion cleanup, deferred created/completed events, observability capture) is visible in the log the next time the 39ms startup spike reproduces.
 
 ### Maintenance
 

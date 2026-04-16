@@ -2359,8 +2359,11 @@ namespace Parsek
                     AudioClip clip = GameDatabase.Instance.GetAudioClip(clipPath);
                     if (clip == null)
                     {
-                        ParsekLog.Warn("GhostAudio",
-                            $"AudioClip not found: '{clipPath}' for engine on '{partName}' pid={persistentId}");
+                        // Dedupe per (ghost, pid, clipPath): a single ghost rebuilding its audio
+                        // sources (multiple engines on same pid, loop rebuilds) should warn once
+                        // per missing clip rather than per audio event. Cleared when the ghost is
+                        // destroyed so a fresh spawn can warn again if the clip is still missing.
+                        WarnMissingAudioClipOnce(ghostRoot?.name, persistentId, clipPath, partName);
                         continue;
                     }
 
@@ -2432,6 +2435,51 @@ namespace Parsek
             source.rolloffMode = AudioRolloffMode.Logarithmic;
             source.minDistance = DistanceThresholds.GhostAudio.RolloffMinDistanceMeters;
             source.maxDistance = DistanceThresholds.GhostAudio.RolloffMaxDistanceMeters;
+        }
+
+        // Per-ghost dedupe set for "AudioClip not found" warnings. Keyed by ghost root
+        // GameObject name; each entry is a set of "pid|clipPath" strings that have
+        // already warned for that ghost. Cleared by ClearMissingAudioClipWarnings when
+        // the ghost is destroyed so a fresh spawn can warn again if the clip is still
+        // missing. Fixes bug #421: before dedupe, a ghost with a missing ion-engine
+        // clip emitted one warn per loop rebuild (~7 per 3.5 min).
+        private static readonly Dictionary<string, HashSet<string>> missingAudioClipWarnedByGhost =
+            new Dictionary<string, HashSet<string>>(System.StringComparer.Ordinal);
+
+        internal static void WarnMissingAudioClipOnce(
+            string ghostRootName, uint persistentId, string clipPath, string partName)
+        {
+            // Guard against null root name (defensive — ghostRoot was null-checked earlier).
+            // Fall back to a sentinel bucket so we still dedupe a null-root ghost against itself.
+            string bucketKey = ghostRootName ?? "<null-root>";
+            string entryKey = persistentId.ToString(CultureInfo.InvariantCulture) + "|" + (clipPath ?? "");
+
+            HashSet<string> bucket;
+            if (!missingAudioClipWarnedByGhost.TryGetValue(bucketKey, out bucket))
+            {
+                bucket = new HashSet<string>(System.StringComparer.Ordinal);
+                missingAudioClipWarnedByGhost[bucketKey] = bucket;
+            }
+
+            if (!bucket.Add(entryKey))
+            {
+                // Already warned for this (ghost, pid, clip) — silently drop.
+                return;
+            }
+
+            ParsekLog.Warn("GhostAudio",
+                $"AudioClip not found: '{clipPath}' for engine on '{partName}' pid={persistentId}");
+        }
+
+        internal static void ClearMissingAudioClipWarnings(string ghostRootName)
+        {
+            if (ghostRootName == null) return;
+            missingAudioClipWarnedByGhost.Remove(ghostRootName);
+        }
+
+        internal static void ResetMissingAudioClipWarningsForTesting()
+        {
+            missingAudioClipWarnedByGhost.Clear();
         }
 
         #endregion
