@@ -30,6 +30,12 @@ namespace Parsek
         ConfigNode VesselSnapshot { get; }
         string VesselName { get; }
 
+        // === Identity ===
+        // Stable GUID-style id for dedupe of per-recording diagnostics (e.g. the clamp
+        // warning in GhostPlaybackLogic.ResolveLoopInterval). May be null/empty on
+        // transient or test fixtures; consumers must fall back to VesselName.
+        string RecordingId { get; }
+
         // === Loop configuration ===
         bool LoopPlayback { get; }
         double LoopIntervalSeconds { get; }

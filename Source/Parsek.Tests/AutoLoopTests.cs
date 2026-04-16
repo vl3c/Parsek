@@ -11,12 +11,16 @@ namespace Parsek.Tests
         {
             ParsekLog.SuppressLogging = false;
             RecordingStore.SuppressLogging = true;
+            // Per-recording clamp-warning dedupe set is static — flush between tests so
+            // clamp assertions don't get swallowed by a prior test's warning on "TestVessel".
+            GhostPlaybackLogic.ResetForTesting();
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
+            GhostPlaybackLogic.ResetForTesting();
         }
 
         static Recording MakeRec(
