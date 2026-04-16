@@ -504,8 +504,10 @@ namespace Parsek
                         {
                             rec.LoopPlayback = !rec.LoopPlayback;
                             RecordingsTableUI.ApplyAutoLoopRange(rec, rec.LoopPlayback);
-                            ParsekLog.Info("Timeline",
-                                $"Loop toggled {(rec.LoopPlayback ? "ON" : "OFF")} for \"{rec.VesselName}\" id={rec.RecordingId}");
+                            if (!rec.LoopPlayback)
+                                tableUI?.ClearLoopPeriodFocus();
+                            ParsekLog.Info("UI",
+                                $"Timeline loop toggled {(rec.LoopPlayback ? "ON" : "OFF")} for \"{rec.VesselName}\" id={rec.RecordingId}");
                         }
                     }
 
