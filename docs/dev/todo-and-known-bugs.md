@@ -1096,12 +1096,7 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 **Filter applied:** a standalone "Deceased" list is NOT included here — stock's KIA memorial already exposes that. The per-recording end-state view below inherently annotates which kerbals died in which mission, which is the Parsek-unique framing.
 
-**1. Per-recording crew end-state breakdown.** Join `RecordingStore.CommittedRecordings` with each recording's `CrewEndStates: Dictionary<string, KerbalEndState>` (populated by `KerbalsModule.PopulateCrewEndStates` at commit time — `KerbalsModule.cs:435-509`). Render a collapsible section grouped by kerbal, with one row per recording they appeared in: `Bill Kerman — Mun Hopper: Recovered (UT 12045); Duna Return 3: Dead (UT 88432)`. Or inverted — group by recording, one row per crew member — whichever scans better; try both and keep the winner.
-
-The data pipeline is fully in place; this is pure UI plumbing:
-- `Recording.CrewEndStates` — source of truth per recording (`Recording.cs:162,166`)
-- `Recording.CrewEndStatesResolved: bool` — skip recordings where this is false (not yet committed or still pending)
-- `KerbalEndState` enum (`KerbalEndState.cs:9-19`): Aboard / Dead / Recovered / Unknown — map each to a readable label + optional color (red for Dead, green for Recovered, neutral for Aboard/Unknown)
+**1. ~~Per-recording crew end-state breakdown~~.** DONE in v0.8.2 alongside the #385 extraction — new **Per-Recording Fates** section renders a grouped, chronological view of each kerbal's committed missions with color-coded Dead/Recovered/Aboard/Unknown labels. See `KerbalsWindowUI.Build` (new `CrewEndStateEntry` + `List<CrewEndStateEntry> EndStates` on `KerbalsViewModel`). Remaining from this sub-item (minor polish, ship anytime): per-kerbal fold/unfold toggle to collapse large rosters.
 
 **2. Chain topology view.** Today the three flat sections fragment the chain — a user cannot tell that Bill (active) displaced Hanley (retired) under Jeb's slot without mentally joining the lists. Replace (or supplement) the flat sections with a per-slot tree render:
 

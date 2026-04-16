@@ -30,12 +30,17 @@ namespace Parsek
 
         private GUIStyle grayStyle;
         private GUIStyle sectionHeaderStyle;
+        private GUIStyle groupHeaderStyle;
+        private GUIStyle deadStyle;
+        private GUIStyle recoveredStyle;
+        private GUIStyle aboardStyle;
 
         internal struct KerbalsViewModel
         {
             public List<ReservedEntry> Reserved;
             public List<ActiveStandInEntry> Active;
             public List<RetiredEntry> Retired;
+            public List<CrewEndStateEntry> EndStates;
         }
 
         internal struct ReservedEntry
@@ -58,6 +63,15 @@ namespace Parsek
             public string StandIn;
             public string FormerOwner;  // empty for orphans not linked to any slot
             public string Trait;        // inherited from FormerOwner's slot
+        }
+
+        internal struct CrewEndStateEntry
+        {
+            public string KerbalName;
+            public string RecordingName;
+            public string RecordingId;
+            public double EndUT;
+            public KerbalEndState EndState;
         }
 
         internal delegate int ActiveChainIndexFunc(KerbalsModule.KerbalSlot slot);
@@ -148,6 +162,23 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 stretchWidth = true
             };
+            groupHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+            deadStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.95f, 0.45f, 0.45f) }
+            };
+            recoveredStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.55f, 0.85f, 0.55f) }
+            };
+            aboardStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
+            };
         }
 
         private void DrawKerbalsWindow(int windowID)
@@ -157,14 +188,15 @@ namespace Parsek
             if (cachedVM == null)
             {
                 var kerbals = LedgerOrchestrator.Kerbals;
+                var recordings = RecordingStore.CommittedRecordings;
                 if (kerbals == null)
                 {
-                    cachedVM = new KerbalsViewModel
-                    {
-                        Reserved = new List<ReservedEntry>(),
-                        Active = new List<ActiveStandInEntry>(),
-                        Retired = new List<RetiredEntry>()
-                    };
+                    cachedVM = Build(
+                        null,
+                        null,
+                        null,
+                        recordings,
+                        null);
                 }
                 else
                 {
@@ -172,6 +204,7 @@ namespace Parsek
                         kerbals.Slots,
                         kerbals.Reservations,
                         kerbals.GetRetiredKerbals(),
+                        recordings,
                         slot => kerbals.GetActiveChainIndex(slot));
                 }
             }
@@ -180,15 +213,17 @@ namespace Parsek
 
             kerbalsScrollPos = GUILayout.BeginScrollView(kerbalsScrollPos, GUILayout.ExpandHeight(true));
 
-            if (vm.Reserved.Count == 0 && vm.Active.Count == 0 && vm.Retired.Count == 0)
+            if (vm.Reserved.Count == 0 && vm.Active.Count == 0
+                && vm.Retired.Count == 0 && vm.EndStates.Count == 0)
             {
-                GUILayout.Label("No reserved crew, stand-ins, or retired kerbals.", grayStyle);
+                GUILayout.Label("No reserved crew, stand-ins, retired kerbals, or committed crew history.", grayStyle);
             }
             else
             {
                 DrawReservedSection(vm.Reserved);
                 DrawActiveSection(vm.Active);
                 DrawRetiredSection(vm.Retired);
+                DrawEndStatesSection(vm.EndStates);
             }
 
             GUILayout.EndScrollView();
@@ -257,6 +292,56 @@ namespace Parsek
                 : $"{e.StandIn} [{e.Trait}] \u2014 stood in for {e.FormerOwner}";
         }
 
+        private void DrawEndStatesSection(List<CrewEndStateEntry> endStates)
+        {
+            if (endStates.Count == 0) return;
+            GUILayout.Space(5);
+            GUILayout.Label($"Per-Recording Fates ({endStates.Count})", sectionHeaderStyle);
+            GUILayout.BeginVertical(GUI.skin.box);
+            string lastKerbal = null;
+            for (int i = 0; i < endStates.Count; i++)
+            {
+                var e = endStates[i];
+                if (e.KerbalName != lastKerbal)
+                {
+                    if (lastKerbal != null) GUILayout.Space(3);
+                    GUILayout.Label(e.KerbalName, groupHeaderStyle);
+                    lastKerbal = e.KerbalName;
+                }
+                GUILayout.Label("  " + FormatEndStateRow(e), StyleForEndState(e.EndState));
+            }
+            GUILayout.EndVertical();
+        }
+
+        private GUIStyle StyleForEndState(KerbalEndState s)
+        {
+            switch (s)
+            {
+                case KerbalEndState.Dead: return deadStyle;
+                case KerbalEndState.Recovered: return recoveredStyle;
+                case KerbalEndState.Aboard: return aboardStyle;
+                default: return grayStyle;
+            }
+        }
+
+        internal static string FormatEndStateRow(CrewEndStateEntry e)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string rec = string.IsNullOrEmpty(e.RecordingName) ? "(unnamed)" : e.RecordingName;
+            return $"{rec} \u2014 {FormatEndState(e.EndState)} at UT {e.EndUT.ToString("F0", ic)}";
+        }
+
+        internal static string FormatEndState(KerbalEndState s)
+        {
+            switch (s)
+            {
+                case KerbalEndState.Dead: return "Dead";
+                case KerbalEndState.Recovered: return "Recovered";
+                case KerbalEndState.Aboard: return "Aboard";
+                default: return "Unknown";
+            }
+        }
+
         internal static string FormatReservedRow(ReservedEntry e)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -270,13 +355,15 @@ namespace Parsek
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots,
             IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations,
             IReadOnlyList<string> retired,
+            IReadOnlyList<Recording> committedRecordings,
             ActiveChainIndexFunc activeChainIndexOf)
         {
             var vm = new KerbalsViewModel
             {
                 Reserved = new List<ReservedEntry>(),
                 Active = new List<ActiveStandInEntry>(),
-                Retired = new List<RetiredEntry>()
+                Retired = new List<RetiredEntry>(),
+                EndStates = new List<CrewEndStateEntry>()
             };
 
             // Map each stand-in name to the owner slot it belongs to, so retired rows can
@@ -370,9 +457,45 @@ namespace Parsek
                 }
             }
 
+            // Per-recording crew end-states. Skip recordings where
+            // CrewEndStatesResolved==false (end-states still pending) or where the dict is
+            // null (nothing committed yet). Group ordinally by kerbal name, then
+            // chronologically by EndUT within a group so each kerbal's mission history reads
+            // forward in time.
+            if (committedRecordings != null)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    var rec = committedRecordings[i];
+                    if (rec == null) continue;
+                    if (!rec.CrewEndStatesResolved) continue;
+                    if (rec.CrewEndStates == null) continue;
+                    foreach (var kvp in rec.CrewEndStates)
+                    {
+                        if (string.IsNullOrEmpty(kvp.Key)) continue;
+                        vm.EndStates.Add(new CrewEndStateEntry
+                        {
+                            KerbalName = kvp.Key,
+                            RecordingName = rec.VesselName ?? "",
+                            RecordingId = rec.RecordingId ?? "",
+                            EndUT = rec.EndUT,
+                            EndState = kvp.Value
+                        });
+                    }
+                }
+
+                vm.EndStates.Sort((a, b) =>
+                {
+                    int n = StringComparer.Ordinal.Compare(a.KerbalName, b.KerbalName);
+                    if (n != 0) return n;
+                    return a.EndUT.CompareTo(b.EndUT);
+                });
+            }
+
             ParsekLog.Verbose("UI",
                 $"KerbalsWindow: built VM \u2014 reserved={vm.Reserved.Count} " +
-                $"active={vm.Active.Count} retired={vm.Retired.Count}");
+                $"active={vm.Active.Count} retired={vm.Retired.Count} " +
+                $"endStates={vm.EndStates.Count}");
 
             return vm;
         }
