@@ -199,6 +199,7 @@ namespace Parsek
                 s.showGhostsInTrackingStation = true;
                 ParsekSettingsPersistence.RecordGhostCameraCutoff(s.ghostCameraCutoffKm);
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
+                ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
                 settingsCameraCutoffEditing = false;
@@ -393,6 +394,12 @@ namespace Parsek
             if (showGhostsTS != s.showGhostsInTrackingStation)
             {
                 s.showGhostsInTrackingStation = showGhostsTS;
+                // Persist to the external settings store so the value survives
+                // rewind, quickload, and KSP restart — same treatment as
+                // ghostCameraCutoffKm / writeReadableSidecarMirrors. Without this,
+                // the user's choice reverts to the GameParameters-default on the
+                // next load.
+                ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhostsTS);
                 ParsekLog.Info("UI", $"Setting changed: showGhostsInTrackingStation={showGhostsTS}");
             }
         }
