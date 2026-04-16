@@ -1131,12 +1131,71 @@ Data is already in `KerbalsModule.Slots: IReadOnlyDictionary<string, KerbalSlot>
 - `Source/Parsek.Tests/KerbalsWindowUITests.cs` — new tests: `Build_SlotTopology_RendersOwnerAndChainWithStatusTags`, `Build_CrewEndStateBreakdown_GroupsByKerbal`, `Build_SkipsRecordingsWithUnresolvedEndStates`, empty-state variants.
 - `CHANGELOG.md` — under the appropriate version header (0.8.3 or later).
 
-**Out of scope for this entry (carve off as separate todos if needed):**
+**Out of scope for this entry (carved off as separate todos):**
 
-- Contracts / Facilities / Strategies / Milestones visibility: these are the remaining modules with no UI today. They are career-scoped rather than roster-scoped and don't belong in the Kerbals window — they deserve their own "KSP Admin" / "Career State" window if implemented.
-- Linking end-state rows to Timeline cross-scroll (click "Duna Return 3" → Timeline jumps to that recording's rows). Easy extension if the flat-view is kept alongside topology; skip if topology-only.
+- Contracts / Facilities / Strategies / Milestones visibility → see **#416 Career-state window**. Career-scoped, not roster-scoped; deserves its own window.
+- Linking end-state rows to Timeline cross-scroll → small companion item also filed under #416 (see that entry's "Small companion item" note); the hookup is ~1 line via the existing `TimelineWindowUI.ScrollToRecording`.
 
 **Status:** TODO. Size: M. Two independent sub-features (end-states + topology) can ship as separate PRs if the combined diff is too large.
+
+---
+
+## 416. Career-state window: surface Contracts / Facilities / Strategies / Milestones
+
+**Source:** follow-up from PR #320 (#385 Kerbals window). Four of the eight Parsek resource modules have **no UI surface at all today**: `ContractsModule`, `FacilitiesModule`, `StrategiesModule`, and `MilestonesModule` (all in `Source/Parsek/GameActions/`). Their state is tracked internally by the ledger and fed into the Timeline's budget footer (`TimelineWindowUI.DrawResourceBudget`), but the per-module detail is invisible.
+
+The Kerbals window (#385) is intentionally roster-scoped and not the right home for these — they are career-scoped (KSC facilities, admin slots, one-shot milestones) rather than per-kerbal. They deserve a **separate** top-level window opened from the main ParsekUI button row, tentatively "Career State" or "KSP Admin".
+
+**What each module exposes:**
+
+- **ContractsModule** (`Source/Parsek/GameActions/ContractsModule.cs`) — active contracts, credited contracts, admin-slot consumption (e.g. 2/2 slots used at level-1 Administration). See `LedgerOrchestrator.cs:1457` for the existing `GetContractSlots(level)` helper — already shape-ready for UI consumption.
+- **FacilitiesModule** (`Source/Parsek/GameActions/FacilitiesModule.cs`) — KSC facility levels (1–3 per building) and destruction/repair state. No public query API yet; a `GetFacilityStates()` helper would be needed.
+- **StrategiesModule** (`Source/Parsek/GameActions/StrategiesModule.cs`) — active strategies, slot consumption (e.g. 1/1 at level-1 Admin). `GetActiveStrategyCount()` is already exposed on `LedgerOrchestrator.Strategies`.
+- **MilestonesModule** (`Source/Parsek/GameActions/MilestonesModule.cs`) — once-ever milestone achievements. `IsMilestoneCredited()`, `GetCreditedCount()`, `GetCreditedMilestoneIds()` are already `internal` (used by ledger repair). Most user-visible milestones (first-to-body, etc.) flow through Timeline budget via their Funds/Rep rewards; a list of credited milestones with their UTs would be the net-new UI.
+
+**Why per-module and not per-recording:**
+
+The Timeline's resource-budget footer is explicitly *per-recording-in-flight* (see #385 plan — "reservations are per-recording-in-flight and match the timeline's horizontal scope"). A career-state window would answer the complementary question: "what is the career's current ledger state, globally" — not "what will happen if these pending recordings play". The two views are complementary, not redundant.
+
+**Suggested layout:**
+
+```
+Parsek — Career State
+┌────────────────────────────────────────────────┐
+│ Contracts                                      │
+│   Active: 2/2 (Admin level 1)                  │
+│   - Explore Mun: accepted UT 104230            │
+│   - Rescue Kerbal: accepted UT 118900          │
+│                                                │
+│ Strategies                                     │
+│   Active: 1/1 (Admin level 1)                  │
+│   - Outsourced R&D (since UT 50000)            │
+│                                                │
+│ Facilities                                     │
+│   VAB: L2  SPH: L1  LaunchPad: L2              │
+│   Runway: destroyed (restore at L1: $75000)    │
+│                                                │
+│ Milestones (12 credited)                       │
+│   - First Orbit (UT 8230)                      │
+│   - First Mun Flyby (UT 44120)                 │
+│   ...                                          │
+└────────────────────────────────────────────────┘
+```
+
+Sort/stability rules mirror the Kerbals window (ordinal by name, then by UT within group). Cache invalidation hooks into the existing `LedgerOrchestrator.OnTimelineDataChanged` fan-out.
+
+**Small companion item:** when Per-Recording Fates lands in the Kerbals window (#415 sub-item 1, already done), clicking a Fates row could cross-scroll the Timeline window to the matching recording. The Timeline already exposes `TimelineWindowUI.ScrollToRecording(string recordingId)` — a one-liner hookup. Fits better here than as its own todo because it's a 5-minute addition when either the career-state window or #415 sub-item 2 is in flight.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/CareerStateWindowUI.cs` — new file, mirror the `KerbalsWindowUI` pattern (scroll view, resize handle, cached VM, `Build()` static).
+- `Source/Parsek/ParsekUI.cs` — register field + button + dispatch.
+- `Source/Parsek/ParsekFlight.cs` + `ParsekKSC.cs` — dispatch calls.
+- `Source/Parsek/GameActions/FacilitiesModule.cs` — add public `GetFacilityStates()` query helper.
+- `Source/Parsek/GameActions/MilestonesModule.cs` — possibly expose UT-of-credit alongside the existing `IsMilestoneCredited`.
+- `Source/Parsek.Tests/CareerStateWindowUITests.cs` — pure `Build()` unit tests.
+
+**Status:** TODO. Size: M-L. Likely wants a design pass before coding — e.g. whether Facilities + Strategies + Admin slots belong together in a "KSC" sub-section, whether Milestones should be filterable by category, whether to expose the per-contract reward breakdown or defer that to a later polish pass.
 
 ---
 
