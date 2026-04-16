@@ -23,7 +23,6 @@ namespace Parsek
         private bool timelineWindowHasInputLock;
         private const string TimelineInputLockId = "Parsek_TimelineWindow";
         private Rect lastTimelineWindowRect;
-        private static readonly List<string> EmptyStringList = new List<string>();
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
@@ -52,11 +51,6 @@ namespace Parsek
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
         private GUIStyle loopActiveButtonStyle;
-
-        private int lastRetiredKerbalCount = -1;
-
-        // Cached retired kerbals list — refreshed on cache rebuild
-        private IReadOnlyList<string> cachedRetiredKerbals;
 
         // Cached stats text — refreshed on cache rebuild or filter change
         private string cachedStatsText;
@@ -169,7 +163,6 @@ namespace Parsek
         {
             timelineDirty = true;
             filterDirty = true;
-            cachedRetiredKerbals = null;
             cachedStatsText = null;
             recordingById = null;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
@@ -249,21 +242,13 @@ namespace Parsek
                         recordingById[r.RecordingId] = r;
                 }
 
-                // Refresh retired kerbals cache
-                cachedRetiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals()
-                    ?? new List<string>();
-
                 ParsekLog.Verbose("Timeline",
                     $"Cache rebuilt: {cachedTimeline.Count} entries, " +
-                    $"{recordingById.Count} recordings indexed, " +
-                    $"{cachedRetiredKerbals.Count} retired kerbals");
+                    $"{recordingById.Count} recordings indexed");
             }
 
             // Zone 3: Entry List
             DrawEntryList();
-
-            // Zone 4: Footer
-            DrawRetiredKerbalsSection();
 
             GUILayout.FlexibleSpace();
 
@@ -708,34 +693,6 @@ namespace Parsek
             Recording rec;
             recordingById.TryGetValue(recordingId, out rec);
             return rec;
-        }
-
-        private void DrawRetiredKerbalsSection()
-        {
-            var retiredKerbals = cachedRetiredKerbals ?? (IReadOnlyList<string>)EmptyStringList;
-            if (retiredKerbals.Count > 0)
-            {
-                if (retiredKerbals.Count != lastRetiredKerbalCount)
-                {
-                    ParsekLog.Verbose("UI",
-                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
-                    lastRetiredKerbalCount = retiredKerbals.Count;
-                }
-
-                GUILayout.Space(5);
-                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
-                GUILayout.BeginVertical(GUI.skin.box);
-                for (int i = 0; i < retiredKerbals.Count; i++)
-                {
-                    GUILayout.Label(retiredKerbals[i], timelineGrayStyle);
-                }
-                GUILayout.EndVertical();
-            }
-            else if (lastRetiredKerbalCount > 0)
-            {
-                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
-                lastRetiredKerbalCount = 0;
-            }
         }
 
         private void DrawResourceBudget()

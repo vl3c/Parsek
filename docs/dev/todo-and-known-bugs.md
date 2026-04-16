@@ -1021,7 +1021,9 @@ There is no hover test, no click handling, and no per-marker "sticky" state. Bot
 
 ---
 
-## 385. Timeline window: move Retired Stand-ins out, add a dedicated Kerbals Status window behind a toolbar button
+## ~~385. Timeline window: move Retired Stand-ins out, add a dedicated Kerbals Status window behind a toolbar button~~
+
+**Status:** DONE in v0.8.2 — delivered Retired + Reserved + Active stand-ins in a new `UI/KerbalsWindowUI.cs` opened from a main-UI button (not a Timeline-header drill-down). Per-recording crew end-states, chain-expansion UI, and per-name filters remain future work; the design notes below apply to those follow-ups.
 
 **Source:** maintenance request `2026-04-14`. The Retired Stand-ins list currently hangs off the bottom of the Timeline window (`UI/TimelineWindowUI.cs:523` `DrawRetiredKerbalsSection`, called from the main draw at line `238`). It's confusing in that location — "retired stand-ins" is not a timeline concept, and it takes vertical space that the timeline entry list should own.
 
@@ -1085,6 +1087,115 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 - Sandbox mode: the resource budget footer hides in sandbox (`TimelineWindowUI.cs:554`-`559`). The Kerbals window probably shouldn't hide in sandbox — kerbal state still matters there. Confirm and don't blanket-copy the mode guard.
 
 **Status:** TODO. Size: S-M. Mostly UI plumbing + one new sub-window; no core logic changes. Cleans up the Timeline window's information density and gives kerbal admin state a proper home.
+
+---
+
+## 415. Kerbals window follow-ups: per-recording crew end-states + chain topology view
+
+**Source:** follow-up after PR #320 (#385 extraction). That PR shipped the three flat sections (Reserved / Active stand-ins / Retired stand-ins) and enriched Retired rows with trait + former-owner context. The next expansion surfaces two Parsek-specific views that stock KSP's Astronaut Complex cannot show: per-mission kerbal fate history, and the replacement-chain topology.
+
+**Filter applied:** a standalone "Deceased" list is NOT included here — stock's KIA memorial already exposes that. The per-recording end-state view below inherently annotates which kerbals died in which mission, which is the Parsek-unique framing.
+
+**1. ~~Per-recording crew end-state breakdown~~.** DONE in v0.8.2 alongside the #385 extraction — new **Per-Recording Fates** section renders a grouped, chronological view of each kerbal's committed missions with color-coded Dead/Recovered/Aboard/Unknown labels. See `KerbalsWindowUI.Build` (new `CrewEndStateEntry` + `List<CrewEndStateEntry> EndStates` on `KerbalsViewModel`). Remaining from this sub-item (minor polish, ship anytime): per-kerbal fold/unfold toggle to collapse large rosters.
+
+**2. Chain topology view.** Today the three flat sections fragment the chain — a user cannot tell that Bill (active) displaced Hanley (retired) under Jeb's slot without mentally joining the lists. Replace (or supplement) the flat sections with a per-slot tree render:
+
+```
+Jebediah Kerman [Pilot] — reserved until UT 18230
+  ├─ Bill Kerman     (retired)
+  └─ Hanley Kerman   (active)
+```
+
+Data is already in `KerbalsModule.Slots: IReadOnlyDictionary<string, KerbalSlot>` — each `KerbalSlot` has `OwnerName`, `OwnerTrait`, `OwnerPermanentlyGone`, `Chain: List<string>`. Walk each chain once, label entries using the same canonical rules the current PR uses:
+- Tip = `GetActiveChainIndex(slot)` → label "active"
+- Entries in `Chain` also present in `retired` HashSet → label "retired"
+- Non-tip entries not in `retired` → displaced metadata; hide or gray out
+
+**3. Per-name filter search (polish — optional v2).** A text box at the top of the window filtering Reserved + Active + Retired + (future) end-state rows by partial name match. Low value in small careers, helpful in 100+ kerbal saves.
+
+**State sources to wire up:**
+
+- `RecordingStore.CommittedRecordings` joined with `rec.CrewEndStates` for section 1
+- `LedgerOrchestrator.Kerbals.Slots` / `.Reservations` / `.GetActiveChainIndex` / `.GetRetiredKerbals()` for section 2 (all `internal`, already reachable from UI code since #320 bumped `GetActiveChainIndex` to `internal`)
+- `ParsekUI.OnTimelineDataChanged → kerbalsUI.InvalidateCache()` already fan-outs cache invalidation; no new wiring
+
+**Interaction with existing PR (#320):**
+
+- PR #320 added a view-model layer (`KerbalsViewModel` with `ReservedEntry`, `ActiveStandInEntry`, `RetiredEntry` structs in `UI/KerbalsWindowUI.cs`). The chain topology section will need a new `SlotTopologyEntry` struct (owner + trait + nested chain with per-entry status tag).
+- PR #320's scroll view + resize handle remain — chain topology with collapsible nodes fits inside the existing scroll region.
+- The current three flat sections can either be replaced by the topology view OR kept as a "flat" mode with a toggle. Lean toward replace for simplicity; flat mode is what the topology implicitly expands.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/KerbalsWindowUI.cs` — new `SlotTopologyEntry` + `CrewEndStateEntry` structs, extend `KerbalsViewModel`, add two new `Draw*Section` methods (collapsible), update `Build()` to compute both. Grow from ~320 lines to ~500.
+- `Source/Parsek.Tests/KerbalsWindowUITests.cs` — new tests: `Build_SlotTopology_RendersOwnerAndChainWithStatusTags`, `Build_CrewEndStateBreakdown_GroupsByKerbal`, `Build_SkipsRecordingsWithUnresolvedEndStates`, empty-state variants.
+- `CHANGELOG.md` — under the appropriate version header (0.8.3 or later).
+
+**Out of scope for this entry (carved off as separate todos):**
+
+- Contracts / Facilities / Strategies / Milestones visibility → see **#416 Career-state window**. Career-scoped, not roster-scoped; deserves its own window.
+- Linking end-state rows to Timeline cross-scroll → small companion item also filed under #416 (see that entry's "Small companion item" note); the hookup is ~1 line via the existing `TimelineWindowUI.ScrollToRecording`.
+
+**Status:** TODO. Size: M. Two independent sub-features (end-states + topology) can ship as separate PRs if the combined diff is too large.
+
+---
+
+## 416. Career-state window: surface Contracts / Facilities / Strategies / Milestones
+
+**Source:** follow-up from PR #320 (#385 Kerbals window). Four of the eight Parsek resource modules have **no UI surface at all today**: `ContractsModule`, `FacilitiesModule`, `StrategiesModule`, and `MilestonesModule` (all in `Source/Parsek/GameActions/`). Their state is tracked internally by the ledger and fed into the Timeline's budget footer (`TimelineWindowUI.DrawResourceBudget`), but the per-module detail is invisible.
+
+The Kerbals window (#385) is intentionally roster-scoped and not the right home for these — they are career-scoped (KSC facilities, admin slots, one-shot milestones) rather than per-kerbal. They deserve a **separate** top-level window opened from the main ParsekUI button row, tentatively "Career State" or "KSP Admin".
+
+**What each module exposes:**
+
+- **ContractsModule** (`Source/Parsek/GameActions/ContractsModule.cs`) — active contracts, credited contracts, admin-slot consumption (e.g. 2/2 slots used at level-1 Administration). See `LedgerOrchestrator.cs:1457` for the existing `GetContractSlots(level)` helper — already shape-ready for UI consumption.
+- **FacilitiesModule** (`Source/Parsek/GameActions/FacilitiesModule.cs`) — KSC facility levels (1–3 per building) and destruction/repair state. No public query API yet; a `GetFacilityStates()` helper would be needed.
+- **StrategiesModule** (`Source/Parsek/GameActions/StrategiesModule.cs`) — active strategies, slot consumption (e.g. 1/1 at level-1 Admin). `GetActiveStrategyCount()` is already exposed on `LedgerOrchestrator.Strategies`.
+- **MilestonesModule** (`Source/Parsek/GameActions/MilestonesModule.cs`) — once-ever milestone achievements. `IsMilestoneCredited()`, `GetCreditedCount()`, `GetCreditedMilestoneIds()` are already `internal` (used by ledger repair). Most user-visible milestones (first-to-body, etc.) flow through Timeline budget via their Funds/Rep rewards; a list of credited milestones with their UTs would be the net-new UI.
+
+**Why per-module and not per-recording:**
+
+The Timeline's resource-budget footer is explicitly *per-recording-in-flight* (see #385 plan — "reservations are per-recording-in-flight and match the timeline's horizontal scope"). A career-state window would answer the complementary question: "what is the career's current ledger state, globally" — not "what will happen if these pending recordings play". The two views are complementary, not redundant.
+
+**Suggested layout:**
+
+```
+Parsek — Career State
+┌────────────────────────────────────────────────┐
+│ Contracts                                      │
+│   Active: 2/2 (Admin level 1)                  │
+│   - Explore Mun: accepted UT 104230            │
+│   - Rescue Kerbal: accepted UT 118900          │
+│                                                │
+│ Strategies                                     │
+│   Active: 1/1 (Admin level 1)                  │
+│   - Outsourced R&D (since UT 50000)            │
+│                                                │
+│ Facilities                                     │
+│   VAB: L2  SPH: L1  LaunchPad: L2              │
+│   Runway: destroyed (restore at L1: $75000)    │
+│                                                │
+│ Milestones (12 credited)                       │
+│   - First Orbit (UT 8230)                      │
+│   - First Mun Flyby (UT 44120)                 │
+│   ...                                          │
+└────────────────────────────────────────────────┘
+```
+
+Sort/stability rules mirror the Kerbals window (ordinal by name, then by UT within group). Cache invalidation hooks into the existing `LedgerOrchestrator.OnTimelineDataChanged` fan-out.
+
+**Small companion item:** when Per-Recording Fates lands in the Kerbals window (#415 sub-item 1, already done), clicking a Fates row could cross-scroll the Timeline window to the matching recording. The Timeline already exposes `TimelineWindowUI.ScrollToRecording(string recordingId)` — a one-liner hookup. Fits better here than as its own todo because it's a 5-minute addition when either the career-state window or #415 sub-item 2 is in flight.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/CareerStateWindowUI.cs` — new file, mirror the `KerbalsWindowUI` pattern (scroll view, resize handle, cached VM, `Build()` static).
+- `Source/Parsek/ParsekUI.cs` — register field + button + dispatch.
+- `Source/Parsek/ParsekFlight.cs` + `ParsekKSC.cs` — dispatch calls.
+- `Source/Parsek/GameActions/FacilitiesModule.cs` — add public `GetFacilityStates()` query helper.
+- `Source/Parsek/GameActions/MilestonesModule.cs` — possibly expose UT-of-credit alongside the existing `IsMilestoneCredited`.
+- `Source/Parsek.Tests/CareerStateWindowUITests.cs` — pure `Build()` unit tests.
+
+**Status:** TODO. Size: M-L. Likely wants a design pass before coding — e.g. whether Facilities + Strategies + Admin slots belong together in a "KSC" sub-section, whether Milestones should be filterable by category, whether to expose the per-contract reward breakdown or defer that to a later polish pass.
 
 ---
 
