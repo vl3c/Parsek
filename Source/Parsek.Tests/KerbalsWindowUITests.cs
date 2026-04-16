@@ -769,6 +769,47 @@ namespace Parsek.Tests
             Assert.Contains("Jebediah Kerman", ui.foldedKerbals);
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        // OnFatesRowClicked (#416 Phase 4 — Fates → Timeline scroll companion)
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void OnFatesRowClicked_InvokesCallbackWithRecordingId()
+        {
+            // Regression: fails if the hookup is wired to the wrong id (e.g. group id
+            // instead of recording id).
+            string captured = null;
+            KerbalsWindowUI.OnFatesRowClicked(id => captured = id, "rec-42");
+            Assert.Equal("rec-42", captured);
+        }
+
+        [Fact]
+        public void OnFatesRowClicked_LogsRecordingId()
+        {
+            // Regression: fails silently if the click handler forgets to log.
+            KerbalsWindowUI.OnFatesRowClicked(_ => { }, "rec-42");
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals Fates \u2192 Timeline scroll")
+                && l.Contains("recordingId=rec-42"));
+        }
+
+        [Fact]
+        public void OnFatesRowClicked_NullCallback_NoOpAndLogsOnce()
+        {
+            // Regression: E14 — the pure helper must not NRE when the production
+            // callback (GetTimelineUI().ScrollToRecording) is missing, e.g. during
+            // a cold-start scene transition.
+            var ex = Record.Exception(() =>
+                KerbalsWindowUI.OnFatesRowClicked(null, "rec-stale"));
+            Assert.Null(ex);
+            int matches = logLines.Count(l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals Fates \u2192 Timeline scroll")
+                && l.Contains("recordingId=rec-stale"));
+            Assert.Equal(1, matches);
+        }
+
         [Fact]
         public void Build_EmitsVerboseLog_WithNewCounters()
         {

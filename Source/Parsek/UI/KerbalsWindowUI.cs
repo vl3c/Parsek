@@ -445,7 +445,19 @@ namespace Parsek
                     for (int k = i; k < j; k++)
                     {
                         var e = endStates[k];
-                        GUILayout.Label("  " + FormatEndStateRow(e), StyleForEndState(e.EndState));
+                        if (GUILayout.Button("  " + FormatEndStateRow(e), StyleForEndState(e.EndState)))
+                        {
+                            // Mirrors the Timeline.GoTo → RecordingsTableUI.ScrollToRecording
+                            // cross-link pattern (TimelineWindowUI.cs:665). GetTimelineUI()
+                            // can return null during cold-start scene transitions — the
+                            // helper tolerates a null callback and still emits the
+                            // diagnostic log (E14).
+                            var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
+                            Action<string> scrollCallback = timelineUI != null
+                                ? timelineUI.ScrollToRecording
+                                : (Action<string>)null;
+                            OnFatesRowClicked(scrollCallback, e.RecordingId);
+                        }
                     }
                 }
                 i = j;
@@ -465,6 +477,19 @@ namespace Parsek
             ParsekLog.Verbose("UI",
                 $"Kerbals fold toggled: '{kerbalName}' -> {(wasFolded ? "unfolded" : "folded")} ({missionCount} missions)");
             return !wasFolded;
+        }
+
+        // Pure helper for the Fates → Timeline cross-link. Production passes
+        // `parentUI.GetTimelineUI().ScrollToRecording` as the callback; tests pass a
+        // lambda spy. Tolerates a null callback (E14 — GetTimelineUI() can be null
+        // during cold-start scene transitions) so the click never NREs; the log
+        // still fires so stale-id clicks leave a diagnostic trail.
+        internal static void OnFatesRowClicked(
+            Action<string> scrollCallback, string recordingId)
+        {
+            ParsekLog.Verbose("UI",
+                $"Kerbals Fates \u2192 Timeline scroll: recordingId={recordingId}");
+            if (scrollCallback != null) scrollCallback(recordingId);
         }
 
         internal static string FormatKerbalSummary(

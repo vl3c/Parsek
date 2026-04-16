@@ -513,6 +513,14 @@ namespace Parsek
                     ParsekLog.Verbose("Timeline",
                         $"Cross-link: scrolled to row {scrollTargetRow} for recordingId={pendingScrollToRecordingId}");
                 }
+                else
+                {
+                    // E14: stale id (recording purged, outside visibility filter, etc.).
+                    // Behavior unchanged — we still clear the pending id below — but
+                    // the click trail is no longer silent.
+                    ParsekLog.Verbose("Timeline",
+                        $"Timeline scroll target not found: id={pendingScrollToRecordingId}");
+                }
                 pendingScrollToRecordingId = null;
             }
 
