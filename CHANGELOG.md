@@ -27,6 +27,11 @@ All notable changes to Parsek are documented here.
 - `T67` Replaced the skipped Unity-GameObject xUnit priming test with an in-game runtime test (`GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame`) so `dotnet test` runs clean without losing `GhostPlaybackEngine.SpawnGhost` priming coverage.
 - `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster `Remove` path against a reflected `KerbalRoster` instance in `KerbalLoadDiagnosticsTests`, confirming unused displaced stand-in deletion works end-to-end through the real adapter.
 - `T66` Added in-game runtime regression for PR #288 fresh watch-entry camera orientation -- pins canonical pitch/heading and guards against the 180-degree flip.
+- `T61` Added two hydration-salvage regression tests: one drives a save after `RestoreHydrationFailedRecordingsFromPendingTree` and pins that the `.prec` sidecar is rewritten, the epoch advances, and `FilesDirty` clears; the other covers a mixed-case tree with three failed recordings where only a subset is restorable from the pending tree and asserts the restore count plus the snapshot-only/full accounting in the summary log.
+
+### Documentation
+
+- `T61` Refreshed the live storage rebaseline in `docs/dev/research/phase-11-5-recording-storage-baseline.md` against the April 14-16 playtest bundles; post-compression `.prec` and `_ghost.craft` are now roughly equal buckets at around 46% each of the authoritative payload, so further snapshot-side shrink work is measurement-gated rather than pre-committed.
 
 ### Bug Fixes
 
