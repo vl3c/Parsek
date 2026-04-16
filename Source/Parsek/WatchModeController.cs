@@ -96,7 +96,7 @@ namespace Parsek
         private string lastLoggedHorizonVectorKey;
         private bool lastMapViewEnabled;
         private bool pendingMapFocusRestore;
-        private bool ensureGhostOrbitRenderersAttempted;
+        internal bool ensureGhostOrbitRenderersAttempted;
 
         internal WatchModeController(ParsekFlight host)
         {
@@ -1483,6 +1483,13 @@ namespace Parsek
             currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
             ClearRememberedWatchCameraStates();
             lastLoggedHorizonVectorKey = null;
+            // Reset the one-shot EnsureGhostOrbitRenderers latch on every watch
+            // session start. Entering watch while map view is already open primes
+            // pendingMapFocusRestore to true without an off→on transition, so
+            // UpdateMapFocusRestore's in-place reset wouldn't fire — a stale
+            // latch from the previous session would then skip renderer creation
+            // until the player toggles map view.
+            ensureGhostOrbitRenderersAttempted = false;
             (lastMapViewEnabled, pendingMapFocusRestore) =
                 InitializeMapFocusRestoreState(MapView.MapIsEnabled);
             return true;
@@ -1523,6 +1530,7 @@ namespace Parsek
             lastLoggedHorizonVectorKey = null;
             lastMapViewEnabled = false;
             pendingMapFocusRestore = false;
+            ensureGhostOrbitRenderersAttempted = false;
         }
 
         private void RestoreCameraAfterWatchExit(bool skipCameraRestore)
