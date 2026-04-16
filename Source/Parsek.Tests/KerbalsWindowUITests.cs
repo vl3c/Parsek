@@ -525,6 +525,166 @@ namespace Parsek.Tests
                 KerbalsWindowUI.FormatEndStateRow(unnamed));
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        // FormatKerbalSummary (#415-1 fold toggle)
+        // ──────────────────────────────────────────────────────────────────
+
+        private static KerbalsWindowUI.CrewEndStateEntry EndStateEntry(
+            string kerbalName, KerbalEndState state)
+        {
+            return new KerbalsWindowUI.CrewEndStateEntry
+            {
+                KerbalName = kerbalName,
+                RecordingName = "",
+                RecordingId = "",
+                EndUT = 0.0,
+                EndState = state
+            };
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_SingleMissionRecovered_RendersSingular()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Bill Kerman", KerbalEndState.Recovered)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Bill Kerman", entries, 0, entries.Count);
+
+            Assert.Equal("Bill Kerman (1 mission \u2014 1 Recovered)", result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_MultipleMissions_MixedStates_OrdersDeadRecoveredAboard()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Aboard),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Jebediah Kerman", entries, 0, entries.Count);
+
+            Assert.Equal(
+                "Jebediah Kerman (4 missions \u2014 1 Dead, 2 Recovered, 1 Aboard)",
+                result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_OmitsZeroCountStates()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Bill Kerman", entries, 0, entries.Count);
+
+            Assert.Equal("Bill Kerman (3 missions \u2014 3 Dead)", result);
+            Assert.DoesNotContain("Recovered", result);
+            Assert.DoesNotContain("Aboard", result);
+            Assert.DoesNotContain("Unknown", result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_UnknownStateBucketed()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Hanley Kerman", KerbalEndState.Aboard),
+                EndStateEntry("Hanley Kerman", KerbalEndState.Unknown)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Hanley Kerman", entries, 0, entries.Count);
+
+            Assert.Equal(
+                "Hanley Kerman (2 missions \u2014 1 Aboard, 1 Unknown)",
+                result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_UsesSliceBoundaries()
+        {
+            // Interleaved entries for three kerbals. Only Bill's slice [2, 5) should be
+            // counted — the slice is 2 Recovered + 1 Dead.
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Adara Kerman", KerbalEndState.Aboard),
+                EndStateEntry("Adara Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Bill Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
+                EndStateEntry("Bill Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Bill Kerman", entries, 2, 5);
+
+            Assert.Equal(
+                "Bill Kerman (3 missions \u2014 1 Dead, 2 Recovered)",
+                result);
+        }
+
+        [Fact]
+        public void ToggleFold_WhenNotFolded_AddsToSetAndLogsFolded()
+        {
+            var folded = new HashSet<string>(StringComparer.Ordinal);
+
+            bool nowFolded = KerbalsWindowUI.ToggleFold(folded, "Bill Kerman", 3);
+
+            Assert.True(nowFolded);
+            Assert.Contains("Bill Kerman", folded);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals fold toggled")
+                && l.Contains("'Bill Kerman'")
+                && l.Contains("-> folded")
+                && l.Contains("(3 missions)"));
+        }
+
+        [Fact]
+        public void ToggleFold_WhenAlreadyFolded_RemovesFromSetAndLogsUnfolded()
+        {
+            var folded = new HashSet<string>(StringComparer.Ordinal) { "Jebediah Kerman" };
+
+            bool nowFolded = KerbalsWindowUI.ToggleFold(folded, "Jebediah Kerman", 5);
+
+            Assert.False(nowFolded);
+            Assert.DoesNotContain("Jebediah Kerman", folded);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals fold toggled")
+                && l.Contains("'Jebediah Kerman'")
+                && l.Contains("-> unfolded")
+                && l.Contains("(5 missions)"));
+        }
+
+        [Fact]
+        public void InvalidateCache_DoesNotClearFoldedKerbals()
+        {
+            // Fold state is transient UI preference — it must survive cachedVM invalidation
+            // (e.g. after a ledger recalc) so the user doesn't silently lose their fold
+            // choices mid-session.
+            var ui = new KerbalsWindowUI(null);
+            ui.foldedKerbals.Add("Bill Kerman");
+            ui.foldedKerbals.Add("Jebediah Kerman");
+
+            ui.InvalidateCache();
+
+            Assert.Contains("Bill Kerman", ui.foldedKerbals);
+            Assert.Contains("Jebediah Kerman", ui.foldedKerbals);
+        }
+
         [Fact]
         public void Build_EmitsVerboseLog_WithSectionCounts()
         {

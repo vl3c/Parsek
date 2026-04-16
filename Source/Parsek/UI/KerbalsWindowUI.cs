@@ -28,6 +28,15 @@ namespace Parsek
 
         private KerbalsViewModel? cachedVM;
 
+        // Fold-toggle arrow glyphs; match the chain-block pattern in RecordingsTableUI.
+        private const string FoldedArrow = "\u25b6";
+        private const string UnfoldedArrow = "\u25bc";
+
+        // Transient fold state for Per-Recording Fates groups. Default-unfolded means we
+        // only store names that are currently folded, so HashSet fits the access pattern.
+        // InvalidateCache does NOT clear this — fold is UI preference, not data.
+        internal readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
+
         private GUIStyle grayStyle;
         private GUIStyle sectionHeaderStyle;
         private GUIStyle groupHeaderStyle;
@@ -298,19 +307,85 @@ namespace Parsek
             GUILayout.Space(5);
             GUILayout.Label($"Per-Recording Fates ({endStates.Count})", sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
-            string lastKerbal = null;
-            for (int i = 0; i < endStates.Count; i++)
+
+            int i = 0;
+            bool first = true;
+            while (i < endStates.Count)
             {
-                var e = endStates[i];
-                if (e.KerbalName != lastKerbal)
+                string name = endStates[i].KerbalName;
+                int j = i;
+                while (j < endStates.Count && endStates[j].KerbalName == name) j++;
+
+                if (!first) GUILayout.Space(3);
+                first = false;
+
+                bool folded = foldedKerbals.Contains(name);
+                string arrow = folded ? FoldedArrow : UnfoldedArrow;
+                string headerText = folded
+                    ? FormatKerbalSummary(name, endStates, i, j)
+                    : name;
+
+                // Use groupHeaderStyle (bold) as the button style so unfolded output stays
+                // visually identical to the pre-fold-toggle design — only the arrow prefix
+                // is new. RecordingsTableUI uses GUI.skin.label for its chain blocks because
+                // those are body rows; Per-Recording Fates headers are group headers.
+                if (GUILayout.Button($"{arrow} {headerText}", groupHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
-                    if (lastKerbal != null) GUILayout.Space(3);
-                    GUILayout.Label(e.KerbalName, groupHeaderStyle);
-                    lastKerbal = e.KerbalName;
+                    ToggleFold(foldedKerbals, name, j - i);
                 }
-                GUILayout.Label("  " + FormatEndStateRow(e), StyleForEndState(e.EndState));
+
+                if (!folded)
+                {
+                    for (int k = i; k < j; k++)
+                    {
+                        var e = endStates[k];
+                        GUILayout.Label("  " + FormatEndStateRow(e), StyleForEndState(e.EndState));
+                    }
+                }
+                i = j;
             }
+
             GUILayout.EndVertical();
+        }
+
+        // Pure mutation + log helper so the toggle contract is unit-testable outside IMGUI.
+        // Returns the new folded state (true = now folded, false = now unfolded).
+        internal static bool ToggleFold(
+            HashSet<string> foldedKerbals, string kerbalName, int missionCount)
+        {
+            bool wasFolded = foldedKerbals.Contains(kerbalName);
+            if (wasFolded) foldedKerbals.Remove(kerbalName);
+            else foldedKerbals.Add(kerbalName);
+            ParsekLog.Verbose("UI",
+                $"Kerbals fold toggled: '{kerbalName}' -> {(wasFolded ? "unfolded" : "folded")} ({missionCount} missions)");
+            return !wasFolded;
+        }
+
+        internal static string FormatKerbalSummary(
+            string kerbalName,
+            IReadOnlyList<CrewEndStateEntry> entries,
+            int start,
+            int end)
+        {
+            int dead = 0, recovered = 0, aboard = 0, unknown = 0;
+            for (int k = start; k < end; k++)
+            {
+                switch (entries[k].EndState)
+                {
+                    case KerbalEndState.Dead: dead++; break;
+                    case KerbalEndState.Recovered: recovered++; break;
+                    case KerbalEndState.Aboard: aboard++; break;
+                    default: unknown++; break;
+                }
+            }
+            int total = end - start;
+            var parts = new List<string>(4);
+            if (dead > 0) parts.Add($"{dead} Dead");
+            if (recovered > 0) parts.Add($"{recovered} Recovered");
+            if (aboard > 0) parts.Add($"{aboard} Aboard");
+            if (unknown > 0) parts.Add($"{unknown} Unknown");
+            string missionLabel = total == 1 ? "1 mission" : $"{total} missions";
+            return $"{kerbalName} ({missionLabel} \u2014 {string.Join(", ", parts)})";
         }
 
         private GUIStyle StyleForEndState(KerbalEndState s)
