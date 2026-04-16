@@ -1316,7 +1316,7 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 ---
 
-## 416. Career-state window: surface Contracts / Facilities / Strategies / Milestones
+## ~~416. Career-state window: surface Contracts / Facilities / Strategies / Milestones~~
 
 **Source:** follow-up from PR #320 (#385 Kerbals window). Four of the eight Parsek resource modules have **no UI surface at all today**: `ContractsModule`, `FacilitiesModule`, `StrategiesModule`, and `MilestonesModule` (all in `Source/Parsek/GameActions/`). Their state is tracked internally by the ledger and fed into the Timeline's budget footer (`TimelineWindowUI.DrawResourceBudget`), but the per-module detail is invisible.
 
@@ -1371,7 +1371,7 @@ Sort/stability rules mirror the Kerbals window (ordinal by name, then by UT with
 - `Source/Parsek/GameActions/MilestonesModule.cs` — possibly expose UT-of-credit alongside the existing `IsMilestoneCredited`.
 - `Source/Parsek.Tests/CareerStateWindowUITests.cs` — pure `Build()` unit tests.
 
-**Status:** TODO. Size: M-L. Likely wants a design pass before coding — e.g. whether Facilities + Strategies + Admin slots belong together in a "KSC" sub-section, whether Milestones should be filterable by category, whether to expose the per-contract reward breakdown or defer that to a later polish pass.
+**Status:** DONE. Shipped as four-tab window (Contracts / Strategies / Facilities / Milestones) with current-vs-projected columns, backed by a one-pass `Ledger.Actions` walk that reuses `LedgerOrchestrator.GetContractSlots/GetStrategySlots` (contracts keyed on MissionControl level, strategies on Administration). No new public surface on the four career modules. Tabs use `GUILayout.Toolbar` (Parsek-first), column widths + disclosure arrows mirror the `RecordingsTableUI` conventions. Companion item (Kerbals Fates → Timeline scroll) landed alongside, plus a Verbose log on the Timeline scroll no-match branch. Design doc: `docs/dev/plans/career-state-window.md`. Out of scope for v1 and retained as polish candidates: per-tab scroll position, per-contract reward breakdown, milestone filtering by category, live-UT ticker refresh of the mode banner.
 
 ---
 
