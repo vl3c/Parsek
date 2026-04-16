@@ -1078,17 +1078,19 @@ namespace Parsek
                 }
             }
 
-            // Last PartEvent
+            // Last non-inert PartEvent. Scans the full list and keeps the max UT so
+            // the result is independent of PartEvents sort order — the previous
+            // tail-backward break relied on an implicit sort-by-UT invariant
+            // (StopRecording sorts, other paths may not).
             if (rec.PartEvents != null && rec.PartEvents.Count > 0)
             {
-                for (int i = rec.PartEvents.Count - 1; i >= 0; i--)
+                for (int i = 0; i < rec.PartEvents.Count; i++)
                 {
                     if (IsInertPartEventForTailTrim(rec.PartEvents[i]))
                         continue;
 
                     double evtUT = rec.PartEvents[i].ut;
                     if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
-                    break;
                 }
             }
 

@@ -4,6 +4,22 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Enhancements
+
+- `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose and documented the `allowActivation` contract threaded through `IGhostPositioner` positioning methods.
+- `#378` Added a rate-limited warn when the on-save exact-match rebuild-and-compare of flat trajectory vs. track sections exceeds 5 ms on a single recording, so large-recording save stutter becomes visible in `KSP.log`.
+- `#376` Documented the dual-storage invariant for `AutoAssignedStandaloneGroupName` and flagged `ClearAutoAssignedStandaloneGroup` as the mandatory entry point for any new group-mutation path.
+
+### Bug Fixes
+
+- `#366` Wrapped each step of the staged-sidecar rollback in its own try/catch so a rollback exception on one file (e.g. external process deleting a `.bak`) no longer aborts the remaining rollback — best-effort atomicity is preserved and each failure is warn-logged.
+- `#369` Hardened `GhostPlaybackLogic.ComputePendingWatchHoldSeconds` against a NaN warp rate (previously fell through to the base hold via NaN arithmetic); cleaned up a cosmetic double `return true;` in `GhostPlaybackEngine.RenderInRangeGhost`.
+- `#377` Removed dead `GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset` and its always-zero visual-root offset propagation; refactored `RecordingOptimizer.FindLastInterestingUT` to scan all `PartEvents` for max-UT instead of breaking at the first non-inert, so the helper no longer relies on implicit sort order. Added a one-time Info log when auto-generated tree groups are inferred from the pre-#265 legacy heuristic. Added a one-shot-per-pending-restore latch in `WatchModeController.UpdateMapFocusRestore` so `EnsureGhostOrbitRenderers` is not called every frame while waiting for the ghost to materialize in MapView.
+
+---
+
 ## 0.8.2
 
 ### Features

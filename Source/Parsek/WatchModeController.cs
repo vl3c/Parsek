@@ -96,6 +96,7 @@ namespace Parsek
         private string lastLoggedHorizonVectorKey;
         private bool lastMapViewEnabled;
         private bool pendingMapFocusRestore;
+        private bool ensureGhostOrbitRenderersAttempted;
 
         internal WatchModeController(ParsekFlight host)
         {
@@ -2303,8 +2304,15 @@ namespace Parsek
 
         private void UpdateMapFocusRestore()
         {
+            bool wasPending = pendingMapFocusRestore;
             (lastMapViewEnabled, pendingMapFocusRestore, bool shouldAttemptRestore) =
                 AdvanceMapFocusRestoreState(lastMapViewEnabled, pendingMapFocusRestore, MapView.MapIsEnabled);
+            // Reset the "already attempted to create renderers this pending window"
+            // latch whenever pendingMapFocusRestore transitions off→on, so a later
+            // pending restore still triggers one ensure pass even if the previous
+            // attempt didn't find the ghost vessel yet.
+            if (pendingMapFocusRestore && !wasPending)
+                ensureGhostOrbitRenderersAttempted = false;
             if (!shouldAttemptRestore)
                 return;
 
@@ -2317,9 +2325,11 @@ namespace Parsek
                 return;
 
             if ((ghostVessel.mapObject == null || ghostVessel.orbitRenderer == null)
-                && MapView.fetch != null)
+                && MapView.fetch != null
+                && !ensureGhostOrbitRenderersAttempted)
             {
                 GhostMapPresence.EnsureGhostOrbitRenderers();
+                ensureGhostOrbitRenderersAttempted = true;
             }
 
             if (!CanRestoreMapFocus(
