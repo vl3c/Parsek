@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Threading;
 using Xunit;
 
 namespace Parsek.Tests
@@ -71,11 +73,11 @@ namespace Parsek.Tests
         }
 
         // ──────────────────────────────────────────────────────────────────
-        // Tests
+        // Topology tests
         // ──────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void Build_Empty_ReturnsEmptySections()
+        public void Build_Topology_EmptyInputs_ReturnsEmptyTopology()
         {
             var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
             var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
@@ -85,61 +87,71 @@ namespace Parsek.Tests
                 committedRecordings: null,
                 ActiveChainIndexLike(reservations));
 
-            Assert.Empty(vm.Reserved);
-            Assert.Empty(vm.Active);
-            Assert.Empty(vm.Retired);
+            Assert.Empty(vm.Topology);
+            Assert.Empty(vm.OrphanRetired);
         }
 
         [Fact]
-        public void Build_RetiredOnly_PopulatesRetiredOnly()
+        public void Build_Topology_SingleSlotNoChain_RendersAsLeaf()
         {
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
-            var retired = new List<string> { "Bill Kerman", "Hanley Kerman" };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Empty(vm.Reserved);
-            Assert.Empty(vm.Active);
-            Assert.Equal(2, vm.Retired.Count);
-            Assert.Equal("Bill Kerman", vm.Retired[0].StandIn);
-            Assert.Equal("", vm.Retired[0].FormerOwner);
-            Assert.Equal("", vm.Retired[0].Trait);
-            Assert.Equal("Hanley Kerman", vm.Retired[1].StandIn);
-            Assert.Equal("", vm.Retired[1].FormerOwner);
-        }
-
-        [Fact]
-        public void Build_RetiredUnsorted_ReturnsOrdinallySorted()
-        {
-            // KerbalsModule.GetRetiredKerbals() returns a snapshot of a HashSet, so iteration
-            // order is nondeterministic. Build() must sort for stable save-over-save display.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
-            var retired = new List<string>
+            // Jeb reserved, empty chain → one topology entry with zero chain members;
+            // header will be "[Jeb] — reserved until UT …", no arrow, no count.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
             {
-                "Hanley Kerman",
-                "Bill Kerman",
-                "Adara Kerman",
-                "Zim Kerman"
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot", new List<string>()) }
+            };
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 18230.0) }
             };
 
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
+            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
                 committedRecordings: null,
                 ActiveChainIndexLike(reservations));
 
-            Assert.Equal(
-                new[] { "Adara Kerman", "Bill Kerman", "Hanley Kerman", "Zim Kerman" },
-                vm.Retired.Select(e => e.StandIn).ToArray());
+            Assert.Single(vm.Topology);
+            var e = vm.Topology[0];
+            Assert.Equal("Jebediah Kerman", e.OwnerName);
+            Assert.Equal("Pilot", e.OwnerTrait);
+            Assert.True(e.OwnerReserved);
+            Assert.False(e.OwnerPermanentlyGone);
+            Assert.Equal(18230.0, e.OwnerReservedUntilUT);
+            Assert.Empty(e.Chain);
         }
 
         [Fact]
-        public void Build_RetiredLinkedToFormerOwner_IncludesTraitAndOwner()
+        public void Build_Topology_SlotWithActiveStandIn_LabelsActive()
         {
-            // Retired stand-in name appears in a slot's Chain → enrich the retired row
-            // with the owner's name and trait.
+            // Jeb reserved, Bill is Jeb's stand-in (not reserved) → Bill is the active
+            // chain occupant. Classification: Active (not Displaced, not Retired).
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
+            {
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
+                    new List<string> { "Bill Kerman" }) }
+            };
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
+            };
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
+                committedRecordings: null,
+                ActiveChainIndexLike(reservations));
+
+            Assert.Single(vm.Topology);
+            var e = vm.Topology[0];
+            Assert.Single(e.Chain);
+            Assert.Equal("Bill Kerman", e.Chain[0].Name);
+            Assert.Equal(0, e.Chain[0].ChainIndex);
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, e.Chain[0].Status);
+        }
+
+        [Fact]
+        public void Build_Topology_SlotWithRetiredAndActive()
+        {
+            // Chain [Bill, Hanley]: Bill retired (seen in recordings, displaced), Hanley
+            // the active stand-in for Jeb. activeIdx==1 (Hanley is the first non-reserved
+            // occupant after Bill, but retired-first dominates for Bill).
             var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
             {
                 { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
@@ -149,97 +161,28 @@ namespace Parsek.Tests
             {
                 { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
             };
-            // Bill retired; Hanley is the active stand-in (not reserved).
+            // activeChainIndex injected so Hanley's slot[1] is Active.
+            KerbalsWindowUI.ActiveChainIndexFunc activeFn = slot => 1;
             var retired = new List<string> { "Bill Kerman" };
 
             var vm = KerbalsWindowUI.Build(slots, reservations, retired,
                 committedRecordings: null,
-                ActiveChainIndexLike(reservations));
+                activeFn);
 
-            Assert.Single(vm.Retired);
-            Assert.Equal("Bill Kerman", vm.Retired[0].StandIn);
-            Assert.Equal("Jebediah Kerman", vm.Retired[0].FormerOwner);
-            Assert.Equal("Pilot", vm.Retired[0].Trait);
+            Assert.Single(vm.Topology);
+            var e = vm.Topology[0];
+            Assert.Equal(2, e.Chain.Count);
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Retired, e.Chain[0].Status);
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, e.Chain[1].Status);
+            Assert.Empty(vm.OrphanRetired);
         }
 
         [Fact]
-        public void FormatRetiredRow_RendersTraitAndOwnerWhenPresent()
+        public void Build_Topology_DeepChainAllReserved_EntriesAreDisplaced()
         {
-            var orphan = new KerbalsWindowUI.RetiredEntry { StandIn = "Bill Kerman" };
-            Assert.Equal("Bill Kerman", KerbalsWindowUI.FormatRetiredRow(orphan));
-
-            var linked = new KerbalsWindowUI.RetiredEntry
-            {
-                StandIn = "Bill Kerman",
-                FormerOwner = "Jebediah Kerman",
-                Trait = "Pilot"
-            };
-            Assert.Equal(
-                "Bill Kerman [Pilot] \u2014 stood in for Jebediah Kerman",
-                KerbalsWindowUI.FormatRetiredRow(linked));
-        }
-
-        [Fact]
-        public void Build_SlotWithActiveStandIn_PopulatesReservedAndActive()
-        {
-            // Jeb reserved, Bill is Jeb's stand-in (not reserved) → Bill is the active occupant.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
-            };
-            var retired = new List<string>();
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Single(vm.Reserved);
-            Assert.Equal("Jebediah Kerman", vm.Reserved[0].Owner);
-            Assert.Equal("Pilot", vm.Reserved[0].Trait);
-            Assert.Equal(1000.0, vm.Reserved[0].UntilUT);
-
-            Assert.Single(vm.Active);
-            Assert.Equal("Bill Kerman", vm.Active[0].StandIn);
-            Assert.Equal("Jebediah Kerman", vm.Active[0].Owner);
-            Assert.Equal("Pilot", vm.Active[0].Trait);
-        }
-
-        [Fact]
-        public void Build_OwnerReturnedNoActiveStandIn()
-        {
-            // Owner not reserved → owner is back in seat, no stand-in active.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
-            var retired = new List<string> { "Bill Kerman" };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Empty(vm.Reserved);
-            Assert.Empty(vm.Active);
-            Assert.Single(vm.Retired);
-            Assert.Equal("Bill Kerman", vm.Retired[0].StandIn);
-            // Owner walked back into the seat but the slot record still links Bill to Jeb.
-            Assert.Equal("Jebediah Kerman", vm.Retired[0].FormerOwner);
-            Assert.Equal("Pilot", vm.Retired[0].Trait);
-        }
-
-        [Fact]
-        public void Build_DeepChainReservedTip_NoActiveEntry()
-        {
-            // Jeb AND Bill reserved, but chain depth is only 1 → no active occupant;
-            // activeIndex == Chain.Count signals "chain needs more depth".
-            // This explicitly covers the inverted rule from an earlier plan draft.
+            // Jeb and Bill both reserved; chain [Bill]. activeChainIndexOf returns
+            // Chain.Count==1, so no chain slot is flagged Active, and none are retired.
+            // Expected: Bill → Displaced.
             var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
             {
                 { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
@@ -250,75 +193,73 @@ namespace Parsek.Tests
                 { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) },
                 { "Bill Kerman", Res("Bill Kerman", 1500.0) }
             };
-            var retired = new List<string>();
 
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
+            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
                 committedRecordings: null,
                 ActiveChainIndexLike(reservations));
 
-            Assert.Single(vm.Reserved);
-            Assert.Equal("Jebediah Kerman", vm.Reserved[0].Owner);
-            Assert.Empty(vm.Active);
+            Assert.Single(vm.Topology);
+            var e = vm.Topology[0];
+            Assert.Single(e.Chain);
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Displaced, e.Chain[0].Status);
         }
 
         [Fact]
-        public void Build_PermanentReservationExcludesFromReserved()
+        public void Build_Topology_DeadOwner_IncludedWithFlag()
         {
-            // Dead kerbal (permanent reservation + OwnerPermanentlyGone) is filtered out in v1.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string>(), permanentlyGone: true) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", double.PositiveInfinity, permanent: true) }
-            };
-            var retired = new List<string>();
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Empty(vm.Reserved);
-            Assert.Empty(vm.Active);
-        }
-
-        [Fact]
-        public void Build_NullChainEntrySkipped()
-        {
-            // Null chain entry from mid-EnsureChainDepth state must not produce an Active row.
-            // Inject an activeChainIndex that returns 0 to exercise the null-skip guard.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { null }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
-            };
-            var retired = new List<string>();
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                slot => 0);
-
-            Assert.Single(vm.Reserved);
-            Assert.Empty(vm.Active);
-        }
-
-        [Fact]
-        public void Build_MultipleSlots_DeterministicOrdering()
-        {
+            // Dead Val with a historical chain entry. Entry stays in topology — the
+            // owner header renders as deceased, chain members preserved so the player
+            // can still see who flew in Val's slot.
             var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
             {
                 { "Valentina Kerman", Slot("Valentina Kerman", "Pilot",
-                    new List<string> { "Hanley Kerman" }) },
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) },
-                { "Bob Kerman", Slot("Bob Kerman", "Engineer",
-                    new List<string> { "Ted Kerman" }) }
+                    new List<string> { "Hanley Kerman" }, permanentlyGone: true) }
+            };
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { "Valentina Kerman", Res("Valentina Kerman", double.PositiveInfinity, permanent: true) }
+            };
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
+                committedRecordings: null,
+                ActiveChainIndexLike(reservations));
+
+            Assert.Single(vm.Topology);
+            var e = vm.Topology[0];
+            Assert.True(e.OwnerPermanentlyGone);
+            Assert.False(e.OwnerReserved);
+            Assert.Single(e.Chain);
+            Assert.Equal("Hanley Kerman", e.Chain[0].Name);
+        }
+
+        [Fact]
+        public void Build_Topology_OrphanRetired_LandsInOrphanList()
+        {
+            // Retired Bill with no slot referencing him → orphan. Adara too. Orphans
+            // are ordinal-sorted so the UI is stable across runs.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
+            var retired = new List<string> { "Bill Kerman", "Adara Kerman" };
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
+                committedRecordings: null,
+                ActiveChainIndexLike(reservations));
+
+            Assert.Empty(vm.Topology);
+            Assert.Equal(new[] { "Adara Kerman", "Bill Kerman" },
+                vm.OrphanRetired.ToArray());
+        }
+
+        [Fact]
+        public void Build_Topology_MultipleSlots_OrdinalOrdering()
+        {
+            // Dictionary enumeration order is implementation-defined; Build() must sort
+            // owner names ordinally so the rendered list is stable save-over-save.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
+            {
+                { "Valentina Kerman", Slot("Valentina Kerman", "Pilot", new List<string>()) },
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot", new List<string>()) },
+                { "Bob Kerman", Slot("Bob Kerman", "Engineer", new List<string>()) }
             };
             var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
             {
@@ -326,25 +267,168 @@ namespace Parsek.Tests
                 { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) },
                 { "Bob Kerman", Res("Bob Kerman", 1500.0) }
             };
-            var retired = new List<string>();
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
+                committedRecordings: null,
+                ActiveChainIndexLike(reservations));
+
+            Assert.Equal(3, vm.Topology.Count);
+            Assert.Equal("Bob Kerman", vm.Topology[0].OwnerName);
+            Assert.Equal("Jebediah Kerman", vm.Topology[1].OwnerName);
+            Assert.Equal("Valentina Kerman", vm.Topology[2].OwnerName);
+        }
+
+        [Fact]
+        public void Build_Topology_NullChainEntrySkipped()
+        {
+            // Mid-EnsureChainDepth state leaves nulls in the chain. Those must not
+            // appear as ChainMember rows (nor contribute to the count badge).
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
+            {
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
+                    new List<string> { null, "Bill Kerman" }) }
+            };
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
+            };
+
+            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
+                committedRecordings: null,
+                slot => 1);
+
+            Assert.Single(vm.Topology);
+            var e = vm.Topology[0];
+            Assert.Single(e.Chain);
+            Assert.Equal("Bill Kerman", e.Chain[0].Name);
+            Assert.Equal(1, e.Chain[0].ChainIndex);
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, e.Chain[0].Status);
+        }
+
+        [Fact]
+        public void Build_Topology_RetiredAlsoInChain_NotDuplicatedAsOrphan()
+        {
+            // Bill is in both `retired` and Jeb's Chain. He must appear exactly once,
+            // inside Jeb's topology entry as Retired, and NOT as an orphan.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
+            {
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
+                    new List<string> { "Bill Kerman" }) }
+            };
+            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
+            var retired = new List<string> { "Bill Kerman" };
 
             var vm = KerbalsWindowUI.Build(slots, reservations, retired,
                 committedRecordings: null,
                 ActiveChainIndexLike(reservations));
 
-            Assert.Equal(3, vm.Reserved.Count);
-            Assert.Equal("Bob Kerman", vm.Reserved[0].Owner);
-            Assert.Equal("Jebediah Kerman", vm.Reserved[1].Owner);
-            Assert.Equal("Valentina Kerman", vm.Reserved[2].Owner);
+            Assert.Single(vm.Topology);
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Retired, vm.Topology[0].Chain[0].Status);
+            Assert.Empty(vm.OrphanRetired);
+        }
 
-            Assert.Equal(3, vm.Active.Count);
-            Assert.Equal("Bob Kerman", vm.Active[0].Owner);
-            Assert.Equal("Jebediah Kerman", vm.Active[1].Owner);
-            Assert.Equal("Valentina Kerman", vm.Active[2].Owner);
+        [Fact]
+        public void CountExpandableChainEntries_SkipsNullNames()
+        {
+            var chain = new List<KerbalsWindowUI.ChainMember>
+            {
+                new KerbalsWindowUI.ChainMember { Name = "Bill Kerman" },
+                new KerbalsWindowUI.ChainMember { Name = null },
+                new KerbalsWindowUI.ChainMember { Name = "" },
+                new KerbalsWindowUI.ChainMember { Name = "Hanley Kerman" }
+            };
+            Assert.Equal(2, KerbalsWindowUI.CountExpandableChainEntries(chain));
+            Assert.Equal(0, KerbalsWindowUI.CountExpandableChainEntries(null));
         }
 
         // ──────────────────────────────────────────────────────────────────
-        // Per-recording crew end-states (todo #415)
+        // FormatOwnerHeader
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void FormatOwnerHeader_ReservedUntilUT_FormatsInvariant()
+        {
+            // Thread set to German so a non-invariant format would insert a thousands
+            // separator or decimal comma. Result must remain locale-neutral.
+            var prev = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                var entry = new KerbalsWindowUI.SlotTopologyEntry
+                {
+                    OwnerName = "Jebediah Kerman",
+                    OwnerTrait = "Pilot",
+                    OwnerReserved = true,
+                    OwnerReservedUntilUT = 18230.0
+                };
+                Assert.Equal(
+                    "Jebediah Kerman [Pilot] \u2014 reserved until UT 18230",
+                    KerbalsWindowUI.FormatOwnerHeader(entry));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = prev;
+            }
+        }
+
+        [Fact]
+        public void FormatOwnerHeader_DeadOwner_IncludesDeceasedSuffix()
+        {
+            var entry = new KerbalsWindowUI.SlotTopologyEntry
+            {
+                OwnerName = "Valentina Kerman",
+                OwnerTrait = "Pilot",
+                OwnerPermanentlyGone = true
+            };
+            Assert.Equal(
+                "Valentina Kerman [Pilot] \u2014 deceased",
+                KerbalsWindowUI.FormatOwnerHeader(entry));
+        }
+
+        [Fact]
+        public void FormatOwnerHeader_ActiveOwner_NoReservationSuffix()
+        {
+            var entry = new KerbalsWindowUI.SlotTopologyEntry
+            {
+                OwnerName = "Bob Kerman",
+                OwnerTrait = "Engineer",
+                OwnerReserved = false
+            };
+            Assert.Equal(
+                "Bob Kerman [Engineer] \u2014 active",
+                KerbalsWindowUI.FormatOwnerHeader(entry));
+        }
+
+        [Fact]
+        public void FormatOwnerHeader_PermanentReservation_RendersReservedWithoutUT()
+        {
+            // Open-ended reservations (ReservedUntilUT == +Inf, !IsPermanent would be a
+            // data bug, but the formatter defends against it) render as just "reserved".
+            var entry = new KerbalsWindowUI.SlotTopologyEntry
+            {
+                OwnerName = "Jebediah Kerman",
+                OwnerTrait = "Pilot",
+                OwnerReserved = true,
+                OwnerReservedUntilUT = double.PositiveInfinity
+            };
+            Assert.Equal(
+                "Jebediah Kerman [Pilot] \u2014 reserved",
+                KerbalsWindowUI.FormatOwnerHeader(entry));
+        }
+
+        [Fact]
+        public void FormatChainMember_RendersNameAndStatusTag()
+        {
+            Assert.Equal("Bill Kerman (retired)", KerbalsWindowUI.FormatChainMember(
+                new KerbalsWindowUI.ChainMember { Name = "Bill Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Retired }));
+            Assert.Equal("Hanley Kerman (active)", KerbalsWindowUI.FormatChainMember(
+                new KerbalsWindowUI.ChainMember { Name = "Hanley Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Active }));
+            Assert.Equal("Sam Kerman (displaced)", KerbalsWindowUI.FormatChainMember(
+                new KerbalsWindowUI.ChainMember { Name = "Sam Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Displaced }));
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Per-recording crew end-states (#415 Per-Recording Fates)
         // ──────────────────────────────────────────────────────────────────
 
         private static Recording RecWithEndStates(
@@ -636,7 +720,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_EmitsVerboseLog_WithSectionCounts()
+        public void Build_EmitsVerboseLog_WithNewCounters()
         {
             var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
             {
@@ -647,7 +731,9 @@ namespace Parsek.Tests
             {
                 { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
             };
-            var retired = new List<string> { "Hanley Kerman", "Barney Kerman" };
+            // Hanley is retired with no slot → orphan. Bill is retired AND in Jeb's chain →
+            // counted under topology, not orphans.
+            var retired = new List<string> { "Bill Kerman", "Hanley Kerman" };
 
             KerbalsWindowUI.Build(slots, reservations, retired,
                 committedRecordings: null,
@@ -656,9 +742,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]")
                 && l.Contains("KerbalsWindow: built VM")
-                && l.Contains("reserved=1")
-                && l.Contains("active=1")
-                && l.Contains("retired=2")
+                && l.Contains("topology=1")
+                && l.Contains("orphans=1")
                 && l.Contains("endStates=0"));
         }
     }

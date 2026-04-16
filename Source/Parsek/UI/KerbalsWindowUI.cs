@@ -6,9 +6,11 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Kerbals roster window — shows reserved crew, active stand-ins, and retired
-    /// stand-ins in one place. Retired list previously lived in the Timeline footer
-    /// (#385).
+    /// Kerbals roster window — renders each career-kerbal slot as a collapsible
+    /// per-owner chain (reserved/active/retired/displaced stand-ins indented as
+    /// tree children), plus an Unlinked Retired tail section for stand-ins that
+    /// no longer belong to any slot, plus the Per-Recording Fates section with
+    /// per-kerbal fold/unfold (#415-1).
     /// </summary>
     internal class KerbalsWindowUI
     {
@@ -33,41 +35,51 @@ namespace Parsek
         // InvalidateCache does NOT clear this — fold is UI preference, not data.
         private readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
 
+        // Transient expand state for per-owner slot topology rows. Default-collapsed —
+        // the set only contains OwnerNames currently expanded, so the initial window
+        // view is a contiguous single-line list of owners. Orthogonal to data, so not
+        // cleared by InvalidateCache.
+        private readonly HashSet<string> expandedSlots = new HashSet<string>(StringComparer.Ordinal);
+
         private GUIStyle grayStyle;
         private GUIStyle sectionHeaderStyle;
         private GUIStyle groupHeaderStyle;
         private GUIStyle deadStyle;
         private GUIStyle recoveredStyle;
         private GUIStyle aboardStyle;
+        private GUIStyle activeChainStyle;
+        private GUIStyle displacedStyle;
 
         internal struct KerbalsViewModel
         {
-            public List<ReservedEntry> Reserved;
-            public List<ActiveStandInEntry> Active;
-            public List<RetiredEntry> Retired;
+            public List<SlotTopologyEntry> Topology;
+            public List<string> OrphanRetired;
             public List<CrewEndStateEntry> EndStates;
         }
 
-        internal struct ReservedEntry
+        internal enum ChainMemberStatus
         {
-            public string Owner;
-            public string Trait;
-            public double UntilUT;
-            public bool IsPermanent;
+            Active,
+            Retired,
+            Displaced,
+            Unknown
         }
 
-        internal struct ActiveStandInEntry
+        internal struct SlotTopologyEntry
         {
-            public string StandIn;
-            public string Owner;
-            public string Trait;
+            public string OwnerName;
+            public string OwnerTrait;
+            public bool OwnerPermanentlyGone;
+            public bool OwnerReserved;
+            public double OwnerReservedUntilUT;
+            public List<ChainMember> Chain;
         }
 
-        internal struct RetiredEntry
+        internal struct ChainMember
         {
-            public string StandIn;
-            public string FormerOwner;  // empty for orphans not linked to any slot
-            public string Trait;        // inherited from FormerOwner's slot
+            public string Name;
+            public int ChainIndex;
+            public ChainMemberStatus Status;
         }
 
         internal struct CrewEndStateEntry
@@ -184,6 +196,14 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
             };
+            activeChainStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
+            };
+            displacedStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
+            };
         }
 
         private void DrawKerbalsWindow(int windowID)
@@ -218,16 +238,14 @@ namespace Parsek
 
             kerbalsScrollPos = GUILayout.BeginScrollView(kerbalsScrollPos, GUILayout.ExpandHeight(true));
 
-            if (vm.Reserved.Count == 0 && vm.Active.Count == 0
-                && vm.Retired.Count == 0 && vm.EndStates.Count == 0)
+            if (vm.Topology.Count == 0 && vm.OrphanRetired.Count == 0 && vm.EndStates.Count == 0)
             {
                 GUILayout.Label("No reserved crew, stand-ins, retired kerbals, or committed crew history.", grayStyle);
             }
             else
             {
-                DrawReservedSection(vm.Reserved);
-                DrawActiveSection(vm.Active);
-                DrawRetiredSection(vm.Retired);
+                DrawTopologySection(vm.Topology);
+                DrawOrphanRetiredSection(vm.OrphanRetired);
                 DrawEndStatesSection(vm.EndStates);
             }
 
@@ -245,56 +263,143 @@ namespace Parsek
             GUI.DragWindow();
         }
 
-        private void DrawReservedSection(List<ReservedEntry> reserved)
+        private void DrawTopologySection(List<SlotTopologyEntry> topology)
         {
-            if (reserved.Count == 0) return;
+            if (topology.Count == 0) return;
             GUILayout.Space(5);
-            GUILayout.Label($"Reserved Crew ({reserved.Count})", sectionHeaderStyle);
+            GUILayout.Label($"Kerbal Slots ({topology.Count})", sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
-            for (int i = 0; i < reserved.Count; i++)
+
+            bool first = true;
+            for (int i = 0; i < topology.Count; i++)
             {
-                var e = reserved[i];
-                GUILayout.Label(FormatReservedRow(e), grayStyle);
+                var entry = topology[i];
+                int chainCount = CountExpandableChainEntries(entry.Chain);
+                bool expandable = chainCount > 0;
+                bool expanded = expandedSlots.Contains(entry.OwnerName);
+
+                if (!first) GUILayout.Space(3);
+                first = false;
+
+                DrawOwnerHeader(entry, expandable, expanded, chainCount);
+
+                if (expandable && expanded)
+                {
+                    int lastIdx = -1;
+                    if (entry.Chain != null)
+                    {
+                        for (int c = entry.Chain.Count - 1; c >= 0; c--)
+                        {
+                            if (!string.IsNullOrEmpty(entry.Chain[c].Name))
+                            {
+                                lastIdx = c;
+                                break;
+                            }
+                        }
+                    }
+                    for (int c = 0; c < entry.Chain.Count; c++)
+                    {
+                        var member = entry.Chain[c];
+                        if (string.IsNullOrEmpty(member.Name)) continue;
+                        string prefix = (c == lastIdx) ? "    \u2514\u2500 " : "    \u251c\u2500 ";
+                        GUILayout.Label(prefix + FormatChainMember(member), StyleForChainMember(member.Status));
+                    }
+                }
+            }
+
+            GUILayout.EndVertical();
+        }
+
+        private void DrawOwnerHeader(SlotTopologyEntry entry, bool expandable, bool expanded, int chainCount)
+        {
+            string body = FormatOwnerHeader(entry);
+            string countSuffix = expandable ? $"  ({chainCount})" : "";
+            GUIStyle style = entry.OwnerPermanentlyGone ? deadStyle : groupHeaderStyle;
+
+            if (!expandable)
+            {
+                // Indent to align with arrow-prefixed rows ("  \u25b6 ").
+                GUILayout.Label("    " + body + countSuffix, style);
+                return;
+            }
+
+            string arrow = expanded ? "\u25bc" : "\u25b6";
+            if (GUILayout.Button($"{arrow} {body}{countSuffix}", GUI.skin.label, GUILayout.ExpandWidth(true)))
+            {
+                if (expanded) expandedSlots.Remove(entry.OwnerName);
+                else expandedSlots.Add(entry.OwnerName);
+                ParsekLog.Verbose("UI",
+                    $"Kerbal slot '{entry.OwnerName}' {(expanded ? "collapsed" : "expanded")} ({chainCount} chain members)");
+            }
+        }
+
+        private GUIStyle StyleForChainMember(ChainMemberStatus s)
+        {
+            switch (s)
+            {
+                case ChainMemberStatus.Active: return activeChainStyle;
+                case ChainMemberStatus.Retired: return grayStyle;
+                case ChainMemberStatus.Displaced: return displacedStyle;
+                default: return grayStyle;
+            }
+        }
+
+        private void DrawOrphanRetiredSection(List<string> orphans)
+        {
+            if (orphans.Count == 0) return;
+            GUILayout.Space(5);
+            GUILayout.Label($"Unlinked Retired ({orphans.Count})", sectionHeaderStyle);
+            GUILayout.BeginVertical(GUI.skin.box);
+            for (int i = 0; i < orphans.Count; i++)
+            {
+                GUILayout.Label(orphans[i], grayStyle);
             }
             GUILayout.EndVertical();
         }
 
-        private void DrawActiveSection(List<ActiveStandInEntry> active)
+        internal static int CountExpandableChainEntries(List<ChainMember> chain)
         {
-            if (active.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label($"Active Stand-ins ({active.Count})", sectionHeaderStyle);
-            GUILayout.BeginVertical(GUI.skin.box);
-            for (int i = 0; i < active.Count; i++)
+            if (chain == null) return 0;
+            int n = 0;
+            for (int i = 0; i < chain.Count; i++)
             {
-                var e = active[i];
-                GUILayout.Label(
-                    $"{e.StandIn} standing in for {e.Owner} [{e.Trait}]",
-                    grayStyle);
+                if (!string.IsNullOrEmpty(chain[i].Name)) n++;
             }
-            GUILayout.EndVertical();
+            return n;
         }
 
-        private void DrawRetiredSection(List<RetiredEntry> retired)
+        internal static string FormatOwnerHeader(SlotTopologyEntry entry)
         {
-            if (retired.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label($"Retired Stand-ins ({retired.Count})", sectionHeaderStyle);
-            GUILayout.BeginVertical(GUI.skin.box);
-            for (int i = 0; i < retired.Count; i++)
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string status;
+            if (entry.OwnerPermanentlyGone)
             {
-                GUILayout.Label(FormatRetiredRow(retired[i]), grayStyle);
+                status = "deceased";
             }
-            GUILayout.EndVertical();
+            else if (entry.OwnerReserved)
+            {
+                status = double.IsPositiveInfinity(entry.OwnerReservedUntilUT)
+                    ? "reserved"
+                    : $"reserved until UT {entry.OwnerReservedUntilUT.ToString("F0", ic)}";
+            }
+            else
+            {
+                status = "active";
+            }
+            return $"{entry.OwnerName} [{entry.OwnerTrait}] \u2014 {status}";
         }
 
-        internal static string FormatRetiredRow(RetiredEntry e)
+        internal static string FormatChainMember(ChainMember m)
         {
-            if (string.IsNullOrEmpty(e.FormerOwner))
-                return e.StandIn;
-            return string.IsNullOrEmpty(e.Trait)
-                ? $"{e.StandIn} \u2014 stood in for {e.FormerOwner}"
-                : $"{e.StandIn} [{e.Trait}] \u2014 stood in for {e.FormerOwner}";
+            string tag;
+            switch (m.Status)
+            {
+                case ChainMemberStatus.Active: tag = "active"; break;
+                case ChainMemberStatus.Retired: tag = "retired"; break;
+                case ChainMemberStatus.Displaced: tag = "displaced"; break;
+                default: tag = "?"; break;
+            }
+            return $"{m.Name} ({tag})";
         }
 
         private void DrawEndStatesSection(List<CrewEndStateEntry> endStates)
@@ -399,15 +504,6 @@ namespace Parsek
             }
         }
 
-        internal static string FormatReservedRow(ReservedEntry e)
-        {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            string header = $"{e.Owner} [{e.Trait}]";
-            if (double.IsPositiveInfinity(e.UntilUT))
-                return header;
-            return header + $" \u2014 until UT {e.UntilUT.ToString("F0", ic)}";
-        }
-
         internal static KerbalsViewModel Build(
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots,
             IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations,
@@ -417,19 +513,27 @@ namespace Parsek
         {
             var vm = new KerbalsViewModel
             {
-                Reserved = new List<ReservedEntry>(),
-                Active = new List<ActiveStandInEntry>(),
-                Retired = new List<RetiredEntry>(),
+                Topology = new List<SlotTopologyEntry>(),
+                OrphanRetired = new List<string>(),
                 EndStates = new List<CrewEndStateEntry>()
             };
 
-            // Map each stand-in name to the owner slot it belongs to, so retired rows can
-            // display the former-owner context (trait + owner name) instead of just a bare
-            // name. In the pathological case where the same name shows up in multiple slot
-            // chains, the first (lexicographically smallest owner) wins — keeps output
-            // deterministic without a hard guarantee from the data source.
-            var standInOwner = new Dictionary<string, KeyValuePair<string, string>>(
-                StringComparer.Ordinal);
+            // Retired snapshot is a HashSet in KerbalsModule — iteration order is
+            // implementation-defined. Copy to an ordered lookup so classification is
+            // deterministic and orphan detection is O(1).
+            var retiredSet = new HashSet<string>(StringComparer.Ordinal);
+            if (retired != null)
+            {
+                for (int i = 0; i < retired.Count; i++)
+                {
+                    string n = retired[i];
+                    if (!string.IsNullOrEmpty(n)) retiredSet.Add(n);
+                }
+            }
+
+            // Names that appear in some slot's Chain — the complement within retiredSet
+            // is the orphan set.
+            var seenInChain = new HashSet<string>(StringComparer.Ordinal);
 
             if (slots != null && reservations != null && activeChainIndexOf != null)
             {
@@ -438,80 +542,72 @@ namespace Parsek
 
                 for (int i = 0; i < ownerNames.Count; i++)
                 {
-                    var owner = ownerNames[i];
+                    string owner = ownerNames[i];
                     var slot = slots[owner];
                     if (slot == null) continue;
 
-                    // Reserved: non-permanent, non-dead owner with a live reservation.
+                    bool ownerReserved = false;
+                    double ownerReservedUntilUT = 0.0;
                     if (!slot.OwnerPermanentlyGone
                         && reservations.TryGetValue(owner, out var res)
                         && res != null
                         && !res.IsPermanent)
                     {
-                        vm.Reserved.Add(new ReservedEntry
-                        {
-                            Owner = owner,
-                            Trait = slot.OwnerTrait,
-                            UntilUT = res.ReservedUntilUT,
-                            IsPermanent = false
-                        });
+                        ownerReserved = true;
+                        ownerReservedUntilUT = res.ReservedUntilUT;
                     }
 
-                    // Active stand-in: canonical occupancy walk via injected delegate.
-                    int idx = activeChainIndexOf(slot);
-                    if (idx >= 0 && slot.Chain != null && idx < slot.Chain.Count)
-                    {
-                        string standIn = slot.Chain[idx];
-                        if (!string.IsNullOrEmpty(standIn))
-                        {
-                            vm.Active.Add(new ActiveStandInEntry
-                            {
-                                StandIn = standIn,
-                                Owner = owner,
-                                Trait = slot.OwnerTrait
-                            });
-                        }
-                    }
-
-                    // Index every chain entry for retired-row enrichment below.
+                    int activeIdx = activeChainIndexOf(slot);
+                    var chainMembers = new List<ChainMember>();
                     if (slot.Chain != null)
                     {
                         for (int c = 0; c < slot.Chain.Count; c++)
                         {
                             string name = slot.Chain[c];
                             if (string.IsNullOrEmpty(name)) continue;
-                            if (!standInOwner.ContainsKey(name))
-                                standInOwner[name] = new KeyValuePair<string, string>(
-                                    owner, slot.OwnerTrait);
+
+                            // Retired wins before active: ComputeRetiredSet only marks
+                            // !isReserved names, so the two are mutually exclusive by
+                            // construction — ordering here is defensive.
+                            ChainMemberStatus status;
+                            if (retiredSet.Contains(name))
+                                status = ChainMemberStatus.Retired;
+                            else if (activeIdx >= 0 && activeIdx < slot.Chain.Count && c == activeIdx)
+                                status = ChainMemberStatus.Active;
+                            else
+                                status = ChainMemberStatus.Displaced;
+
+                            chainMembers.Add(new ChainMember
+                            {
+                                Name = name,
+                                ChainIndex = c,
+                                Status = status
+                            });
+                            seenInChain.Add(name);
                         }
                     }
+
+                    vm.Topology.Add(new SlotTopologyEntry
+                    {
+                        OwnerName = owner,
+                        OwnerTrait = slot.OwnerTrait,
+                        OwnerPermanentlyGone = slot.OwnerPermanentlyGone,
+                        OwnerReserved = ownerReserved,
+                        OwnerReservedUntilUT = ownerReservedUntilUT,
+                        Chain = chainMembers
+                    });
                 }
             }
 
-            // Retired comes from a HashSet snapshot in KerbalsModule — iteration order is
-            // implementation-defined and reshuffles between recalculations. Sort ordinally
-            // so the rendered list is stable save-over-save.
-            if (retired != null)
+            if (retiredSet.Count > 0)
             {
-                var retiredSorted = new List<string>(retired);
-                retiredSorted.Sort(StringComparer.Ordinal);
-                for (int i = 0; i < retiredSorted.Count; i++)
+                var orphans = new List<string>();
+                foreach (var name in retiredSet)
                 {
-                    string name = retiredSorted[i];
-                    string formerOwner = "";
-                    string trait = "";
-                    if (standInOwner.TryGetValue(name, out var info))
-                    {
-                        formerOwner = info.Key;
-                        trait = info.Value;
-                    }
-                    vm.Retired.Add(new RetiredEntry
-                    {
-                        StandIn = name,
-                        FormerOwner = formerOwner,
-                        Trait = trait
-                    });
+                    if (!seenInChain.Contains(name)) orphans.Add(name);
                 }
+                orphans.Sort(StringComparer.Ordinal);
+                vm.OrphanRetired = orphans;
             }
 
             // Per-recording crew end-states. Skip recordings where
@@ -550,8 +646,8 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("UI",
-                $"KerbalsWindow: built VM \u2014 reserved={vm.Reserved.Count} " +
-                $"active={vm.Active.Count} retired={vm.Retired.Count} " +
+                $"KerbalsWindow: built VM \u2014 topology={vm.Topology.Count} " +
+                $"orphans={vm.OrphanRetired.Count} " +
                 $"endStates={vm.EndStates.Count}");
 
             return vm;
