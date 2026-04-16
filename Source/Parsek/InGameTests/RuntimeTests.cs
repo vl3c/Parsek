@@ -1385,7 +1385,8 @@ namespace Parsek.InGameTests
                 if (rec == null || rec.RecordingFormatVersion < 2 || string.IsNullOrEmpty(rec.RecordingId))
                     continue;
 
-                // Tree root recordings are structural containers with no trajectory — no .prec expected (#420).
+                // Recordings with no trajectory points have no .prec sidecar on disk — structural
+                // tree roots in practice, but the predicate is intentionally structural (#420).
                 if (rec.Points == null || rec.Points.Count == 0)
                 {
                     skippedRoots++;

@@ -201,19 +201,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve the effective <c>showGhostsInTrackingStation</c> value with
-        /// early-scene-load in mind. Precedence:
+        /// Resolve the effective <c>showGhostsInTrackingStation</c> value. Precedence:
         /// <list type="number">
-        ///   <item>Persisted store (settings.cfg) — authoritative user intent, does
-        ///     NOT depend on <c>HighLogic.CurrentGame</c>, so it's readable during
-        ///     <c>SpaceTracking.Awake</c> where <c>ParsekSettings.Current</c> can be
-        ///     null (see <c>ParsekScenario.cs:546</c> comment).</item>
-        ///   <item>Live <c>ParsekSettings.Current</c> when resolvable.</item>
+        ///   <item>Live <c>ParsekSettings.Current</c> when resolvable — authoritative
+        ///     after <c>ParsekScenario.OnLoad</c> reconciles the store into it, and
+        ///     the ONLY surface that catches a flip from KSP's stock Game Parameters
+        ///     menu (which mutates the field directly, bypassing
+        ///     <see cref="RecordShowGhostsInTrackingStation"/>). When live differs
+        ///     from stored we resync the store so the next cold-start window (before
+        ///     <c>ParsekSettings.Current</c> resolves) reads the user's real intent.</item>
+        ///   <item>Persisted store (settings.cfg) — fallback for the early-scene-load
+        ///     window. Does NOT depend on <c>HighLogic.CurrentGame</c>, so it's
+        ///     readable during <c>SpaceTracking.Awake</c> where
+        ///     <c>ParsekSettings.Current</c> can be null (see <c>ParsekScenario.cs:546</c>
+        ///     comment).</item>
         ///   <item>Default <c>true</c> (pre-#388 behavior).</item>
         /// </list>
-        /// This closes the startup window where a disabled toggle could briefly
-        /// spawn ghosts via the <c>GhostTrackingStationInitPatch</c> prefix before
-        /// a later frame noticed the real setting.
         /// </summary>
         internal static bool EffectiveShowGhostsInTrackingStation()
         {
@@ -232,15 +235,41 @@ namespace Parsek
                     $"EffectiveShowGhostsInTrackingStation: LoadIfNeeded threw SecurityException " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
+
+            // Live Current wins when available. The stock Game Parameters UI writes
+            // directly to this field (bypassing RecordShowGhostsInTrackingStation), so
+            // reading from the store first would mask that flip for the rest of the
+            // session. When live and stored disagree, persist the live value so the
+            // next cold-start reads the user's current intent — the store still acts
+            // as the early-scene-load fallback below.
+            var current = ParsekSettings.Current;
+            if (current != null)
+            {
+                if (!storedShowGhostsInTrackingStation.HasValue
+                    || storedShowGhostsInTrackingStation.Value != current.showGhostsInTrackingStation)
+                {
+                    ParsekLog.Info(Tag,
+                        $"Live showGhostsInTrackingStation={current.showGhostsInTrackingStation}" +
+                        $" differs from stored={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
+                        " — resyncing store (likely a flip from KSP Game Parameters UI)");
+                    storedShowGhostsInTrackingStation = current.showGhostsInTrackingStation;
+                    // Same xUnit guard as LoadIfNeeded above — KSPUtil.ApplicationRootPath
+                    // inside Save → GetFilePath throws SecurityException under xUnit.
+                    // In-memory store is still updated, which is what the tests assert.
+                    try { Save(); }
+                    catch (SecurityException ex)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"EffectiveShowGhostsInTrackingStation: Save threw SecurityException " +
+                            $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+                    }
+                }
+                return current.showGhostsInTrackingStation;
+            }
+
             if (storedShowGhostsInTrackingStation.HasValue)
                 return storedShowGhostsInTrackingStation.Value;
-            // Final fallback: live ParsekSettings.Current if resolvable, else pre-#388
-            // default. In production every UI write path goes through
-            // RecordShowGhostsInTrackingStation, so the stored value can't lag
-            // behind the live setting; this branch only fires when neither path
-            // has ever set the flag (e.g. KSP's Game Parameters menu was used
-            // to flip it without going through the Parsek settings window).
-            return ParsekSettings.Current?.showGhostsInTrackingStation ?? true;
+            return true;
         }
 
         /// <summary>

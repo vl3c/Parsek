@@ -3067,6 +3067,9 @@ namespace Parsek
             // post-boundary seed (captured during the coalescing window, UT > breakupBp.UT
             // in the vessel-destroyed-during-window scenario) and is applied AFTER the
             // trim, so it is never mistakenly removed.
+            // Defensive: under current callers childRec.Points is empty when we reach this line,
+            // so the trim is a no-op and the warn below will not fire. Kept to lock the invariant
+            // against future inheritance paths that might pre-seed post-boundary samples.
             int trimmedAtBoundary = FlightRecorder.TrimPointsAtOrAfterUT(childRec.Points, breakupBp.UT);
             if (trimmedAtBoundary > 0)
             {

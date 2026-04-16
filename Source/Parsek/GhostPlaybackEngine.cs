@@ -474,7 +474,9 @@ namespace Parsek
                 OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
             deferredCompletedStopwatch.Stop();
 
-            // Diagnostics: stop total frame timing and write results
+            // Observability capture is measured as a phase and is now inside the updateStopwatch
+            // window — totalMicroseconds includes it, so the #414 breakdown's phase sum matches
+            // the budget total (pre-#414 it sat outside the window and was silently untracked).
             observabilityStopwatch.Start();
             GhostObservability ghostObservability = CaptureGhostObservability();
             observabilityStopwatch.Stop();

@@ -141,5 +141,41 @@ namespace Parsek.Tests
                 l.Contains("ResetForSceneChange") &&
                 l.Contains("2"));
         }
+
+        // P2 (post-PR-328 review): the init latch is a terminal-outcome marker,
+        // not a "we tried once" marker. Transient startup failures (null prefab
+        // or null iconSprites array) must NOT set it — otherwise every ghost
+        // marker stays on the fallback diamond for the rest of the scene.
+        // Unity dependencies make the full InitVesselTypeIcons path non-trivial
+        // to drive from xUnit; these tests pin the latch state machine around
+        // the public scene-change / reset contract.
+
+        [Fact]
+        public void InitAttemptedForTesting_DefaultsFalseAfterReset()
+        {
+            MapMarkerRenderer.InitAttemptedForTesting = true;
+            MapMarkerRenderer.ResetForTesting();
+            Assert.False(MapMarkerRenderer.InitAttemptedForTesting);
+        }
+
+        [Fact]
+        public void ResetForSceneChange_ClearsInitLatch()
+        {
+            // A new scene must always re-attempt icon init — the previous scene's
+            // terminal latch (successful atlas resolve OR permanent structural
+            // error) does not carry forward because the new scene may ship a
+            // fresh MapView with a different sprite set.
+            MapMarkerRenderer.InitAttemptedForTesting = true;
+            MapMarkerRenderer.ResetForSceneChange();
+            Assert.False(MapMarkerRenderer.InitAttemptedForTesting);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsInitLatch()
+        {
+            MapMarkerRenderer.InitAttemptedForTesting = true;
+            MapMarkerRenderer.ResetForTesting();
+            Assert.False(MapMarkerRenderer.InitAttemptedForTesting);
+        }
     }
 }

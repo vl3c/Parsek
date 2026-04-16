@@ -424,5 +424,170 @@ namespace Parsek.Tests
             for (int i = 1; i < child.Points.Count; i++)
                 Assert.True(child.Points[i].ut >= child.Points[i - 1].ut);
         }
+
+        // ----- ApplyTrajectoryPointToRecording return contract (P1 review fix) -----
+
+        [Fact]
+        public void ApplyTrajectoryPointToRecording_NullRecording_ReturnsFalse()
+        {
+            // Null target cannot accept the append — callers must treat this as a reject
+            // so they do not advance state bookkeeping (lastRecordedUT, track sections).
+            bool accepted = BackgroundRecorder.ApplyTrajectoryPointToRecording(
+                null, new TrajectoryPoint { ut = 100.0 });
+            Assert.False(accepted);
+        }
+
+        [Fact]
+        public void ApplyTrajectoryPointToRecording_Monotonic_ReturnsTrue()
+        {
+            var rec = new Recording { RecordingId = "test419-ret-ok" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            bool accepted = BackgroundRecorder.ApplyTrajectoryPointToRecording(
+                rec, new TrajectoryPoint { ut = 110.0 });
+            Assert.True(accepted);
+            Assert.Equal(2, rec.Points.Count);
+            Assert.Equal(110.0, rec.Points[1].ut);
+        }
+
+        [Fact]
+        public void ApplyTrajectoryPointToRecording_NonMonotonic_ReturnsFalseAndLeavesPointsUnchanged()
+        {
+            // The P1 fix: callers depend on this bool to short-circuit track-section
+            // appends and state advances when the flat append was rejected.
+            var rec = new Recording { RecordingId = "test419-ret-reject" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 170.92 });
+            int countBefore = rec.Points.Count;
+
+            bool accepted = BackgroundRecorder.ApplyTrajectoryPointToRecording(
+                rec, new TrajectoryPoint { ut = 155.84 });
+
+            Assert.False(accepted);
+            Assert.Equal(countBefore, rec.Points.Count);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("rejected non-monotonic UT") && l.Contains("#419"));
+        }
+
+        [Fact]
+        public void ApplyTrajectoryPointToRecording_EqualUT_ReturnsTrue()
+        {
+            // Same-UT duplicates are tolerated (boundary seeds commonly produce them).
+            // The caller should treat this as accepted and advance state.
+            var rec = new Recording { RecordingId = "test419-ret-equal" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            bool accepted = BackgroundRecorder.ApplyTrajectoryPointToRecording(
+                rec, new TrajectoryPoint { ut = 100.0 });
+            Assert.True(accepted);
+            Assert.Equal(2, rec.Points.Count);
+        }
+
+        // ----- AppendPointsFromTrackSections flush-path guard (P1 defense-in-depth) -----
+
+        [Fact]
+        public void AppendPointsFromTrackSections_MonotonicRebuilt_AppendsAll()
+        {
+            var existingPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 },
+            };
+            var tracks = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 120.0,
+                    endUT = 140.0,
+                    source = TrackSectionSource.Background,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 120.0 },
+                        new TrajectoryPoint { ut = 130.0 },
+                        new TrajectoryPoint { ut = 140.0 },
+                    },
+                }
+            };
+
+            RecordingStore.AppendPointsFromTrackSections(tracks, existingPoints);
+
+            Assert.Equal(5, existingPoints.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("non-monotonic frame(s)"));
+        }
+
+        [Fact]
+        public void AppendPointsFromTrackSections_NonMonotonicRebuilt_SkipsViolatingFrames()
+        {
+            // Defense-in-depth: even if a non-monotonic frame somehow survived into a
+            // track section (legacy save, test injection, or a future sampler path that
+            // bypasses ApplyTrajectoryPointToRecording), the flush stitch must not let
+            // it re-materialize in rec.Points. The #419 original corruption shape was
+            // inherited points at 155.84..170.92 followed by a new seed at 155.84; the
+            // flush guard skips the second-pass 155.84 here.
+            var existingPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 170.92 },
+            };
+            var tracks = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 155.84,
+                    endUT = 180.0,
+                    source = TrackSectionSource.Background,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 155.84 },
+                        new TrajectoryPoint { ut = 165.0 },
+                        new TrajectoryPoint { ut = 180.0 },
+                    },
+                }
+            };
+
+            RecordingStore.AppendPointsFromTrackSections(tracks, existingPoints);
+
+            // The two non-monotonic frames (155.84, 165.0) must be skipped; only 180.0
+            // extends strictly past the current last (170.92).
+            for (int i = 1; i < existingPoints.Count; i++)
+                Assert.True(existingPoints[i].ut >= existingPoints[i - 1].ut,
+                    $"Point {i} UT {existingPoints[i].ut} regressed below previous {existingPoints[i - 1].ut}");
+            Assert.Equal(3, existingPoints.Count);
+            Assert.Equal(180.0, existingPoints[existingPoints.Count - 1].ut);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("skipped 2 non-monotonic frame(s)") && l.Contains("#419"));
+        }
+
+        [Fact]
+        public void AppendPointsFromTrackSections_EmptyExisting_NoGuardFires()
+        {
+            // Guard only engages when there is a prior last point to compare against.
+            // Initial flushes into an empty points list must not trigger the warn.
+            var existingPoints = new List<TrajectoryPoint>();
+            var tracks = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 100.0,
+                    endUT = 120.0,
+                    source = TrackSectionSource.Background,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100.0 },
+                        new TrajectoryPoint { ut = 110.0 },
+                        new TrajectoryPoint { ut = 120.0 },
+                    },
+                }
+            };
+
+            RecordingStore.AppendPointsFromTrackSections(tracks, existingPoints);
+
+            Assert.Equal(3, existingPoints.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("non-monotonic frame(s)"));
+        }
     }
 }

@@ -45,6 +45,55 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~425. Stock map icons can get stuck on the fallback diamond for an entire scene if the first draw predates MapView.UINodePrefab~~
+
+**Source:** PR #328 review finding (post-v0.8.1 review pass). `MapMarkerRenderer.InitVesselTypeIcons` latched `initAttempted = true` before any of the transient startup checks. If the first draw happened while `MapView.UINodePrefab` was still null or the prefab's `iconSprites` array was still empty (Unity hadn't finished initializing), the method early-returned and `initAttempted` stayed true for the rest of the scene, so every ghost marker rendered the fallback diamond instead of the stock vessel-type icon.
+
+**Fix:** reworked the latch into a terminal-outcome marker. Transient failures (null `MapView.UINodePrefab`, null / empty `iconSprites` array) now `return` without setting `initAttempted`, so the next frame retries. Structural failures (private `iconSprites` field reflection miss, no sprite carries a texture — these can't improve by retrying and would spam warn logs) and the successful-resolve path both set the latch. Transient logs are `Verbose` (won't spam); structural logs are `Warn` with an explicit `latching, no retry` tail. `ResetForSceneChange` and `ResetForTesting` clear the latch, so every new scene gets a fresh chance to resolve the atlas.
+
+**Files touched:** `Source/Parsek/MapMarkerRenderer.cs` (latch reworked, logs rebalanced, `InitAttemptedForTesting` accessor for unit tests), `Source/Parsek.Tests/MapMarkerRendererTests.cs` (3 new tests: default, `ResetForSceneChange` clears, `ResetForTesting` clears).
+
+**Status:** ~~Fixed~~. Size: XS.
+
+---
+
+## ~~424. Persisted `showGhostsInTrackingStation` toggle masks live Game Parameters UI flips for the rest of the session~~
+
+**Source:** PR #328 review finding (post-v0.8.1 review pass). Once `settings.cfg` had a stored `showGhostsInTrackingStation` value (user had flipped the toggle at least once via the Parsek settings window), `ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation` always returned the persisted value and never consulted `ParsekSettings.Current`. The Tracking Station / GhostMap code paths call this helper on startup and every update, so any subsequent flip from KSP's stock Game Parameters UI — the only other surface that writes the field (via `[GameParameters.CustomParameterUI]`) — had no visible effect. Ghost visibility stayed pinned to the old stored value until the next cold start.
+
+**Fix:** reversed the precedence inside `EffectiveShowGhostsInTrackingStation`. When `ParsekSettings.Current` is resolvable (post-`ParsekScenario.OnLoad`, live and store are reconciled), its value wins. If the live value disagrees with the stored value (Game Parameters UI wrote behind our back), the store is quietly resynced so the next cold-start before `Current` resolves reads the user's current intent. The store still acts as the fallback for the early-scene-load window where `HighLogic.CurrentGame` hasn't been populated yet (the `SpaceTracking.Awake` race that motivated the pre-#328 store-first ordering). The resync `Save()` is wrapped in the same `SecurityException` guard already used by `LoadIfNeeded`, so the xUnit context where `KSPUtil.ApplicationRootPath` throws keeps the in-memory store update and skips disk I/O.
+
+Added `ParsekSettings.CurrentOverrideForTesting` hook so unit tests can exercise the live-wins branch without standing up a full `HighLogic.CurrentGame`.
+
+**Files touched:** `Source/Parsek/ParsekSettingsPersistence.cs` (precedence reversal, resync + `SecurityException` guard), `Source/Parsek/ParsekSettings.cs` (`CurrentOverrideForTesting` hook), `Source/Parsek.Tests/ShowGhostsInTrackingStationTests.cs` (5 new tests: live-true-overrides-store-false, live-false-overrides-store-true, resync on divergence, no resync on steady state, seed-store-on-first-run).
+
+**Status:** ~~Fixed~~. Size: XS.
+
+---
+
+## 423. Stock ion engine audio clip `sound_IonEngine` is missing on ghost playback (underlying cause behind the #421 dedupe)
+
+**Source:** review follow-up on PR #328's `#421` fix. `#421` only deduped the `GhostAudio` "AudioClip not found" WARN per `(ghost, pid, clip path)`. The underlying reason the clip cannot be resolved at ghost-build time was intentionally left for a separate pass so the dedupe could ship first.
+
+**Concern:** Every live-career and showcase ghost that carries a stock ion engine (`ionEngine` / `IX-6315 "Dawn"`) silently plays without engine audio during ghost playback, which is a visual-fidelity regression relative to the real vessel. The playtest log that surfaced `#421` (`logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:15772, 18092, 22369, 26985, 35917, 41246, 45772`) shows the warn firing 7 times for the same `ionEngine` pid=100000 — the clip path `sound_IonEngine` never resolves.
+
+**Investigation hints:**
+
+- Grep `Source/Parsek/GhostAudio*` / `GhostVisualBuilder.TryBuildAudioFX` for `sound_IonEngine` and trace where the clip path is synthesized. Likely candidates:
+  - `GhostAudioPresets.presetMap` is emitting `sound_IonEngine` for the `XenonGas` / `ElectricCharge` propellant branch when the stock cfg's actual clip name differs (KSP post-1.12 may ship the clip under `KSP/Sounds/...` or a different base name).
+  - The ghost-build path is looking up the clip via `GameDatabase.Instance.GetAudioClip(...)` with a synthesized path that doesn't match what the stock cfg `EFFECTS { ... RUNNING { ... AUDIO { clip = <path> } } }` block references.
+  - KSP's AudioClip database may not be populated at the UT the ghost is built (ghost-build runs on scenario load, before `GameDatabase` finishes scanning stock sounds in some startup paths).
+- Decompile or read `Assembly-CSharp` for the `ionEngine` part's `EFFECTS` config to compare the clip reference against what Parsek is looking up. See `reference_ksp_decompilation.md` for the `ilspycmd` workflow.
+- Check whether the stock `ionEngine` cfg has been renamed between KSP versions (e.g. `sound_Engine_IonEngine` vs `sound_IonEngine` vs just a `.ogg` path), and whether the mod's clip-resolution code copes with the variant.
+
+**Proposed fix:** depends on root cause. If the preset map is wrong, fix the preset. If the clip is in `GameData/Squad/Sounds/` under a different path, update the lookup. If the clip resolves late, defer the audio build or retry on first playback tick. Whatever the root fix, the `#421` dedupe machinery can stay — it becomes a cheap safety net for any other future genuinely-missing clips.
+
+**Files to touch:** probably `Source/Parsek/GhostAudioPresets.cs` (or wherever the preset map lives), `Source/Parsek/GhostVisualBuilder.cs` (`TryBuildAudioFX`), and a unit test that asserts the correct clip path for the `ionEngine` part name under a mock `GameDatabase`.
+
+**Status:** TODO. Size: S. Low priority — no gameplay regression, only a subtle audio fidelity miss on a specific stock engine. Blocked on inspecting the stock cfg.
+
+---
+
 ## ~~420. `SaveLoadTests.CurrentFormatTrajectorySidecarsProbeAsBinary` fails on tree-root recordings with `pointCount=0` (no `.prec` expected)~~
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Current-format recording 'e1-root' is missing its .prec sidecar`.
@@ -73,6 +122,13 @@ are fixed in the same PR branch with additional commits:
 - `TrimPointsAtOrAfterUT(List<TrajectoryPoint>, double boundaryUT)` — inclusive trim used at the breakup boundary. Removes points with `UT >= boundaryUT` so the subsequent authoritative seed at `boundaryUT` becomes `Points[0]` (or the next monotonic append) cleanly.
 
 `BackgroundRecorder.ApplyTrajectoryPointToRecording` now calls `IsAppendUTMonotonic` before the `treeRec.Points.Add(point)` line and `Warn`-logs + skips the append when the invariant would be violated (tagged `#419` in the message so the failure mode is greppable). `CreateBreakupChildRecording` in `ParsekFlight.cs` now calls `TrimPointsAtOrAfterUT(childRec.Points, breakupBp.UT)` **before** the seed-point / snapshot-inheritance code runs. Under the current callers this is a no-op (the `new Recording { ... }` allocation is empty), but any future inheritance path that grafts parent samples into the child before handoff will be caught by the trim — the `fallbackTrajectoryPoint` path (UT > breakup for the vessel-destroyed-during-coalescing-window scenario, covered by `Bug157_FallbackSnapshotTests.NullVessel_WithFallbackTrajectoryPoint_SeedsRecordingPoint`) applies its seed *after* the trim so it is never mistakenly removed. Option 2 (sampler guard) alone would leave duplicate points in place on rejection, while option 1 (trim-at-boundary) alone would not catch late same-boundary-UT re-seeds; landing both in concert plus the monotonic-append guard makes the invariant defense-in-depth.
+
+**Post-PR-328 review P1 extension (TrackSections leak):** the first pass only gated `treeRec.Points`, but `ApplyInitialTrajectoryPoint` unconditionally appended the same point to the current track section and advanced `state.lastRecordedUT` / `state.lastRecordedVelocity`. Later `FlushTrackSectionsToRecording` → `RecordingStore.AppendPointsFromTrackSections` rebuilt flat points from those sections without a monotonicity guard, so a rejected seed would re-materialize in `treeRec.Points` on the next flush or save-load. Closed by two changes:
+
+- `ApplyTrajectoryPointToRecording` now returns `bool` (`true` accepted, `false` rejected). `ApplyInitialTrajectoryPoint`, the on-rails `InitializeOnRailsState` caller, and any other state-advancing caller short-circuit the downstream track-section append and `state.lastRecordedUT` / `state.lastRecordedVelocity` update when the flat-points append was rejected. A rejection now emits a second warn at the caller level identifying the vessel pid and UT so the short-circuit is visible in `KSP.log`.
+- `RecordingStore.AppendPointsFromTrackSections` rejects rebuilt points whose UT is strictly less than the current last point at the flush stitch, with a `#419` warn logged under the `RecordingStore` subsystem tag. This defense-in-depth catches any path that bypasses the sampler choke point — legacy saves, test injection, or a future sampler that appends directly to `state.currentTrackSection.frames`.
+
+Seven new tests in `Bug419DebrisMonotonicityTests` cover the expanded contract: `ApplyTrajectoryPointToRecording` return semantics (null / monotonic / non-monotonic / equal-UT), and the flush-stitch guard (monotonic-rebuilt → all appended, non-monotonic-rebuilt → violating frames skipped + warn, empty-existing → guard silent).
 
 **Tests:** 21 unit tests in `Source/Parsek.Tests/Bug419DebrisMonotonicityTests.cs`:
 
@@ -152,7 +208,7 @@ The in-game `CommittedRecordingsHaveValidData` test remains the ultimate regress
 
 **Files touched:** `Source/Parsek/GhostVisualBuilder.cs` (dedupe map + `WarnMissingAudioClipOnce` / `ClearMissingAudioClipWarnings` / `ResetMissingAudioClipWarningsForTesting`; callsite routed through the helper), `Source/Parsek/GhostPlaybackEngine.cs` (`DestroyGhost` clears the dedupe bucket), `Source/Parsek.Tests/Bug421GhostAudioDedupeTests.cs` (new), `CHANGELOG.md`.
 
-**Follow-up:** The dedupe is cosmetic — it collapses the log noise but does not fix the underlying "clip genuinely missing" case. Investigating whether the stock ion engine cfg actually ships `sound_IonEngine` at ghost-build time (or whether `GhostAudioPresets.presetMap` is synthesizing the wrong key for the `XenonGas` / `ElectricCharge` branches that map to `sound_IonEngine`) is still open. Once the root cause is confirmed, fix either the cfg scan or the preset map and drop `sound_IonEngine` from the missing-clip list — if the clip resolves, the dedupe machinery never fires and can stay in place as a cheap safety net for other genuinely-missing clips.
+**Follow-up:** The dedupe is cosmetic — it collapses the log noise but does not fix the underlying "clip genuinely missing" case. Tracked as **#423** in this file. Once #423's root cause is fixed and the clip resolves, the dedupe machinery never fires and can stay in place as a cheap safety net for other genuinely-missing clips.
 
 **Status:** Fixed (dedupe only — clip-missing root cause still TODO). Size: S.
 
@@ -171,6 +227,8 @@ The in-game `CommittedRecordingsHaveValidData` test remains the ultimate regress
 **Diagnostic added:** `GhostPlaybackEngine.UpdatePlayback` now records per-phase microseconds using reusable `Stopwatch` instances (zero per-frame GC) for: main-loop dispatch (total-at-loop-end minus the existing spawn/destroy accumulators), explosion-cleanup sweep, deferred `OnGhostCreated` invocations, deferred `OnPlaybackCompleted` invocations, and the post-loop `CaptureGhostObservability` call. Spawn and destroy continue to use the existing per-frame accumulators. The populated `PlaybackBudgetPhases` struct is passed to the new `DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown`, which (in addition to the rate-limited `"Playback frame budget exceeded"` WARN already in place) emits a single one-shot `"Playback budget breakdown (one-shot, first exceeded frame): total=Xms mainLoop=... spawn=... destroy=... explosionCleanup=... deferredCreated=... (N evts) deferredCompleted=... (N evts) observabilityCapture=... trajectories=... ghosts=... warp=..."` line the **first** time a spike fires in a session. A session-scoped latch (`s_playbackBreakdownOneShotFired`) guarantees that subsequent spikes do not re-spam the breakdown. Steady-state cost on frames that stayed within budget is zero log lines and zero extra allocations (only stopwatch `Reset/Start/Stop` + a handful of tick divisions on the rare exceeded frame). Adjacent log lines at `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:12745-12757` show the spike landed right as four `PlaybackCompleted` policy callbacks fired for Learstar A1 debris indices 284-287, which the breakdown will either confirm (deferredCompleted dominates) or rule out (mainLoop dominates pointing at the per-trajectory dispatch during scenario hydration).
 
 **Files touched (diagnostic-only, no behavior change):** `Source/Parsek/GhostPlaybackEngine.cs` (per-phase stopwatches + breakdown callsite), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (`PlaybackBudgetPhases` struct), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (`CheckPlaybackBudgetThresholdWithBreakdown`, one-shot latch, `ResetPlaybackBreakdownOneShotForTesting`), `Source/Parsek.Tests/Bug414BudgetBreakdownTests.cs` (new — 8 tests), `CHANGELOG.md`.
+
+**Subtle behavior change flagged during review:** pre-#414, `CaptureGhostObservability()` ran **after** `updateStopwatch.Stop()`, so its cost was silently excluded from `totalMicroseconds` and from the existing `"Playback frame budget exceeded"` WARN. The #414 diagnostic moves the call inside the stopwatch window and measures it as its own phase. Consequence: `totalMicroseconds` is now strictly greater-than-or-equal-to the pre-#414 value by the `observabilityCapture` phase cost. On borderline frames this can shift whether the 8 ms rate-limited WARN fires. Deliberate — the phase sum now matches the total, and a slow observability capture is now attributable rather than hidden.
 
 **Status:** TODO. Size: S (investigation) + depends on root cause. Next playtest will capture the breakdown line on the first spike and identify the responsible phase; only then should a fix be proposed.
 

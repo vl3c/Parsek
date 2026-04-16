@@ -193,5 +193,115 @@ namespace Parsek.Tests
             Assert.Equal(1500f, settings.ghostCameraCutoffKm);
             Assert.False(settings.writeReadableSidecarMirrors);
         }
+
+        // ---- Post-PR-328 precedence reversal (live wins over store when resolvable) ----
+        // These tests pin the P2 fix: once ParsekSettings.Current is resolvable, it is
+        // authoritative. Previously the store masked any Game Parameters UI flip because
+        // the helper returned the stored value without consulting Current.
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveTrueOverridesStoreFalse()
+        {
+            // Reviewer's P2 scenario: user had toggle disabled (store=false), then
+            // flipped it back on via KSP Game Parameters UI (live=true). Live wins.
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = true };
+
+                Assert.True(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation(),
+                    "Live ParsekSettings.Current must override a stale store on Game Parameters UI flip.");
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveFalseOverridesStoreTrue()
+        {
+            // Opposite direction: toggle previously enabled, user flipped off via
+            // Game Parameters UI — store still true, live false. Live wins.
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = false };
+
+                Assert.False(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveDiffersFromStore_ResyncsStore()
+        {
+            // When live != stored we resync the store so the next cold-start
+            // (before ParsekSettings.Current resolves) reads the user's real intent.
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = true };
+
+                ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
+
+                Assert.Equal(true, ParsekSettingsPersistence.GetStoredShowGhostsInTrackingStation());
+                Assert.Contains(logLines, l =>
+                    l.Contains("[SettingsStore]") &&
+                    l.Contains("resyncing store") &&
+                    l.Contains("Game Parameters UI"));
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveMatchesStore_NoResyncLog()
+        {
+            // Steady state: no divergence, no resync log, no redundant Save().
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = false };
+
+                logLines.Clear();
+                ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
+
+                Assert.DoesNotContain(logLines, l => l.Contains("resyncing store"));
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LivePresentStoreEmpty_SeedsStore()
+        {
+            // First-run path: store has no value yet. Returning from live and seeding
+            // the store matches the old "fall through to live, no write" behavior in
+            // outcome, but also warms the store so the next cold-start uses live intent.
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = false };
+
+                Assert.False(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
+                Assert.Equal(false, ParsekSettingsPersistence.GetStoredShowGhostsInTrackingStation());
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
     }
 }

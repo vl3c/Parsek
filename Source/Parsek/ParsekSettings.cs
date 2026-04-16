@@ -154,7 +154,15 @@ namespace Parsek
         }
 
         public static ParsekSettings Current =>
-            HighLogic.CurrentGame?.Parameters?.CustomParams<ParsekSettings>();
+            CurrentOverrideForTesting ?? HighLogic.CurrentGame?.Parameters?.CustomParams<ParsekSettings>();
+
+        /// <summary>
+        /// Test-only override for <see cref="Current"/>. Lets unit tests exercise
+        /// code paths that branch on a non-null <c>ParsekSettings.Current</c> without
+        /// standing up a full <c>HighLogic.CurrentGame</c>. Production code must not
+        /// set this.
+        /// </summary>
+        internal static ParsekSettings CurrentOverrideForTesting;
 
         public override void OnLoad(ConfigNode node)
         {
