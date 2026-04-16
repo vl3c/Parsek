@@ -37,9 +37,9 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
-## Gloops Flight Recorder
+## ~~Gloops Flight Recorder~~
 
-- **Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops Flight Recordings - Ghosts Only". Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation). Needs in-game verification when KSP is available.
+- ~~**Gloops Flight Recorder window** — manual ghost-only recording controls moved from main UI to a dedicated window. Recordings marked `IsGhostOnly`, auto-commit on stop, loop by default, grouped under "Gloops Flight Recordings - Ghosts Only". Parallel FlightRecorder instance with `IsGloopsMode` flag for separate Harmony patch routing, skipped rewind saves, and auto-stop on vessel switch. X delete button in recordings table for ghost-only recordings (no confirmation).~~ In-game verified 2026-04-16.
 
 ---
 
@@ -101,7 +101,7 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
-## 416. Sidecar-hydration WARN lines duplicate matching INFO-level "trajectory file missing" entries on freshly-loaded test saves
+## 422. Sidecar-hydration WARN lines duplicate matching INFO-level "trajectory file missing" entries on freshly-loaded test saves
 
 **Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:10529-10605`. Ten trees log a WARN `"N recording(s) with sidecar hydration failures"` immediately after N INFO lines of the form `"Trajectory file missing for <recording> — recording degraded (0 points)"`.
 
@@ -113,7 +113,7 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
-## 415. `GhostAudio` logs "AudioClip not found: 'sound_IonEngine'" per-event without dedupe
+## 421. `GhostAudio` logs "AudioClip not found: 'sound_IonEngine'" per-event without dedupe
 
 **Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:15772, 18092, 22369, 26985, 35917, 41246, 45772`. The missing clip warning fired 7 times over ~3.5 minutes for the same `ionEngine` pid=100000. Pre-existing; not introduced by #316.
 
@@ -1280,7 +1280,7 @@ Sort/stability rules mirror the Kerbals window (ordinal by name, then by UT with
 
 ---
 
-## 384. Copy the Learstar A1 mission from the S16 career into the test-career injector fixture as a far-away / map-view smoke test
+## ~~384. Copy the Learstar A1 mission from the S16 career into the test-career injector fixture as a far-away / map-view smoke test~~
 
 **Source:** maintenance request `2026-04-14`. The injected test career has lots of near-KSC content (Pad Walk, KSC Hopper, Flea Flight, etc.) and a handful of reentry recordings, but no representative mission with significant map-view / far-away state. The S16 campaign has a Learstar A1 flight that is a natural smoke test for this category.
 
@@ -3286,7 +3286,7 @@ Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open on
 
 ## TODO — Ghost Visuals
 
-### T65. Ghost audio suppression still logs disabled-source warnings on first appearance
+### ~~T65. Ghost audio suppression still logs disabled-source warnings on first appearance~~
 
 The plume regression is fixed, but the fresh smoke bundle initially still showed a follow-up ghost-audio warning. In `logs/2026-04-14_1459_ghost-engine-fix-smoke/KSP.log`, the main `Kerbal X` ghost correctly starts engine state before its first visible Flight appearance (`GhostAudio` start lines at `15228`, `15230`, `15232`; appearance at `15235`; watch mode only later at `15244`), yet KSP logged `Can not play a disabled audio source` immediately beforehand at `15227`, `15229`, and `15231`. The same pattern repeated earlier in the session at `11904-11908` and `15135-15139`.
 
@@ -3294,7 +3294,7 @@ Root cause: the warnings did **not** come from capped-away audio sources or from
 
 The `suppressed=1` suffix on the surrounding `GhostAudio` start lines was only `ParsekLog.VerboseRateLimited` bookkeeping for repeated start logs, not ghost-audio suppression bookkeeping.
 
-**Status:** Fixed in code — targeted unit slice passes; fresh runtime smoke-log revalidation still recommended
+**Status:** ~~Fixed~~ — runtime revalidation confirmed 2026-04-16: 10 log packages across 2026-04-14 → 2026-04-16 (including `2026-04-15_2034_showcase-loop-perf` with 23,995 `[GhostAudio]` lines and `2026-04-16_2049_pr316-v3-perf` with 16,590) show zero `Can not play a disabled audio source` warnings. Last occurrence was `2026-04-14_1459_ghost-engine-fix-smoke` (the exact log cited in this entry).
 
 **Priority:** Medium follow-up after merging `#355` — fixed as log noise / correctness issue, not a plume-visibility regression
 
@@ -3527,7 +3527,7 @@ The R button never appears in the recordings table because `RewindSaveFileName` 
 
 ---
 
-## 308. Reserved kerbals appear assignable in VAB/SPH crew dialog
+## ~~308. Reserved kerbals appear assignable in VAB/SPH crew dialog~~
 
 **Observed in:** 0.8.0 (2026-04-12). Reserved kerbals (those whose recordings are playing back as ghosts) appear auto-assigned to vessel seats in the VAB/SPH crew dialog. The player sees them in the crew panel and thinks the reservation system failed.
 
