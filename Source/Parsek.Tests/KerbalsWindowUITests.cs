@@ -525,6 +525,116 @@ namespace Parsek.Tests
                 KerbalsWindowUI.FormatEndStateRow(unnamed));
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        // FormatKerbalSummary (#415-1 fold toggle)
+        // ──────────────────────────────────────────────────────────────────
+
+        private static KerbalsWindowUI.CrewEndStateEntry EndStateEntry(
+            string kerbalName, KerbalEndState state)
+        {
+            return new KerbalsWindowUI.CrewEndStateEntry
+            {
+                KerbalName = kerbalName,
+                RecordingName = "",
+                RecordingId = "",
+                EndUT = 0.0,
+                EndState = state
+            };
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_SingleMissionRecovered_RendersSingular()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Bill Kerman", KerbalEndState.Recovered)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Bill Kerman", entries, 0, entries.Count);
+
+            Assert.Equal("Bill Kerman (1 mission \u2014 1 Recovered)", result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_MultipleMissions_MixedStates_OrdersDeadRecoveredAboard()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Aboard),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Jebediah Kerman", entries, 0, entries.Count);
+
+            Assert.Equal(
+                "Jebediah Kerman (4 missions \u2014 1 Dead, 2 Recovered, 1 Aboard)",
+                result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_OmitsZeroCountStates()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Bill Kerman", entries, 0, entries.Count);
+
+            Assert.Equal("Bill Kerman (3 missions \u2014 3 Dead)", result);
+            Assert.DoesNotContain("Recovered", result);
+            Assert.DoesNotContain("Aboard", result);
+            Assert.DoesNotContain("Unknown", result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_UnknownStateBucketed()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Hanley Kerman", KerbalEndState.Aboard),
+                EndStateEntry("Hanley Kerman", KerbalEndState.Unknown)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Hanley Kerman", entries, 0, entries.Count);
+
+            Assert.Equal(
+                "Hanley Kerman (2 missions \u2014 1 Aboard, 1 Unknown)",
+                result);
+        }
+
+        [Fact]
+        public void FormatKerbalSummary_UsesSliceBoundaries()
+        {
+            // Interleaved entries for three kerbals. Only Bill's slice [2, 5) should be
+            // counted — the slice is 2 Recovered + 1 Dead.
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                EndStateEntry("Adara Kerman", KerbalEndState.Aboard),
+                EndStateEntry("Adara Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Bill Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
+                EndStateEntry("Bill Kerman", KerbalEndState.Recovered),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead),
+                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead)
+            };
+
+            string result = KerbalsWindowUI.FormatKerbalSummary(
+                "Bill Kerman", entries, 2, 5);
+
+            Assert.Equal(
+                "Bill Kerman (3 missions \u2014 1 Dead, 2 Recovered)",
+                result);
+        }
+
         [Fact]
         public void Build_EmitsVerboseLog_WithSectionCounts()
         {

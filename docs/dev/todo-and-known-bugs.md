@@ -1096,7 +1096,7 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 **Filter applied:** a standalone "Deceased" list is NOT included here — stock's KIA memorial already exposes that. The per-recording end-state view below inherently annotates which kerbals died in which mission, which is the Parsek-unique framing.
 
-**1. ~~Per-recording crew end-state breakdown~~.** DONE in v0.8.2 alongside the #385 extraction — new **Per-Recording Fates** section renders a grouped, chronological view of each kerbal's committed missions with color-coded Dead/Recovered/Aboard/Unknown labels. See `KerbalsWindowUI.Build` (new `CrewEndStateEntry` + `List<CrewEndStateEntry> EndStates` on `KerbalsViewModel`). Remaining from this sub-item (minor polish, ship anytime): per-kerbal fold/unfold toggle to collapse large rosters.
+**1. ~~Per-recording crew end-state breakdown~~.** DONE in v0.8.2 alongside the #385 extraction — new **Per-Recording Fates** section renders a grouped, chronological view of each kerbal's committed missions with color-coded Dead/Recovered/Aboard/Unknown labels. See `KerbalsWindowUI.Build` (new `CrewEndStateEntry` + `List<CrewEndStateEntry> EndStates` on `KerbalsViewModel`). ~~Remaining polish: per-kerbal fold/unfold toggle to collapse large rosters.~~ DONE in #415-1 (v0.8.2) — clicking a kerbal's header collapses their rows under a compact `N missions — X Dead, Y Recovered, Z Aboard` summary; fold state is transient UI-only (resets on scene transitions).
 
 **2. Chain topology view.** Today the three flat sections fragment the chain — a user cannot tell that Bill (active) displaced Hanley (retired) under Jeb's slot without mentally joining the lists. Replace (or supplement) the flat sections with a per-slot tree render:
 
