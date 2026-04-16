@@ -232,6 +232,81 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("NormalizeDegenerateLoopInterval"));
         }
 
+        /// <summary>
+        /// Deterministically writes a snapshot sidecar with an unsupported format version.
+        /// The load path treats this as <c>SnapshotSidecarLoadState.Unsupported</c>, which
+        /// maps to <c>snapshot-vessel-unsupported</c> in <c>DetermineSnapshotLoadFailureReason</c>.
+        /// Mirrors the helper in <c>RecordingStorageRoundTripTests</c> but inlined here so this
+        /// test file stays self-contained.
+        /// </summary>
+        private static void WriteUnsupportedSnapshotSidecar(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'S' });
+                writer.Write(99);
+                writer.Write((byte)1);
+                writer.Write(16);
+                writer.Write(4);
+                writer.Write(0u);
+                writer.Write(new byte[] { 1, 2, 3, 4 });
+            }
+        }
+
+        [Fact]
+        public void LoadRecordingFiles_SnapshotSidecarFailure_StillNormalizesAfterTrajectoryHydration()
+        {
+            // Snapshot-sidecar hydration failure returns false from LoadRecordingFiles, but
+            // ParsekScenario.OnLoad still commits the recording to CommittedRecordings and
+            // ParsekKSC schedules playback based on Points.Count + PlaybackEnabled. If
+            // normalization were downstream of the snapshot-failure early return, the
+            // recording would reach ResolveLoopInterval with the degenerate period intact.
+            // Pin that normalization runs immediately after trajectory deserialization.
+            var original = BuildRecordingWithTrajectory(
+                "rec-412-snap-fail", "SnapFail",
+                startUT: 100_000, endUT: 100_068,
+                loopIntervalSeconds: 0.0, loopPlayback: true);
+            string precPath = WriteSidecar(original);
+
+            // Unsupported-version vessel sidecar: the probe opens the file, reads the magic
+            // "PRKS" + version 99, and reports it as unsupported — LoadRecordingFiles then
+            // hits the snapshot-failure early return with FailureReason=snapshot-vessel-unsupported.
+            string vesselPath = Path.Combine(tempDir, original.RecordingId + "_vessel.craft");
+            WriteUnsupportedSnapshotSidecar(vesselPath);
+
+            var loaded = new Recording
+            {
+                RecordingId = original.RecordingId,
+                VesselName = original.VesselName,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 0.0,
+                LoopTimeUnit = LoopTimeUnit.Sec,
+                SidecarEpoch = original.SidecarEpoch,
+                GhostSnapshotMode = GhostSnapshotMode.Separate,
+            };
+
+            bool result = RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                loaded, precPath, vesselPath, ghostPath: null);
+
+            // Load reports failure (surface to the caller for salvage / diagnostics)...
+            Assert.False(result);
+            Assert.True(loaded.SidecarLoadFailed);
+            Assert.StartsWith("snapshot-vessel-", loaded.SidecarLoadFailureReason);
+
+            // ... but the trajectory is hydrated and the loop period is repaired, so
+            // ParsekScenario's commit + ParsekKSC's playback scheduling can't reach the
+            // resolver with a degenerate period.
+            Assert.Equal(2, loaded.Points.Count);
+            Assert.Equal(68.0, loaded.LoopIntervalSeconds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Loop]") &&
+                l.Contains("NormalizeDegenerateLoopInterval") &&
+                l.Contains("'SnapFail'") &&
+                l.Contains("normalizing to 68"));
+        }
+
         [Fact]
         public void ResolveLoopInterval_AfterNormalization_DoesNotFireClampWarning()
         {

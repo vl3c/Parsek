@@ -79,8 +79,16 @@ every frame.
   `BuildV3Metadata`, `ScenarioWriter.BuildRecording`) route through the
   resolver.
 - `RecordingStore.NormalizeDegenerateLoopInterval` runs in
-  `LoadRecordingFilesFromPathsInternal` immediately after
-  `MigrateLegacyLoopIntervalAfterHydration`. Any recording loaded with
+  `LoadRecordingFilesFromPathsInternal` immediately after trajectory
+  deserialization (paired with the pre-existing
+  `MigrateLegacyLoopIntervalAfterHydration`), *before* snapshot-sidecar loading.
+  Positioning matters: a snapshot-sidecar failure early-returns `false` from
+  `LoadRecordingFiles` while leaving trajectory points hydrated, and
+  `ParsekScenario.OnLoad` still commits that recording to
+  `CommittedRecordings` where `ParsekKSC` schedules it as playback-eligible on
+  `Points.Count >= 2` + `PlaybackEnabled`. Placing the normalization downstream
+  of the snapshot check would let a degenerate period slip past the auto-repair
+  exactly in the broken-snapshot case. Any recording loaded with
   `LoopPlayback = true`, `LoopTimeUnit != Auto`, and
   `LoopIntervalSeconds < MinCycleDuration` is auto-repaired to its
   `EffectiveLoopDuration` (or `DefaultLoopIntervalSeconds` when the trajectory
@@ -92,10 +100,11 @@ every frame.
 **Tests.** `RecordingBuilderLoopIntervalTests` (5 tests) covers the builder's
 auto-derivation across loop-on-with-zero, loop-on-explicit, empty-trajectory,
 short-trajectory, and loop-off paths. `LoopIntervalLoadNormalizationTests`
-(6 tests) pins the load-path auto-repair, the no-op on loop-disabled /
-auto-mode / already-healthy recordings, and end-to-end proves that after
-normalization a recording can cycle through `ResolveLoopInterval` 100× without
-firing the clamp warning.
+(7 tests) pins the load-path auto-repair on the happy path and on the
+snapshot-sidecar-failure early return (proves the normalization runs before
+the snapshot check), the no-op on loop-disabled / auto-mode / already-healthy
+recordings, and end-to-end proves that after normalization a recording can
+cycle through `ResolveLoopInterval` 100× without firing the clamp warning.
 
 ---
 

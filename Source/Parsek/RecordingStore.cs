@@ -5347,6 +5347,17 @@ namespace Parsek
 
             DeserializeTrajectorySidecar(precPath, probe, rec);
 
+            // #412: Run legacy-loop migration and degenerate-interval normalization as soon
+            // as trajectory points are hydrated, BEFORE snapshot loading. A snapshot-sidecar
+            // failure below returns early while leaving Points populated; ParsekScenario.OnLoad
+            // still commits the recording, and ParsekKSC treats any enabled recording with
+            // >= 2 points as playback-eligible, so waiting until after snapshot success would
+            // let a degenerate LoopIntervalSeconds=0 slip past the auto-repair. Both
+            // normalizers only touch loop fields + trajectory bounds, so they're safe to run
+            // here regardless of snapshot outcome.
+            MigrateLegacyLoopIntervalAfterHydration(rec);
+            NormalizeDegenerateLoopInterval(rec);
+
             // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
             // the recording was loaded with empty cache fields. Without this, GhostMap
             // and other consumers see an empty TerminalOrbit cache and fail to create
@@ -5378,8 +5389,6 @@ namespace Parsek
                     $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
             }
 
-            MigrateLegacyLoopIntervalAfterHydration(rec);
-            NormalizeDegenerateLoopInterval(rec);
             return true;
         }
 
