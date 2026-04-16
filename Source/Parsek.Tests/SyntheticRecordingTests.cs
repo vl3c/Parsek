@@ -4777,6 +4777,115 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScenarioWriter_PurgeRecordingSidecars_RemovesStaleFilesFromPreviousInject()
+        {
+            // Simulates the InjectAllRecordings re-run scenario: an earlier inject
+            // with GUID A writes sidecars to Parsek/Recordings/, then a later
+            // inject with a DIFFERENT GUID B runs. Without the purge, A's sidecars
+            // would linger on disk as orphans that KSP's load-time orphan sweep
+            // later deletes — causing the "showcases disappeared" playtest symptom.
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_purge_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            // Minimal stock save skeleton with a FLIGHTSTATE anchor
+            // (ScenarioWriter.InjectIntoSave inserts the ParsekScenario before it).
+            string fakeSave =
+                "GAME\n{\n" +
+                "\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n\t}\n" +
+                "}\n";
+
+            try
+            {
+                string savePath = Path.Combine(tempDir, "persistent.sfs");
+                string tempPath = savePath + ".tmp";
+                File.WriteAllText(savePath, fakeSave);
+
+                string recDir = Path.Combine(tempDir, "Parsek", "Recordings");
+
+                // --- First inject with fixed GUID A -----------------------------
+                string guidA = "aaaaaaaa00000000aaaaaaaa00000000";
+                var writerA = new ScenarioWriter().WithV3Format();
+                writerA.AddRecordingAsTree(FleaFlight().WithRecordingId(guidA));
+                writerA.InjectIntoSaveFile(savePath, tempPath);
+                File.Copy(tempPath, savePath, overwrite: true);
+                File.Delete(tempPath);
+
+                // Sanity: A's sidecars landed on disk
+                Assert.True(File.Exists(Path.Combine(recDir, $"{guidA}.prec")),
+                    "First inject should have written GUID A .prec");
+
+                // --- Second inject with a DIFFERENT GUID B (no purge) -----------
+                // Without PurgeRecordingSidecars, A's files survive on disk.
+                string guidB = "bbbbbbbb11111111bbbbbbbb11111111";
+                var writerB = new ScenarioWriter().WithV3Format();
+                writerB.AddRecordingAsTree(FleaFlight().WithRecordingId(guidB));
+                writerB.InjectIntoSaveFile(savePath, tempPath);
+
+                // Guard: after plain re-inject, both A and B sidecars coexist ⇒
+                // this is the bug. We rely on this to prove the purge is needed.
+                Assert.True(File.Exists(Path.Combine(recDir, $"{guidA}.prec")),
+                    "A's stale .prec should still be on disk before purge (the bug)");
+                Assert.True(File.Exists(Path.Combine(recDir, $"{guidB}.prec")),
+                    "B's fresh .prec should have been written");
+
+                // --- Now purge and re-run the second inject --------------------
+                File.Copy(tempPath, savePath, overwrite: true);
+                File.Delete(tempPath);
+                writerB.PurgeRecordingSidecars(tempDir);
+                writerB.InjectIntoSaveFile(savePath, tempPath);
+                File.Copy(tempPath, savePath, overwrite: true);
+                File.Delete(tempPath);
+
+                // Only B's sidecars should remain. No .prec or snapshot files
+                // whose filename starts with GUID A (which would have been swept
+                // by KSP's orphan cleanup on next load).
+                string[] allFiles = Directory.GetFiles(recDir);
+                int aFiles = 0;
+                int bFiles = 0;
+                for (int i = 0; i < allFiles.Length; i++)
+                {
+                    string name = Path.GetFileName(allFiles[i]);
+                    if (name.StartsWith(guidA, StringComparison.Ordinal)) aFiles++;
+                    if (name.StartsWith(guidB, StringComparison.Ordinal)) bFiles++;
+                }
+                Assert.Equal(0, aFiles);
+                Assert.True(bFiles > 0,
+                    $"Expected B's sidecar files to be present after purge+reinject, found {bFiles} in {recDir}");
+
+                // The only .prec file is B's.
+                string[] precFiles = Directory.GetFiles(recDir, "*.prec");
+                Assert.Single(precFiles);
+                Assert.Equal($"{guidB}.prec", Path.GetFileName(precFiles[0]));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void ScenarioWriter_PurgeRecordingSidecars_IsNoOpOnMissingDirectory()
+        {
+            // PurgeRecordingSidecars should silently succeed when the target
+            // Parsek/Recordings directory does not exist (fresh save dir).
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_purge_missing_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var writer = new ScenarioWriter();
+                writer.PurgeRecordingSidecars(tempDir);
+                Assert.False(Directory.Exists(Path.Combine(tempDir, "Parsek", "Recordings")));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public void RecordingPaths_ValidateRecordingId_RejectsInvalidIds()
         {
             Assert.False(RecordingPaths.ValidateRecordingId(null));
@@ -5310,11 +5419,10 @@ namespace Parsek.Tests
             content = UnlockAllTechNodes(content, kspRoot);
             File.WriteAllText(savePath, content);
 
-            // Clean stale recording sidecar files
-            string saveDir = Path.GetDirectoryName(savePath);
-            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
-            if (Directory.Exists(recordingsDir))
-                Directory.Delete(recordingsDir, recursive: true);
+            // Stale sidecar file cleanup lives in InjectAllRecordings via
+            // ScenarioWriter.PurgeRecordingSidecars so the purge happens exactly
+            // once per save directory, even when CleanSaveStart is invoked for
+            // both persistent.sfs and the test-target save that share a dir.
         }
 
         [Trait("Category", "Manual")]
@@ -5350,6 +5458,15 @@ namespace Parsek.Tests
                     if (File.Exists(sp))
                         CleanSaveStart(sp);
                 }
+
+                // Purge stale recording sidecars from any previous inject run —
+                // otherwise yesterday's GUID-keyed showcase sidecars linger on
+                // disk after we rewrite persistent.sfs with fresh GUIDs, and
+                // KSP's load-time orphan sweep later deletes them (along with
+                // the current run's sidecars that happen to share the victim
+                // set). Gated on cleanStart so real-user recordings survive
+                // when PARSEK_INJECT_CLEAN_START=0 is set explicitly.
+                new ScenarioWriter().PurgeRecordingSidecars(saveDir);
             }
 
             double baseUT = ReadUTFromSave(targetPath);
@@ -5787,10 +5904,21 @@ namespace Parsek.Tests
                 Assert.True(Directory.Exists(recordingsDir),
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
+                // Expect exactly the synthetic recordings plus the real career
+                // recordings whose sidecars CopyRealRecordingFiles forwards — no
+                // orphan .prec files from previous inject runs. Each recording
+                // has one .prec, and vessel/ghost snapshots produce at least one
+                // _vessel.craft OR _ghost.craft file.
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                int expectedMin = 232 + realRecordingNodes.Length;
-                Assert.True(precFiles.Length >= expectedMin,
-                    $"Expected at least {expectedMin} .prec files (232 synthetic + {realRecordingNodes.Length} real), found {precFiles.Length}");
+                string[] vesselFiles = Directory.GetFiles(recordingsDir, "*_vessel.craft");
+                string[] ghostFiles = Directory.GetFiles(recordingsDir, "*_ghost.craft");
+                int expected = writer.V3BuilderCount + realRecordingNodes.Length;
+                Assert.True(precFiles.Length == expected,
+                    $"Expected exactly {expected} .prec files ({writer.V3BuilderCount} synthetic + {realRecordingNodes.Length} real), found {precFiles.Length}. " +
+                    "Extra files indicate orphan sidecars from a previous inject run — PurgeRecordingSidecars should have removed them.");
+                Assert.True(vesselFiles.Length + ghostFiles.Length >= expected,
+                    $"Expected at least {expected} vessel/ghost snapshot files ({writer.V3BuilderCount} synthetic + {realRecordingNodes.Length} real), " +
+                    $"found {vesselFiles.Length} _vessel.craft + {ghostFiles.Length} _ghost.craft.");
 
                 // Verify game state sidecar files
                 string gameStateDir = Path.Combine(saveDir, "Parsek", "GameState");
