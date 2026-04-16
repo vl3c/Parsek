@@ -5,7 +5,7 @@ namespace Parsek
 {
     /// <summary>
     /// Settings window extracted from ParsekUI.
-    /// Manages all Parsek settings: recording, looping, ghosts, diagnostics, sampling, data management.
+    /// Manages all Parsek settings: recording, looping, ghosts, diagnostics, sampling density, data management.
     /// </summary>
     internal class SettingsWindowUI
     {
@@ -192,10 +192,7 @@ namespace Parsek
                 s.autoMerge = false;
                 s.verboseLogging = true;
                 s.writeReadableSidecarMirrors = true;
-                s.minSampleInterval = 0.2f;
-                s.maxSampleInterval = 3.0f;
-                s.velocityDirThreshold = 2.0f;
-                s.speedChangeThreshold = 5.0f;
+                s.SamplingDensityLevel = SamplingDensity.Medium;
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
@@ -425,53 +422,27 @@ namespace Parsek
 
         private void DrawSamplingSettings(ParsekSettings s)
         {
-            GUILayout.Label("Sampling", GUI.skin.box);
+            GUILayout.Label("Recording Sampling Density", GUI.skin.box);
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent($"Min interval: {s.minSampleInterval:F2}s",
-                "Minimum seconds between trajectory samples — caps sample rate during slow/jittery motion (e.g. EVA on surface)"),
-                GUILayout.Width(140));
-            float minSampleInterval = GUILayout.HorizontalSlider(s.minSampleInterval, 0.05f, 1f);
-            if (Mathf.Abs(minSampleInterval - s.minSampleInterval) > 0.0001f)
+            foreach (SamplingDensity level in new[] { SamplingDensity.Low, SamplingDensity.Medium, SamplingDensity.High })
             {
-                s.minSampleInterval = minSampleInterval;
-                ParsekLog.VerboseRateLimited("UI", "sampling.minSampleInterval",
-                    $"Setting changed: minSampleInterval={s.minSampleInterval:F2}s", 1.0);
+                bool isSelected = s.SamplingDensityLevel == level;
+                GUIStyle style = isSelected ? GUI.skin.box : GUI.skin.button;
+                if (GUILayout.Button(new GUIContent(ParsekSettings.DensityLabel(level),
+                    ParsekSettings.DensityTooltip(level)), style))
+                {
+                    if (!isSelected)
+                    {
+                        s.SamplingDensityLevel = level;
+                        ParsekLog.Info("UI", $"Setting changed: samplingDensity={level}");
+                    }
+                }
             }
             GUILayout.EndHorizontal();
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));
-            float maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
-            if (Mathf.Abs(maxSampleInterval - s.maxSampleInterval) > 0.0001f)
-            {
-                s.maxSampleInterval = maxSampleInterval;
-                ParsekLog.VerboseRateLimited("UI", "sampling.maxSampleInterval",
-                    $"Setting changed: maxSampleInterval={s.maxSampleInterval:F1}s", 1.0);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Direction: {s.velocityDirThreshold:F1}\u00b0", GUILayout.Width(140));
-            float velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
-            if (Mathf.Abs(velocityDirThreshold - s.velocityDirThreshold) > 0.0001f)
-            {
-                s.velocityDirThreshold = velocityDirThreshold;
-                ParsekLog.VerboseRateLimited("UI", "sampling.velocityDirThreshold",
-                    $"Setting changed: velocityDirThreshold={s.velocityDirThreshold:F1}", 1.0);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Speed: {s.speedChangeThreshold:F0}%", GUILayout.Width(140));
-            float speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
-            if (Mathf.Abs(speedChangeThreshold - s.speedChangeThreshold) > 0.0001f)
-            {
-                s.speedChangeThreshold = speedChangeThreshold;
-                ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
-                    $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
-            }
-            GUILayout.EndHorizontal();
+            GUILayout.Label(ParsekSettings.DensitySummary(s.SamplingDensityLevel),
+                GUI.skin.label);
         }
 
         private void DrawDataManagementSettings(ParsekSettings s)

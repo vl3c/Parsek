@@ -1067,9 +1067,9 @@ namespace Parsek
             // proximity tier from ProximityRateSelector), but the gating logic is unified.
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
 
-            float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
-            float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
-            float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
+            float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
+            float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,

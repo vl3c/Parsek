@@ -1,5 +1,16 @@
 namespace Parsek
 {
+    /// <summary>
+    /// Recording sampling density presets. Each level maps to a fixed set of
+    /// adaptive-sampling thresholds (min/max interval, direction, speed).
+    /// </summary>
+    public enum SamplingDensity
+    {
+        Low = 0,
+        Medium = 1,
+        High = 2,
+    }
+
     public class ParsekSettings : GameParameters.CustomParameterNode
     {
         public override string Title => "Parsek";
@@ -29,25 +40,69 @@ namespace Parsek
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;
 
-        [GameParameters.CustomFloatParameterUI("Min sample interval (s)", minValue = 0.05f, maxValue = 1f,
-            stepCount = 20, displayFormat = "F2",
-            toolTip = "Minimum seconds between trajectory samples — caps sample rate during slow/jittery motion (e.g. EVA on surface)")]
-        public float minSampleInterval = 0.2f;
+        /// <summary>
+        /// Recording sampling density preset (0=Low, 1=Medium, 2=High).
+        /// Replaces the four individual sampling sliders (minSampleInterval,
+        /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
+        /// Serialized as int for ConfigNode round-trip.
+        /// </summary>
+        public int samplingDensity = 1; // Medium
 
-        [GameParameters.CustomFloatParameterUI("Max sample interval (s)", minValue = 1f, maxValue = 10f,
-            stepCount = 19, displayFormat = "F1",
-            toolTip = "Maximum seconds between trajectory samples")]
-        public float maxSampleInterval = 3.0f;
+        public SamplingDensity SamplingDensityLevel
+        {
+            get => samplingDensity >= 0 && samplingDensity <= 2
+                ? (SamplingDensity)samplingDensity
+                : SamplingDensity.Medium;
+            set => samplingDensity = (int)value;
+        }
 
-        [GameParameters.CustomFloatParameterUI("Direction threshold (\u00b0)", minValue = 0.5f, maxValue = 10f,
-            stepCount = 20, displayFormat = "F1",
-            toolTip = "Velocity direction change (degrees) that triggers a new sample")]
-        public float velocityDirThreshold = 2.0f;
+        // --- Derived sampling thresholds from preset ---
 
-        [GameParameters.CustomFloatParameterUI("Speed threshold (%)", minValue = 1f, maxValue = 20f,
-            stepCount = 20, displayFormat = "F0",
-            toolTip = "Speed change (percent) that triggers a new sample")]
-        public float speedChangeThreshold = 5.0f;
+        public float minSampleInterval => GetMinSampleInterval(SamplingDensityLevel);
+        public float maxSampleInterval => GetMaxSampleInterval(SamplingDensityLevel);
+        public float velocityDirThreshold => GetVelocityDirThreshold(SamplingDensityLevel);
+        public float speedChangeThreshold => GetSpeedChangeThreshold(SamplingDensityLevel);
+
+        internal static float GetMinSampleInterval(SamplingDensity level) =>
+            level == SamplingDensity.Low ? 0.5f
+            : level == SamplingDensity.High ? 0.05f
+            : 0.2f;
+
+        internal static float GetMaxSampleInterval(SamplingDensity level) =>
+            level == SamplingDensity.Low ? 8.0f
+            : level == SamplingDensity.High ? 1.0f
+            : 3.0f;
+
+        internal static float GetVelocityDirThreshold(SamplingDensity level) =>
+            level == SamplingDensity.Low ? 6.0f
+            : level == SamplingDensity.High ? 0.5f
+            : 2.0f;
+
+        internal static float GetSpeedChangeThreshold(SamplingDensity level) =>
+            level == SamplingDensity.Low ? 12.0f
+            : level == SamplingDensity.High ? 1.0f
+            : 5.0f;
+
+        internal static string DensityLabel(SamplingDensity level) =>
+            level == SamplingDensity.Low ? "Low"
+            : level == SamplingDensity.High ? "High"
+            : "Medium";
+
+        internal static string DensityTooltip(SamplingDensity level) =>
+            level == SamplingDensity.Low
+                ? "Fewer samples \u2014 smaller files, less CPU. Trajectories may look angular during sharp maneuvers."
+            : level == SamplingDensity.High
+                ? "Dense sampling \u2014 smooth curves for cinematic recordings. Larger files."
+            : "Balanced sampling for most flights.";
+
+        internal static string DensitySummary(SamplingDensity level)
+        {
+            float min = GetMinSampleInterval(level);
+            float max = GetMaxSampleInterval(level);
+            float dir = GetVelocityDirThreshold(level);
+            float spd = GetSpeedChangeThreshold(level);
+            return $"Sampling: every {min:F2}\u2013{max:F1}s, {dir:F1}\u00b0 / {spd:F0}% thresholds";
+        }
 
         /// <summary>
         /// Default launch-to-launch period in seconds (#381) for recordings with

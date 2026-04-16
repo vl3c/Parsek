@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.2
 
+### Enhancements
+
+- Replaced the four individual sampling sliders (min/max interval, direction threshold, speed threshold) with a single **Recording Sampling Density** setting offering three presets: Low (fewer samples, smaller files), Medium (balanced, same as previous defaults), and High (dense sampling for cinematic recordings). The selected preset is shown with a summary of effective thresholds.
+
 ### Tests
 
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.

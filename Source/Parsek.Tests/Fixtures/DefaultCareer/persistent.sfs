@@ -124,9 +124,7 @@ GAME
 			autoSplitAtSoi = True
 			autoMerge = False
 			verboseLogging = True
-			maxSampleInterval = 3
-			velocityDirThreshold = 2
-			speedChangeThreshold = 5
+			samplingDensity = 1
 		}
 		HETTNCustomParams_Nodes
 		{

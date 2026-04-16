@@ -118,9 +118,7 @@ Click the "Settings" button in the main Parsek window to open the Settings panel
 | Auto-record on launch | On | Start recording when a vessel leaves the pad/runway |
 | Auto-record on EVA | On | Start recording when a kerbal goes EVA from the pad |
 | Auto-stop time warp | On | Stop time warp when a ghost playback is about to begin |
-| Max sample interval | 3.0s | Maximum seconds between trajectory samples (1-10s) |
-| Direction threshold | 2.0° | Velocity direction change that triggers a new sample (0.5-10°) |
-| Speed threshold | 5% | Speed change that triggers a new sample (1-20%) |
+| Recording sampling density | Medium | Trajectory sampling precision: Low (smaller files), Medium (balanced), High (cinematic) |
 
 The "Defaults" button resets all settings to their original values.
 
