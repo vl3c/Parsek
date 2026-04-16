@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.2
 
+### Features
+
+- `#389` Timeline and Recordings windows now support a shared time-range filter. Quick presets (Last Day, Last 7d, Last 30d, This Year, All) and a collapsible custom-range dual-slider let you narrow both windows to a specific time slice — useful for navigating long careers with many missions. Recordings table shows a compact filter indicator with a Clear button so the active filter is visible even when the Timeline is closed.
+
 ### Tests
 
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.

@@ -697,6 +697,33 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        private void DrawTimeRangeFilterIndicator()
+        {
+            var filter = parentUI.TimeRangeFilter;
+            if (!filter.IsActive) return;
+
+            GUILayout.BeginHorizontal();
+            string label;
+            if (filter.ActivePresetName != null)
+            {
+                label = "Filtered: " + filter.ActivePresetName;
+            }
+            else
+            {
+                label = "Filtered: "
+                    + TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? 0)
+                    + " \u2014 "
+                    + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? 0);
+            }
+            GUILayout.Label(label, GUILayout.ExpandWidth(true));
+            if (GUILayout.Button("Clear", GUILayout.Width(50)))
+            {
+                filter.Clear();
+                ParsekLog.Verbose("UI", "Time-range filter: cleared from Recordings table");
+            }
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawRecordingsWindow(int windowID)
         {
             var committed = RecordingStore.CommittedRecordings;
@@ -726,6 +753,9 @@ namespace Parsek
                     $"Cross-link: applied deferred scroll to rendered row {pendingScrollRowIndex}");
                 pendingScrollRowIndex = -1;
             }
+
+            // Time-range filter indicator
+            DrawTimeRangeFilterIndicator();
 
             if (committed.Count == 0)
             {
@@ -761,6 +791,13 @@ namespace Parsek
                 {
                     var desc = new HashSet<int>();
                     CollectDescendantRecordings(rootGrps[g], grpToRecs, grpChildren, desc);
+
+                    // Group filter: skip if no descendant overlaps the time range
+                    if (timeFilter.IsActive &&
+                        !TimeRangeFilterLogic.DoesAnyRecordingOverlapRange(
+                            committed, desc, timeFilter.MinUT, timeFilter.MaxUT))
+                        continue;
+
                     rootItems.Add(new RootDrawItem
                     {
                         SortKey = GetGroupSortKey(desc, committed, sortColumn, now),
@@ -770,6 +807,11 @@ namespace Parsek
                         RecIdx = -1
                     });
                 }
+
+                // Time-range filter state for skipping non-overlapping items
+                var timeFilter = parentUI.TimeRangeFilter;
+                double? tfMin = timeFilter.MinUT;
+                double? tfMax = timeFilter.MaxUT;
 
                 // Add root chains and standalone recordings from sortedIndices
                 var seenChains = new HashSet<string>();
@@ -784,6 +826,13 @@ namespace Parsek
                     {
                         if (!seenChains.Add(rec.ChainId)) continue;
                         var members = chainToRecs[rec.ChainId];
+
+                        // Chain filter: show entire chain if any segment overlaps
+                        if (timeFilter.IsActive &&
+                            !TimeRangeFilterLogic.DoesAnyRecordingOverlapRange(
+                                committed, members, tfMin, tfMax))
+                            continue;
+
                         var firstRec = members.Count > 0 ? committed[members[0]] : null;
                         string cSortName = sortColumn == SortColumn.LaunchSite
                             ? (firstRec?.LaunchSiteName ?? "")
@@ -799,6 +848,12 @@ namespace Parsek
                     }
                     else if (string.IsNullOrEmpty(rec.ChainId))
                     {
+                        // Standalone recording filter
+                        if (timeFilter.IsActive &&
+                            !TimeRangeFilterLogic.DoesRecordingOverlapRange(
+                                rec.StartUT, rec.EndUT, tfMin, tfMax))
+                            continue;
+
                         string rSortName = sortColumn == SortColumn.LaunchSite
                             ? (rec.LaunchSiteName ?? "")
                             : (string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName);

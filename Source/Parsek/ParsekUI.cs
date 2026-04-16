@@ -61,6 +61,9 @@ namespace Parsek
 
         private GUIStyle versionStyle;
 
+        // Shared time-range filter state — read by TimelineWindowUI and RecordingsTableUI
+        internal readonly TimeRangeFilterState TimeRangeFilter = new TimeRangeFilterState();
+
         internal ParsekFlight Flight => flight;
         internal bool InFlightMode => InFlight;
         internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
