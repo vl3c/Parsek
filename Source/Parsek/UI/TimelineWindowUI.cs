@@ -150,6 +150,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resets the time-range filter slider positions to full bounds.
+        /// Called when the filter is cleared from another window (e.g. Recordings table).
+        /// </summary>
+        internal void ResetTimeRangeSliders()
+        {
+            sliderMin = sliderBoundMin;
+            sliderMax = sliderBoundMax;
+            filterDirty = true;
+        }
+
+        /// <summary>
         /// Marks the cached timeline as stale so it rebuilds on next draw.
         /// Called by ParsekUI on cache invalidation triggers.
         /// </summary>
@@ -361,6 +372,15 @@ namespace Parsek
                     sliderMax = sliderBoundMax;
                     sliderBoundsInitialized = true;
                 }
+                else
+                {
+                    // Clamp slider positions to new bounds so thumbs don't
+                    // end up outside the track after data changes
+                    if (sliderMin < sliderBoundMin) sliderMin = sliderBoundMin;
+                    if (sliderMin > sliderBoundMax) sliderMin = sliderBoundMax;
+                    if (sliderMax < sliderBoundMin) sliderMax = sliderBoundMin;
+                    if (sliderMax > sliderBoundMax) sliderMax = sliderBoundMax;
+                }
             }
 
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
@@ -430,9 +450,8 @@ namespace Parsek
                 GUILayout.Label(toLabel, GUILayout.Width(120));
                 GUILayout.EndHorizontal();
 
-                // Clamp From <= To
+                // Clamp so From <= To
                 if (newMin > newMax) newMin = newMax;
-                if (newMax < newMin) newMax = newMin;
 
                 // Apply immediately on slider change
                 if (System.Math.Abs(newMin - sliderMin) > 0.5f || System.Math.Abs(newMax - sliderMax) > 0.5f)
@@ -451,15 +470,17 @@ namespace Parsek
             bool isActive = filter.IsActive && filter.ActivePresetName == name;
             if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(70)) && !isActive)
             {
-                // Clamp minUT to slider bounds so we don't filter outside the data range
+                // Clamp to slider bounds so we don't filter outside the data range
                 double clampedMin = System.Math.Max(minUT, sliderBoundMin);
-                filter.SetRange(clampedMin, maxUT, name);
+                double clampedMax = System.Math.Min(maxUT, sliderBoundMax);
+                if (clampedMax < clampedMin) clampedMax = clampedMin;
+                filter.SetRange(clampedMin, clampedMax, name);
                 sliderMin = (float)clampedMin;
-                sliderMax = (float)maxUT;
+                sliderMax = (float)clampedMax;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
                     $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} — " +
-                    $"{TimeRangeFilterLogic.FormatSliderLabel(maxUT)}]");
+                    $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
             }
         }
 

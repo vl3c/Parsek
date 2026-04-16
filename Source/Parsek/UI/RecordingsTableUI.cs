@@ -719,6 +719,7 @@ namespace Parsek
             if (GUILayout.Button("Clear", GUILayout.Width(50)))
             {
                 filter.Clear();
+                parentUI.GetTimelineUI()?.ResetTimeRangeSliders();
                 ParsekLog.Verbose("UI", "Time-range filter: cleared from Recordings table");
             }
             GUILayout.EndHorizontal();

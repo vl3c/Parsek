@@ -147,8 +147,8 @@ namespace Parsek
             try
             {
                 // KSPUtil.PrintDateCompact includes seconds — trim to just Y/D/H:M
+                // Stock format: "Y1, D5, 2:14:03" → strip the last ":SS" segment
                 string full = KSPUtil.PrintDateCompact(ut, true);
-                // Format is typically "Y1, D5, 2:14:03" — strip the last :SS
                 int lastColon = full.LastIndexOf(':');
                 if (lastColon > 0)
                 {
@@ -158,7 +158,7 @@ namespace Parsek
                 }
                 return full;
             }
-            catch
+            catch (System.Exception)
             {
                 return ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
             }
