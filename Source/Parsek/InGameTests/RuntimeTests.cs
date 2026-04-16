@@ -705,6 +705,9 @@ namespace Parsek.InGameTests
                 if (gs.lastInterpolatedBodyName != activeBodyName) continue;
                 if (gs.ghost == null) continue;
                 if (kvp.Key >= committed.Count) continue;
+                // Require at least one update frame so lastDistance is real — zero means
+                // the ghost was just spawned and the range check would be vacuously true.
+                if (gs.lastDistance <= 0.0) continue;
                 if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
 
                 index = kvp.Key;
