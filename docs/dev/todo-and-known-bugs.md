@@ -776,7 +776,9 @@ Start with **option 1** (SettingsWindowUI checkbox). It's enough for the feature
 
 ---
 
-## 387. Ghost map icons don't match stock ProtoVessel icons for the same VesselType
+## ~~387. Ghost map icons don't match stock ProtoVessel icons for the same VesselType~~ (DONE — 0.8.2)
+
+Fixed by replacing the sequential-index loop in `MapMarkerRenderer.InitVesselTypeIcons` with a `StockIconIndexByVesselType` dict taken from the decompiled `KSP.UI.Screens.Mapview.MapNode` icon lookup, and consolidating the duplicate flight-scene copy in `ParsekUI.cs` into the same renderer. In-game runtime test `MapMarkerIconsMatchStockAtlas` pins every vessel type's UV against the live `MapNode.iconSprites` array.
 
 **Source:** maintenance request `2026-04-14`. Users report that Parsek's custom ghost icon in map view / tracking station sometimes looks different from the stock icon for the same vessel type. Root cause confirmed by decompiling `KSP.UI.Screens.Mapview.MapNode` — Parsek's atlas-indexing logic is wrong.
 
@@ -887,7 +889,9 @@ A unit test is insufficient here — this needs the live `MapView` reflection ta
 
 ---
 
-## 386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click
+## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2)
+
+Fixed by adding a `stickyMarkers` set and `markerKey` parameter to `MapMarkerRenderer.DrawMarker`/`DrawMarkerAtScreen`, threading `rec.RecordingId` from both call sites (`ParsekUI.DrawMapMarkers`, `ParsekTrackingStation.OnGUI`), and resetting stickies on scene change from `ParsekFlight.OnSceneChangeRequested` + `ParsekTrackingStation.OnDestroy`. Click interaction is gated to `MapView.MapIsEnabled || TRACKSTATION` so flight main-window clicks don't double-fire.
 
 **Source:** maintenance request `2026-04-14`. Parsek's custom ghost map icon currently always draws a `"Ghost: <name>"` text label directly below it. Stock KSP vessel icons don't — they only show the name on hover (and clicking enters/pins the target). The ghost icon should match that behavior so the map view isn't cluttered with permanent text for every ghost.
 

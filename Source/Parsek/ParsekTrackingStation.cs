@@ -67,7 +67,14 @@ namespace Parsek
             // Draw icons for recordings in atmospheric phases (no ProtoVessel).
             // Position comes directly from trajectory point interpolation —
             // same approach as ParsekUI.DrawMapMarkers in the flight scene.
-            if (Event.current.type != EventType.Repaint) return;
+            // NOTE: we must let MouseDown events through so the hover/click
+            // sticky-label handling in MapMarkerRenderer (#386) can consume
+            // clicks. Previously this gate short-circuited on anything but
+            // Repaint, which made the click-to-pin interaction dead in TS.
+            var etype = Event.current.type;
+            if (etype != EventType.Repaint
+                && etype != EventType.MouseDown
+                && etype != EventType.MouseUp) return;
             if (PlanetariumCamera.Camera == null) return;
 
             var committed = RecordingStore.CommittedRecordings;
@@ -99,7 +106,8 @@ namespace Parsek
 
                 VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
-                MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", markerColor, vtype);
+                MapMarkerRenderer.DrawMarker(
+                    worldPos, rec.RecordingId, rec.VesselName ?? "(unknown)", markerColor, vtype);
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
@@ -166,6 +174,10 @@ namespace Parsek
         void OnDestroy()
         {
             GhostMapPresence.RemoveAllGhostVessels("tracking-station-cleanup");
+            // Clear ghost-icon sticky state and force atlas re-init when leaving TS.
+            // Flight scene's own OnSceneChangeRequested hook runs too, but this
+            // addon is the only always-present TS listener — keep it defensive.
+            MapMarkerRenderer.ResetForSceneChange();
             ParsekLog.Info(Tag, "ParsekTrackingStation destroyed");
         }
     }
