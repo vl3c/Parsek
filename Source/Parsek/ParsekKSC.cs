@@ -110,6 +110,7 @@ namespace Parsek
 
             ui.DrawRecordingsWindowIfOpen(windowRect);
             ui.DrawTimelineWindowIfOpen(windowRect);
+            ui.DrawKerbalsWindowIfOpen(windowRect);
             ui.DrawSettingsWindowIfOpen(windowRect);
             ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }

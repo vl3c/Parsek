@@ -833,6 +833,7 @@ namespace Parsek
                 ui.LogMainWindowPosition(windowRect);
                 ui.DrawRecordingsWindowIfOpen(windowRect);
                 ui.DrawTimelineWindowIfOpen(windowRect);
+                ui.DrawKerbalsWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
                 ui.DrawSpawnControlWindowIfOpen(windowRect);
                 ui.DrawGloopsRecorderWindowIfOpen(windowRect);

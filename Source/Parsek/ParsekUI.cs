@@ -39,6 +39,9 @@ namespace Parsek
         // Timeline window (extracted to TimelineWindowUI, replaces ActionsWindowUI)
         private TimelineWindowUI timelineUI;
 
+        // Kerbals window (reserved crew, active stand-ins, retired stand-ins; #385)
+        private KerbalsWindowUI kerbalsUI;
+
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
@@ -85,6 +88,7 @@ namespace Parsek
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
+            this.kerbalsUI = new KerbalsWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -98,6 +102,7 @@ namespace Parsek
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
+            this.kerbalsUI = new KerbalsWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -106,6 +111,7 @@ namespace Parsek
         private void OnTimelineDataChanged()
         {
             timelineUI.InvalidateCache();
+            kerbalsUI.InvalidateCache();
         }
 
         private const float SpacingSmall = 3f;
@@ -142,6 +148,37 @@ namespace Parsek
             {
                 timelineUI.IsOpen = !timelineUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
+            }
+
+            // Kerbals window button: count = reserved owners + active stand-ins + retired.
+            // Buckets are name-disjoint by construction (KerbalsModule.ComputeRetiredSet
+            // only tags stand-ins that are used-in-recording AND not currently reserved),
+            // so the sum never double-counts.
+            string kerbalsLabel = "Kerbals";
+            var kerbalsModule = LedgerOrchestrator.Kerbals;
+            if (kerbalsModule != null)
+            {
+                int reservedCount = 0;
+                int activeCount = 0;
+                foreach (var slot in kerbalsModule.Slots.Values)
+                {
+                    if (slot == null || slot.OwnerPermanentlyGone) continue;
+                    if (kerbalsModule.Reservations.TryGetValue(slot.OwnerName, out var res)
+                        && res != null && !res.IsPermanent)
+                        reservedCount++;
+                    int idx = kerbalsModule.GetActiveChainIndex(slot);
+                    if (idx >= 0 && slot.Chain != null && idx < slot.Chain.Count
+                        && !string.IsNullOrEmpty(slot.Chain[idx]))
+                        activeCount++;
+                }
+                int retiredCount = kerbalsModule.GetRetiredKerbals().Count;
+                int total = reservedCount + activeCount + retiredCount;
+                kerbalsLabel = $"Kerbals ({total})";
+            }
+            if (GUILayout.Button(kerbalsLabel))
+            {
+                kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
             }
 
             // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
@@ -263,6 +300,11 @@ namespace Parsek
         public void DrawTimelineWindowIfOpen(Rect mainWindowRect)
         {
             timelineUI.DrawIfOpen(mainWindowRect);
+        }
+
+        public void DrawKerbalsWindowIfOpen(Rect mainWindowRect)
+        {
+            kerbalsUI.DrawIfOpen(mainWindowRect);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -756,6 +798,7 @@ namespace Parsek
             LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
+            kerbalsUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             // Map marker resources (icon atlas, fallback diamond, label style) are
