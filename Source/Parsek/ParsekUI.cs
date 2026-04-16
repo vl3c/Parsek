@@ -42,6 +42,9 @@ namespace Parsek
         // Kerbals window (reserved crew, active stand-ins, retired stand-ins; #385)
         private KerbalsWindowUI kerbalsUI;
 
+        // Career State window (contracts, strategies, facilities, milestones; #416)
+        private CareerStateWindowUI careerStateUI;
+
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
@@ -69,6 +72,7 @@ namespace Parsek
         internal bool InFlightMode => InFlight;
         internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
         internal TimelineWindowUI GetTimelineUI() => timelineUI;
+        internal CareerStateWindowUI GetCareerStateUI() { return careerStateUI; }
 
         /// <summary>
         /// Shared cross-link between Timeline and Recordings Manager.
@@ -89,6 +93,7 @@ namespace Parsek
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
+            this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -103,6 +108,7 @@ namespace Parsek
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
+            this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -112,6 +118,7 @@ namespace Parsek
         {
             timelineUI.InvalidateCache();
             kerbalsUI.InvalidateCache();
+            careerStateUI.InvalidateCache();
         }
 
         private const float SpacingSmall = 3f;
@@ -220,6 +227,11 @@ namespace Parsek
             {
                 kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
+            }
+
+            if (GUILayout.Button("Career State"))
+            {
+                careerStateUI.IsOpen = !careerStateUI.IsOpen;
             }
 
             // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
@@ -346,6 +358,11 @@ namespace Parsek
         public void DrawKerbalsWindowIfOpen(Rect mainWindowRect)
         {
             kerbalsUI.DrawIfOpen(mainWindowRect);
+        }
+
+        public void DrawCareerStateWindowIfOpen(Rect mainWindowRect)
+        {
+            careerStateUI.DrawIfOpen(mainWindowRect);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -840,6 +857,7 @@ namespace Parsek
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
             kerbalsUI.ReleaseInputLock();
+            careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             // Map marker resources (icon atlas, fallback diamond, label style) are
