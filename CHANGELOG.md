@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
-- Replaced the four individual sampling sliders (min/max interval, direction threshold, speed threshold) with a single **Recording Sampling Density** setting offering three presets: Low (fewer samples, smaller files), Medium (balanced, same as previous defaults), and High (dense sampling for cinematic recordings). The selected preset is shown with a summary of effective thresholds.
+- Replaced the four individual sampling sliders (min/max interval, direction threshold, speed threshold) with a single **Recorder Sample Density** setting offering three presets: Low (fewer samples, smaller files), Medium (balanced, same as previous defaults), and High (dense sampling for cinematic recordings). The selected preset is shown with a summary of effective thresholds.
 
 ### Tests
 

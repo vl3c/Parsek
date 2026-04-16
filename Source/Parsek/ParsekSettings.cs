@@ -1,7 +1,7 @@
 namespace Parsek
 {
     /// <summary>
-    /// Recording sampling density presets. Each level maps to a fixed set of
+    /// Recorder sample density presets. Each level maps to a fixed set of
     /// adaptive-sampling thresholds (min/max interval, direction, speed).
     /// </summary>
     public enum SamplingDensity
@@ -41,7 +41,7 @@ namespace Parsek
         public bool writeReadableSidecarMirrors = true;
 
         /// <summary>
-        /// Recording sampling density preset (0=Low, 1=Medium, 2=High).
+        /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
         /// Serialized as int for ConfigNode round-trip.

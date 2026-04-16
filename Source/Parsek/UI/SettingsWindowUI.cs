@@ -422,7 +422,7 @@ namespace Parsek
 
         private void DrawSamplingSettings(ParsekSettings s)
         {
-            GUILayout.Label("Recording Sampling Density", GUI.skin.box);
+            GUILayout.Label("Recorder Sample Density", GUI.skin.box);
 
             GUILayout.BeginHorizontal();
             foreach (SamplingDensity level in new[] { SamplingDensity.Low, SamplingDensity.Medium, SamplingDensity.High })
