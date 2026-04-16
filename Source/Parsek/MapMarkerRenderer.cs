@@ -75,6 +75,16 @@ namespace Parsek
         /// <summary>Test-only accessor for the atlas texture resolved at init.</summary>
         internal static Texture2D VesselIconAtlasForTesting => vesselIconAtlas;
 
+        /// <summary>Test-only accessor for the init latch. True after a terminal
+        /// outcome (success OR permanent structural error). Transient startup
+        /// failures (null prefab, null/empty sprite array) must leave this false
+        /// so the next frame can retry — see <see cref="InitVesselTypeIcons"/>.</summary>
+        internal static bool InitAttemptedForTesting
+        {
+            get => initAttempted;
+            set => initAttempted = value;
+        }
+
         /// <summary>
         /// Returns the orbit color for a ghost marker by vessel type.
         /// Matches KSP's own orbit color scheme — single source of truth used
@@ -299,13 +309,21 @@ namespace Parsek
 
         private static void InitVesselTypeIcons()
         {
-            if (initAttempted) return; // one attempt per scene; ResetForSceneChange clears this
-            initAttempted = true;
+            // Do NOT latch on entry — we want to retry across frames as long as the
+            // failure mode is transient (Unity hasn't populated MapView.UINodePrefab
+            // yet, or the prefab's iconSprites array is still being initialized).
+            // Otherwise the very first draw of the scene can lock every ghost marker
+            // to the fallback diamond for the rest of the scene's lifetime. The latch
+            // is instead set at (a) structural-failure returns (field not found, no
+            // sprite has a texture) which won't improve on retry and would otherwise
+            // spam logs, and (b) the successful-completion path at the end.
+            if (initAttempted) return; // latched only after a terminal outcome
 
             var prefab = MapView.UINodePrefab;
             if (prefab == null)
             {
-                ParsekLog.Verbose(Tag, "InitVesselTypeIcons: UINodePrefab is null");
+                // Transient — MapView may still be initializing. Retry next frame.
+                ParsekLog.Verbose(Tag, "InitVesselTypeIcons: UINodePrefab is null (will retry next frame)");
                 return;
             }
 
@@ -313,15 +331,21 @@ namespace Parsek
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (fi == null)
             {
-                ParsekLog.Warn(Tag, "InitVesselTypeIcons: iconSprites field not found");
+                // Structural — KSP renamed/removed the private field. Retrying won't
+                // help and would spam a warn every frame. Latch.
+                ParsekLog.Warn(Tag, "InitVesselTypeIcons: iconSprites field not found — latching, no retry");
+                initAttempted = true;
                 return;
             }
 
             var sprites = fi.GetValue(prefab) as Sprite[];
             if (sprites == null || sprites.Length == 0)
             {
-                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
-                    "InitVesselTypeIcons: iconSprites is null or empty (sprites={0})",
+                // Transient — iconSprites array may still be populating at early
+                // scene load. Retry next frame; use Verbose so a slow startup
+                // doesn't flood the log.
+                ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "InitVesselTypeIcons: iconSprites is null or empty (sprites={0}) — will retry next frame",
                     sprites == null ? 0 : sprites.Length));
                 return;
             }
@@ -340,7 +364,10 @@ namespace Parsek
             }
             if (spriteAtlas == null)
             {
-                ParsekLog.Warn(Tag, "InitVesselTypeIcons: no sprite has a texture");
+                // Structural — no sprite carries a texture, so no atlas can be
+                // resolved. Retrying won't help. Latch.
+                ParsekLog.Warn(Tag, "InitVesselTypeIcons: no sprite has a texture — latching, no retry");
+                initAttempted = true;
                 return;
             }
 
@@ -386,6 +413,9 @@ namespace Parsek
                     " {0}=[{1}]({2:F3},{3:F3},{4:F3},{5:F3})",
                     kv.Key, idx, uv.x, uv.y, uv.width, uv.height);
             }
+
+            // Init succeeded — latch so we don't re-reflect on every frame.
+            initAttempted = true;
 
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
                 "InitVesselTypeIcons: loaded={0} outOfRange={1} missingSprite={2} " +

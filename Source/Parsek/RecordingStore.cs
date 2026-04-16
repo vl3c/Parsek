@@ -60,7 +60,15 @@ namespace Parsek
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
         /// </summary>
-        internal const string GloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
+        internal const string GloopsGroupName = "Gloops - Ghosts Only";
+
+        /// <summary>
+        /// Pre-PR-328 group name. Recordings loaded from disk carrying this string are
+        /// transparently renamed to <see cref="GloopsGroupName"/> on load (see
+        /// <c>RecordingTree.LoadRecordingFrom</c>) and the file is marked dirty so the
+        /// rename persists on the next save.
+        /// </summary>
+        internal const string LegacyGloopsGroupName = "Gloops Flight Recordings - Ghosts Only";
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
@@ -3390,8 +3398,33 @@ namespace Parsek
             var rebuiltPoints = new List<TrajectoryPoint>();
             int dedupedBoundaryCopies = RebuildPointsFromTrackSections(tracks, rebuiltPoints);
             int overlapCopies = FindTrajectoryPointSuffixPrefixOverlap(points, rebuiltPoints);
+
+            // Bug #419 defense-in-depth: monotonicity guard at the flush/stitch boundary.
+            // The sampler-level guard in BackgroundRecorder.ApplyTrajectoryPointToRecording
+            // is the primary defense, but track-section frames can also reach this flush
+            // via other paths (in-memory state rebuilt from disk, legacy sections, test
+            // injection). If any rebuilt point's UT regresses below the last existing
+            // point's UT, skip it here so save-load never re-materializes a #419 corruption.
+            int nonMonotonicSkipped = 0;
             for (int i = overlapCopies; i < rebuiltPoints.Count; i++)
-                points.Add(rebuiltPoints[i]);
+            {
+                var incoming = rebuiltPoints[i];
+                if (points.Count > 0 && incoming.ut < points[points.Count - 1].ut)
+                {
+                    nonMonotonicSkipped++;
+                    continue;
+                }
+                points.Add(incoming);
+            }
+            if (nonMonotonicSkipped > 0)
+            {
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                double lastUt = points.Count > 0 ? points[points.Count - 1].ut : double.NaN;
+                ParsekLog.Warn("RecordingStore",
+                    $"AppendPointsFromTrackSections: skipped {nonMonotonicSkipped} non-monotonic frame(s) " +
+                    $"at flush stitch (lastPointUT={lastUt.ToString("R", ic)}, " +
+                    $"rebuiltCount={rebuiltPoints.Count}, overlapCopies={overlapCopies}) — #419");
+            }
 
             return dedupedBoundaryCopies + overlapCopies;
         }

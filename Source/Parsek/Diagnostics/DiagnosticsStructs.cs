@@ -35,6 +35,37 @@ namespace Parsek
     }
 
     /// <summary>
+    /// One-shot per-phase breakdown of a single UpdatePlayback frame, captured only
+    /// when the first playback-budget-exceeded warning fires (see bug #414). Used by
+    /// <see cref="DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown"/>
+    /// to pinpoint which sub-phase is actually responsible for a spike. All fields
+    /// are microseconds. The struct is `default` on frames that stayed within budget.
+    /// </summary>
+    internal struct PlaybackBudgetPhases
+    {
+        /// <summary>Main per-trajectory dispatch loop, minus any spawn/destroy time accumulated inside.</summary>
+        public long mainLoopMicroseconds;
+        /// <summary>SpawnGhost time (already accumulated via the existing spawnStopwatch across the frame).</summary>
+        public long spawnMicroseconds;
+        /// <summary>DestroyGhost time (already accumulated via the existing destroyStopwatch across the frame).</summary>
+        public long destroyMicroseconds;
+        /// <summary>Post-loop stale-explosion cleanup sweep.</summary>
+        public long explosionCleanupMicroseconds;
+        /// <summary>Deferred OnGhostCreated invocations to the policy/host.</summary>
+        public long deferredCreatedEventsMicroseconds;
+        /// <summary>Deferred OnPlaybackCompleted invocations to the policy/host.</summary>
+        public long deferredCompletedEventsMicroseconds;
+        /// <summary>Post-loop observability capture (CaptureGhostObservability).</summary>
+        public long observabilityCaptureMicroseconds;
+        /// <summary>Number of trajectories iterated in the main loop (dispatched, not necessarily rendered).</summary>
+        public int trajectoriesIterated;
+        /// <summary>Number of deferred OnGhostCreated events fired this frame.</summary>
+        public int createdEventsFired;
+        /// <summary>Number of deferred OnPlaybackCompleted events fired this frame.</summary>
+        public int completedEventsFired;
+    }
+
+    /// <summary>
     /// Timing for a single OnSave or OnLoad operation.
     /// </summary>
     internal struct SaveLoadTiming

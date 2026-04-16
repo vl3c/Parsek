@@ -1653,11 +1653,15 @@ namespace Parsek
             bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRec);
             if (hasInitialTrajectoryPoint && hasTreeRecording)
             {
-                ApplyTrajectoryPointToRecording(treeRec, initialTrajectoryPoint);
-                ParsekLog.Info("BgRecorder",
-                    $"Initial trajectory point seeded (on-rails): pid={vesselPid} " +
-                    $"ut={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                    $"alt={initialTrajectoryPoint.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+                // #419: only log "seeded" if the flat-append was accepted. A rejection
+                // already produces its own warn inside ApplyTrajectoryPointToRecording.
+                if (ApplyTrajectoryPointToRecording(treeRec, initialTrajectoryPoint))
+                {
+                    ParsekLog.Info("BgRecorder",
+                        $"Initial trajectory point seeded (on-rails): pid={vesselPid} " +
+                        $"ut={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"alt={initialTrajectoryPoint.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+                }
             }
 
             var state = new BackgroundOnRailsState
@@ -2376,8 +2380,22 @@ namespace Parsek
         private static void ApplyInitialTrajectoryPoint(
             BackgroundVesselState state, Recording treeRec, TrajectoryPoint point)
         {
-            if (treeRec != null)
-                ApplyTrajectoryPointToRecording(treeRec, point);
+            // Bug #419: ApplyTrajectoryPointToRecording rejects non-monotonic appends. If
+            // the flat-points append was rejected, the seed must NOT enter the track
+            // section either — otherwise the same point re-materializes in
+            // treeRec.Points on the next FlushTrackSectionsToRecording call via
+            // AppendPointsFromTrackSections. Similarly, do not advance lastRecordedUT /
+            // lastRecordedVelocity from a rejected seed, or the next frame-delta check
+            // would be keyed on a phantom time.
+            bool accepted = treeRec == null || ApplyTrajectoryPointToRecording(treeRec, point);
+            if (!accepted)
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"Initial trajectory point rejected (non-monotonic): pid={state.vesselPid} " +
+                    $"ut={point.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"recId={treeRec.RecordingId} — dropped from track section and state (#419)");
+                return;
+            }
 
             AppendFrameToCurrentTrackSection(state, point);
             state.lastRecordedUT = point.ut;
@@ -2389,15 +2407,42 @@ namespace Parsek
                 $"alt={point.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
         }
 
-        internal static void ApplyTrajectoryPointToRecording(Recording treeRec, TrajectoryPoint point)
+        internal static bool ApplyTrajectoryPointToRecording(Recording treeRec, TrajectoryPoint point)
         {
             if (treeRec == null)
-                return;
+                return false;
+
+            // Bug #419: enforce monotonicity at the choke point. Every sampler path that
+            // appends to treeRec.Points — breakup initial seeds, on-rails seeds,
+            // background fallback seeds — funnels through here. If a caller tries to
+            // append a point whose UT is strictly less than the current last point's UT
+            // (e.g., a belated breakup-initial seed consumed after physics-frame samples
+            // already advanced, or a duplicate suffix re-append from a flush path),
+            // reject the point with a warn log so binary-search and interpolation
+            // consumers keep their monotonicity invariant. Equal UTs are tolerated —
+            // duplicate-UT samples occur at boundary seeds and are deduped downstream.
+            // Returns false when rejected so state-advancing callers (track-section
+            // append, lastRecordedUT bookkeeping) can short-circuit too — otherwise the
+            // same rejected point would re-enter treeRec.Points through the track-section
+            // flush path (RecordingStore.AppendPointsFromTrackSections).
+            if (!FlightRecorder.IsAppendUTMonotonic(treeRec.Points, point.ut))
+            {
+                TrajectoryPoint last = treeRec.Points[treeRec.Points.Count - 1];
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Warn("BgRecorder",
+                    $"ApplyTrajectoryPointToRecording: rejected non-monotonic UT " +
+                    $"recId={treeRec.RecordingId} " +
+                    $"incoming ut={point.ut.ToString("R", ic)} " +
+                    $"< last ut={last.ut.ToString("R", ic)} " +
+                    $"(points={treeRec.Points.Count}, dropped to preserve monotonicity — #419)");
+                return false;
+            }
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
             if (double.IsNaN(treeRec.ExplicitEndUT) || treeRec.ExplicitEndUT < point.ut)
                 treeRec.ExplicitEndUT = point.ut;
+            return true;
         }
 
         /// <summary>

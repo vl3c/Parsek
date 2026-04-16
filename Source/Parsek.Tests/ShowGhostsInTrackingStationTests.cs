@@ -193,5 +193,174 @@ namespace Parsek.Tests
             Assert.Equal(1500f, settings.ghostCameraCutoffKm);
             Assert.False(settings.writeReadableSidecarMirrors);
         }
+
+        // ---- Post-PR-328 precedence reversal (live wins over store when resolvable) ----
+        // These tests pin the P2 fix: once ParsekSettings.Current is resolvable, it is
+        // authoritative. Previously the store masked any Game Parameters UI flip because
+        // the helper returned the stored value without consulting Current.
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveTrueOverridesStoreFalse()
+        {
+            // Reviewer's P2 scenario: user had toggle disabled (store=false), then
+            // flipped it back on via KSP Game Parameters UI (live=true). Live wins,
+            // but only after ParsekScenario.OnLoad has reconciled the store into
+            // ParsekSettings.Current (simulated here by MarkReconciledForTesting).
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = true };
+
+                Assert.True(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation(),
+                    "Live ParsekSettings.Current must override a stale store on Game Parameters UI flip.");
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveFalseOverridesStoreTrue()
+        {
+            // Opposite direction: toggle previously enabled, user flipped off via
+            // Game Parameters UI — store still true, live false. Live wins.
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = false };
+
+                Assert.False(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveDiffersFromStore_ResyncsStore()
+        {
+            // When live != stored we resync the store so the next cold-start
+            // (before ParsekSettings.Current resolves) reads the user's real intent.
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = true };
+
+                ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
+
+                Assert.Equal(true, ParsekSettingsPersistence.GetStoredShowGhostsInTrackingStation());
+                Assert.Contains(logLines, l =>
+                    l.Contains("[SettingsStore]") &&
+                    l.Contains("resyncing store") &&
+                    l.Contains("Game Parameters UI"));
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LiveMatchesStore_NoResyncLog()
+        {
+            // Steady state: no divergence, no resync log, no redundant Save().
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = false };
+
+                logLines.Clear();
+                ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
+
+                Assert.DoesNotContain(logLines, l => l.Contains("resyncing store"));
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_LivePresentStoreEmpty_SeedsStore()
+        {
+            // First-run path: store has no value yet. Returning from live and seeding
+            // the store matches the old "fall through to live, no write" behavior in
+            // outcome, but also warms the store so the next cold-start uses live intent.
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = false };
+
+                Assert.False(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
+                Assert.Equal(false, ParsekSettingsPersistence.GetStoredShowGhostsInTrackingStation());
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        // ---- P2-A regression: pre-reconciliation, live Current must NOT clobber the store ----
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_BeforeReconciliation_StoreStillWins()
+        {
+            // The review scenario: SpaceTracking.Awake runs before OnLoad has had a
+            // chance to reconcile the store into ParsekSettings.Current. At that
+            // point Current may exist and hold KSP's stale value (from the .sfs or
+            // the compiled default) while the store holds the user's real
+            // preference. Until OnLoad completes and ApplyTo flips the reconciled
+            // flag, the store must win so we don't overwrite persisted intent.
+            Assert.False(ParsekSettingsPersistence.IsReconciledForTesting);
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+            try
+            {
+                ParsekSettings.CurrentOverrideForTesting =
+                    new ParsekSettings { showGhostsInTrackingStation = true };
+
+                Assert.False(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation(),
+                    "Pre-reconciliation Current must NOT override the persisted store.");
+                Assert.Equal(false, ParsekSettingsPersistence.GetStoredShowGhostsInTrackingStation());
+                Assert.DoesNotContain(logLines, l => l.Contains("resyncing store"));
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ApplyTo_FlipsReconciledFlag()
+        {
+            // ApplyTo is the signal that Current is trustworthy. Before the call
+            // we must be unreconciled; after, reconciled.
+            Assert.False(ParsekSettingsPersistence.IsReconciledForTesting);
+
+            ParsekSettingsPersistence.ApplyTo(new ParsekSettings());
+
+            Assert.True(ParsekSettingsPersistence.IsReconciledForTesting);
+        }
+
+        [Fact]
+        public void ResetForTesting_ResetsReconciledFlag()
+        {
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            Assert.True(ParsekSettingsPersistence.IsReconciledForTesting);
+
+            ParsekSettingsPersistence.ResetForTesting();
+
+            Assert.False(ParsekSettingsPersistence.IsReconciledForTesting);
+        }
     }
 }

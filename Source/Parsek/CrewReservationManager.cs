@@ -420,10 +420,17 @@ namespace Parsek
                 Part target = FindTargetPartForOrphan(seat.PartPid, seat.PartName);
                 if (target == null)
                 {
+                    // Preserve the distinctive "snapshot pid=0" signal (bug #413):
+                    // a future regression where the capture site drops the real
+                    // persistentId will still show up here with pid=0 and a valid
+                    // part name, so it's callable out by log-grep.
+                    string pidDiagnostic = seat.PartPid == 0
+                        ? "pid=0 (suspicious: snapshot missing persistentId)"
+                        : $"pid={seat.PartPid}";
                     ParsekLog.Warn("CrewReservation",
                         $"Orphan placement: no matching part with free seat in active vessel for " +
                         $"'{originalName}' → '{replacementName}' " +
-                        $"(snapshot pid={seat.PartPid} name='{seat.PartName}') — stand-in left in roster");
+                        $"(snapshot {pidDiagnostic} name='{seat.PartName}') — stand-in left in roster");
                     skippedNoMatchingPart++;
                     continue;
                 }
@@ -816,10 +823,21 @@ namespace Parsek
 
                         if (!isMatch) continue;
 
+                        // Bug #413: KSP's ProtoPartSnapshot serializes the part's
+                        // 32-bit pid under the key `persistentId` (see any stock
+                        // `.sfs` PART node). The earlier implementation read `pid`,
+                        // which only exists on the VESSEL node (a guid-hex string),
+                        // so `uint.TryParse` always failed and every orphan seat
+                        // was returned with PartPid=0. Prefer `persistentId` and
+                        // fall back to `pid` so test-authored snapshots that still
+                        // use the legacy field name keep matching.
                         uint pid = 0;
-                        string pidValue = partNode.GetValue("pid");
+                        string pidValue = partNode.GetValue("persistentId");
+                        if (string.IsNullOrEmpty(pidValue))
+                            pidValue = partNode.GetValue("pid");
                         if (!string.IsNullOrEmpty(pidValue))
-                            uint.TryParse(pidValue, out pid);
+                            uint.TryParse(pidValue, System.Globalization.NumberStyles.Integer,
+                                System.Globalization.CultureInfo.InvariantCulture, out pid);
 
                         string partName = partNode.GetValue("name") ?? "";
 

@@ -383,5 +383,179 @@ namespace Parsek.Tests
             Assert.False(pids.Contains(99999u),
                 "Guard should NOT detect pid=99999 as spawned");
         }
+
+        // ────────────────────────────────────────────────────────
+        // Bug #413 — KSP ProtoPartSnapshot writes the part pid under
+        // `persistentId`, not `pid`. The matcher must read the real
+        // KSP field name; otherwise every orphan placement reports
+        // `pid=0` and silently fails.
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Builds a PART node with the real KSP field name (`persistentId`),
+        /// matching how `ProtoPartSnapshot.Save` serializes the part pid in
+        /// stock `.sfs` files (verified in `Fixtures/DefaultCareer/persistent.sfs`).
+        /// </summary>
+        private static ConfigNode BuildKspFormatSnapshotWithCrew(
+            uint partPid, string partName, params string[] crewNames)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("name", partName);
+            part.AddValue("persistentId", partPid.ToString());
+            for (int i = 0; i < crewNames.Length; i++)
+                part.AddValue("crew", crewNames[i]);
+            return snapshot;
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_KspFormat_ReadsPersistentIdField()
+        {
+            // Real KSP format: PART.persistentId, not PART.pid.
+            var snapshot = BuildKspFormatSnapshotWithCrew(
+                3717834180u, "mk1pod.v2", "Bill Kerman");
+
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Bill Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found, "seat lookup must succeed on KSP-format snapshots");
+            Assert.Equal(3717834180u, seat.PartPid);
+            Assert.Equal("mk1pod.v2", seat.PartName);
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_KspFormat_BillReplacementScenario_ReproducesLogLine()
+        {
+            // Exact 2026-04-16 log-line scenario:
+            //   [CrewReservation] Orphan placement: no matching part with free seat
+            //   in active vessel for 'Bill Kerman' -> 'Gus Kerman'
+            //   (snapshot pid=0 name='mk1pod.v2')
+            // With the fix, the seat must now resolve to the real pid, not 0.
+            var snapshot = BuildKspFormatSnapshotWithCrew(
+                3717834180u, "mk1pod.v2",
+                "Jebediah Kerman", "Bill Kerman", "Bob Kerman");
+
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Bill Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found);
+            Assert.NotEqual(0u, seat.PartPid);
+            Assert.Equal(3717834180u, seat.PartPid);
+            Assert.Equal("mk1pod.v2", seat.PartName);
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_PrefersPersistentIdWhenBothPresent()
+        {
+            // Defensive: if a snapshot has both keys (theoretical — not
+            // something KSP does, but cheap to lock in), `persistentId` wins
+            // because that's the real runtime field.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("name", "mk1pod.v2");
+            part.AddValue("persistentId", "7777");
+            part.AddValue("pid", "1111"); // legacy/test-only writer
+            part.AddValue("crew", "Bill Kerman");
+
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Bill Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found);
+            Assert.Equal(7777u, seat.PartPid);
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_LegacyPidFieldStillWorksAsFallback()
+        {
+            // Keeps the existing test-authored snapshots (and any pre-fix
+            // recordings that happened to write `pid`) working. This exercises
+            // the fallback branch in the capture code.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("name", "mk1pod.v2");
+            // Only the legacy key — no `persistentId`.
+            part.AddValue("pid", "12345");
+            part.AddValue("crew", "Bill Kerman");
+
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Bill Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found);
+            Assert.Equal(12345u, seat.PartPid);
+            Assert.Equal("mk1pod.v2", seat.PartName);
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_KspFormat_MultiPartVessel()
+        {
+            // A Mk1-3 pod (root) + a fuel tank + a passenger cabin, all saved
+            // using KSP's `persistentId` key. The matcher must return the part
+            // where the kerbal is actually seated, not the first part.
+            var snapshot = new ConfigNode("VESSEL");
+            var pod = snapshot.AddNode("PART");
+            pod.AddValue("name", "mk1-3pod.v2");
+            pod.AddValue("persistentId", "100000");
+            pod.AddValue("crew", "Jebediah Kerman");
+            var tank = snapshot.AddNode("PART");
+            tank.AddValue("name", "fuelTank");
+            tank.AddValue("persistentId", "100001");
+            var cabin = snapshot.AddNode("PART");
+            cabin.AddValue("name", "crewCabin");
+            cabin.AddValue("persistentId", "100002");
+            cabin.AddValue("crew", "Bob Kerman");
+            cabin.AddValue("crew", "Bill Kerman");
+
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Bill Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found);
+            Assert.Equal(100002u, seat.PartPid);
+            Assert.Equal("crewCabin", seat.PartName);
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_MissingBothFields_ReturnsZeroPidButStillFound()
+        {
+            // Neither `persistentId` nor `pid` in the snapshot. Match should
+            // still fire (the crew name is the key) but PartPid=0 must surface
+            // so the FindTargetPartForOrphan name-fallback tier kicks in.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("name", "mk1pod.v2");
+            part.AddValue("crew", "Bill Kerman");
+
+            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                "Bill Kerman", new[] { snapshot }, null);
+
+            Assert.True(seat.Found);
+            Assert.Equal(0u, seat.PartPid);
+            Assert.Equal("mk1pod.v2", seat.PartName);
+        }
+
+        [Fact]
+        public void ResolveOrphanSeatFromSnapshots_KspFormat_InvariantCultureParsing()
+        {
+            // Defensive: `persistentId` values in stock saves are decimal
+            // uints with no separators, but guard against a thread
+            // CurrentCulture that tries to interpret digits as grouped.
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE"); // comma decimal
+                var snapshot = BuildKspFormatSnapshotWithCrew(
+                    4000000000u, "mk1pod.v2", "Bill Kerman");
+
+                var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
+                    "Bill Kerman", new[] { snapshot }, null);
+
+                Assert.True(seat.Found);
+                Assert.Equal(4000000000u, seat.PartPid);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

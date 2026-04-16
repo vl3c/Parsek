@@ -59,6 +59,13 @@ namespace Parsek
         private readonly Stopwatch updateStopwatch = new Stopwatch();
         private readonly Stopwatch spawnStopwatch = new Stopwatch();
         private readonly Stopwatch destroyStopwatch = new Stopwatch();
+        // Bug #414: per-phase stopwatches used only to populate the one-shot PlaybackBudgetPhases
+        // breakdown that DiagnosticsComputation logs the first time a budget-exceeded frame fires.
+        // Allocated once, Reset()+Start()/Stop() each frame — no per-frame GC.
+        private readonly Stopwatch explosionCleanupStopwatch = new Stopwatch();
+        private readonly Stopwatch deferredCreatedStopwatch = new Stopwatch();
+        private readonly Stopwatch deferredCompletedStopwatch = new Stopwatch();
+        private readonly Stopwatch observabilityStopwatch = new Stopwatch();
 
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
@@ -250,11 +257,19 @@ namespace Parsek
             // accumulate across multiple spawns per frame (Start resumes, not resets)
             spawnStopwatch.Reset();
             destroyStopwatch.Reset();
+            // Bug #414: reset per-phase stopwatches used for the one-shot breakdown.
+            // Cheap (Reset on a stopped Stopwatch is a single field write).
+            explosionCleanupStopwatch.Reset();
+            deferredCreatedStopwatch.Reset();
+            deferredCompletedStopwatch.Reset();
+            observabilityStopwatch.Reset();
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
+            int trajectoriesIterated = 0;
 
             for (int i = 0; i < trajectories.Count; i++)
             {
+                trajectoriesIterated++;
                 var traj = trajectories[i];
                 var f = flags[i];
 
@@ -432,26 +447,44 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", "frame-summary",
                     $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} active={ghostStates.Count}");
 
+            // Bug #414: capture elapsed time at loop end so the "main loop" phase (pure
+            // dispatch cost, excluding spawn/destroy which already accumulate into their
+            // own stopwatches inside SpawnGhost/DestroyGhost) can be computed below.
+            long elapsedTicksAtLoopEnd = updateStopwatch.ElapsedTicks;
+
             // Post-loop: cleanup explosions
+            explosionCleanupStopwatch.Start();
             for (int i = activeExplosions.Count - 1; i >= 0; i--)
             {
                 if (activeExplosions[i] == null)
                     activeExplosions.RemoveAt(i);
             }
+            explosionCleanupStopwatch.Stop();
 
             // Fire deferred events AFTER loop completes
+            int createdEventsFired = deferredCreatedEvents.Count;
+            deferredCreatedStopwatch.Start();
             for (int i = 0; i < deferredCreatedEvents.Count; i++)
                 OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
+            deferredCreatedStopwatch.Stop();
 
+            int completedEventsFired = deferredCompletedEvents.Count;
+            deferredCompletedStopwatch.Start();
             for (int i = 0; i < deferredCompletedEvents.Count; i++)
                 OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
+            deferredCompletedStopwatch.Stop();
 
-            // Diagnostics: stop total frame timing and write results
+            // Observability capture is measured as a phase and is now inside the updateStopwatch
+            // window — totalMicroseconds includes it, so the #414 breakdown's phase sum matches
+            // the budget total (pre-#414 it sat outside the window and was silently untracked).
+            observabilityStopwatch.Start();
+            GhostObservability ghostObservability = CaptureGhostObservability();
+            observabilityStopwatch.Stop();
+
             updateStopwatch.Stop();
             long totalMicroseconds = updateStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
             spawnMicroseconds = spawnStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
             long destroyMicroseconds = destroyStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            GhostObservability ghostObservability = CaptureGhostObservability();
 
             DiagnosticsState.playbackBudget.totalMicroseconds = totalMicroseconds;
             DiagnosticsState.playbackBudget.spawnMicroseconds = spawnMicroseconds;
@@ -463,8 +496,33 @@ namespace Parsek
             DiagnosticsState.playbackFrameHistory.Append(
                 Time.realtimeSinceStartup, totalMicroseconds);
 
-            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps)
-            DiagnosticsComputation.CheckPlaybackBudgetThreshold(totalMicroseconds, ghostsProcessed, ctx.warpRate);
+            // Bug #414: build the one-shot per-phase breakdown struct. Cheap — a handful of
+            // tick-to-microsecond divisions even on healthy frames. DiagnosticsComputation
+            // itself only logs when the budget is actually exceeded AND only once per session,
+            // so steady-state cost of the breakdown path is exactly the struct population
+            // below; nothing is written unless the warn fires.
+            long elapsedMicrosecondsAtLoopEnd = elapsedTicksAtLoopEnd * 1000000L / Stopwatch.Frequency;
+            long mainLoopMicroseconds = elapsedMicrosecondsAtLoopEnd - spawnMicroseconds - destroyMicroseconds;
+            if (mainLoopMicroseconds < 0) mainLoopMicroseconds = 0;
+            var phases = new PlaybackBudgetPhases
+            {
+                mainLoopMicroseconds = mainLoopMicroseconds,
+                spawnMicroseconds = spawnMicroseconds,
+                destroyMicroseconds = destroyMicroseconds,
+                explosionCleanupMicroseconds = explosionCleanupStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                deferredCreatedEventsMicroseconds = deferredCreatedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                trajectoriesIterated = trajectoriesIterated,
+                createdEventsFired = createdEventsFired,
+                completedEventsFired = completedEventsFired,
+            };
+
+            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
+            // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
+            // first time a spike is seen, to localize the responsible sub-phase (bug #414).
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
         }
 
         /// <summary>
@@ -2691,6 +2749,11 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
                 $"Ghost #{index} \"{name}\" destroyed ({reason ?? "unknown"})", 1.0);
 
+            // Capture ghost root name before the GO is destroyed so we can clear the
+            // per-ghost "AudioClip not found" dedupe set (#421). A fresh spawn of this
+            // index can then warn once more if the clip is still missing.
+            string ghostRootName = state?.ghost != null ? state.ghost.name : null;
+
             // Fire before destroy so subscribers can read state
             OnGhostDestroyed?.Invoke(new GhostLifecycleEvent
             {
@@ -2702,6 +2765,7 @@ namespace Parsek
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
             completedEventFired.Remove(index);
+            GhostVisualBuilder.ClearMissingAudioClipWarnings(ghostRootName);
             DiagnosticsState.health.ghostDestroysThisSession++;
         }
 

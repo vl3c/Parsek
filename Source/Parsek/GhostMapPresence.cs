@@ -1129,6 +1129,58 @@ namespace Parsek
             vesselPidToRecordingIndex.Clear();
         }
 
+        /// <summary>
+        /// Synchronous bookkeeping reset for the in-game test runner's between-run cleanup
+        /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and both
+        /// recording-index maps in one shot without calling vessel.Die(), under the
+        /// assumption that the caller has already invoked GhostPlaybackEngine.DestroyAllGhosts
+        /// (or RemoveAllGhostVessels) so the Vessel-layer destruction ran first. This closes
+        /// the carryover window where a ProtoVessel was already killed by an engine-driven
+        /// overlap/loop end path but its PID lingered in ghostMapVesselPids, causing the
+        /// GhostPidsResolveToProtoVessels test to see an orphan on the second Run All.
+        ///
+        /// Idempotent: safe to call when all dictionaries are already empty (emits a
+        /// verbose no-op log). Does NOT call Die() on any vessel — those destructions
+        /// are the caller's responsibility via RemoveAllGhostVessels or engine cleanup.
+        /// </summary>
+        internal static void ResetBetweenTestRuns(string reason)
+        {
+            int pidCount = ghostMapVesselPids.Count;
+            int suppressedIconCount = ghostsWithSuppressedIcon.Count;
+            int orbitBoundsCount = ghostOrbitBounds.Count;
+            int chainCount = vesselsByChainPid.Count;
+            int indexCount = vesselsByRecordingIndex.Count;
+            int reverseCount = vesselPidToRecordingIndex.Count;
+
+            int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
+                + chainCount + indexCount + reverseCount;
+
+            if (totalTracked == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "ResetBetweenTestRuns: all dictionaries already empty (reason={0}) — noop",
+                        reason ?? "(null)"));
+                return;
+            }
+
+            ghostMapVesselPids.Clear();
+            ghostsWithSuppressedIcon.Clear();
+            ghostOrbitBounds.Clear();
+            vesselsByChainPid.Clear();
+            vesselsByRecordingIndex.Clear();
+            vesselPidToRecordingIndex.Clear();
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "ResetBetweenTestRuns: cleared bookkeeping reason={0} " +
+                    "pids={1} suppressedIcons={2} orbitBounds={3} chainVessels={4} " +
+                    "indexVessels={5} reverseLookup={6}",
+                    reason ?? "(null)",
+                    pidCount, suppressedIconCount, orbitBoundsCount,
+                    chainCount, indexCount, reverseCount));
+        }
+
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------

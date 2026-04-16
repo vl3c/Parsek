@@ -186,7 +186,15 @@ namespace Parsek.InGameTests
             GUILayout.BeginHorizontal();
             GUI.enabled = !running;
             if (GUILayout.Button("Run All")) { runner.ResetResults(); runner.RunAll(); }
-            if (GUILayout.Button("Reset")) { runner.ResetResults(); }
+            // The explicit Reset button wipes BOTH the live table and the per-scene
+            // history used by the auto-export — clicking Reset must produce a fresh
+            // report on the next run. The implicit pre-run ResetResults (above)
+            // preserves per-scene history so KSC→Flight accumulation works.
+            if (GUILayout.Button(new GUIContent("Reset",
+                "Clears the table AND per-scene history used by the auto-exported results file.")))
+            {
+                runner.ClearAllSceneHistory();
+            }
             GUI.enabled = running;
             if (GUILayout.Button("Cancel")) { runner.Cancel(); }
             GUI.enabled = true;
@@ -289,9 +297,13 @@ namespace Parsek.InGameTests
             GUILayout.EndScrollView();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Export Results")) runner.ExportResultsFile();
+            if (GUILayout.Button(new GUIContent("Export Results",
+                "Auto-exported after every Run All / Run Category / row-play — click to re-write now.")))
+                runner.ExportResultsFile();
             if (GUILayout.Button("Close")) showWindow = false;
             GUILayout.EndHorizontal();
+            GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
+                GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
             // Always render tooltip label — conditional rendering causes
