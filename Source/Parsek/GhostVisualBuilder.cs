@@ -1076,6 +1076,75 @@ namespace Parsek
             }
         }
 
+        // #383: Ghost engine flames render undersized vs live stock because Parsek's FX
+        // pipeline never applies stock's per-frame FXGroup.SetPower runPower multiplier
+        // (up to 1.75x at full thrust for legacy engines). Instead of replicating per-frame
+        // modulation — which needs per-layer curves and risks destroying prefab curve modes
+        // when rewriting startSize — apply a fixed build-time size bump that preserves curve
+        // modes via startSizeMultiplier. Chosen to sit near stock's full-thrust appearance
+        // without over-sizing partial-throttle plumes. Caller-supplied so RAPIER white flame
+        // (which already has its own 0.45x shrink) composes naturally.
+        internal const float GhostEngineFxSizeBoost = 1.5f;
+
+        // Per-part overrides relative to the 1.5x default boost. Values are absolute
+        // startSizeMultiplier/startLifetimeMultiplier factors vs the prefab:
+        //   0.6x — tiny engines (Twitch/Spider/Ant/Sepratron); prefab particles are
+        //          already in scale with the tiny part, default boost over-sizes them.
+        //   1.0x — Flea/Hammer SRBs; default boost reads ~30% too wide, pin to prefab.
+        //   2.0x — Skipper/Mainsail; default boost reads ~30% too narrow.
+        //   2.7x — Rhino; prefab plume is visibly narrow even at 1.5x, ~80% wider.
+        // Keys are runtime part names (KSP converts underscores to dots at runtime:
+        // `smallRadialEngine_v2` registers as `smallRadialEngine.v2`).
+        private static readonly Dictionary<string, float> engineFxSizeOverride =
+            new Dictionary<string, float>(System.StringComparer.Ordinal)
+            {
+                { "smallRadialEngine",      0.6f  }, // 24-77 Twitch
+                { "smallRadialEngine.v2",   0.6f  }, // 24-77 Twitch v2
+                { "radialEngineMini.v2",    0.6f  }, // LV-1R Spider
+                { "microEngine.v2",         0.6f  }, // LV-1 Ant
+                { "sepMotor1",              0.6f  }, // Sepratron I
+                { "solidBooster.sm.v2",     1.0f  }, // RT-5 "Flea" SRB
+                { "solidBooster.v2",        1.0f  }, // RT-10 "Hammer" SRB
+                { "engineLargeSkipper.v2",  2.0f  }, // T-1 Toroidal "Skipper"
+                { "liquidEngineMainsail.v2",2.0f  }, // RE-M3 "Mainsail"
+                { "Size3AdvancedEngine",    2.7f  }, // KR-2L+ Rhino — widen prefab plume
+            };
+
+        /// <summary>
+        /// Returns the build-time engine FX size scale for a given part name. Falls back
+        /// to the default <see cref="GhostEngineFxSizeBoost"/> for engines without a
+        /// registered override.
+        /// </summary>
+        internal static float ResolveEngineFxSizeBoost(string partName)
+        {
+            if (partName != null && engineFxSizeOverride.TryGetValue(partName, out float scale))
+                return scale;
+            return GhostEngineFxSizeBoost;
+        }
+
+        /// <summary>
+        /// Uniformly bumps startSizeMultiplier and startLifetimeMultiplier on every
+        /// ParticleSystem under an engine FX instance so ghost flames render at roughly
+        /// stock full-thrust size. Touches the multiplier fields only, so each system's
+        /// underlying startSize / startLifetime curve mode (Constant / Curve / TwoConstants /
+        /// TwoCurves) is preserved — no risk of flattening animated size curves the way
+        /// rewriting startSize with a new MinMaxCurve would.
+        /// </summary>
+        internal static void ApplyGhostEngineFxSizeBoost(GameObject fxInstance, float scale)
+        {
+            if (fxInstance == null || Mathf.Approximately(scale, 1f))
+                return;
+            ParticleSystem[] systems = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < systems.Length; i++)
+            {
+                if (systems[i] == null)
+                    continue;
+                var main = systems[i].main;
+                main.startSizeMultiplier *= scale;
+                main.startLifetimeMultiplier *= scale;
+            }
+        }
+
         internal static int ConfigureGhostEngineParticleSystems(
             GameObject fxInstance, List<ParticleSystem> sink)
         {
