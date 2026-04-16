@@ -1632,5 +1632,156 @@ namespace Parsek.Tests
                 "StagedSidecarChange",
                 BindingFlags.NonPublic);
         }
+
+        // -----------------------------------------------------------------------
+        // TrajectorySidecarBinary reader bounds (6 tests)
+        // -----------------------------------------------------------------------
+
+        [Fact]
+        public void TrajectorySidecarBinary_TryProbe_FileShorterThanMagic_ReturnsFalse()
+        {
+            string path = Path.Combine(tempDir, "too-short.prec");
+            File.WriteAllBytes(path, new byte[] { 0x50, 0x52 }); // 2 bytes, less than 4-byte magic "PRKB"
+
+            // Call TrajectorySidecarBinary.TryProbe directly; the file length (2) is less than
+            // Magic.Length + 2*sizeof(int) = 12, so TryProbe returns false with "binary header truncated".
+            TrajectorySidecarProbe probe;
+            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
+            Assert.False(result);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_TryProbe_PartialMagic_ReturnsFalse()
+        {
+            string path = Path.Combine(tempDir, "partial-magic.prec");
+            // "PR" only -- first two bytes of "PRKB" but file length (2) < 12 minimum
+            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'R' });
+
+            TrajectorySidecarProbe probe;
+            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
+            Assert.False(result);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_TryProbe_MagicButHeaderBodyTruncated_ReturnsFalse()
+        {
+            // Write "PRKB" + 4 zero bytes = 8 bytes total.
+            // TryProbe requires Magic.Length + 2*sizeof(int) = 4+4+4 = 12 bytes minimum.
+            string path = Path.Combine(tempDir, "truncated-header.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(new byte[] { 0, 0, 0, 0 }); // 4 zero bytes -- only 8 total
+            }
+
+            TrajectorySidecarProbe probe;
+            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
+            Assert.False(result);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_Read_PointListCountExceedsRemainingBytes_ThrowsEndOfStream()
+        {
+            // Craft a file with valid header but point-count=999 with only 20 bytes of data.
+            // Probe succeeds (header is valid); Read throws EndOfStreamException.
+            string path = Path.Combine(tempDir, "truncated-points.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
+            {
+                // Magic
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                // formatVersion = 3 (SparsePointBinaryVersion, supported)
+                writer.Write(3);
+                // sidecarEpoch
+                writer.Write(1);
+                // recordingId (BinaryWriter.Write(string) writes length-prefixed UTF8)
+                writer.Write("truncated-points-test");
+                // flags byte: sectionAuthoritative=0
+                writer.Write((byte)0);
+                // string table count = 1 entry ("Kerbin")
+                writer.Write(1);
+                writer.Write("Kerbin");
+                // point list count = 999, but no actual point data follows
+                writer.Write(999);
+                // 20 zero bytes of payload (not enough for 999 points)
+                writer.Write(new byte[20]);
+            }
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.True(probe.Success);
+
+            var rec = new Recording { RecordingId = "truncated-points-test" };
+            // Pin current behavior: the reader throws EndOfStreamException on truncation.
+            // A graceful fallback would be a production-code fix tracked separately.
+            Assert.Throws<EndOfStreamException>(() =>
+                RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_Read_SparsePointListFlagPresent_TruncatedMidPoint_ThrowsEndOfStream()
+        {
+            // Craft a file with sparse-list header (listFlags = SparsePointListFlagEnabled = 0x01)
+            // and point-count=50 but only minimal bytes of payload. Read throws EndOfStreamException.
+            string path = Path.Combine(tempDir, "truncated-sparse.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(3); // formatVersion = 3
+                writer.Write(1); // sidecarEpoch
+                writer.Write("truncated-sparse-test");
+                writer.Write((byte)0); // flags
+                writer.Write(1);       // string table count
+                writer.Write("Kerbin");
+                // point list count = 50
+                writer.Write(50);
+                // listFlags = SparsePointListFlagEnabled (0x01) | SparsePointListFlagBodyDefault (0x02)
+                writer.Write((byte)0x03);
+                // defaultBodyName index into string table (index 0 = "Kerbin")
+                writer.Write(0);
+                // 10 bytes of point data then EOF -- far too short
+                writer.Write(new byte[10]);
+            }
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.True(probe.Success);
+
+            var rec = new Recording { RecordingId = "truncated-sparse-test" };
+            Assert.Throws<EndOfStreamException>(() =>
+                RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+        }
+
+        [Fact]
+        public void TrajectorySidecarBinary_Read_ValidHeaderWithZeroPoints_ReturnsEmptyRecording()
+        {
+            // Write a recording with RecordingFormatVersion=3 and empty trajectory lists.
+            // Probe should succeed; deserialized recording should have all empty lists.
+            var original = new Recording
+            {
+                RecordingId = "zero-points-v3",
+                RecordingFormatVersion = 3
+            };
+
+            string path = Path.Combine(tempDir, "zero-points-v3.prec");
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(probe.Success);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+
+            var restored = new Recording { RecordingId = "zero-points-v3" };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Empty(restored.Points);
+            Assert.Empty(restored.OrbitSegments);
+            Assert.Empty(restored.TrackSections);
+        }
     }
 }
