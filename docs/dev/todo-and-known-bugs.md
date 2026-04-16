@@ -1133,7 +1133,7 @@ There is no hover test, no click handling, and no per-marker "sticky" state. Bot
 
 ## ~~385. Timeline window: move Retired Stand-ins out, add a dedicated Kerbals Status window behind a toolbar button~~
 
-**Status:** DONE in v0.8.2 — delivered Retired + Reserved + Active stand-ins in a new `UI/KerbalsWindowUI.cs` opened from a main-UI button (not a Timeline-header drill-down). Per-recording crew end-states, chain-expansion UI, and per-name filters remain future work; the design notes below apply to those follow-ups.
+**Status:** DONE in v0.8.2 — delivered Retired + Reserved + Active stand-ins in a new `UI/KerbalsWindowUI.cs` opened from a main-UI button (not a Timeline-header drill-down). Per-recording crew end-states and chain-expansion UI shipped as follow-ups in #415 / #415-1 / #415-2. Per-name filter deliberately dropped (see #415 sub-item 3) — re-file if playtesting shows a need.
 
 **Source:** maintenance request `2026-04-14`. The Retired Stand-ins list currently hangs off the bottom of the Timeline window (`UI/TimelineWindowUI.cs:523` `DrawRetiredKerbalsSection`, called from the main draw at line `238`). It's confusing in that location — "retired stand-ins" is not a timeline concept, and it takes vertical space that the timeline entry list should own.
 
@@ -1200,9 +1200,11 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 ---
 
-## 415. Kerbals window follow-ups: per-recording crew end-states + chain topology view
+## ~~415. Kerbals window follow-ups: per-recording crew end-states + chain topology view~~
 
-**Source:** follow-up after PR #320 (#385 extraction). That PR shipped the three flat sections (Reserved / Active stand-ins / Retired stand-ins) and enriched Retired rows with trait + former-owner context. The next expansion surfaces two Parsek-specific views that stock KSP's Astronaut Complex cannot show: per-mission kerbal fate history, and the replacement-chain topology.
+**Status:** DONE in v0.8.2. Sub-items 1 and 2 shipped under PRs #320 (`#415` Per-Recording Fates), #324 (`#415-1` fold toggle), and #325 (`#415-2` chain topology). Sub-item 3 (per-name filter) was dropped at user request — will be re-filed fresh if a real need surfaces from playtesting.
+
+**Source:** follow-up after PR #320 (#385 extraction). That PR shipped the three flat sections (Reserved / Active stand-ins / Retired stand-ins) and enriched Retired rows with trait + former-owner context. The next expansion surfaced two Parsek-specific views that stock KSP's Astronaut Complex cannot show: per-mission kerbal fate history, and the replacement-chain topology.
 
 **Filter applied:** a standalone "Deceased" list is NOT included here — stock's KIA memorial already exposes that. The per-recording end-state view below inherently annotates which kerbals died in which mission, which is the Parsek-unique framing.
 
@@ -1210,32 +1212,12 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 **2. ~~Chain topology view.~~** DONE in #415-2 (v0.8.2) — the Kerbals window now renders each career-kerbal slot as a collapsible per-owner row; clicking the arrow expands the chain as indented tree children labelled (active) / (retired) / (displaced). Orphan retired stand-ins (in `GetRetiredKerbals()` but no slot's Chain) land in a separate **Unlinked Retired** section. Default all-collapsed, so the initial view is a contiguous list of owners. Replaces the old flat Reserved / Active stand-ins / Retired stand-ins sections.
 
-**3. Per-name filter search (polish — optional v2).** A text box at the top of the window filtering Reserved + Active + Retired + (future) end-state rows by partial name match. Low value in small careers, helpful in 100+ kerbal saves.
-
-**State sources to wire up:**
-
-- `RecordingStore.CommittedRecordings` joined with `rec.CrewEndStates` for section 1
-- `LedgerOrchestrator.Kerbals.Slots` / `.Reservations` / `.GetActiveChainIndex` / `.GetRetiredKerbals()` for section 2 (all `internal`, already reachable from UI code since #320 bumped `GetActiveChainIndex` to `internal`)
-- `ParsekUI.OnTimelineDataChanged → kerbalsUI.InvalidateCache()` already fan-outs cache invalidation; no new wiring
-
-**Interaction with existing PR (#320):**
-
-- PR #320 added a view-model layer (`KerbalsViewModel` with `ReservedEntry`, `ActiveStandInEntry`, `RetiredEntry` structs in `UI/KerbalsWindowUI.cs`). The chain topology section will need a new `SlotTopologyEntry` struct (owner + trait + nested chain with per-entry status tag).
-- PR #320's scroll view + resize handle remain — chain topology with collapsible nodes fits inside the existing scroll region.
-- The current three flat sections can either be replaced by the topology view OR kept as a "flat" mode with a toggle. Lean toward replace for simplicity; flat mode is what the topology implicitly expands.
-
-**Files to touch:**
-
-- `Source/Parsek/UI/KerbalsWindowUI.cs` — new `SlotTopologyEntry` + `CrewEndStateEntry` structs, extend `KerbalsViewModel`, add two new `Draw*Section` methods (collapsible), update `Build()` to compute both. Grow from ~320 lines to ~500.
-- `Source/Parsek.Tests/KerbalsWindowUITests.cs` — new tests: `Build_SlotTopology_RendersOwnerAndChainWithStatusTags`, `Build_CrewEndStateBreakdown_GroupsByKerbal`, `Build_SkipsRecordingsWithUnresolvedEndStates`, empty-state variants.
-- `CHANGELOG.md` — under the appropriate version header (0.8.3 or later).
+**3. ~~Per-name filter search (polish — optional v2).~~** Dropped. The topology default-collapsed layout (sub-item 2) already gives a single contiguous per-owner list, and the fold toggle (sub-item 1) keeps the Fates section compact. If playtesting in large-career saves shows scanning-for-a-name is still painful, this can be re-filed with a fresh scope brief.
 
 **Out of scope for this entry (carved off as separate todos):**
 
 - Contracts / Facilities / Strategies / Milestones visibility → see **#416 Career-state window**. Career-scoped, not roster-scoped; deserves its own window.
 - Linking end-state rows to Timeline cross-scroll → small companion item also filed under #416 (see that entry's "Small companion item" note); the hookup is ~1 line via the existing `TimelineWindowUI.ScrollToRecording`.
-
-**Status:** TODO. Size: M. Two independent sub-features (end-states + topology) can ship as separate PRs if the combined diff is too large.
 
 ---
 
