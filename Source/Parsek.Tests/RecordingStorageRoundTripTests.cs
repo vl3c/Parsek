@@ -1929,8 +1929,11 @@ namespace Parsek.Tests
                 RecordingFormatVersion = 3
             };
 
-            string[] bodies = { "Kerbin", "Mun", "Kerbin", "Mun", "Kerbin", "Mun", "Kerbin", "Mun" };
-
+            // When shareBody=false, use pointCount unique body names so FindMostCommonString
+            // returns a mode of 1, making body savings = (4*1)-4 = 0 and leaving the sparse
+            // body-default flag disabled. The previous Kerbin/Mun alternation produced 4
+            // matches out of 8, which silently enabled SparsePointListFlagBodyDefault even
+            // for supposed-absent cases and collapsed the 16-combination matrix.
             for (int i = 0; i < pointCount; i++)
             {
                 rec.Points.Add(new TrajectoryPoint
@@ -1941,7 +1944,7 @@ namespace Parsek.Tests
                     altitude = 500 + i * 50,
                     rotation = new Quaternion(0, 0, 0, 1),
                     velocity = new Vector3(0, 50 + i, 0),
-                    bodyName = shareBody ? "Kerbin" : bodies[i % bodies.Length],
+                    bodyName = shareBody ? "Kerbin" : $"Body{i}",
                     funds = shareFunds ? 10000.0 : 1000.0 + i * 100,
                     science = shareScience ? 5.0f : i * 0.7f,
                     reputation = shareRep ? 3.0f : i * 0.4f
@@ -1964,9 +1967,18 @@ namespace Parsek.Tests
         [InlineData("aliasSnapshot")]
         public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
         {
-            var fixture = BuildBoundaryCodecFixture();
+            // The section-authoritative case needs a fixture whose flat payload exactly matches
+            // both the rebuilt points AND the rebuilt orbit segments. BuildBoundaryCodecFixture
+            // has 2 flat OrbitSegments but only Absolute track sections (which contribute nothing
+            // to RebuildOrbitSegmentsFromTrackSections), so its OrbitSegment exact-match fails
+            // and the writer falls through to flat-fallback — good for the duplicated case,
+            // wrong for the section-authoritative case.
+            Recording fixture = caseName == "v1SectionAuthoritative"
+                ? BuildSectionAuthoritativeCodecFixture()
+                : BuildBoundaryCodecFixture();
 
             TrajectorySidecarEncoding expectedEncoding;
+            bool expectSectionAuthoritative;
             Recording writeRec;
 
             switch (caseName)
@@ -1976,34 +1988,41 @@ namespace Parsek.Tests
                     writeRec.RecordingFormatVersion = 0;
                     writeRec.TrackSections.Clear();
                     expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    expectSectionAuthoritative = false;
                     break;
 
                 case "v1FlatSectionsDuplicated":
+                    // Flat OrbitSegments do not match sections (Absolute-only sections rebuild
+                    // to empty), so ShouldWriteSectionAuthoritativeTrajectory returns false and
+                    // the writer serializes POINT + ORBIT_SEGMENT + TRACK_SECTION nodes.
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 1;
                     expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    expectSectionAuthoritative = false;
                     break;
 
                 case "v1SectionAuthoritative":
-                    // The fixture has flat Points that exactly match what gets rebuilt from TrackSections,
-                    // so ShouldWriteSectionAuthoritativeTrajectory returns true and the writer uses the
-                    // section-authoritative path (sections only, no top-level POINT nodes).
-                    // On read, the reader sees no POINTs + has TRACK_SECTIONs => rebuilds flat from sections.
+                    // Fixture adds an OrbitalCheckpoint section whose checkpoints exactly match
+                    // the flat OrbitSegments, so FlatTrajectoryExactlyMatchesTrackSectionPayload
+                    // returns true and the writer emits only TRACK_SECTION nodes.
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 1;
                     expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
+                    expectSectionAuthoritative = true;
                     break;
 
                 case "v2Binary":
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 2;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV2;
+                    expectSectionAuthoritative = false;
                     break;
 
                 case "v3Sparse":
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 3;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    expectSectionAuthoritative = false;
                     break;
 
                 case "aliasSnapshot":
@@ -2014,14 +2033,43 @@ namespace Parsek.Tests
                     writeRec.GhostVisualSnapshot = writeRec.VesselSnapshot;
                     writeRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    expectSectionAuthoritative = false;
                     break;
 
                 default:
                     throw new InvalidOperationException($"Unknown case: {caseName}");
             }
 
+            // Pin the actual write-path choice so a future fixture change cannot silently
+            // collapse v1FlatSectionsDuplicated and v1SectionAuthoritative into the same branch.
+            Assert.Equal(expectSectionAuthoritative,
+                RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(writeRec));
+
             string path = Path.Combine(tempDir, $"codec-matrix-{caseName}.prec");
             RecordingStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);
+
+            // For text-format cases (v0/v1) verify the serialized ConfigNode actually took
+            // the expected path: section-authoritative writes omit POINT/ORBIT_SEGMENT,
+            // flat-fallback writes include them.
+            if (expectedEncoding == TrajectorySidecarEncoding.TextConfigNode)
+            {
+                var savedNode = ConfigNode.Load(path);
+                Assert.NotNull(savedNode);
+                int pointNodes = savedNode.GetNodes("POINT").Length;
+                int orbitNodes = savedNode.GetNodes("ORBIT_SEGMENT").Length;
+                int trackNodes = savedNode.GetNodes("TRACK_SECTION").Length;
+                if (expectSectionAuthoritative)
+                {
+                    Assert.Equal(0, pointNodes);
+                    Assert.Equal(0, orbitNodes);
+                    Assert.True(trackNodes > 0, $"{caseName} expected TRACK_SECTION nodes");
+                }
+                else if (caseName != "v0Flat")
+                {
+                    Assert.True(pointNodes > 0, $"{caseName} expected POINT nodes (flat-fallback)");
+                    Assert.True(trackNodes > 0, $"{caseName} expected TRACK_SECTION nodes (flat-fallback)");
+                }
+            }
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe),
@@ -2145,9 +2193,11 @@ namespace Parsek.Tests
                 bodyName = "Kerbin"
             });
 
-            // 2 track sections; boundary point shared between them.
-            // The sections produce the same flat list when deduped, satisfying
-            // FlatTrajectoryExactlyMatchesTrackSectionPayload for the v1SectionAuthoritative case.
+            // 2 Absolute track sections; boundary point shared between them.
+            // Rebuilt Points match flat Points, but rebuilt OrbitSegments is empty (no
+            // OrbitalCheckpoint section), so FlatTrajectoryExactlyMatchesTrackSectionPayload
+            // returns false and a writer with RecordingFormatVersion >= 1 falls through to
+            // flat-fallback. This shape drives the v1FlatSectionsDuplicated case.
             rec.TrackSections.Add(new TrackSection
             {
                 environment = SegmentEnvironment.Atmospheric,
@@ -2183,6 +2233,37 @@ namespace Parsek.Tests
                     rec.Points[2]
                 },
                 checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
+        // Adds an OrbitalCheckpoint section whose checkpoints exactly match the flat
+        // OrbitSegments from BuildBoundaryCodecFixture, so rebuilt orbit segments equal
+        // flat orbit segments and FlatTrajectoryExactlyMatchesTrackSectionPayload returns
+        // true. Used by the v1SectionAuthoritative matrix case to exercise the real
+        // section-authoritative write path (POINT and ORBIT_SEGMENT nodes omitted).
+        private static Recording BuildSectionAuthoritativeCodecFixture()
+        {
+            var rec = BuildBoundaryCodecFixture();
+
+            var checkpointCopies = new List<OrbitSegment>(rec.OrbitSegments.Count);
+            foreach (var seg in rec.OrbitSegments)
+                checkpointCopies.Add(seg);
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = rec.OrbitSegments[0].startUT,
+                endUT = rec.OrbitSegments[rec.OrbitSegments.Count - 1].endUT,
+                sampleRateHz = 0.1f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = 700000f,
+                maxAltitude = 710000f,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = checkpointCopies
             });
 
             return rec;
