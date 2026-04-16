@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Security;
 
 namespace Parsek
 {
@@ -197,6 +198,49 @@ namespace Parsek
             LoadIfNeeded();
             storedShowGhostsInTrackingStation = value;
             Save();
+        }
+
+        /// <summary>
+        /// Resolve the effective <c>showGhostsInTrackingStation</c> value with
+        /// early-scene-load in mind. Precedence:
+        /// <list type="number">
+        ///   <item>Persisted store (settings.cfg) — authoritative user intent, does
+        ///     NOT depend on <c>HighLogic.CurrentGame</c>, so it's readable during
+        ///     <c>SpaceTracking.Awake</c> where <c>ParsekSettings.Current</c> can be
+        ///     null (see <c>ParsekScenario.cs:546</c> comment).</item>
+        ///   <item>Live <c>ParsekSettings.Current</c> when resolvable.</item>
+        ///   <item>Default <c>true</c> (pre-#388 behavior).</item>
+        /// </list>
+        /// This closes the startup window where a disabled toggle could briefly
+        /// spawn ghosts via the <c>GhostTrackingStationInitPatch</c> prefix before
+        /// a later frame noticed the real setting.
+        /// </summary>
+        internal static bool EffectiveShowGhostsInTrackingStation()
+        {
+            // Swallow ONLY the "called outside Unity runtime" case —
+            // KSPUtil.ApplicationRootPath throws SecurityException/ECall under
+            // xUnit. Real disk-read failures are handled inside LoadIfNeeded
+            // itself and logged at Warn level, so we deliberately don't mask
+            // those here: a genuine settings.cfg corruption bug has to remain
+            // loud or the user's stored preference would silently revert to
+            // the pre-#388 default — the exact symptom this helper is
+            // supposed to prevent.
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"EffectiveShowGhostsInTrackingStation: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedShowGhostsInTrackingStation.HasValue)
+                return storedShowGhostsInTrackingStation.Value;
+            // Final fallback: live ParsekSettings.Current if resolvable, else pre-#388
+            // default. In production every UI write path goes through
+            // RecordShowGhostsInTrackingStation, so the stored value can't lag
+            // behind the live setting; this branch only fires when neither path
+            // has ever set the flag (e.g. KSP's Game Parameters menu was used
+            // to flip it without going through the Parsek settings window).
+            return ParsekSettings.Current?.showGhostsInTrackingStation ?? true;
         }
 
         /// <summary>

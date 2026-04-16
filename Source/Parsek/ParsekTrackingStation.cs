@@ -33,7 +33,10 @@ namespace Parsek
 
         void Start()
         {
-            lastKnownShowGhosts = ParsekSettings.Current?.showGhostsInTrackingStation ?? true;
+            // Read through the persistence store so the startup tick uses the
+            // recorded user preference even when ParsekSettings.Current isn't
+            // resolved yet (early-scene-load case, see ParsekScenario.cs:546).
+            lastKnownShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
 
@@ -70,7 +73,7 @@ namespace Parsek
             // without waiting for a committed-count change. On on-flip, force a tick
             // so the Phase-2 loop in UpdateTrackingStationGhostLifecycle recreates
             // ghosts for every eligible recording.
-            bool currentShowGhosts = ParsekSettings.Current?.showGhostsInTrackingStation ?? true;
+            bool currentShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
             if (currentShowGhosts != lastKnownShowGhosts)
             {
                 ParsekLog.Info(Tag,
@@ -98,7 +101,7 @@ namespace Parsek
 
             // #388: skip the whole atmospheric-marker pass when the user has
             // hidden ghosts in the tracking station.
-            if (!(ParsekSettings.Current?.showGhostsInTrackingStation ?? true)) return;
+            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation()) return;
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0) return;

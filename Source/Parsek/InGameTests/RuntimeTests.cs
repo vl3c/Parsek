@@ -409,7 +409,15 @@ namespace Parsek.InGameTests
             finally
             {
                 // Restore user's original setting regardless of test outcome.
+                // If the original was false, the "flip on" leg of the test
+                // recreated ghost ProtoVessels that we have to drain manually —
+                // UpdateTrackingStationGhostLifecycle short-circuits when the
+                // flag is false and won't remove them on its own, so without
+                // this RemoveAll the TS would be left showing ghosts even
+                // though the user had them disabled.
                 ParsekSettings.Current.showGhostsInTrackingStation = original;
+                if (!original)
+                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle();
             }
         }

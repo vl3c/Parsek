@@ -146,6 +146,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EffectiveShowGhostsInTrackingStation_PrefersStoreOverInMemoryDefault()
+        {
+            // Regression guard for the SpaceTracking.Awake race: during early
+            // scene load, ParsekSettings.Current can be null and falling back
+            // to `?? true` would let a disabled-toggle user briefly see ghosts
+            // before ApplyTo ran. The persistence-store-first helper closes
+            // that window. Simulate by setting the store to false while the
+            // in-memory singleton is unavailable (which is xUnit's default —
+            // no HighLogic.CurrentGame is constructed).
+            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
+
+            Assert.False(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation(),
+                "EffectiveShowGhostsInTrackingStation must honor the stored " +
+                "user choice even when ParsekSettings.Current is unavailable " +
+                "(SpaceTracking.Awake pre-create path).");
+        }
+
+        [Fact]
+        public void EffectiveShowGhostsInTrackingStation_DefaultsTrueWhenNothingIsSet()
+        {
+            // Nothing in the store, no live ParsekSettings.Current in xUnit —
+            // falls back to the pre-#388 "visible" default.
+            Assert.True(ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
+        }
+
+        [Fact]
         public void ApplyTo_IsIndependentOfOtherStoredFields()
         {
             // Regression guard: make sure wiring the new field into Save/Load/Apply

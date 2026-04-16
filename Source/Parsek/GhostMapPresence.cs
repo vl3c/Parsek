@@ -463,7 +463,10 @@ namespace Parsek
             // (calls RemoveAllGhostVessels); here we simply skip creation so the
             // list stays empty while the flag is off. An empty-committed cache is
             // still published so ParsekTrackingStation.OnGUI guards still work.
-            if (!(ParsekSettings.Current?.showGhostsInTrackingStation ?? true))
+            // Reads through the persistence store so the early-scene-load case
+            // (ParsekSettings.Current still null) gets the correct user choice
+            // from settings.cfg, not the pre-#388 default.
+            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
             {
                 CachedSupersededIds = new HashSet<string>();
                 ParsekLog.VerboseRateLimited(Tag,
@@ -851,8 +854,11 @@ namespace Parsek
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
             // #388: respect the user's tracking-station ghost visibility toggle.
-            // ParsekSettings.Current may be null outside an active game — default to visible.
-            if (!(ParsekSettings.Current?.showGhostsInTrackingStation ?? true))
+            // This path is called from SpaceTracking.Awake prefix where
+            // ParsekSettings.Current may still be null — read through the
+            // persistence store so the user's recorded preference (from
+            // settings.cfg) wins over the pre-#388 default.
+            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
             {
                 int commCount = RecordingStore.CommittedRecordings?.Count ?? 0;
                 ParsekLog.Info(Tag,
