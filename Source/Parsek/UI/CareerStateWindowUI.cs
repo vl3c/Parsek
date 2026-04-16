@@ -38,15 +38,49 @@ namespace Parsek
         // Style cache (initialized lazily on first draw, mirrors KerbalsWindowUI.EnsureStyles).
         private GUIStyle sectionHeaderStyle;
         private GUIStyle groupHeaderStyle;
+        private GUIStyle columnHeaderStyle;
         private GUIStyle pendingStyle;
         private GUIStyle grayStyle;
         private GUIStyle bannerStyle;
 
-        private const float DefaultWindowWidth = 420f;
+        private const float DefaultWindowWidth = 820f;
         private const float DefaultWindowHeight = 400f;
-        private const float MinWindowWidth = 320f;
+        private const float MinWindowWidth = 520f;
         private const float MinWindowHeight = 200f;
         private const string CareerStateInputLockId = "Parsek_CareerStateWindow";
+
+        // Column widths — shared between header and body for alignment (mirrors RecordingsTableUI:30-42).
+        // Contracts tab.
+        private const float ColW_ContractTitle = 240f;
+        private const float ColW_AcceptUT = 90f;
+        private const float ColW_DeadlineUT = 90f;
+        private const float ColW_PendingTag = 70f;
+        // Strategies tab.
+        private const float ColW_StrategyTitle = 220f;
+        private const float ColW_ActivateUT = 90f;
+        private const float ColW_Flow = 140f;
+        // Milestones tab.
+        private const float ColW_MilestoneUT = 90f;
+        private const float ColW_MilestoneTitle = 200f;
+        private const float ColW_Rewards = 180f;
+        // Facilities tab.
+        private const float ColW_FacilityTitle = 200f;
+        private const float ColW_Level = 120f;
+        private const float ColW_Status = 180f;
+
+        // Disclosure arrows (mirrors KerbalsWindowUI:34-35).
+        private const string FoldedArrow = "\u25b6";
+        private const string UnfoldedArrow = "\u25bc";
+
+        // Transient fold state for Contracts/Strategies "Pending in timeline" section headers.
+        // Default-unfolded means we only store names that are currently folded. Tab switches
+        // do NOT clear this set — folds persist across the window's lifetime.
+        internal readonly HashSet<string> foldedGroups = new HashSet<string>(StringComparer.Ordinal);
+
+        // Group-name constants for foldedGroups keys. Kept as constants so tests and
+        // production share the exact strings.
+        internal const string GroupKey_ContractsPending = "Contracts.Pending";
+        internal const string GroupKey_StrategiesPending = "Strategies.Pending";
 
         private static readonly string[] TabLabels = new[]
         {
@@ -954,6 +988,15 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
+            // Column-header row (bold label in a box). Mirrors RecordingsTableUI
+            // header-row convention so Career State tables scan like the rest of
+            // Parsek's windows.
+            columnHeaderStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
             // Pending rows: muted amber to mark "not yet lived" entries.
             pendingStyle = new GUIStyle(GUI.skin.label)
             {
@@ -1098,21 +1141,23 @@ namespace Parsek
             if (sameAsProjected)
             {
                 GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                DrawContractsColumnHeader();
                 GUILayout.BeginVertical(GUI.skin.box);
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active contracts)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    GUILayout.Label("  " + FormatContractRow(tab.CurrentRows[i]), GUI.skin.label);
+                    DrawContractRow(tab.CurrentRows[i], GUI.skin.label);
                 GUILayout.EndVertical();
             }
             else
             {
                 GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                DrawContractsColumnHeader();
                 GUILayout.BeginVertical(GUI.skin.box);
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active contracts)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    GUILayout.Label("  " + FormatContractRow(tab.CurrentRows[i]), GUI.skin.label);
+                    DrawContractRow(tab.CurrentRows[i], GUI.skin.label);
                 GUILayout.EndVertical();
 
                 // "Pending in timeline" is the projected rows minus the current rows.
@@ -1120,18 +1165,50 @@ namespace Parsek
                 int pendingCount = 0;
                 for (int i = 0; i < tab.ProjectedRows.Count; i++)
                     if (tab.ProjectedRows[i].IsPendingAccept) pendingCount++;
-                GUILayout.Label($"Pending in timeline ({pendingCount.ToString(ic)})", groupHeaderStyle);
-                GUILayout.BeginVertical(GUI.skin.box);
-                if (pendingCount == 0)
-                    GUILayout.Label("  (none)", grayStyle);
-                for (int i = 0; i < tab.ProjectedRows.Count; i++)
+
+                bool folded = foldedGroups.Contains(GroupKey_ContractsPending);
+                string arrow = folded ? FoldedArrow : UnfoldedArrow;
+                string headerText = $"{arrow} Pending in timeline ({pendingCount.ToString(ic)})";
+                if (GUILayout.Button(headerText, groupHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
-                    var r = tab.ProjectedRows[i];
-                    if (!r.IsPendingAccept) continue;
-                    GUILayout.Label("  " + FormatContractRow(r), pendingStyle);
+                    ToggleSection(foldedGroups, GroupKey_ContractsPending);
                 }
-                GUILayout.EndVertical();
+
+                if (!folded)
+                {
+                    DrawContractsColumnHeader();
+                    GUILayout.BeginVertical(GUI.skin.box);
+                    if (pendingCount == 0)
+                        GUILayout.Label("  (none)", grayStyle);
+                    for (int i = 0; i < tab.ProjectedRows.Count; i++)
+                    {
+                        var r = tab.ProjectedRows[i];
+                        if (!r.IsPendingAccept) continue;
+                        DrawContractRow(r, pendingStyle);
+                    }
+                    GUILayout.EndVertical();
+                }
             }
+        }
+
+        private void DrawContractsColumnHeader()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Contract", columnHeaderStyle, GUILayout.Width(ColW_ContractTitle));
+            GUILayout.Label("Accepted UT", columnHeaderStyle, GUILayout.Width(ColW_AcceptUT));
+            GUILayout.Label("Deadline UT", columnHeaderStyle, GUILayout.Width(ColW_DeadlineUT));
+            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawContractRow(ContractRow r, GUIStyle rowStyle)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(FormatContractRow_Title(r), rowStyle, GUILayout.Width(ColW_ContractTitle));
+            GUILayout.Label(FormatContractRow_Accept(r), rowStyle, GUILayout.Width(ColW_AcceptUT));
+            GUILayout.Label(FormatContractRow_Deadline(r), rowStyle, GUILayout.Width(ColW_DeadlineUT));
+            GUILayout.Label(FormatContractRow_Pending(r), rowStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.EndHorizontal();
         }
 
         private void DrawStrategiesTab(StrategiesTabVM tab, Game.Modes mode)
@@ -1156,39 +1233,73 @@ namespace Parsek
             if (sameAsProjected)
             {
                 GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                DrawStrategiesColumnHeader();
                 GUILayout.BeginVertical(GUI.skin.box);
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active strategies)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    GUILayout.Label("  " + FormatStrategyRow(tab.CurrentRows[i]), GUI.skin.label);
+                    DrawStrategyRow(tab.CurrentRows[i], GUI.skin.label);
                 GUILayout.EndVertical();
             }
             else
             {
                 GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
+                DrawStrategiesColumnHeader();
                 GUILayout.BeginVertical(GUI.skin.box);
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active strategies)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    GUILayout.Label("  " + FormatStrategyRow(tab.CurrentRows[i]), GUI.skin.label);
+                    DrawStrategyRow(tab.CurrentRows[i], GUI.skin.label);
                 GUILayout.EndVertical();
 
                 GUILayout.Space(3);
                 int pendingCount = 0;
                 for (int i = 0; i < tab.ProjectedRows.Count; i++)
                     if (tab.ProjectedRows[i].IsPendingActivate) pendingCount++;
-                GUILayout.Label($"Pending in timeline ({pendingCount.ToString(ic)})", groupHeaderStyle);
-                GUILayout.BeginVertical(GUI.skin.box);
-                if (pendingCount == 0)
-                    GUILayout.Label("  (none)", grayStyle);
-                for (int i = 0; i < tab.ProjectedRows.Count; i++)
+
+                bool folded = foldedGroups.Contains(GroupKey_StrategiesPending);
+                string arrow = folded ? FoldedArrow : UnfoldedArrow;
+                string headerText = $"{arrow} Pending in timeline ({pendingCount.ToString(ic)})";
+                if (GUILayout.Button(headerText, groupHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
-                    var r = tab.ProjectedRows[i];
-                    if (!r.IsPendingActivate) continue;
-                    GUILayout.Label("  " + FormatStrategyRow(r), pendingStyle);
+                    ToggleSection(foldedGroups, GroupKey_StrategiesPending);
                 }
-                GUILayout.EndVertical();
+
+                if (!folded)
+                {
+                    DrawStrategiesColumnHeader();
+                    GUILayout.BeginVertical(GUI.skin.box);
+                    if (pendingCount == 0)
+                        GUILayout.Label("  (none)", grayStyle);
+                    for (int i = 0; i < tab.ProjectedRows.Count; i++)
+                    {
+                        var r = tab.ProjectedRows[i];
+                        if (!r.IsPendingActivate) continue;
+                        DrawStrategyRow(r, pendingStyle);
+                    }
+                    GUILayout.EndVertical();
+                }
             }
+        }
+
+        private void DrawStrategiesColumnHeader()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Strategy", columnHeaderStyle, GUILayout.Width(ColW_StrategyTitle));
+            GUILayout.Label("Activated UT", columnHeaderStyle, GUILayout.Width(ColW_ActivateUT));
+            GUILayout.Label("Flow", columnHeaderStyle, GUILayout.Width(ColW_Flow));
+            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawStrategyRow(StrategyRow r, GUIStyle rowStyle)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(FormatStrategyRow_Title(r), rowStyle, GUILayout.Width(ColW_StrategyTitle));
+            GUILayout.Label(FormatStrategyRow_Activate(r), rowStyle, GUILayout.Width(ColW_ActivateUT));
+            GUILayout.Label(FormatStrategyRow_Flow(r), rowStyle, GUILayout.Width(ColW_Flow));
+            GUILayout.Label(FormatStrategyRow_Pending(r), rowStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.EndHorizontal();
         }
 
         private void DrawFacilitiesTab(FacilitiesTabVM tab, Game.Modes mode)
@@ -1200,6 +1311,7 @@ namespace Parsek
             }
 
             GUILayout.Label("Facilities", sectionHeaderStyle);
+            DrawFacilitiesColumnHeader();
             GUILayout.BeginVertical(GUI.skin.box);
             if (tab.Rows.Count == 0)
             {
@@ -1211,10 +1323,28 @@ namespace Parsek
                 {
                     var row = tab.Rows[i];
                     GUIStyle rowStyle = row.HasUpcomingChange ? pendingStyle : GUI.skin.label;
-                    GUILayout.Label("  " + FormatFacilityRow(row), rowStyle);
+                    DrawFacilityRow(row, rowStyle);
                 }
             }
             GUILayout.EndVertical();
+        }
+
+        private void DrawFacilitiesColumnHeader()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Facility", columnHeaderStyle, GUILayout.Width(ColW_FacilityTitle));
+            GUILayout.Label("Level", columnHeaderStyle, GUILayout.Width(ColW_Level));
+            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_Status));
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawFacilityRow(FacilityRow r, GUIStyle rowStyle)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(FormatFacilityRow_Title(r), rowStyle, GUILayout.Width(ColW_FacilityTitle));
+            GUILayout.Label(FormatFacilityRow_Level(r), rowStyle, GUILayout.Width(ColW_Level));
+            GUILayout.Label(FormatFacilityRow_Status(r), rowStyle, GUILayout.Width(ColW_Status));
+            GUILayout.EndHorizontal();
         }
 
         private void DrawMilestonesTab(MilestonesTabVM tab, Game.Modes mode)
@@ -1229,6 +1359,7 @@ namespace Parsek
             GUILayout.Label(
                 $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} projected)",
                 sectionHeaderStyle);
+            DrawMilestonesColumnHeader();
             GUILayout.BeginVertical(GUI.skin.box);
             if (tab.Rows.Count == 0)
             {
@@ -1240,10 +1371,30 @@ namespace Parsek
                 {
                     var row = tab.Rows[i];
                     GUIStyle rowStyle = row.IsPendingCredit ? pendingStyle : GUI.skin.label;
-                    GUILayout.Label("  " + FormatMilestoneRow(row), rowStyle);
+                    DrawMilestoneRow(row, rowStyle);
                 }
             }
             GUILayout.EndVertical();
+        }
+
+        private void DrawMilestonesColumnHeader()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Credited UT", columnHeaderStyle, GUILayout.Width(ColW_MilestoneUT));
+            GUILayout.Label("Milestone", columnHeaderStyle, GUILayout.Width(ColW_MilestoneTitle));
+            GUILayout.Label("Rewards", columnHeaderStyle, GUILayout.Width(ColW_Rewards));
+            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawMilestoneRow(MilestoneRow r, GUIStyle rowStyle)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(FormatMilestoneRow_UT(r), rowStyle, GUILayout.Width(ColW_MilestoneUT));
+            GUILayout.Label(FormatMilestoneRow_Title(r), rowStyle, GUILayout.Width(ColW_MilestoneTitle));
+            GUILayout.Label(FormatMilestoneRow_Rewards(r), rowStyle, GUILayout.Width(ColW_Rewards));
+            GUILayout.Label(FormatMilestoneRow_Pending(r), rowStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.EndHorizontal();
         }
 
         // Equality helpers for the "collapse to single Active section" decision.
@@ -1276,80 +1427,192 @@ namespace Parsek
         // Formatting helpers (pure, InvariantCulture, testable)
         // ================================================================
 
+        // ---- Per-column contract helpers (Phase 2b column-aligned rows) ----
+
         /// <summary>
-        /// Formats a contract row for display. NaN deadline renders as
-        /// "(deadline --)"; pending rows append " (pending)".
+        /// Returns the contract display title, falling back to the raw id and
+        /// then to "(unknown)" when both are null/empty.
+        /// </summary>
+        internal static string FormatContractRow_Title(ContractRow r)
+        {
+            return string.IsNullOrEmpty(r.DisplayTitle) ? (r.ContractId ?? "(unknown)") : r.DisplayTitle;
+        }
+
+        /// <summary>
+        /// Returns the accepted UT as an InvariantCulture F0 string (no unit
+        /// prefix — the column header carries the "Accepted UT" label).
+        /// </summary>
+        internal static string FormatContractRow_Accept(ContractRow r)
+        {
+            return r.AcceptUT.ToString("F0", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Returns the deadline UT as F0, or the literal "--" when the deadline
+        /// is NaN.
+        /// </summary>
+        internal static string FormatContractRow_Deadline(ContractRow r)
+        {
+            if (double.IsNaN(r.DeadlineUT)) return "--";
+            return r.DeadlineUT.ToString("F0", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Returns "(pending)" when the row is flagged pending-accept, else
+        /// empty. The status column renders this verbatim.
+        /// </summary>
+        internal static string FormatContractRow_Pending(ContractRow r)
+        {
+            return r.IsPendingAccept ? "(pending)" : "";
+        }
+
+        /// <summary>
+        /// Single-string formatter retained as a thin wrapper for the Phase 2
+        /// substring tests. New callers should use the per-column helpers; the
+        /// Phase 2b tab renderers do.
         /// </summary>
         internal static string FormatContractRow(ContractRow r)
         {
-            var ic = CultureInfo.InvariantCulture;
-            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.ContractId ?? "(unknown)") : r.DisplayTitle;
+            string title = FormatContractRow_Title(r);
             string deadline = double.IsNaN(r.DeadlineUT)
                 ? "(deadline --)"
-                : $"deadline UT {r.DeadlineUT.ToString("F0", ic)}";
-            string baseLine = $"{title}  accepted UT {r.AcceptUT.ToString("F0", ic)}  {deadline}";
+                : $"deadline UT {FormatContractRow_Deadline(r)}";
+            string baseLine = $"{title}  accepted UT {FormatContractRow_Accept(r)}  {deadline}";
             if (r.IsPendingAccept) baseLine += " (pending)";
             return baseLine;
         }
 
+        // ---- Per-column strategy helpers ----
+
+        internal static string FormatStrategyRow_Title(StrategyRow r)
+        {
+            return string.IsNullOrEmpty(r.DisplayTitle) ? (r.StrategyId ?? "(unknown)") : r.DisplayTitle;
+        }
+
+        internal static string FormatStrategyRow_Activate(StrategyRow r)
+        {
+            return r.ActivateUT.ToString("F0", CultureInfo.InvariantCulture);
+        }
+
         /// <summary>
-        /// Formats a strategy row for display. Includes Source → Target and the
-        /// commitment percentage (InvariantCulture F1).
+        /// Returns "Source -> Target @ pct%" (e.g. "Funds -> Science @ 10.0%"),
+        /// InvariantCulture F1 on the commitment percentage.
+        /// </summary>
+        internal static string FormatStrategyRow_Flow(StrategyRow r)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string pct = (r.Commitment * 100f).ToString("F1", ic) + "%";
+            return $"{r.SourceResource} -> {r.TargetResource} @ {pct}";
+        }
+
+        internal static string FormatStrategyRow_Pending(StrategyRow r)
+        {
+            return r.IsPendingActivate ? "(pending)" : "";
+        }
+
+        /// <summary>
+        /// Single-string formatter retained as a thin wrapper for Phase 2 tests.
         /// </summary>
         internal static string FormatStrategyRow(StrategyRow r)
         {
-            var ic = CultureInfo.InvariantCulture;
-            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.StrategyId ?? "(unknown)") : r.DisplayTitle;
-            string pct = (r.Commitment * 100f).ToString("F1", ic) + "%";
+            string title = FormatStrategyRow_Title(r);
             string baseLine =
-                $"{title}  activated UT {r.ActivateUT.ToString("F0", ic)}  {r.SourceResource} -> {r.TargetResource} @ {pct}";
+                $"{title}  activated UT {FormatStrategyRow_Activate(r)}  {FormatStrategyRow_Flow(r)}";
             if (r.IsPendingActivate) baseLine += " (pending)";
             return baseLine;
         }
 
-        /// <summary>
-        /// Formats a facility row for display. Upcoming level change renders as
-        /// "Title  L{cur} -> L{proj} (upcoming)"; destroyed rows append
-        /// "(destroyed)" or "(destroyed, repair pending)" if projected not-destroyed.
-        /// </summary>
-        internal static string FormatFacilityRow(FacilityRow r)
+        // ---- Per-column facility helpers ----
+
+        internal static string FormatFacilityRow_Title(FacilityRow r)
         {
-            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.FacilityId ?? "(unknown)") : r.DisplayTitle;
-            string levelPart;
-            if (r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel)
-                levelPart = $"L{r.CurrentLevel} -> L{r.ProjectedLevel} (upcoming)";
-            else
-                levelPart = $"L{r.CurrentLevel}";
-
-            string baseLine = $"{title}  {levelPart}";
-
-            if (r.CurrentDestroyed)
-            {
-                if (!r.ProjectedDestroyed)
-                    baseLine += "  (destroyed, repair pending)";
-                else
-                    baseLine += "  (destroyed)";
-            }
-            return baseLine;
+            return string.IsNullOrEmpty(r.DisplayTitle) ? (r.FacilityId ?? "(unknown)") : r.DisplayTitle;
         }
 
         /// <summary>
-        /// Formats a milestone row for display. Zero-reward suffix entries are
-        /// elided (e.g. "+ 0 sci" drops). Pending rows append " (pending)".
+        /// Returns "L{cur}" or "L{cur} -> L{proj} (upcoming)" when an upgrade
+        /// is pending. Destroyed-state lives in the Status column, not here.
+        /// </summary>
+        internal static string FormatFacilityRow_Level(FacilityRow r)
+        {
+            if (r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel)
+                return $"L{r.CurrentLevel} -> L{r.ProjectedLevel} (upcoming)";
+            return $"L{r.CurrentLevel}";
+        }
+
+        /// <summary>
+        /// Returns "(destroyed)" / "(destroyed, repair pending)" / empty for
+        /// the Status column. Non-destroyed facilities return empty so the
+        /// column stays visually quiet.
+        /// </summary>
+        internal static string FormatFacilityRow_Status(FacilityRow r)
+        {
+            if (!r.CurrentDestroyed) return "";
+            return r.ProjectedDestroyed ? "(destroyed)" : "(destroyed, repair pending)";
+        }
+
+        /// <summary>
+        /// Single-string formatter retained as a thin wrapper for Phase 2 tests.
+        /// </summary>
+        internal static string FormatFacilityRow(FacilityRow r)
+        {
+            string baseLine = $"{FormatFacilityRow_Title(r)}  {FormatFacilityRow_Level(r)}";
+            string status = FormatFacilityRow_Status(r);
+            if (!string.IsNullOrEmpty(status)) baseLine += "  " + status;
+            return baseLine;
+        }
+
+        // ---- Per-column milestone helpers ----
+
+        internal static string FormatMilestoneRow_UT(MilestoneRow r)
+        {
+            return r.CreditedUT.ToString("F0", CultureInfo.InvariantCulture);
+        }
+
+        internal static string FormatMilestoneRow_Title(MilestoneRow r)
+        {
+            return string.IsNullOrEmpty(r.DisplayTitle) ? (r.MilestoneId ?? "(unknown)") : r.DisplayTitle;
+        }
+
+        /// <summary>
+        /// Returns a compact rewards string; zero-reward entries are elided
+        /// (design doc E8). Empty string when no rewards are awarded.
+        /// </summary>
+        internal static string FormatMilestoneRow_Rewards(MilestoneRow r)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var sb = new StringBuilder();
+            if (r.FundsAwarded != 0f)
+                sb.Append("+ ").Append(r.FundsAwarded.ToString("F0", ic)).Append(" funds");
+            if (r.RepAwarded != 0f)
+            {
+                if (sb.Length > 0) sb.Append("  ");
+                sb.Append("+ ").Append(r.RepAwarded.ToString("F0", ic)).Append(" rep");
+            }
+            if (r.ScienceAwarded != 0f)
+            {
+                if (sb.Length > 0) sb.Append("  ");
+                sb.Append("+ ").Append(r.ScienceAwarded.ToString("F1", ic)).Append(" sci");
+            }
+            return sb.ToString();
+        }
+
+        internal static string FormatMilestoneRow_Pending(MilestoneRow r)
+        {
+            return r.IsPendingCredit ? "(pending)" : "";
+        }
+
+        /// <summary>
+        /// Single-string formatter retained as a thin wrapper for Phase 2 tests.
         /// </summary>
         internal static string FormatMilestoneRow(MilestoneRow r)
         {
-            var ic = CultureInfo.InvariantCulture;
-            string title = string.IsNullOrEmpty(r.DisplayTitle) ? (r.MilestoneId ?? "(unknown)") : r.DisplayTitle;
             var sb = new StringBuilder();
-            sb.Append("UT ").Append(r.CreditedUT.ToString("F0", ic));
-            sb.Append("   ").Append(title);
-            if (r.FundsAwarded != 0f)
-                sb.Append("  + ").Append(r.FundsAwarded.ToString("F0", ic)).Append(" funds");
-            if (r.RepAwarded != 0f)
-                sb.Append("  + ").Append(r.RepAwarded.ToString("F0", ic)).Append(" rep");
-            if (r.ScienceAwarded != 0f)
-                sb.Append("  + ").Append(r.ScienceAwarded.ToString("F1", ic)).Append(" sci");
+            sb.Append("UT ").Append(FormatMilestoneRow_UT(r));
+            sb.Append("   ").Append(FormatMilestoneRow_Title(r));
+            string rewards = FormatMilestoneRow_Rewards(r);
+            if (!string.IsNullOrEmpty(rewards))
+                sb.Append("  ").Append(rewards);
             if (r.IsPendingCredit) sb.Append(" (pending)");
             return sb.ToString();
         }
@@ -1367,6 +1630,23 @@ namespace Parsek
         {
             ParsekLog.Verbose("UI",
                 $"CareerStateWindow: tab switched {oldTab}->{newTab}");
+        }
+
+        /// <summary>
+        /// Toggles the fold state of the named section in the supplied set and
+        /// logs the new state. Extracted as a pure helper (mirrors
+        /// KerbalsWindowUI.ToggleFold) so the contract is unit-testable outside
+        /// IMGUI. Returns true when the section is now folded.
+        /// </summary>
+        internal static bool ToggleSection(HashSet<string> foldedGroups, string name)
+        {
+            bool wasFolded = foldedGroups.Contains(name);
+            if (wasFolded) foldedGroups.Remove(name);
+            else foldedGroups.Add(name);
+            bool nowFolded = !wasFolded;
+            ParsekLog.Verbose("UI",
+                $"CareerStateWindow: section toggled name={name} folded={nowFolded}");
+            return nowFolded;
         }
 
         /// <summary>

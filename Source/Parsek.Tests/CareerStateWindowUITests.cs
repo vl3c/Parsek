@@ -950,5 +950,355 @@ namespace Parsek.Tests
                 && l.Contains("contracts/strategies hidden"));
             Assert.Equal(2, matches);
         }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Phase 2b per-column formatting helpers
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void FormatContractRow_Title_UsesDisplayTitleOrId()
+        {
+            // Regression: fails if the per-column title helper stops preferring
+            // DisplayTitle over raw id, or if the empty/null fallback to
+            // "(unknown)" is lost.
+            var rowWithTitle = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1", DisplayTitle = "Explore Mun"
+            };
+            var rowIdOnly = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-7", DisplayTitle = null
+            };
+            var rowBlank = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = null, DisplayTitle = ""
+            };
+
+            Assert.Equal("Explore Mun", CareerStateWindowUI.FormatContractRow_Title(rowWithTitle));
+            Assert.Equal("ctr-7", CareerStateWindowUI.FormatContractRow_Title(rowIdOnly));
+            Assert.Equal("(unknown)", CareerStateWindowUI.FormatContractRow_Title(rowBlank));
+        }
+
+        [Fact]
+        public void FormatContractRow_Deadline_NaN_ShowsDoubleDash()
+        {
+            // Regression: fails if the per-column deadline helper renders NaN as
+            // "NaN" (or worse, "-2,147,483,648"). The column header carries the
+            // "Deadline UT" label so the cell body stays bare "--".
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1", DeadlineUT = double.NaN
+            };
+
+            Assert.Equal("--", CareerStateWindowUI.FormatContractRow_Deadline(row));
+        }
+
+        [Fact]
+        public void FormatContractRow_Deadline_Finite_ShowsUT()
+        {
+            // Regression: fails if the helper loses InvariantCulture and
+            // renders a comma-locale "240.000" or drops the F0 formatting.
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1", DeadlineUT = 240000.0
+            };
+
+            Assert.Equal("240000", CareerStateWindowUI.FormatContractRow_Deadline(row));
+        }
+
+        [Fact]
+        public void FormatContractRow_Pending_EmptyWhenNotPending()
+        {
+            // Regression: fails if the column helper leaks "(pending)" onto
+            // non-pending rows, cluttering the Status column.
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1", IsPendingAccept = false
+            };
+
+            Assert.Equal("", CareerStateWindowUI.FormatContractRow_Pending(row));
+        }
+
+        [Fact]
+        public void FormatContractRow_Pending_TagWhenPending()
+        {
+            // Regression: fails if IsPendingAccept=true silently drops the
+            // "(pending)" tag — this signal is the amber-row distinguisher.
+            var row = new CareerStateWindowUI.ContractRow
+            {
+                ContractId = "ctr-1", IsPendingAccept = true
+            };
+
+            Assert.Equal("(pending)", CareerStateWindowUI.FormatContractRow_Pending(row));
+        }
+
+        [Fact]
+        public void FormatStrategyRow_Title_UsesDisplayTitleOrId()
+        {
+            // Regression: mirrors the contract-title helper; fails if the
+            // fallback chain (DisplayTitle → id → "(unknown)") is broken.
+            var rowWithTitle = new CareerStateWindowUI.StrategyRow
+            {
+                StrategyId = "strat-1", DisplayTitle = "Subsidy"
+            };
+            var rowIdOnly = new CareerStateWindowUI.StrategyRow
+            {
+                StrategyId = "strat-7", DisplayTitle = null
+            };
+            var rowBlank = new CareerStateWindowUI.StrategyRow
+            {
+                StrategyId = null, DisplayTitle = ""
+            };
+
+            Assert.Equal("Subsidy", CareerStateWindowUI.FormatStrategyRow_Title(rowWithTitle));
+            Assert.Equal("strat-7", CareerStateWindowUI.FormatStrategyRow_Title(rowIdOnly));
+            Assert.Equal("(unknown)", CareerStateWindowUI.FormatStrategyRow_Title(rowBlank));
+        }
+
+        [Fact]
+        public void FormatStrategyRow_Activate_ShowsUT()
+        {
+            // Regression: fails if F0 + InvariantCulture is replaced with a
+            // locale-dependent formatter or if the value is hidden behind a
+            // prefix (the column header carries the "Activated UT" label).
+            var row = new CareerStateWindowUI.StrategyRow { ActivateUT = 150.0 };
+
+            Assert.Equal("150", CareerStateWindowUI.FormatStrategyRow_Activate(row));
+        }
+
+        [Fact]
+        public void FormatStrategyRow_Flow_RendersSourceTargetAndPct()
+        {
+            // Regression: fails if Source↔Target swaps or if the percentage
+            // loses InvariantCulture (e.g. "10,0%" on a comma-locale).
+            var row = new CareerStateWindowUI.StrategyRow
+            {
+                SourceResource = StrategyResource.Funds,
+                TargetResource = StrategyResource.Science,
+                Commitment = 0.1f
+            };
+
+            string s = CareerStateWindowUI.FormatStrategyRow_Flow(row);
+
+            Assert.Equal("Funds -> Science @ 10.0%", s);
+        }
+
+        [Fact]
+        public void FormatStrategyRow_Pending_EmptyWhenNotPending()
+        {
+            // Regression: fails if "(pending)" leaks onto active rows.
+            var row = new CareerStateWindowUI.StrategyRow { IsPendingActivate = false };
+
+            Assert.Equal("", CareerStateWindowUI.FormatStrategyRow_Pending(row));
+        }
+
+        [Fact]
+        public void FormatStrategyRow_Pending_TagWhenPending()
+        {
+            // Regression: fails if pending strategies silently collapse to the
+            // same empty-string Status cell as active rows.
+            var row = new CareerStateWindowUI.StrategyRow { IsPendingActivate = true };
+
+            Assert.Equal("(pending)", CareerStateWindowUI.FormatStrategyRow_Pending(row));
+        }
+
+        [Fact]
+        public void FormatFacilityRow_Title_UsesDisplayTitleOrId()
+        {
+            // Regression: mirrors the contract/strategy title helpers.
+            var rowWithTitle = new CareerStateWindowUI.FacilityRow
+            {
+                FacilityId = "LaunchPad", DisplayTitle = "Launch Pad"
+            };
+            var rowIdOnly = new CareerStateWindowUI.FacilityRow
+            {
+                FacilityId = "LaunchPad", DisplayTitle = null
+            };
+            var rowBlank = new CareerStateWindowUI.FacilityRow
+            {
+                FacilityId = null, DisplayTitle = ""
+            };
+
+            Assert.Equal("Launch Pad", CareerStateWindowUI.FormatFacilityRow_Title(rowWithTitle));
+            Assert.Equal("LaunchPad", CareerStateWindowUI.FormatFacilityRow_Title(rowIdOnly));
+            Assert.Equal("(unknown)", CareerStateWindowUI.FormatFacilityRow_Title(rowBlank));
+        }
+
+        [Fact]
+        public void FormatFacilityRow_Level_CurrentOnly()
+        {
+            // Regression: fails if the Level helper always renders "L1 -> L1"
+            // even when there's no upcoming change.
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentLevel = 2, ProjectedLevel = 2, HasUpcomingChange = false
+            };
+
+            Assert.Equal("L2", CareerStateWindowUI.FormatFacilityRow_Level(row));
+        }
+
+        [Fact]
+        public void FormatFacilityRow_Level_WithUpcomingUpgrade()
+        {
+            // Regression: fails if upcoming-change rows lose the arrow syntax.
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentLevel = 2, ProjectedLevel = 3, HasUpcomingChange = true
+            };
+
+            Assert.Equal("L2 -> L3 (upcoming)", CareerStateWindowUI.FormatFacilityRow_Level(row));
+        }
+
+        [Fact]
+        public void FormatFacilityRow_Status_EmptyWhenNotDestroyed()
+        {
+            // Regression: fails if healthy facilities emit noise in the Status
+            // column — the column should stay visually quiet for the common case.
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentDestroyed = false, ProjectedDestroyed = false
+            };
+
+            Assert.Equal("", CareerStateWindowUI.FormatFacilityRow_Status(row));
+        }
+
+        [Fact]
+        public void FormatFacilityRow_Status_DestroyedPersists()
+        {
+            // Regression: fails if a destroyed-and-stays-destroyed row loses
+            // the "(destroyed)" marker.
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentDestroyed = true, ProjectedDestroyed = true
+            };
+
+            Assert.Equal("(destroyed)", CareerStateWindowUI.FormatFacilityRow_Status(row));
+        }
+
+        [Fact]
+        public void FormatFacilityRow_Status_DestroyedRepairPending()
+        {
+            // Regression: fails if the combined "destroyed + repair pending"
+            // state collapses to a single tag.
+            var row = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentDestroyed = true, ProjectedDestroyed = false
+            };
+
+            Assert.Equal("(destroyed, repair pending)",
+                CareerStateWindowUI.FormatFacilityRow_Status(row));
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_UT_ShowsF0()
+        {
+            // Regression: fails if F0 + InvariantCulture is lost on the UT column.
+            var row = new CareerStateWindowUI.MilestoneRow { CreditedUT = 8230.0 };
+
+            Assert.Equal("8230", CareerStateWindowUI.FormatMilestoneRow_UT(row));
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_Title_UsesDisplayTitleOrId()
+        {
+            // Regression: mirrors the other title helpers.
+            var rowWithTitle = new CareerStateWindowUI.MilestoneRow
+            {
+                MilestoneId = "FirstOrbit", DisplayTitle = "First Orbit"
+            };
+            var rowIdOnly = new CareerStateWindowUI.MilestoneRow
+            {
+                MilestoneId = "FirstOrbit", DisplayTitle = null
+            };
+            var rowBlank = new CareerStateWindowUI.MilestoneRow
+            {
+                MilestoneId = null, DisplayTitle = ""
+            };
+
+            Assert.Equal("First Orbit", CareerStateWindowUI.FormatMilestoneRow_Title(rowWithTitle));
+            Assert.Equal("FirstOrbit", CareerStateWindowUI.FormatMilestoneRow_Title(rowIdOnly));
+            Assert.Equal("(unknown)", CareerStateWindowUI.FormatMilestoneRow_Title(rowBlank));
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_Rewards_ElidesZeros()
+        {
+            // Regression: fails if zero-reward entries leak into the column
+            // as "+ 0 sci" clutter (design doc E8).
+            var row = new CareerStateWindowUI.MilestoneRow
+            {
+                FundsAwarded = 10000f, RepAwarded = 5f, ScienceAwarded = 0f
+            };
+
+            string s = CareerStateWindowUI.FormatMilestoneRow_Rewards(row);
+
+            Assert.Contains("+ 10000 funds", s);
+            Assert.Contains("+ 5 rep", s);
+            Assert.DoesNotContain("sci", s);
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_Rewards_EmptyWhenNoRewards()
+        {
+            // Regression: fails if a rewards-less milestone still emits
+            // separators or leaves an empty-space placeholder.
+            var row = new CareerStateWindowUI.MilestoneRow
+            {
+                FundsAwarded = 0f, RepAwarded = 0f, ScienceAwarded = 0f
+            };
+
+            Assert.Equal("", CareerStateWindowUI.FormatMilestoneRow_Rewards(row));
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_Pending_EmptyWhenNotPending()
+        {
+            // Regression: fails if the Status column leaks "(pending)" onto
+            // credited milestones.
+            var row = new CareerStateWindowUI.MilestoneRow { IsPendingCredit = false };
+
+            Assert.Equal("", CareerStateWindowUI.FormatMilestoneRow_Pending(row));
+        }
+
+        [Fact]
+        public void FormatMilestoneRow_Pending_TagWhenPending()
+        {
+            // Regression: fails if pending milestones collapse to the same
+            // blank Status cell as credited ones.
+            var row = new CareerStateWindowUI.MilestoneRow { IsPendingCredit = true };
+
+            Assert.Equal("(pending)", CareerStateWindowUI.FormatMilestoneRow_Pending(row));
+        }
+
+        [Fact]
+        public void ToggleSection_LogsFoldState()
+        {
+            // Regression: fails if the Pending-section disclosure arrow stops
+            // logging its new fold state — KerbalsWindowUI has the same log
+            // contract and we must match it so diagnostics are uniform.
+            var set = new HashSet<string>();
+
+            bool nowFolded = CareerStateWindowUI.ToggleSection(set, "Contracts.Pending");
+
+            Assert.True(nowFolded);
+            Assert.Contains("Contracts.Pending", set);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("CareerStateWindow: section toggled")
+                && l.Contains("name=Contracts.Pending")
+                && l.Contains("folded=True"));
+
+            logLines.Clear();
+
+            bool nowFoldedAgain = CareerStateWindowUI.ToggleSection(set, "Contracts.Pending");
+
+            Assert.False(nowFoldedAgain);
+            Assert.DoesNotContain("Contracts.Pending", set);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("CareerStateWindow: section toggled")
+                && l.Contains("name=Contracts.Pending")
+                && l.Contains("folded=False"));
+        }
     }
 }
