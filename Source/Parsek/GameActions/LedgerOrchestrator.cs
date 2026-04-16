@@ -674,41 +674,6 @@ namespace Parsek
         /// <summary>
         /// Rebuilds the committed science subjects dictionary via
         /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
-        /// from the ledger's surviving <see cref="GameActionType.ScienceEarning"/>
-        /// actions — a lightweight pass that does NOT require a full recalculation
-        /// walk. Used by <see cref="TryRecoverBrokenLedgerOnLoad"/> which runs
-        /// before the first <see cref="RecalculateAndPatch"/> call. Sums
-        /// ScienceAwarded per subject (simple accumulation, no cap walk).
-        /// </summary>
-        private static void RebuildCommittedScienceFromLedger()
-        {
-            var ledgerActions = Ledger.Actions;
-            var perSubject = new Dictionary<string, float>();
-            for (int i = 0; i < ledgerActions.Count; i++)
-            {
-                var a = ledgerActions[i];
-                if (a.Type != GameActionType.ScienceEarning) continue;
-                string id = a.SubjectId;
-                if (string.IsNullOrEmpty(id)) continue;
-
-                float existing;
-                perSubject.TryGetValue(id, out existing);
-                perSubject[id] = existing + a.ScienceAwarded;
-            }
-
-            var pairs = new List<KeyValuePair<string, float>>(perSubject.Count);
-            foreach (var kvp in perSubject)
-            {
-                if (kvp.Value > 0f)
-                    pairs.Add(kvp);
-            }
-
-            GameStateStore.RebuildCommittedScienceSubjects(pairs);
-        }
-
-        /// <summary>
-        /// Rebuilds the committed science subjects dictionary via
-        /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
         /// from the <see cref="ScienceModule"/> walk state. After a recalculation
         /// walk, the module has authoritative per-subject credited totals — these
         /// are the source of truth because they derive purely from surviving ledger
@@ -1187,13 +1152,11 @@ namespace Parsek
             }
 
             // 2) Committed science subjects
-            // #391: Rebuild committedScienceSubjects from the ledger's surviving
-            // ScienceEarning actions before iterating. The persisted dictionary may
-            // contain stale entries from deleted recordings whose ledger actions were
-            // pruned by Reconcile. Without this rebuild, we would synthesize ghost
-            // ScienceEarning actions for those stale subjects.
-            RebuildCommittedScienceFromLedger();
-
+            // Use the persisted store as the recovery source of truth. Broken pre-#397
+            // saves are missing ScienceEarning rows in the ledger; rebuilding the store
+            // from the broken ledger here would erase the very totals we need to heal.
+            // When some earnings already survive, synthesize only the missing delta so
+            // cumulative subject totals do not double-count.
             var subjectIds = GameStateStore.GetCommittedScienceSubjectIds();
             if (subjectIds != null)
             {
@@ -1202,7 +1165,10 @@ namespace Parsek
                     if (string.IsNullOrEmpty(subjectId)) continue;
                     if (!GameStateStore.TryGetCommittedSubjectScience(subjectId, out float sci)) continue;
                     if (sci <= 0f) continue;
-                    if (LedgerHasMatchingScienceEarning(subjectId, sci)) continue;
+
+                    float existingScience = GetLedgerScienceEarningTotal(subjectId);
+                    float missingScience = sci - existingScience;
+                    if (missingScience <= 0.01f) continue;
 
                     var action = new GameAction
                     {
@@ -1213,7 +1179,7 @@ namespace Parsek
                         Type = GameActionType.ScienceEarning,
                         RecordingId = null,
                         SubjectId = subjectId,
-                        ScienceAwarded = sci,
+                        ScienceAwarded = missingScience,
                         SubjectMaxValue = sci + 10f  // generous cap so walk doesn't clip
                     };
                     Ledger.AddAction(action);
@@ -1221,7 +1187,8 @@ namespace Parsek
 
                     ParsekLog.Verbose(Tag,
                         $"TryRecoverBrokenLedgerOnLoad: synthesized ScienceEarning for " +
-                        $"subject='{subjectId}' sci={sci:F1}");
+                        $"subject='{subjectId}' missingSci={missingScience:F1} " +
+                        $"(stored={sci:F1}, existing={existingScience:F1})");
                 }
             }
 
@@ -1314,6 +1281,18 @@ namespace Parsek
         internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
         {
             if (string.IsNullOrEmpty(subjectId)) return true;
+            return GetLedgerScienceEarningTotal(subjectId) >= minScience - 0.01f;
+        }
+
+        /// <summary>
+        /// Pure: returns the total ScienceAwarded already present in the ledger for a
+        /// given subject. Used by save recovery to synthesize only the missing delta
+        /// when a broken save kept some ScienceEarning rows but lost later top-ups.
+        /// </summary>
+        internal static float GetLedgerScienceEarningTotal(string subjectId)
+        {
+            if (string.IsNullOrEmpty(subjectId)) return 0f;
+
             float totalForSubject = 0f;
             var actions = Ledger.Actions;
             for (int i = 0; i < actions.Count; i++)
@@ -1323,7 +1302,8 @@ namespace Parsek
                 if (a.SubjectId != subjectId) continue;
                 totalForSubject += a.ScienceAwarded;
             }
-            return totalForSubject >= minScience - 0.01f;
+
+            return totalForSubject;
         }
 
         /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
