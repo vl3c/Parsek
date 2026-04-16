@@ -764,6 +764,7 @@ namespace Parsek
         ConfigNode IPlaybackTrajectory.GhostVisualSnapshot => GhostVisualSnapshot;
         ConfigNode IPlaybackTrajectory.VesselSnapshot => VesselSnapshot;
         string IPlaybackTrajectory.VesselName => VesselName;
+        string IPlaybackTrajectory.RecordingId => RecordingId;
         bool IPlaybackTrajectory.LoopPlayback => LoopPlayback;
         double IPlaybackTrajectory.LoopIntervalSeconds => LoopIntervalSeconds;
         LoopTimeUnit IPlaybackTrajectory.LoopTimeUnit => LoopTimeUnit;

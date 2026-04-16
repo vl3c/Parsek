@@ -45,6 +45,69 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~412. Synthetic showcase recordings reach ghost playback with `LoopIntervalSeconds=0`, firing the `ResolveLoopInterval` clamp warning forever~~
+
+Pre-existing symptom: `GhostPlaybackLogic.ResolveLoopInterval` emitted an
+unrate-limited `ParsekLog.Warn` every time it observed a loop period below
+`MinCycleDuration`. On a save with ~20 affected recordings (`Pad Walk`,
+`KSC Hopper`, `Flea Chain`, `Reentry South`, `Jebediah Kerman`, `Bill Kerman`,
+etc.) a 6-minute session produced 1,298,168 lines (~3,600/sec). The spam itself
+was fixed by PR #322 (per-`RecordingId` dedupe) — each offender now warns at
+most once per session.
+
+**Root cause.** The affected recordings are not legacy player data. All the
+listed vessel names are synthetic fixtures created by
+`SyntheticRecordingTests.cs` and injected via
+`scripts/inject-recordings.ps1` / `dotnet test --filter InjectAllRecordings`.
+`RecordingBuilder.WithLoopPlayback(bool loop = true, double intervalSeconds = 0.0)`
+defaulted `intervalSeconds` to `0.0` (valid pre-#381 as "relaunch with no gap"),
+and 27 call sites in the synthetic tests either accepted that default or passed
+`intervalSeconds: 0.0` explicitly. The builder stamped recordings at the current
+`RecordingFormatVersion = 4`, so the load path took the non-migration branch
+and persisted `0.0` verbatim; at playback, with `LoopTimeUnit = Sec`,
+`ResolveLoopInterval` saw `0 < MinCycleDuration = 1`, clamped to `1`, and warned
+every frame.
+
+**Fix.**
+
+- `RecordingBuilder.GetLoopIntervalSeconds` now auto-derives the period from
+  trajectory duration when the caller enabled loop playback but left the
+  interval below `MinCycleDuration` — matching the UI's seamless-loop default.
+  Falls back to `DefaultLoopIntervalSeconds` (10 s) when the trajectory is empty
+  or itself below the floor. `GetRawLoopIntervalSeconds` retained for tests that
+  need to inspect the raw field. All three emission paths (`Build`,
+  `BuildV3Metadata`, `ScenarioWriter.BuildRecording`) route through the
+  resolver.
+- `RecordingStore.NormalizeDegenerateLoopInterval` runs in
+  `LoadRecordingFilesFromPathsInternal` immediately after trajectory
+  deserialization (paired with the pre-existing
+  `MigrateLegacyLoopIntervalAfterHydration`), *before* snapshot-sidecar loading.
+  Positioning matters: a snapshot-sidecar failure early-returns `false` from
+  `LoadRecordingFiles` while leaving trajectory points hydrated, and
+  `ParsekScenario.OnLoad` still commits that recording to
+  `CommittedRecordings` where `ParsekKSC` schedules it as playback-eligible on
+  `Points.Count >= 2` + `PlaybackEnabled`. Placing the normalization downstream
+  of the snapshot check would let a degenerate period slip past the auto-repair
+  exactly in the broken-snapshot case. Any recording loaded with
+  `LoopPlayback = true`, `LoopTimeUnit != Auto`, and
+  `LoopIntervalSeconds < MinCycleDuration` is auto-repaired to its
+  `EffectiveLoopDuration` (or `DefaultLoopIntervalSeconds` when the trajectory
+  can't supply a usable duration) with a one-shot warning. Saves already
+  injected with the broken fixture repair on first reload.
+- `SyntheticRecordingTests.cs` shape tests updated to assert the derived
+  interval instead of `"0"`.
+
+**Tests.** `RecordingBuilderLoopIntervalTests` (5 tests) covers the builder's
+auto-derivation across loop-on-with-zero, loop-on-explicit, empty-trajectory,
+short-trajectory, and loop-off paths. `LoopIntervalLoadNormalizationTests`
+(7 tests) pins the load-path auto-repair on the happy path and on the
+snapshot-sidecar-failure early return (proves the normalization runs before
+the snapshot check), the no-op on loop-disabled / auto-mode / already-healthy
+recordings, and end-to-end proves that after normalization a recording can
+cycle through `ResolveLoopInterval` 100× without firing the clamp warning.
+
+---
+
 ## ~~411. Playback engine and KSC dispatcher still compute loop duration from raw/hybrid ranges instead of the effective loop range~~
 
 **Source:** `#409` fix pass `2026-04-15`. Surfaced while fixing the `WatchModeController` duration mismatch: three sibling sites in the playback engine and the KSC dispatcher also compute "loop duration" in ways that diverge from the new shared `GhostPlaybackEngine.EffectiveLoopDuration` helper. The `#409` fix was scoped to the watch-mode path and intentionally left these untouched because they predate `#381` and need in-game validation on a save with a real loop subrange before changing.
