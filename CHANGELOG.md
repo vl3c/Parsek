@@ -49,6 +49,7 @@ All notable changes to Parsek are documented here.
 - `#410` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries — `ComputeLoopPhaseFromUT`, `TryComputeLoopPlaybackUT`, and the live flight/KSC loop schedulers now share a `BoundaryEpsilon` tolerance so they agree on the `isInPause` flag at `phase == duration`.
 - `#411` Loop playback now uses the effective loop subrange consistently in flight and KSC: the overlap-vs-single dispatch, overlap active-cycle bounds, overlap phase anchoring, and loop-end teardown/pause holds now read `EffectiveLoopDuration` / `EffectiveLoopStartUT` / `EffectiveLoopEndUT` instead of raw or hybrid recording ranges.
 - Fixed a per-frame `ResolveLoopInterval` clamp-warning log storm (over 1 million entries in a 6-minute session on saves with legacy loop data) — each affected recording now warns at most once per session while the defensive 1s clamp is unchanged.
+- `#412` Fixed looping showcase recordings (both newly injected and any already on disk) reaching playback with a loop period of 0 seconds: the synthetic RecordingBuilder now auto-derives the period from trajectory duration, and any recording loaded with a degenerate sub-1s period is auto-repaired once to the recording's own duration.
 
 ### Maintenance
 

@@ -526,7 +526,7 @@ namespace Parsek.Tests.Generators
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 node.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
-            node.AddValue("loopIntervalSeconds", loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);
@@ -692,7 +692,7 @@ namespace Parsek.Tests.Generators
                 node.AddValue("chainBranch", chainBranch);
 
             node.AddValue("loopPlayback", loopPlayback.ToString());
-            node.AddValue("loopIntervalSeconds", loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);
@@ -768,8 +768,34 @@ namespace Parsek.Tests.Generators
         /// <summary>Returns whether loop playback is enabled.</summary>
         public bool GetLoopPlayback() => loopPlayback;
 
-        /// <summary>Returns the loop interval in seconds.</summary>
-        public double GetLoopIntervalSeconds() => loopIntervalSeconds;
+        /// <summary>
+        /// Returns the loop interval in seconds for serialization. When loop playback is
+        /// enabled but the caller left the interval below <see cref="GhostPlaybackLogic.MinCycleDuration"/>
+        /// (typically the builder's default of 0.0 — pre-#381 "relaunch with no gap"), auto-derive
+        /// the period from trajectory duration so written fixtures never carry a degenerate value
+        /// that would spam <c>ResolveLoopInterval</c>'s clamp warning at playback (#412).
+        /// Mirrors the UI default where an unset period loops seamlessly at the recording's own
+        /// duration. Falls back to <see cref="GhostPlaybackLogic.DefaultLoopIntervalSeconds"/> if
+        /// the trajectory is empty or still below the floor.
+        /// </summary>
+        public double GetLoopIntervalSeconds()
+        {
+            if (!loopPlayback)
+                return loopIntervalSeconds;
+            if (loopIntervalSeconds >= GhostPlaybackLogic.MinCycleDuration)
+                return loopIntervalSeconds;
+
+            if (points.Count >= 2)
+            {
+                double duration = GetEndUT() - GetStartUT();
+                if (duration >= GhostPlaybackLogic.MinCycleDuration)
+                    return duration;
+            }
+            return GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+        }
+
+        /// <summary>Returns the raw loop interval field as set by the caller (no auto-derivation).</summary>
+        public double GetRawLoopIntervalSeconds() => loopIntervalSeconds;
 
         /// <summary>Returns the terminal state (null if not set).</summary>
         public int? GetTerminalState() => terminalState;

@@ -45,77 +45,57 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 412. Legacy pre-v4 recordings can reach ghost playback with `LoopIntervalSeconds=0`, firing the `ResolveLoopInterval` clamp warning forever
+## ~~412. Synthetic showcase recordings reach ghost playback with `LoopIntervalSeconds=0`, firing the `ResolveLoopInterval` clamp warning forever~~
 
-Two-part bug introduced by `#381` (commit `5fedff32`, "Loop every = launch-to-launch
-period semantics").
+Pre-existing symptom: `GhostPlaybackLogic.ResolveLoopInterval` emitted an
+unrate-limited `ParsekLog.Warn` every time it observed a loop period below
+`MinCycleDuration`. On a save with ~20 affected recordings (`Pad Walk`,
+`KSC Hopper`, `Flea Chain`, `Reentry South`, `Jebediah Kerman`, `Bill Kerman`,
+etc.) a 6-minute session produced 1,298,168 lines (~3,600/sec). The spam itself
+was fixed by PR #322 (per-`RecordingId` dedupe) — each offender now warns at
+most once per session.
 
-- **Symptom (fixed in the current PR):** `GhostPlaybackLogic.ResolveLoopInterval`
-  (`Source/Parsek/GhostPlaybackLogic.cs:269`) emitted an unrate-limited
-  `ParsekLog.Warn` on every degenerate call. Called per-frame per-recording from
-  `GhostPlaybackEngine.cs:1314` and `ParsekKSC.cs:750`, a 6-minute session with
-  roughly 20 affected recordings produced 1,298,168 lines of
-  `[Parsek][WARN][Loop] ResolveLoopInterval: period 0s below MinCycleDuration 1s for '<name>' — clamping defensively (#381)`
-  (~3,600/sec, with a full string format + log-writer flush per line). The spam
-  itself is now fixed: a per-`RecordingId` `HashSet` inside `GhostPlaybackLogic`
-  ensures each offending recording warns at most once per session; the defensive
-  clamp to `MinCycleDuration` is unchanged.
-- **Root cause still open:** those recordings should never reach the resolver
-  with period `0`. The load pipeline has a two-phase migration:
-  `RecordingTree.LoadLoopFields` / `ParsekScenario.LoadLoopFields` call
-  `GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds` at
-  `.sfs` load time, which returns `false` when the trajectory bounds are not
-  hydrated yet (the `EffectiveLoopDuration <= 0` guard in
-  `GhostPlaybackEngine.cs:1276`) and logs `deferred migration because loop bounds
-  are not hydrated yet`; the legacy gap value is stored as-is. The deferred step
-  is supposed to run from `RecordingStore.MigrateLegacyLoopIntervalAfterHydration`
-  (`Source/Parsek/RecordingStore.cs:5385`), invoked as the last line of
-  `LoadRecordingFilesFromPathsInternal` (line 5381). That call is only reached
-  when *every* sidecar gate passes — trajectory exists, probe valid, format
-  supported, RecordingId matches, sidecar epoch fresh, snapshot sidecar load
-  succeeds. Any early return at lines 5311 / 5319 / 5329 / 5338 / 5344 / 5370
-  skips the migration, leaving `rec.LoopIntervalSeconds` at its legacy `.sfs`
-  value (often `0`, the pre-#381 default for non-looping recordings) and
-  `rec.RecordingFormatVersion` at `3`.
-- **Evidence from user save:** sibling recordings in the same tree successfully
-  migrate to 68–70 s (logs show `RecordingStore: migrated recording 'X' from
-  legacy gap loopIntervalSeconds=10 to launch-to-launch period=68s`), while ~20
-  recordings — mixed kerbal / chain / flight: "Pad Walk", "Reentry South", "Flea
-  Chain", "KSC Hopper", "Jebediah Kerman", "Bill Kerman", etc. — never emit a
-  migration line and keep hitting the clamp. The common factor is therefore not
-  the recording class but rather which sidecar gate failed at load; the logs to
-  check are `LoadRecordingFiles: invalid …`, `Trajectory file missing for …`,
-  `LoadRecordingFiles: id=… unsupported trajectory sidecar`, and
-  `ShouldSkipStaleSidecar`. Hydration-salvage (`#T61`) may also be relevant — if
-  a recording is restored from the pending tree after a stale-sidecar failure,
-  the migration pass needs to run on the salvaged copy too.
-- **Hypothesis:** at least two distinct paths leave a v3 recording persistently
-  un-migrated: (a) the sidecar-gate early returns above (migration never runs),
-  and (b) a recording that genuinely has `Points.Count < 2` (e.g. a recording
-  that was committed before enough frames were sampled) where
-  `EffectiveLoopDuration` legitimately is `0` and `TryConvert` returns `false`
-  even after hydration. Neither path resets the legacy gap to a safe period, so
-  `LoopIntervalSeconds` stays at whatever the `.sfs` held.
-- **Fix proposal (not yet implemented):** when migration cannot produce a real
-  period, still normalize `rec.LoopIntervalSeconds` and `RecordingFormatVersion`
-  so the resolver never sees a legacy-encoded 0. Either (a) run
-  `MigrateLegacyLoopIntervalAfterHydration` unconditionally for every recording
-  returned to the committed set — including sidecar-failed ones — and, when
-  `TryConvert` still fails, set the recording to `LoopPlayback = false` +
-  `LoopIntervalSeconds = DefaultLoopIntervalSeconds` (so ghost playback is
-  skipped entirely for the broken recording instead of relying on the resolver's
-  1 s clamp), or (b) make the resolver detect v3 recordings and promote the
-  legacy gap to `duration + gap` on the fly, mirroring what the migration would
-  have done. Option (a) is cleaner because it keeps the clamp-warning a pure
-  sanity net. A regression test should load a tree containing a v3 recording
-  with 0 trajectory points (or a missing `.prec`) and assert that after the
-  normal load path completes, the recording is no longer producing degenerate
-  loop periods at the resolver.
-- **Scope note:** out of scope for the spam fix PR — the spam fix is independent
-  and lands on its own. The correctness fix is large enough that it needs its
-  own design discussion before coding (needs a repro save, a decision on whether
-  to silently drop playback vs. auto-repair, and an upgrade to the post-hydration
-  pass).
+**Root cause.** The affected recordings are not legacy player data. All the
+listed vessel names are synthetic fixtures created by
+`SyntheticRecordingTests.cs` and injected via
+`scripts/inject-recordings.ps1` / `dotnet test --filter InjectAllRecordings`.
+`RecordingBuilder.WithLoopPlayback(bool loop = true, double intervalSeconds = 0.0)`
+defaulted `intervalSeconds` to `0.0` (valid pre-#381 as "relaunch with no gap"),
+and 27 call sites in the synthetic tests either accepted that default or passed
+`intervalSeconds: 0.0` explicitly. The builder stamped recordings at the current
+`RecordingFormatVersion = 4`, so the load path took the non-migration branch
+and persisted `0.0` verbatim; at playback, with `LoopTimeUnit = Sec`,
+`ResolveLoopInterval` saw `0 < MinCycleDuration = 1`, clamped to `1`, and warned
+every frame.
+
+**Fix.**
+
+- `RecordingBuilder.GetLoopIntervalSeconds` now auto-derives the period from
+  trajectory duration when the caller enabled loop playback but left the
+  interval below `MinCycleDuration` — matching the UI's seamless-loop default.
+  Falls back to `DefaultLoopIntervalSeconds` (10 s) when the trajectory is empty
+  or itself below the floor. `GetRawLoopIntervalSeconds` retained for tests that
+  need to inspect the raw field. All three emission paths (`Build`,
+  `BuildV3Metadata`, `ScenarioWriter.BuildRecording`) route through the
+  resolver.
+- `RecordingStore.NormalizeDegenerateLoopInterval` runs in
+  `LoadRecordingFilesFromPathsInternal` immediately after
+  `MigrateLegacyLoopIntervalAfterHydration`. Any recording loaded with
+  `LoopPlayback = true`, `LoopTimeUnit != Auto`, and
+  `LoopIntervalSeconds < MinCycleDuration` is auto-repaired to its
+  `EffectiveLoopDuration` (or `DefaultLoopIntervalSeconds` when the trajectory
+  can't supply a usable duration) with a one-shot warning. Saves already
+  injected with the broken fixture repair on first reload.
+- `SyntheticRecordingTests.cs` shape tests updated to assert the derived
+  interval instead of `"0"`.
+
+**Tests.** `RecordingBuilderLoopIntervalTests` (5 tests) covers the builder's
+auto-derivation across loop-on-with-zero, loop-on-explicit, empty-trajectory,
+short-trajectory, and loop-off paths. `LoopIntervalLoadNormalizationTests`
+(6 tests) pins the load-path auto-repair, the no-op on loop-disabled /
+auto-mode / already-healthy recordings, and end-to-end proves that after
+normalization a recording can cycle through `ResolveLoopInterval` 100× without
+firing the clamp warning.
 
 ---
 

@@ -5379,6 +5379,7 @@ namespace Parsek
             }
 
             MigrateLegacyLoopIntervalAfterHydration(rec);
+            NormalizeDegenerateLoopInterval(rec);
             return true;
         }
 
@@ -5414,6 +5415,46 @@ namespace Parsek
                 return;
 
             rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
+        }
+
+        /// <summary>
+        /// #412: Normalize recordings whose <c>LoopIntervalSeconds</c> is below
+        /// <see cref="GhostPlaybackLogic.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
+        /// Such recordings otherwise hit <c>ResolveLoopInterval</c>'s defensive clamp on every
+        /// frame. Sources include old synthetic-fixture saves (pre-#412 the RecordingBuilder
+        /// persisted <c>loopIntervalSeconds=0</c>) and any hand-edited save file. Auto-repair
+        /// to the effective loop duration (seamless loop at the recording's own length), falling
+        /// back to <see cref="GhostPlaybackLogic.DefaultLoopIntervalSeconds"/> when the
+        /// trajectory can't supply a valid duration. <see cref="LoopTimeUnit.Auto"/> is left
+        /// alone since the resolver pulls the value from the global slider instead.
+        /// </summary>
+        internal static void NormalizeDegenerateLoopInterval(Recording rec)
+        {
+            if (rec == null || !rec.LoopPlayback) return;
+            if (rec.LoopTimeUnit == LoopTimeUnit.Auto) return;
+            if (rec.LoopIntervalSeconds >= GhostPlaybackLogic.MinCycleDuration) return;
+
+            double originalInterval = rec.LoopIntervalSeconds;
+            double effectiveLoopDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+            bool durationUsable = !double.IsNaN(effectiveLoopDuration)
+                && !double.IsInfinity(effectiveLoopDuration)
+                && effectiveLoopDuration >= GhostPlaybackLogic.MinCycleDuration;
+            double resolved = durationUsable
+                ? effectiveLoopDuration
+                : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+
+            rec.LoopIntervalSeconds = resolved;
+            if (!SuppressLogging)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Warn("Loop",
+                    $"NormalizeDegenerateLoopInterval: recording '{rec.VesselName}' had " +
+                    $"loopIntervalSeconds={originalInterval.ToString("R", ic)} " +
+                    $"(below MinCycleDuration={GhostPlaybackLogic.MinCycleDuration.ToString("R", ic)}s); " +
+                    $"normalizing to {resolved.ToString("R", ic)}s " +
+                    $"(effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s, " +
+                    $"durationUsable={durationUsable}) — #412 auto-repair.");
+            }
         }
 
         private static bool SaveRecordingFilesToPathsInternal(
