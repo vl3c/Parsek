@@ -348,6 +348,84 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region MapView icons (#387)
+
+        // Verify that MapMarkerRenderer's icon UVs match the live MapNode.iconSprites
+        // atlas for every vessel type in StockIconIndexByVesselType. Regressions here
+        // would mean ghost icons show a different vessel type's symbol (the symptom
+        // users reported before #387).
+        [InGameTest(Category = "MapView",
+            Description = "MapMarkerRenderer UVs match live MapNode.iconSprites for every stock vessel type (#387)")]
+        public void MapMarkerIconsMatchStockAtlas()
+        {
+            InGameAssert.IsNotNull(MapView.fetch,
+                "MapView.fetch should exist — test requires flight or tracking station scene");
+
+            // Force a fresh init against whatever atlas this scene resolves.
+            MapMarkerRenderer.ResetForSceneChange();
+
+            var prefab = MapView.UINodePrefab;
+            InGameAssert.IsNotNull(prefab, "MapView.UINodePrefab should not be null");
+
+            var fi = typeof(KSP.UI.Screens.Mapview.MapNode).GetField("iconSprites",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(fi, "MapNode.iconSprites field should be reflectable");
+
+            var sprites = fi.GetValue(prefab) as Sprite[];
+            InGameAssert.IsNotNull(sprites, "iconSprites should not be null");
+            InGameAssert.IsTrue(sprites.Length > 0, "iconSprites should not be empty");
+
+            // Run the atlas reflection/init without GUI context
+            // (InGameTestRunner coroutines don't always execute during OnGUI).
+            MapMarkerRenderer.ForceInitForTesting();
+
+            Texture2D atlas = MapMarkerRenderer.VesselIconAtlasForTesting;
+            InGameAssert.IsNotNull(atlas,
+                "MapMarkerRenderer atlas should be resolved after a draw call");
+
+            var uvs = MapMarkerRenderer.VesselIconUVsForTesting;
+            InGameAssert.IsNotNull(uvs, "MapMarkerRenderer UV dict should be built");
+
+            int verified = 0, missing = 0;
+            foreach (var kv in MapMarkerRenderer.StockIconIndexByVesselType)
+            {
+                int idx = kv.Value;
+                if (idx < 0 || idx >= sprites.Length || sprites[idx] == null
+                    || sprites[idx].texture != atlas)
+                {
+                    // Expected — renderer also skips these. Log and continue.
+                    missing++;
+                    ParsekLog.Verbose("TestRunner",
+                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite/atlas mismatch)");
+                    continue;
+                }
+
+                Rect expectedRect = sprites[idx].textureRect;
+                Rect expectedUv = new Rect(
+                    expectedRect.x / atlas.width, expectedRect.y / atlas.height,
+                    expectedRect.width / atlas.width, expectedRect.height / atlas.height);
+
+                InGameAssert.IsTrue(uvs.TryGetValue(kv.Key, out Rect actualUv),
+                    $"UV dict missing entry for {kv.Key}");
+
+                InGameAssert.ApproxEqual(expectedUv.x, actualUv.x);
+                InGameAssert.ApproxEqual(expectedUv.y, actualUv.y);
+                InGameAssert.ApproxEqual(expectedUv.width, actualUv.width);
+                InGameAssert.ApproxEqual(expectedUv.height, actualUv.height);
+
+                verified++;
+                ParsekLog.Verbose("TestRunner",
+                    $"MapView icon {kv.Key} idx={idx} UV=({actualUv.x:F3},{actualUv.y:F3},{actualUv.width:F3},{actualUv.height:F3}) OK");
+            }
+
+            InGameAssert.IsTrue(verified > 0,
+                $"Expected at least one matching icon UV; verified={verified} missing={missing}");
+            ParsekLog.Info("TestRunner",
+                $"MapMarkerIconsMatchStockAtlas: verified={verified} missing={missing} total={MapMarkerRenderer.StockIconIndexByVesselType.Count}");
+        }
+
+        #endregion
     }
 
     /// <summary>
