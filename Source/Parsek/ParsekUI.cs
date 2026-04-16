@@ -150,29 +150,70 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
             }
 
-            // Kerbals window button: count = reserved owners + active stand-ins + retired.
-            // Buckets are name-disjoint by construction (KerbalsModule.ComputeRetiredSet
-            // only tags stand-ins that are used-in-recording AND not currently reserved),
-            // so the sum never double-counts.
+            // Kerbals window button: count = visible_slots + orphan_retired + end_state_rows.
+            // visible_slots = slots that render in the topology section (excludes
+            // dead-and-empty slots which produce no meaningful row). orphan_retired is
+            // retired stand-ins not appearing in any slot's chain — those land in the
+            // Unlinked Retired section. end_state_rows is one per committed crew fate.
             string kerbalsLabel = "Kerbals";
             var kerbalsModule = LedgerOrchestrator.Kerbals;
             if (kerbalsModule != null)
             {
-                int reservedCount = 0;
-                int activeCount = 0;
+                int visibleSlots = 0;
+                int orphanRetired = 0;
+                var chainNames = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var slot in kerbalsModule.Slots.Values)
                 {
-                    if (slot == null || slot.OwnerPermanentlyGone) continue;
-                    if (kerbalsModule.Reservations.TryGetValue(slot.OwnerName, out var res)
-                        && res != null && !res.IsPermanent)
-                        reservedCount++;
-                    int idx = kerbalsModule.GetActiveChainIndex(slot);
-                    if (idx >= 0 && slot.Chain != null && idx < slot.Chain.Count
-                        && !string.IsNullOrEmpty(slot.Chain[idx]))
-                        activeCount++;
+                    if (slot == null) continue;
+                    int nonNullChain = 0;
+                    if (slot.Chain != null)
+                    {
+                        for (int c = 0; c < slot.Chain.Count; c++)
+                        {
+                            if (!string.IsNullOrEmpty(slot.Chain[c])) nonNullChain++;
+                        }
+                    }
+                    // Dead-and-empty slots are skipped by the topology renderer, so they
+                    // don't contribute to the count — and we don't need their (empty)
+                    // chain names for orphan detection either.
+                    if (slot.OwnerPermanentlyGone && nonNullChain == 0) continue;
+                    visibleSlots++;
+                    if (slot.Chain != null)
+                    {
+                        for (int c = 0; c < slot.Chain.Count; c++)
+                        {
+                            string n = slot.Chain[c];
+                            if (!string.IsNullOrEmpty(n)) chainNames.Add(n);
+                        }
+                    }
                 }
-                int retiredCount = kerbalsModule.GetRetiredKerbals().Count;
-                int total = reservedCount + activeCount + retiredCount;
+                var retiredList = kerbalsModule.GetRetiredKerbals();
+                if (retiredList != null)
+                {
+                    for (int r = 0; r < retiredList.Count; r++)
+                    {
+                        string n = retiredList[r];
+                        if (!string.IsNullOrEmpty(n) && !chainNames.Contains(n))
+                            orphanRetired++;
+                    }
+                }
+                int endStateRows = 0;
+                var recs = RecordingStore.CommittedRecordings;
+                if (recs != null)
+                {
+                    for (int i = 0; i < recs.Count; i++)
+                    {
+                        var rec = recs[i];
+                        if (rec == null) continue;
+                        if (!rec.CrewEndStatesResolved) continue;
+                        if (rec.CrewEndStates == null) continue;
+                        foreach (var kvp in rec.CrewEndStates)
+                        {
+                            if (!string.IsNullOrEmpty(kvp.Key)) endStateRows++;
+                        }
+                    }
+                }
+                int total = visibleSlots + orphanRetired + endStateRows;
                 kerbalsLabel = $"Kerbals ({total})";
             }
             if (GUILayout.Button(kerbalsLabel))

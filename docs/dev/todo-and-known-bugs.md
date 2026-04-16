@@ -1098,18 +1098,7 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 **1. ~~Per-recording crew end-state breakdown~~.** DONE in v0.8.2 alongside the #385 extraction — new **Per-Recording Fates** section renders a grouped, chronological view of each kerbal's committed missions with color-coded Dead/Recovered/Aboard/Unknown labels. See `KerbalsWindowUI.Build` (new `CrewEndStateEntry` + `List<CrewEndStateEntry> EndStates` on `KerbalsViewModel`). ~~Remaining polish: per-kerbal fold/unfold toggle to collapse large rosters.~~ DONE in #415-1 (v0.8.2) — clicking a kerbal's header collapses their rows under a compact `N missions — X Dead, Y Recovered, Z Aboard` summary; fold state is transient UI-only (resets on scene transitions).
 
-**2. Chain topology view.** Today the three flat sections fragment the chain — a user cannot tell that Bill (active) displaced Hanley (retired) under Jeb's slot without mentally joining the lists. Replace (or supplement) the flat sections with a per-slot tree render:
-
-```
-Jebediah Kerman [Pilot] — reserved until UT 18230
-  ├─ Bill Kerman     (retired)
-  └─ Hanley Kerman   (active)
-```
-
-Data is already in `KerbalsModule.Slots: IReadOnlyDictionary<string, KerbalSlot>` — each `KerbalSlot` has `OwnerName`, `OwnerTrait`, `OwnerPermanentlyGone`, `Chain: List<string>`. Walk each chain once, label entries using the same canonical rules the current PR uses:
-- Tip = `GetActiveChainIndex(slot)` → label "active"
-- Entries in `Chain` also present in `retired` HashSet → label "retired"
-- Non-tip entries not in `retired` → displaced metadata; hide or gray out
+**2. ~~Chain topology view.~~** DONE in #415-2 (v0.8.2) — the Kerbals window now renders each career-kerbal slot as a collapsible per-owner row; clicking the arrow expands the chain as indented tree children labelled (active) / (retired) / (displaced). Orphan retired stand-ins (in `GetRetiredKerbals()` but no slot's Chain) land in a separate **Unlinked Retired** section. Default all-collapsed, so the initial view is a contiguous list of owners. Replaces the old flat Reserved / Active stand-ins / Retired stand-ins sections.
 
 **3. Per-name filter search (polish — optional v2).** A text box at the top of the window filtering Reserved + Active + Retired + (future) end-state rows by partial name match. Low value in small careers, helpful in 100+ kerbal saves.
 
