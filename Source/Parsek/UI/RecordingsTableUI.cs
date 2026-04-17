@@ -38,6 +38,13 @@ namespace Parsek
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 75f;
         private const float ColW_Hide = 80f;
+
+        // Header cell height — the cells containing a label + select-all toggle
+        // (Loop, Archive) naturally measure taller than a single bold label in
+        // colHdr. Forcing every header cell to this height keeps the row visually
+        // uniform; +10px over the single-label default balances with the toggle
+        // cells without over-inflating them.
+        private const float ColHeaderHeight = 32f;
         private const float ColW_Site = 90f;
         private const float ColW_Group = 50f;
 
@@ -621,18 +628,18 @@ namespace Parsek
             var colHdr = parentUI.GetColumnHeaderStyle();
             if (showExpandedStats)
             {
-                GUILayout.Label("MaxAlt", colHdr, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("MaxSpd", colHdr, GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("Dist", colHdr, GUILayout.Width(ColW_Dist));
-                GUILayout.Label("Pts", colHdr, GUILayout.Width(ColW_Pts));
-                GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("End", colHdr, GUILayout.Width(ColW_EndPos));
+                GUILayout.Label("MaxAlt", colHdr, GUILayout.Width(ColW_MaxAlt), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("MaxSpd", colHdr, GUILayout.Width(ColW_MaxSpd), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("Dist", colHdr, GUILayout.Width(ColW_Dist), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("Pts", colHdr, GUILayout.Width(ColW_Pts), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_StartPos), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("End", colHdr, GUILayout.Width(ColW_EndPos), GUILayout.Height(ColHeaderHeight));
             }
 
             DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
 
             // Group column header
-            GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group));
+            GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group), GUILayout.Height(ColHeaderHeight));
 
             // Select-all loop header + checkbox. colHdr supplies the dark boxed
             // background so the whole cell reads as a header (not just the label).
@@ -641,7 +648,7 @@ namespace Parsek
                 if (committed[i].LoopPlayback) loopCount++;
 
             bool allLoop = loopCount == committed.Count;
-            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Loop));
+            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
             bool newAllLoop = GUILayout.Toggle(allLoop, "");
@@ -656,14 +663,14 @@ namespace Parsek
 
             GUILayout.Label(new GUIContent("Period",
                 "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."),
-                colHdr, GUILayout.Width(ColW_Period));
+                colHdr, GUILayout.Width(ColW_Period), GUILayout.Height(ColHeaderHeight));
 
             if (parentUI.InFlightMode)
-                GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch));
-            GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind));
+                GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
 
             // Hide column header + toggle
-            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide));
+            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
@@ -2205,7 +2212,7 @@ namespace Parsek
             {
                 InvalidateSort();
                 ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
-            });
+            }, ColHeaderHeight);
         }
 
         private void InvalidateSort()
