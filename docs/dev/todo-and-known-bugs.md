@@ -58,6 +58,83 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording
+
+**Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16200-17274`. Player deletes a Gloops recording via the UI's Discard button; the next frame `GloopsRecorderUI.DrawWindow` throws `NullReferenceException` because it still holds a reference to the just-removed `Recording`. Downstream, `Spawn suppressed for #0 "r0": no vessel snapshot` fires 100+ times from the spawner, which also kept a dangling reference.
+
+**Fix:** Defensive null check at the top of `GloopsRecorderUI.DrawWindow` — bail early if the tracked recording is no longer present in `RecordingStore.CommittedRecordings`. Audit the spawner path for the same pattern and clear any cached ghost/recording handle on discard. Unit test: simulate "draw → discard → draw again" sequence; assert no exception and no stale-ref log spam.
+
+**Files:** `Source/Parsek/UI/GloopsRecorderUI.cs`; likely also `Source/Parsek/ParsekPlaybackPolicy.cs` or `Source/Parsek/GhostPlaybackEngine.cs` for the spawner dangling-ref.
+
+**Status:** TODO. Priority: medium. User-visible exception after a common UI action.
+
+---
+
+## 445. `VesselRollout` without a subsequent recording leaks the build cost
+
+**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. If the player rolls out a vessel, incurs the `FundsChanged(VesselRollout)` deduction, then cancels (never starts recording), no `FundsSpending(VesselBuild)` action is created — and the KSC path has no reconciliation for rollouts that happen without a subsequent recording. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule.
+
+**Fix:** Same shape as #444 — route `TransactionReasons.VesselRollout` through `OnKscSpending` / a rename to `OnKscFundsEvent` so a `FundsSpending(VesselBuild)` action is committed at the real transaction moment, not deferred to recording commit. When a recording later starts from the same vessel, `CreateVesselCostActions` must dedupe against the already-committed action (use `DedupKey = vesselId + startUT` or similar).
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-510` (CreateVesselCostActions), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged).
+
+**Scope:** Medium. Crosses two files. Low priority — rare-edge (cancelled rollouts); not a user-visible drain in the default flow. Ship-blockers are #442 first.
+
+**Status:** TODO. Priority: low.
+
+---
+
+## 444. `VesselRecovery` at tracking station falls outside every recording window
+
+**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17390-17462` window analysis. Recovering a vessel from the tracking station (or from the flight results screen at KSC) emits `FundsChanged(VesselRecovery)` at a UT that lies outside any recording window (e.g., between consecutive recordings). `LedgerOrchestrator.CreateVesselCostActions:486` only emits `FundsEarning(Recovery)` when the recording's `TerminalStateValue == Recovered` AND the event falls inside `Points[]`. Recovery performed after the recording has already ended misses this gate, and the `FundsChanged` event is dropped by the converter.
+
+**Smoke-test impact:** one `VesselRecovery +4005` at ut=3980.4 in the bundle, between recording 1 (ends ~177) and recording 2 (starts 3988.6). `ReconcileEarningsWindow` doesn't flag it because the recovery happens outside any recording's UT window — it's just silently lost from the ledger.
+
+**Fix:** Route `TransactionReasons.VesselRecovery` through `LedgerOrchestrator.OnKscSpending` (or a dedicated `OnKscFundsEvent` path) so a `FundsEarning(Recovery)` action is committed at the real-time recovery moment with `UT = event UT` and `RecordingId = nearest-recording-by-name` (or null for recovery of non-Parsek vessels). Match the existing pattern `CreateVesselCostActions` uses for the amount (last-point - penultimate-point).
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:2028-2053` (OnKscSpending), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged). New test in `GameStateRecorderLedgerTests.cs` or a sibling file.
+
+**Scope:** Medium. Crosses GameStateRecorder + LedgerOrchestrator. Medium priority — affects tracking-station recoveries and post-flight KSC recoveries.
+
+**Status:** TODO. Priority: medium.
+
+---
+
+## 443. `EnrichPendingMilestoneRewards` write-back silently fails for some node IDs
+
+**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17459-17462`. `FundsChanged +800 (Progression)` fires at ut=4134.8 for the `Kerbin/Landing` node. The patch's INFO log reports enrichment success, but no `Updated event detail` line follows and the subsequent commit at KSP.log:18024 credits the milestone with `funds=0`. Same pattern may affect other OnProgressComplete-emitting nodes; only Records* (which don't fire OnProgressComplete at all) are covered by #442.
+
+**Root cause (suspected):** `pendingMilestoneEvents` in `GameStateRecorder` keys the map by `ProgressNode` reference or a stringified ID that doesn't match what `EnrichPendingMilestoneRewards` looks up. When `Complete()` re-enters the patch chain, the pending-event map entry for that node ID is missed. The miss is logged only at `Verbose` — invisible in default log settings.
+
+**Fix:** Key the `pendingMilestoneEvents` map by `node.Id` string (not ProgressNode reference). Change the miss log from `Verbose` to `Warn` so it's visible in default logs. Add a unit test: `pendingMilestoneEvents` with a known ID, call enrichment with the same ID, assert map updated.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs:847-892` (OnProgressComplete), `Source/Parsek/GameStateRecorder.cs:915-980` (EnrichPendingMilestoneRewards), `Source/Parsek/Patches/ProgressRewardPatch.cs`.
+
+**Scope:** Small — localized to one file. New unit test.
+
+**Status:** TODO. Priority: high. Pairs with #442; expect them fixed together since they share the ProgressRewardPatch code path.
+
+---
+
+## 442. World-record progress nodes (`RecordsSpeed`/`Altitude`/`Distance`/`Depth`) have no ledger capture
+
+**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log`. A fresh career without strategies fires `PatchFunds: suspicious drawdown` WARN 5× during normal play. Root cause: KSP's world-record `ProgressNode` subclasses (`RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`, `RecordsDepth`) call `AwardProgress` directly without going through `OnProgressComplete`. No `MilestoneAchieved` event fires, so `Source/Parsek/Patches/ProgressRewardPatch.cs` has no pending event to enrich and `GameStateEventConverter` has nothing to convert. The `FundsChanged(Progression)` event is dropped wholesale by the converter's drop-rule (`GameStateEventConverter.cs:138-146`, which assumes every `Progression` FundsChanged has a companion `MilestoneAchieved`).
+
+**Smoke-test impact:**
+- Recording 1: 7 Records* world-firsts × ~4800 funds each ≈ **33,600 funds silently dropped**. `ReconcileEarningsWindow` WARN at KSP.log:9869 (`store=34400 vs emitted=800`).
+- Recording 2: 1 `RecordsDistance` hit = 4800 funds. Combined with #443's Kerbin/Landing write-back miss (800 funds), gives the 5600-funds ledger deficit (`ReconcileEarningsWindow` WARN at KSP.log:17987).
+- Session-end KSP balance 27,950 vs ledger derived 22,350 — the whole ledger-reconciliation work's visible drawdown WARN is driven by this one gap.
+
+**Fix:** Extend `Source/Parsek/Patches/ProgressRewardPatch.cs` to emit a standalone `MilestoneAchieved` event when no pending event exists for the node (i.e., when `OnProgressComplete` did not fire). The patch already runs after `AwardProgress`; add a helper `GameStateRecorder.EmitStandaloneProgressReward(node, funds, rep, sci)` that appends a `MilestoneAchieved` event with the rewards already populated in `detail`, bypassing the enrichment-map indirection. This shape also mechanically protects against future KSP progress-node additions that bypass `OnProgressComplete`.
+
+**Files:** `Source/Parsek/Patches/ProgressRewardPatch.cs` (emission point), `Source/Parsek/GameStateRecorder.cs` (new helper). New unit test via `GameStateRecorderLedgerTests.cs` or a sibling — synthesize a `RecordsDistance`-style node, call the patch, assert a `MilestoneAchieved` event fires with the correct funds amount.
+
+**Scope:** Small. Single-patch change with clear regression target. Phase B's `ReconcileEarningsWindow` already exists as the test vehicle — add a case that asserts zero mismatch after the fix.
+
+**Status:** TODO. **Priority: highest.** Release-blocking for v0.8.2 — this is the bug that drove the whole ledger reconciliation work to be visible in-game, and it's still firing on a fresh career. Per smoke-test verdict: do not ship v0.8.2 without this fix.
+
+---
+
 ## 440. Post-walk reconciliation for strategy-transformed and curve-applied reward types
 
 **Source:** Phase B (#437, PR #340) explicitly excluded these from KSC-side reconciliation. `LedgerOrchestrator.ReconcileKscAction.ClassifyAction` routes `ContractComplete` / `ContractFail` / `ContractCancel` / `MilestoneAchievement` / `ReputationEarning` / `ReputationPenalty` / direct KSC-path `FundsEarning` / `ScienceEarning` into the "transformed — skip with VERBOSE" bucket because their raw action fields (e.g. `FundsReward`, `NominalRep`) diverge from the live KSP balance delta by the time the walk runs: `StrategiesModule` mutates `TransformedFundsReward` during the walk, and `ReputationModule.ApplyReputationCurve` transforms rep earnings/penalties non-linearly. Comparing raw fields to observed deltas would produce false-positive WARNs on every legitimate contract completion once strategies are active.
