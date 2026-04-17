@@ -561,7 +561,7 @@ The in-game `CommittedRecordingsHaveValidData` test remains the ultimate regress
 
 ---
 
-## 414. One-shot 39 ms frame-budget spike ~11 s after scene load with zero ghosts rendered
+## ~~414. One-shot 39 ms frame-budget spike ~11 s after scene load with zero ghosts rendered~~
 
 **Source:** subagent log review `2026-04-16` of `logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:12757`. `"Playback frame budget exceeded: 39.3ms (0 ghosts, warp: 1x)"` fired ~11 s after scene load, before any ghost was rendered. Six later spikes in the same session were all normal-range (8.9-9.6 ms) with 246-249 ghosts active.
 
@@ -578,6 +578,18 @@ The in-game `CommittedRecordingsHaveValidData` test remains the ultimate regress
 **Subtle behavior change flagged during review:** pre-#414, `CaptureGhostObservability()` ran **after** `updateStopwatch.Stop()`, so its cost was silently excluded from `totalMicroseconds` and from the existing `"Playback frame budget exceeded"` WARN. The #414 diagnostic moves the call inside the stopwatch window and measures it as its own phase. Consequence: `totalMicroseconds` is now strictly greater-than-or-equal-to the pre-#414 value by the `observabilityCapture` phase cost. On borderline frames this can shift whether the 8 ms rate-limited WARN fires. Deliberate — the phase sum now matches the total, and a slow observability capture is now attributable rather than hidden.
 
 **Status:** TODO. Size: S (investigation) + depends on root cause. Next playtest will capture the breakdown line on the first spike and identify the responsible phase; only then should a fix be proposed.
+
+**Root cause (identified by diagnostic breakdown `2026-04-17`):** `logs/2026-04-17_1629_c2-postfix-retest/KSP.log:17938` — `total=23.8ms mainLoop=8.34ms spawn=14.91ms destroy=0.00ms explosionCleanup=0.00ms deferredCreated=0.23ms (1 evts) deferredCompleted=0.00ms (0 evts) observabilityCapture=0.30ms trajectories=4 ghosts=0 warp=1x`. Spawn = 62% of the frame (4 ghosts × ~3.7 ms amortized). The candidates flagged on investigation (PR #316 FX size-boost, deferred policy callbacks, observability capture) are all <0.5 ms; the culprit is bunch-spawning several eligible ghost visual builds on the same tick.
+
+**Fix:** per-frame ghost spawn cap (`GhostPlaybackEngine.MaxSpawnsPerFrame = 2`). Seven call sites inside `UpdatePlayback` — first-spawn, distance-tier-rehydrate, loop first-spawn, loop distance-tier-rehydrate, overlap-primary-rehydrate, loop-overlap-rehydrate, hidden-tier-prewarm — pass through `TryReserveSpawnSlot` which returns false (defer) once `frameSpawnCount >= MaxSpawnsPerFrame`. Deferred spawns retry on the next `UpdatePlayback` tick since the dispatch loop walks `trajectories[]` unconditionally. Two sites are **exempt** from the cap so user-visible responsiveness is preserved:
+- `EnsureGhostVisualsLoadedForWatch` (watch-mode request): neither `TryEnterWatchMode` nor `TryGetWatchGhostState` retries on failure, so a throttled watch would manifest as "click Watch, nothing happens".
+- `SpawnGhost` inside the `primaryCycleChanged` branch of `UpdateOverlapPlayback`: the old primary is moved to the overlap list unconditionally just before the spawn, so throttling would leave the recording without a primary ghost for one or more frames and also skip the `OnOverlapCameraAction` retarget.
+
+The breakdown WARN now additionally reports `spawn=X.Xms (built=N throttled=M max=Y.Yms)` so the next playtest's exceeded frames reveal (a) whether throttling fired at all, (b) the max single-spawn cost — if max > ~10 ms we have a bimodal cost distribution that a count cap alone cannot cover, in which case the follow-up is per-spawn time budgeting or a coroutine split.
+
+**Files touched (fix):** `Source/Parsek/GhostPlaybackEngine.cs` (`MaxSpawnsPerFrame` const, `TryReserveSpawnSlot` helper, `frameSpawnDeferred` / `frameMaxSpawnTicks` fields, seven call-site gates, post-loop summary log extension, `BuildGhostVisualsWithMetrics` per-spawn max tracking), `Source/Parsek/GhostPlaybackLogic.cs` (`ShouldThrottleSpawn` pure helper), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (`PlaybackBudgetPhases` extended), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (breakdown log line extended), `Source/Parsek.Tests/Bug414SpawnThrottleTests.cs` (new — 7 tests), `CHANGELOG.md`, `docs/dev/plan-414-spawn-throttle.md` (new, preserved for history).
+
+**Status:** ~~Fixed~~. Size: S-M. Post-ship validation: next playtest should show zero-ghost spikes ≤ 10 ms under steady-state and, when the breakdown does fire, `throttled > 0` during scene load plus `max ≤ ~5 ms` on typical saves. If `max` exceeds 10 ms on any save, requeue the per-spawn-cost work as a follow-up.
 
 ---
 

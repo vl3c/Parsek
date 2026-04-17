@@ -79,7 +79,7 @@ All notable changes to Parsek are documented here.
 - `#417`, `#418` Running the in-game test runner's Run All / Run Category twice in the same session no longer compounds leftover ghosts and orphan ghost-map PIDs.
 - `#422` Freshly-loaded test saves no longer emit spurious per-tree WARNs when every failure is a synthetic-fixture marker.
 - `#413` Replacement kerbals are now seated in the correct part after revert/merge.
-- `#414` Added a one-shot per-phase breakdown WARN next to the first `Playback frame budget exceeded` line per session.
+- `#414` Ghost visual builds are now throttled to at most 2 per frame, amortizing the scene-load warm-up burst that produced zero-ghost spikes up to ~175 ms. Watch-mode and loop-cycle-rebuild spawns remain exempt so user-visible responsiveness is unaffected.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 

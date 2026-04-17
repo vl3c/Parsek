@@ -740,7 +740,8 @@ namespace Parsek
             ParsekLog.Warn("Diagnostics",
                 string.Format(Inv,
                     "Playback budget breakdown (one-shot, first exceeded frame): total={0}ms"
-                    + " mainLoop={1}ms spawn={2}ms destroy={3}ms explosionCleanup={4}ms"
+                    + " mainLoop={1}ms spawn={2}ms (built={13} throttled={14} max={15}ms)"
+                    + " destroy={3}ms explosionCleanup={4}ms"
                     + " deferredCreated={5}ms ({6} evts) deferredCompleted={7}ms ({8} evts)"
                     + " observabilityCapture={9}ms trajectories={10} ghosts={11} warp={12}x",
                     totalMs.ToString("F1", Inv),
@@ -755,7 +756,10 @@ namespace Parsek
                     (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
                     phases.trajectoriesIterated,
                     ghostsProcessed,
-                    warpRate.ToString("F0", Inv)));
+                    warpRate.ToString("F0", Inv),
+                    phases.spawnsAttempted,
+                    phases.spawnsThrottled,
+                    (phases.spawnMaxMicroseconds / 1000.0).ToString("F2", Inv)));
         }
 
         /// <summary>
