@@ -923,19 +923,26 @@ namespace Parsek.Tests
         // pinned tests below replace the old delta-shape tests.
 
         [Fact]
-        public void ComputeTotal_TreeRecordingsContributePerRecording()
+        public void ComputeTotal_FlatListSkipsTreeTaggedRecording()
         {
-            // Phase F: tree recordings are no longer skipped in the per-recording
-            // sum. A standalone recording in `recordings` and a tree-tagged recording
-            // each contribute their CommittedFundsCost.
+            // Phase F round 2: the flat-list loop skips any recording whose
+            // TreeId is non-null — those recordings are already counted via the
+            // `trees` parameter (production wiring:
+            // ComputeTotal(CommittedRecordings, Milestones, CommittedTrees) and
+            // FinalizeTreeCommit adds tree children into BOTH stores). Without
+            // the skip, the tree child would be double-counted.
+            //
+            // Only the true-standalone recording (TreeId==null) contributes here.
             var standaloneRec = MakeRecording(50000, 35000); // cost = 15000
-            var treeTaggedRec = MakeRecording(50000, 40000); // cost = 10000
+            standaloneRec.RecordingId = "standalone-rec";    // TreeId stays null
+            var treeTaggedRec = MakeRecording(50000, 40000); // cost would be 10000
+            treeTaggedRec.RecordingId = "tree-tagged-rec";
             treeTaggedRec.TreeId = "some_tree";
 
             var recordings = new List<Recording> { standaloneRec, treeTaggedRec };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
-            Assert.Equal(25000, budget.reservedFunds);
+            Assert.Equal(15000, budget.reservedFunds);
         }
 
         [Fact]
@@ -1037,6 +1044,137 @@ namespace Parsek.Tests
                 trees);
 
             Assert.Equal(expected, budget.reservedFunds);
+        }
+
+        // --- Mixed-store double-count regression (Phase F round 2) ---
+
+        [Fact]
+        public void ComputeTotal_MixedStoreShape_TreeChildCountedOnce()
+        {
+            // PR #346 P2 regression: RecordingStore.FinalizeTreeCommit adds every
+            // tree child to BOTH committedRecordings (the flat list) AND the tree
+            // in committedTrees. The production call shape is
+            // ComputeTotal(CommittedRecordings, Milestones, CommittedTrees). If
+            // ComputeTotal summed the tree child in both the flat loop AND the
+            // per-tree loop, every tree child would be double-counted. The flat
+            // loop skips any recording with TreeId != null for that reason.
+            var standaloneRec = MakeRecording(50000, 45000); // cost = 5000
+            standaloneRec.RecordingId = "standalone";
+            // TreeId stays null -> counted by the flat loop.
+
+            var treeChildA = MakeRecording(40000, 37000); // cost = 3000
+            treeChildA.RecordingId = "tree_child_a";
+            treeChildA.TreeId = "tree_mixed";
+            var treeChildB = MakeRecording(30000, 28000); // cost = 2000
+            treeChildB.RecordingId = "tree_child_b";
+            treeChildB.TreeId = "tree_mixed";
+
+            var tree = new RecordingTree { Id = "tree_mixed" };
+            tree.Recordings[treeChildA.RecordingId] = treeChildA;
+            tree.Recordings[treeChildB.RecordingId] = treeChildB;
+
+            // Match production store shape: tree children live in BOTH lists.
+            var committedRecordings = new List<Recording>
+            {
+                standaloneRec, treeChildA, treeChildB
+            };
+            var committedTrees = new List<RecordingTree> { tree };
+
+            var budget = ResourceBudget.ComputeTotal(
+                committedRecordings,
+                new List<Milestone>(),
+                committedTrees);
+
+            // Expected: standalone (5000) + treeChildA (3000) + treeChildB (2000)
+            //         = 10000. Each tree child contributes exactly once via the
+            // per-tree loop; the flat-list skip prevents the second pass.
+            Assert.Equal(10000, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void ComputeTotalFullCost_MixedStoreShape_TreeChildCountedOnce()
+        {
+            // Same regression as ComputeTotal, mirrored for the full-cost path.
+            var standaloneRec = MakeRecording(50000, 45000); // full cost = 5000
+            standaloneRec.RecordingId = "standalone_full";
+
+            var treeChildA = MakeRecording(40000, 37000); // full cost = 3000
+            treeChildA.RecordingId = "tree_child_full_a";
+            treeChildA.TreeId = "tree_mixed_full";
+            var treeChildB = MakeRecording(30000, 28000); // full cost = 2000
+            treeChildB.RecordingId = "tree_child_full_b";
+            treeChildB.TreeId = "tree_mixed_full";
+
+            var tree = new RecordingTree { Id = "tree_mixed_full" };
+            tree.Recordings[treeChildA.RecordingId] = treeChildA;
+            tree.Recordings[treeChildB.RecordingId] = treeChildB;
+
+            var committedRecordings = new List<Recording>
+            {
+                standaloneRec, treeChildA, treeChildB
+            };
+            var committedTrees = new List<RecordingTree> { tree };
+
+            ResourceBudget.Invalidate();
+            var fullCost = ResourceBudget.ComputeTotalFullCost(
+                committedRecordings,
+                new List<Milestone>(),
+                committedTrees);
+
+            Assert.Equal(10000, fullCost.reservedFunds);
+        }
+
+        [Fact]
+        public void MixedStoreShape_Invariant_TreeChildAppearsInBothCollections()
+        {
+            // Store-shape regression pin: constructs a tree via the production-
+            // adjacent helper RecordingStore.AddRecordingWithTreeForTesting (which
+            // wraps a recording in a single-node RecordingTree and places it in
+            // BOTH committedRecordings and committedTrees, mirroring the real
+            // FinalizeTreeCommit shape). Asserts the double-presence invariant
+            // that ComputeTotal's TreeId-based skip depends on — so if a future
+            // refactor of FinalizeTreeCommit stops adding tree children to
+            // committedRecordings, this test fails loudly and the skip can be
+            // reconsidered.
+            var rec = MakeRecording(50000, 45000);
+            rec.RecordingId = "mixed_store_pin";
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec, treeName: "PinTree");
+
+            // Tree child present in the flat list.
+            Assert.Contains(rec, RecordingStore.CommittedRecordings);
+
+            // Tree child also reachable via the trees list.
+            bool inAnyTree = false;
+            foreach (var t in RecordingStore.CommittedTrees)
+            {
+                if (t.Recordings.ContainsKey(rec.RecordingId))
+                {
+                    inAnyTree = true;
+                    break;
+                }
+            }
+            Assert.True(inAnyTree,
+                "Tree child must be reachable via CommittedTrees as well as " +
+                "CommittedRecordings — this is the invariant ResourceBudget's " +
+                "flat-list skip relies on.");
+
+            // TreeId must be populated on every tree child — the hook
+            // ComputeTotal uses to decide whether to skip.
+            Assert.False(string.IsNullOrEmpty(rec.TreeId),
+                "Tree child must have TreeId set; ComputeTotal's flat-list skip " +
+                "uses TreeId!=null to avoid double-counting.");
+
+            // And the production-shape ComputeTotal call counts the recording once.
+            ResourceBudget.Invalidate();
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings as IList<Recording>
+                    ?? new List<Recording>(RecordingStore.CommittedRecordings),
+                new List<Milestone>(),
+                RecordingStore.CommittedTrees);
+
+            // Expected: only the single recording's CommittedFundsCost (5000).
+            Assert.Equal(5000, budget.reservedFunds);
         }
 
         #endregion

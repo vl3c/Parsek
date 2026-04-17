@@ -187,9 +187,20 @@ namespace Parsek
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    // Phase F: removed ManagesOwnResources skip — every committed
-                    // recording (tree or otherwise) contributes its per-recording
-                    // committed cost. Tree-level lump-sum delta is gone.
+                    // Phase F round 2: skip tree-child recordings in the flat-list
+                    // loop. RecordingStore.FinalizeTreeCommit adds every tree child
+                    // into committedRecordings AND exposes it via CommittedTrees[i]
+                    // .Recordings, so the per-tree loop below already counts it.
+                    // Without this skip, mixed-store callers (the production
+                    // `ComputeTotal(CommittedRecordings, Milestones, CommittedTrees)`
+                    // shape) double-count every tree child. The old code used
+                    // `!ManagesOwnResources` for the same skip; ManagesOwnResources
+                    // was deleted as part of Phase F, so we branch on TreeId
+                    // directly (set on every tree child — confirmed via
+                    // ChainSegmentManager.AssignTreeId and
+                    // RecordingStore.AddRecordingWithTreeForTesting).
+                    if (recordings[i] != null && recordings[i].TreeId != null)
+                        continue;
                     result.reservedFunds += CommittedFundsCost(recordings[i]);
                     result.reservedScience += CommittedScienceCost(recordings[i]);
                     result.reservedReputation += CommittedReputationCost(recordings[i]);
@@ -311,7 +322,13 @@ namespace Parsek
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    // Phase F: removed ManagesOwnResources skip.
+                    // Phase F round 2: skip tree-child recordings in the flat-list
+                    // loop to avoid double-counting when the caller passes both
+                    // CommittedRecordings (which includes tree children per
+                    // FinalizeTreeCommit) and CommittedTrees. Mirrors the skip in
+                    // ComputeTotal above.
+                    if (recordings[i] != null && recordings[i].TreeId != null)
+                        continue;
                     result.reservedFunds += FullCommittedFundsCost(recordings[i]);
                     result.reservedScience += FullCommittedScienceCost(recordings[i]);
                     result.reservedReputation += FullCommittedReputationCost(recordings[i]);
