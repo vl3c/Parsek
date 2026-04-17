@@ -24,7 +24,7 @@ This design adds **Rewind Points** on splits that produce two or more controllab
 
 - **What IS replaced on supersede:** the trajectory shown for this split output (ghost playback uses the superseding recording, not the superseded one); vessel-identity claims and chain-tip physical presence (the new recording takes the slot); kerbal-death ledger events attributable to the superseded subtree (and the rep penalties bundled with them) — via explicit `LedgerTombstone` records. Kerbals thought dead return to active via the normal reservation walk.
 
-- **What is NOT replaced on supersede:** contract state (Accept / Complete / Fail / Cancel), milestone flags, facility upgrades/destruction/repair, strategies, tech research, non-kerbal-death reputation deltas, funds and science earnings/spending. These are "sticky" in KSP's `ProgressTracking` and equivalent state stores — KSP will not re-emit a contract completion after it is set, so tombstoning the event and hoping the re-fly emits a fresh one produces zero credit. v1 sidesteps this by leaving all non-kerbal-death ledger actions in `ELS`, regardless of whether their source recording was superseded.
+- **What is NOT replaced on supersede:** contract state (Accept / Complete / Fail / Cancel), milestone flags, facility upgrades/destruction/repair, strategies, tech research, non-kerbal-death reputation deltas, funds and science earnings/spending. These are "sticky" in their respective KSP subsystems — `ContractSystem` for contracts, `ProgressTracking` for milestone/first-time flags, `ScenarioUpgradeableFacilities` for facilities, `StrategySystem` for strategies, `ResearchAndDevelopment` for tech, and so on. KSP will not re-emit a contract completion after the `ContractSystem` marks it complete, so tombstoning the event and hoping the re-fly emits a fresh one produces zero credit. v1 sidesteps this by leaving all non-kerbal-death ledger actions in `ELS`, regardless of whether their source recording was superseded.
 
 This narrow framing is the central design decision. Earlier drafts implied a general "effective state" abstraction that treated supersede as a single mechanism for both visual and career replacement; the fourth review surfaced that this was structurally impossible to deliver because KSP does not cooperate on re-emitting retired events. The fix is to make ledger retirement explicitly opt-in per action type (only `KerbalDeath` + bundled rep in v1) rather than an automatic consequence of recording-level supersede.
 
@@ -151,7 +151,7 @@ Other reservation effects (kerbals reserved to unrelated still-ghost recordings,
 | CrewReservationManager | ERS (live-re-fly crew exempted) | reservations |
 | Ledger recalculation | ELS | derived career state |
 | Career-state UI (funds / science / rep) | ELS-derived totals | never |
-| Contract state (KSP-owned) | KSP's `ProgressTracking` | — |
+| Contract state (KSP-owned) | KSP's `ContractSystem` | — |
 | Milestone flags (KSP-owned) | KSP's `ProgressTracking` | — |
 | Timeline view | ERS lifecycle events + ELS actions | never |
 | Resource recalculation | ELS (resource-changing actions) | never |
@@ -215,7 +215,7 @@ ABC  (Immutable)                                (V)
      Unfinished Flights = {AB}   (AB' NotCommitted; not in ERS/predicate)
 ```
 
-During re-fly: ERS = {ABC, AB, AB', C}. Ghost walker excludes AB (SessionSuppressedSubtree) + AB' (active vessel filter) → plays ABC, C. ELS includes all AB ledger actions (nothing tombstoned yet). Career UI shows AB's rep penalty still present.
+During re-fly: ERS = {ABC, AB, C}. AB' is `NotCommitted` and therefore NOT in ERS per §3.1 (it's the active vessel, a live in-progress recording, not committed data). The ghost walker further filters ERS by `SessionSuppressedSubtree` to exclude AB → plays ABC, C as ghosts. AB' is the live vessel, handled by the normal active-vessel path (not by the ERS filter). ELS includes all AB ledger actions (nothing tombstoned yet). Career UI shows AB's rep penalty still present.
 
 AB' crashes. Player merges.
 
@@ -267,16 +267,21 @@ RewindPoint
     double  SaveUT                          Planetarium.UT at the quicksave write
     string  QuicksaveFilename               under saves/<save>/Parsek/RewindPoints/
     List<ChildSlot>  ChildSlots             one per controllable entity at split
-    Dictionary<uint,int>  PidSlotMap        vessel-PID  -> SlotIndex (primary)
-    Dictionary<uint,int>  RootPartPidMap    rootPart-PID -> SlotIndex (fallback;
-                                            catches vessels re-PIDed between save and load)
+    Dictionary<uint,int>  PidSlotMap        Vessel.persistentId  -> SlotIndex (primary)
+    Dictionary<uint,int>  RootPartPidMap    rootPart.persistentId -> SlotIndex (fallback;
+                                            catches vessels whose vessel-level persistentId
+                                            was reassigned between save and load. Root part
+                                            persistentId is stable across the save/load cycle
+                                            for the same physical part, so it is the right
+                                            identity key. NOT Part.flightID, which is
+                                            session-scoped and unstable.)
     bool    IsSessionProvisional
     string  CreatingSessionId               if session-provisional, the session GUID
     DateTime CreatedRealTime
     bool    Corrupted                       set true on quicksave validation failure
 ```
 
-Both maps are populated on the deferred frame after `GamePersistence.SaveGame` returns, using live `FlightGlobals` state. The strip (§6.4) tries PidSlotMap first; if absent for a given vessel, consults RootPartPidMap by the vessel's root part PID.
+Both maps are populated on the deferred frame after `GamePersistence.SaveGame` returns, using live `FlightGlobals` state. The strip (§6.4) tries PidSlotMap first; if absent for a given vessel, consults RootPartPidMap by the vessel's root part persistentId.
 
 ### 5.2 ChildSlot
 
@@ -572,7 +577,7 @@ Reconciliation bundle (captured pre-load, reapplied post-OnLoad):
 For each vessel `v` in `FlightGlobals.Vessels`:
 1. **Ghost ProtoVessel guard.** If `v.persistentId in GhostMapPresence.ghostMapVesselPids`: skip. Do not strip; it is a Parsek-spawned map presence.
 2. **Primary match via PidSlotMap.** If `rp.PidSlotMap.TryGetValue(v.persistentId, out slotIdx)`: handle based on `slotIdx == selectedSlotIdx` (step 5) vs. not (strip via existing ghost-conversion path and register Recording for ghost playback).
-3. **Fallback match via RootPartPidMap.** If primary miss but `v.rootPart != null` and `rp.RootPartPidMap.TryGetValue(v.rootPart.flightID, out slotIdx)`: handle as in step 2. Log `Verbose` "[Rewind] Strip fallback match via root-part PID for vessel=<name>".
+3. **Fallback match via RootPartPidMap.** If primary miss but `v.rootPart != null` and `rp.RootPartPidMap.TryGetValue(v.rootPart.persistentId, out slotIdx)`: handle as in step 2. Log `Verbose` "[Rewind] Strip fallback match via root-part persistentId for vessel=<name>". (Note: `Part.persistentId`, not `Part.flightID` — `flightID` is session-scoped and changes, while `persistentId` is the stable cross-save/load identifier for the same physical part.)
 4. **Else: leave alone.** The vessel does not belong to this RP's slot set (pre-existing stock vessel, different tree, debris, etc.).
 
 Log `Info` "[Rewind] Strip: slotsStripped=[<indices>] slotSelected=<idx> ghostsGuarded=<N> leftAlone=<M>".
@@ -760,7 +765,7 @@ CreatingSessionId on nested RP = discarded-session's id. Load-sweep spare-set lo
 Marker validates; all session-tagged recordings AND RPs spared; re-fly resumes. Atomic phase 1+2 means no save can capture an intermediate state. Handled.
 
 ### 7.13 Contract supersede is a no-op on career state
-BG-crash completed contract X. Player re-flies, merges. ContractComplete action is NOT tombstoned (not v1-eligible). Contract remains complete in KSP ProgressTracking. Rep bonus stays. Player keeps their win. Handled with documented v1 behavior.
+BG-crash completed contract X. Player re-flies, merges. ContractComplete action is NOT tombstoned (not v1-eligible). Contract remains complete in KSP's `ContractSystem`. Rep bonus stays. Player keeps their win. Handled with documented v1 behavior.
 
 ### 7.14 Contract failed by BG-crash; re-fly succeeds
 BG-crash failed contract X. v1 does NOT un-fail. Contract stays failed. Documented limitation; re-fly is a visual replay, not a contract rescue.
@@ -883,7 +888,7 @@ They cannot. Immutable seals the slot. The player-facing consequence matches §7
 - **Loop / overlap / chain.** Read ERS.
 - **Recording sidecar format.** No changes (SplitTimeSnapshot dropped).
 - **Reservation manager internals.** Re-derivation from ERS is existing; the carve-out in §3.3.1 is a single-method filter.
-- **KSP ProgressTracking.** Sticky. v1 never touches.
+- **KSP sticky-state subsystems** (`ContractSystem`, `ProgressTracking`, `ScenarioUpgradeableFacilities`, `StrategySystem`, `ResearchAndDevelopment`, etc.). v1 never touches any of them on supersede.
 
 ---
 
@@ -1011,7 +1016,7 @@ Tags: `Rewind`, `RewindSave`, `Supersede`, `LedgerSwap`, `UnfinishedFlights`, `R
 - **MergeLandedReFlyCreatesImmutableSupersede** — relation in list, AB unchanged, AB' Immutable, RP reaps.
 - **MergeCrashedReFlyCreatesCPSupersede** — relation in list, AB' CommittedProvisional Crashed, is an Unfinished Flight, RP does NOT reap.
 - **ReRewindExtendsChain** — after merged crash, invoke RP again; strip uses PidSlotMap; new provisional created; chain extends on next merge.
-- **ContractStickyAcrossSupersede** — contract completed by BG-crash; re-fly merges; contract still complete in KSP ProgressTracking; rep unchanged.
+- **ContractStickyAcrossSupersede** — contract completed by BG-crash; re-fly merges; contract still complete in KSP's `ContractSystem`; rep unchanged.
 - **GhostSuppressionDuringReFly** — no ghost rendering for supersede-target subtree.
 - **KerbalRecoveryOnSupersede** — kerbal returns active; reservation re-derived.
 - **UnfinishedFlightsRenderingAndNoHide.**
