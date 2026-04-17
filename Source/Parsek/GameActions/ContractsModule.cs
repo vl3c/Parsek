@@ -54,12 +54,19 @@ namespace Parsek
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Scans for ContractAccept actions with deadlines that expire before the end
-        /// of the timeline without a resolution (Complete/Fail/Cancel). Injects synthetic
-        /// ContractFail actions at the deadline UT so the recalculation walk applies
-        /// failure penalties (funds + reputation).
+        /// Scans for ContractAccept actions with deadlines that expire before the
+        /// walk's effective "now" without a resolution (Complete/Fail/Cancel). Injects
+        /// synthetic ContractFail actions at the deadline UT so the recalculation walk
+        /// applies failure penalties (funds + reputation).
+        ///
+        /// The "now" threshold is <paramref name="walkNowUT"/> when supplied — e.g. the
+        /// rewind cutoff UT, so deadlines that expired between the last pre-cutoff
+        /// action and the cutoff itself still produce a synthetic fail. When no cutoff
+        /// is in play, "now" falls back to the last surviving action's UT (the original
+        /// heuristic — correct for non-rewind walks where the end of the ledger is
+        /// effectively the current time).
         /// </remarks>
-        public void PrePass(List<GameAction> actions)
+        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             if (actions == null || actions.Count == 0)
                 return;
@@ -87,14 +94,22 @@ namespace Parsek
                 }
             }
 
-            // For any tracked contract whose deadline is within the timeline, inject a synthetic fail
-            double lastUT = actions[actions.Count - 1].UT;
+            // Effective "now" for deadline comparisons:
+            //   - Rewind path: walkNowUT is the cutoff — actions after the cutoff are
+            //     filtered out by the engine before this runs, but we still need to
+            //     synthesize fails for deadlines that fell between the last pre-cutoff
+            //     action and the cutoff itself.
+            //   - Non-rewind path: walkNowUT is null; use the last surviving action's
+            //     UT (the original behavior).
+            double lastActionUT = actions[actions.Count - 1].UT;
+            double nowUT = walkNowUT ?? lastActionUT;
+            string nowSource = walkNowUT.HasValue ? "cutoff" : "lastActionUT";
             int injected = 0;
 
             foreach (var kvp in tracked)
             {
                 var accept = kvp.Value;
-                if (accept.DeadlineUT <= lastUT)
+                if (accept.DeadlineUT <= nowUT)
                 {
                     var syntheticFail = new GameAction
                     {
@@ -111,19 +126,21 @@ namespace Parsek
                     ParsekLog.Info(Tag,
                         $"PrePass: injected synthetic ContractFail for contractId='{accept.ContractId}' " +
                         $"at deadlineUT={accept.DeadlineUT} fundsPenalty={accept.FundsPenalty} " +
-                        $"repPenalty={accept.RepPenalty}");
+                        $"repPenalty={accept.RepPenalty} (nowUT={nowUT} source={nowSource})");
                 }
             }
 
             if (injected > 0)
             {
                 ParsekLog.Info(Tag,
-                    $"PrePass: injected {injected} synthetic ContractFail action(s) for expired deadlines");
+                    $"PrePass: injected {injected} synthetic ContractFail action(s) for expired deadlines " +
+                    $"(nowUT={nowUT} source={nowSource})");
             }
             else
             {
                 ParsekLog.Verbose(Tag,
-                    $"PrePass: no expired deadline contracts found (tracked={tracked.Count})");
+                    $"PrePass: no expired deadline contracts found " +
+                    $"(tracked={tracked.Count}, nowUT={nowUT}, source={nowSource})");
             }
         }
 

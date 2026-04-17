@@ -30,9 +30,9 @@ namespace Parsek
         }
 
         /// <inheritdoc/>
-        public void PrePass(List<GameAction> actions)
+        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
-            // No pre-pass needed for milestones
+            // No pre-pass needed for milestones; walkNowUT is ignored.
         }
 
         /// <summary>

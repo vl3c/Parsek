@@ -87,7 +87,12 @@ namespace Parsek
         /// Pre-pass: sums all fund spending costs from the sorted action list before the walk starts.
         /// Required for the reservation system: availableFunds = initialFunds + totalEarnings - totalCommittedSpendings.
         /// </summary>
-        public void PrePass(List<GameAction> actions)
+        /// <remarks>
+        /// <paramref name="walkNowUT"/> is unused — the engine has already applied any UT
+        /// cutoff to <paramref name="actions"/> before calling PrePass, so every action we
+        /// see is in scope for the reservation aggregate.
+        /// </remarks>
+        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             ComputeTotalSpendings(actions);
         }

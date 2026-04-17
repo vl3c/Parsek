@@ -59,9 +59,9 @@ namespace Parsek
         /// Pre-pass: no-op for facilities module.
         /// Facility state is derived purely from the action walk — no aggregate information needed.
         /// </summary>
-        public void PrePass(List<GameAction> actions)
+        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
-            // No pre-pass needed for facilities
+            // No pre-pass needed for facilities; walkNowUT is ignored.
         }
 
         /// <summary>
