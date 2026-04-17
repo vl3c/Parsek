@@ -36,8 +36,8 @@ namespace Parsek
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 85f;
-        private const float ColW_Hide = 70f;
+        private const float ColW_Rewind = 75f;
+        private const float ColW_Hide = 80f;
         private const float ColW_Site = 90f;
         private const float ColW_Group = 50f;
 
