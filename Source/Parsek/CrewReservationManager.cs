@@ -166,14 +166,17 @@ namespace Parsek
         /// </summary>
         public static int SwapReservedCrewInFlight()
         {
-            if (FlightGlobals.ActiveVessel == null)
-            {
-                ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no active vessel — skipping");
-                return 0;
-            }
+            // Pure-data short-circuit first: cheaper than touching FlightGlobals,
+            // and lets unit tests reach this method without triggering the
+            // FlightGlobals static cctor (which depends on Unity engine modules).
             if (crewReplacements.Count == 0)
             {
                 ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no crew replacements — skipping");
+                return 0;
+            }
+            if (FlightGlobals.ActiveVessel == null)
+            {
+                ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no active vessel — skipping");
                 return 0;
             }
 
