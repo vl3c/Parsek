@@ -63,6 +63,12 @@ namespace Parsek
         public int createdEventsFired;
         /// <summary>Number of deferred OnPlaybackCompleted events fired this frame.</summary>
         public int completedEventsFired;
+        /// <summary>Bug #414: count of throttle-eligible call sites that actually ran BuildGhostVisualsWithMetrics this frame.</summary>
+        public int spawnsAttempted;
+        /// <summary>Bug #414: count of throttle-eligible call sites that were deferred to a later frame because the spawn cap was exhausted.</summary>
+        public int spawnsThrottled;
+        /// <summary>Bug #414: largest single BuildGhostVisualsWithMetrics cost in microseconds this frame. Tells us whether any individual ghost blows the budget.</summary>
+        public long spawnMaxMicroseconds;
     }
 
     /// <summary>

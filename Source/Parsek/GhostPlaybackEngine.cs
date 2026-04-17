@@ -50,10 +50,22 @@ namespace Parsek
         internal const double HiddenGhostVisibleTierPrewarmBufferMeters = 5000.0;
         internal const double HiddenGhostEventPrewarmLookaheadSeconds = 2.0;
         internal const double InitialVisibleFrameClampWindowSeconds = 0.25;
+        // Bug #414: cap the number of throttle-eligible ghost-visual builds per UpdatePlayback
+        // tick. Worst-case spawn cost = cap * ~4ms per-spawn ≈ under the 8ms
+        // playback-budget WARN threshold. Watch-mode and loop-cycle-rebuild spawns bypass
+        // this cap; see plan-414-spawn-throttle.md for the full call-site taxonomy.
+        internal const int MaxSpawnsPerFrame = 2;
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
         private int frameDestroyCount;
+        // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
+        // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
+        private int frameSpawnDeferred;
+        // Bug #414: largest single BuildGhostVisualsWithMetrics cost (in Stopwatch ticks) seen
+        // this frame. Reset each frame; surfaced via PlaybackBudgetPhases.spawnMaxMicroseconds
+        // so the breakdown WARN reveals whether one ghost alone is blowing the budget.
+        private long frameMaxSpawnTicks;
 
         // Diagnostics: reusable Stopwatches (allocated once, no per-frame GC)
         private readonly Stopwatch updateStopwatch = new Stopwatch();
@@ -250,6 +262,8 @@ namespace Parsek
             deferredCreatedEvents.Clear();
             frameSpawnCount = 0;
             frameDestroyCount = 0;
+            frameSpawnDeferred = 0;
+            frameMaxSpawnTicks = 0;
 
             // Diagnostics: start total frame timing
             updateStopwatch.Restart();
@@ -443,9 +457,10 @@ namespace Parsek
             }
 
             // Post-loop: batch summary
-            if (frameSpawnCount > 0 || frameDestroyCount > 0)
+            if (frameSpawnCount > 0 || frameDestroyCount > 0 || frameSpawnDeferred > 0)
                 ParsekLog.VerboseRateLimited("Engine", "frame-summary",
-                    $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} active={ghostStates.Count}");
+                    $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} " +
+                    $"deferred={frameSpawnDeferred} active={ghostStates.Count}");
 
             // Bug #414: capture elapsed time at loop end so the "main loop" phase (pure
             // dispatch cost, excluding spawn/destroy which already accumulate into their
@@ -516,6 +531,9 @@ namespace Parsek
                 trajectoriesIterated = trajectoriesIterated,
                 createdEventsFired = createdEventsFired,
                 completedEventsFired = completedEventsFired,
+                spawnsAttempted = frameSpawnCount,
+                spawnsThrottled = frameSpawnDeferred,
+                spawnMaxMicroseconds = frameMaxSpawnTicks * 1000000L / Stopwatch.Frequency,
             };
 
             // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
@@ -538,8 +556,20 @@ namespace Parsek
             if (allowEarlyDestroyedDebrisCompletion && earlyDestroyedDebrisCompleted.Contains(i))
                 return true;
 
+            // Flag events spawn permanent world vessels — apply regardless of ghost state,
+            // zone distance, or spawn-throttle (#249, #414). Unlike visual part events (mesh
+            // toggles), flags are independent entities that must exist whether or not the
+            // ghost is visible AND whether or not the ghost's visual build has happened yet.
+            // When `state` is null (first-spawn throttled or not yet run this frame),
+            // ApplyFlagEvents falls back to a state-less walk with FlagExistsAtPosition dedup.
+            GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
+
             if (state == null)
             {
+                // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
+                // land every eligible ghost's visual build on a single frame.
+                if (!TryReserveSpawnSlot(i, "first-spawn"))
+                    return false;
                 SpawnGhost(i, traj, ctx.currentUT);
                 ghostStates.TryGetValue(i, out state);
                 ghostActive = HasLoadedGhostVisuals(state);
@@ -566,11 +596,6 @@ namespace Parsek
             CachePlaybackDistances(state, activeVesselDistance, renderDistance);
             var zoneResult = positioner.ApplyZoneRendering(i, state, traj, renderDistance, ctx.protectedIndex);
 
-            // Flag events spawn permanent world vessels — apply regardless of zone distance (#249).
-            // Unlike visual part events (mesh toggles), flags are independent entities that must
-            // exist whether or not the ghost is visible.
-            GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
-
             if (zoneResult.hiddenByZone)
             {
                 ghostActive = HandleHiddenGhostVisualState(
@@ -579,11 +604,20 @@ namespace Parsek
                 return true;
             }
 
-            if (!HasLoadedGhostVisuals(state)
-                && !EnsureGhostVisualsLoaded(i, traj, state, ctx.currentUT, "entered visible distance tier"))
+            if (!HasLoadedGhostVisuals(state))
             {
-                ghostActive = false;
-                return false;
+                // Bug #414: throttle distance-tier rehydration — a 1-frame delay is invisible
+                // when a ghost comes back into LOD range.
+                if (!TryReserveSpawnSlot(i, "distance-tier-rehydrate"))
+                {
+                    ghostActive = false;
+                    return false;
+                }
+                if (!EnsureGhostVisualsLoaded(i, traj, state, ctx.currentUT, "entered visible distance tier"))
+                {
+                    ghostActive = false;
+                    return false;
+                }
             }
 
             ghostActive = HasLoadedGhostVisuals(state);
@@ -868,6 +902,20 @@ namespace Parsek
 
             if (state == null)
             {
+                // Bug #414: two paths reach here:
+                //   (a) very first loop-ghost spawn for this trajectory — safe to throttle
+                //       because nothing visible is being replaced; a 1-frame delay on first
+                //       appearance is invisible.
+                //   (b) the single-ghost cycle-rebuild branch above that destroyed the
+                //       prior ghost and nulled state — NOT safe to throttle. Under sustained
+                //       spawn backlog, a throttled cycle-rebuild can leave the recording
+                //       ghostless for multiple frames, which the ExplosionHoldEnd camera
+                //       anchor only masks for the expected 1-frame gap.
+                // The `cycleChanged` flag (captured at line 852) is true iff we're in case
+                // (b). The OVERLAP-loop cycle change (UpdateOverlapPlayback) is exempt for
+                // the same reason via its unconditional overlap-move-before-spawn sequence.
+                if (!cycleChanged && !TryReserveSpawnSlot(index, "loop-first-spawn"))
+                    return;
                 SpawnGhost(index, traj, loopUT);
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
                     return;
@@ -914,10 +962,13 @@ namespace Parsek
                 return;
             }
 
-            if (!HasLoadedGhostVisuals(state)
-                && !EnsureGhostVisualsLoaded(index, traj, state, loopUT, "loop re-entered visible distance tier"))
+            if (!HasLoadedGhostVisuals(state))
             {
-                return;
+                // Bug #414: throttle loop distance-tier rehydration.
+                if (!TryReserveSpawnSlot(index, "loop-distance-tier-rehydrate"))
+                    return;
+                if (!EnsureGhostVisualsLoaded(index, traj, state, loopUT, "loop re-entered visible distance tier"))
+                    return;
             }
 
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
@@ -1047,9 +1098,14 @@ namespace Parsek
                 }
                 else
                 {
-                    if (!HasLoadedGhostVisuals(primaryState)
-                        && !EnsureGhostVisualsLoaded(index, traj, primaryState, primaryLoopUT, "overlap primary re-entered visible distance tier"))
-                        primaryReady = false;
+                    if (!HasLoadedGhostVisuals(primaryState))
+                    {
+                        // Bug #414: throttle overlap-primary distance-tier rehydration.
+                        if (!TryReserveSpawnSlot(index, "overlap-primary-rehydrate"))
+                            primaryReady = false;
+                        else if (!EnsureGhostVisualsLoaded(index, traj, primaryState, primaryLoopUT, "overlap primary re-entered visible distance tier"))
+                            primaryReady = false;
+                    }
 
                     if (primaryReady)
                     {
@@ -1154,10 +1210,13 @@ namespace Parsek
                     continue;
                 }
 
-                if (!HasLoadedGhostVisuals(ovState)
-                    && !EnsureGhostVisualsLoaded(index, traj, ovState, loopUT, "overlap re-entered visible distance tier"))
+                if (!HasLoadedGhostVisuals(ovState))
                 {
-                    continue;
+                    // Bug #414: throttle loop-overlap distance-tier rehydration.
+                    if (!TryReserveSpawnSlot(index, "loop-overlap-rehydrate"))
+                        continue;
+                    if (!EnsureGhostVisualsLoaded(index, traj, ovState, loopUT, "overlap re-entered visible distance tier"))
+                        continue;
                 }
 
                 GhostPlaybackLogic.ApplyDistanceLodFidelity(ovState, zoneResult.reduceFidelity);
@@ -2001,6 +2060,10 @@ namespace Parsek
         {
             bool built = false;
             buildType = null;
+            // Bug #414: record per-spawn cost so the breakdown WARN surfaces whether a single
+            // heavy ghost is the culprit vs many light ones. Take the pre-call tick count
+            // before Start() resumes the stopwatch so the delta is this call only.
+            long preCallTicks = spawnStopwatch.ElapsedTicks;
             spawnStopwatch.Start();
             frameSpawnCount++;
             if (resetCompletedEventDedup)
@@ -2014,9 +2077,49 @@ namespace Parsek
             finally
             {
                 spawnStopwatch.Stop();
+                long deltaTicks = spawnStopwatch.ElapsedTicks - preCallTicks;
+                if (deltaTicks > frameMaxSpawnTicks)
+                    frameMaxSpawnTicks = deltaTicks;
                 if (built)
                     DiagnosticsState.health.ghostBuildsThisSession++;
             }
+        }
+
+        /// <summary>
+        /// Bug #414: per-frame ghost spawn throttle. Returns true if the caller is allowed
+        /// to spawn this frame; false if the cap is exhausted and the spawn must be deferred
+        /// to a later frame. Increments the deferred counter and emits a rate-limited Verbose
+        /// log on the deferred path. Watch-mode and loop-cycle-rebuild spawns do NOT call this
+        /// — see plan-414-spawn-throttle.md for the call-site taxonomy.
+        /// </summary>
+        private bool TryReserveSpawnSlot(int index, string site)
+        {
+            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, MaxSpawnsPerFrame))
+            {
+                frameSpawnDeferred++;
+                ParsekLog.VerboseRateLimited("Engine", "spawn-throttle",
+                    $"Spawn throttled ({site}): #{index} deferred to next frame " +
+                    $"(used {frameSpawnCount}/{MaxSpawnsPerFrame})", 1.0);
+                return false;
+            }
+            return true;
+        }
+
+        // Bug #414 test hooks. The throttle gate and counters are private so UpdatePlayback
+        // remains the only production path that touches them; tests need a narrow seam to
+        // exercise the decision directly without constructing a full FrameContext.
+        internal bool TryReserveSpawnSlotForTesting(int index, string site)
+            => TryReserveSpawnSlot(index, site);
+        internal void IncrementFrameSpawnCountForTesting()
+            => frameSpawnCount++;
+        internal int FrameSpawnCountForTesting => frameSpawnCount;
+        internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
+        internal void ResetPerFrameCountersForTesting()
+        {
+            frameSpawnCount = 0;
+            frameDestroyCount = 0;
+            frameSpawnDeferred = 0;
+            frameMaxSpawnTicks = 0;
         }
 
         private bool TryPopulateGhostVisuals(
@@ -2122,11 +2225,15 @@ namespace Parsek
 
             if (ShouldPrewarmHiddenGhost(traj, state, ghostDistance, playbackUT))
             {
-                if (!HasLoadedGhostVisuals(state)
-                    && !EnsureGhostVisualsLoaded(index, traj, state, playbackUT,
-                        $"hidden-tier prewarm ({hiddenReason})"))
+                if (!HasLoadedGhostVisuals(state))
                 {
-                    return false;
+                    // Bug #414: throttle prewarm spawns — the safest throttle victim since the
+                    // ghost is hidden by distance LOD anyway. A 1-frame prewarm delay is invisible.
+                    if (!TryReserveSpawnSlot(index, "hidden-tier-prewarm"))
+                        return false;
+                    if (!EnsureGhostVisualsLoaded(index, traj, state, playbackUT,
+                            $"hidden-tier prewarm ({hiddenReason})"))
+                        return false;
                 }
 
                 if (HasLoadedGhostVisuals(state))
