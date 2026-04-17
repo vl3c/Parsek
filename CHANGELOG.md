@@ -48,6 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#434` KSP's stock crash/mission report (with its Revert buttons) now shows first on vessel destruction; Parsek's merge dialog no longer pre-empts it. Revert to Launch and Revert to VAB/SPH soft-clear the pending recording — sidecar files and captured events stay on disk so a flight quicksave can still be F9'd back into, while the bumped milestone epoch keeps reverted events out of the current ledger.
 - `#431` Discarding a recording now reverses every career effect it captured — contracts, tech, crew changes, milestones, and resource deltas are all purged, including events the flush-on-save path had already bundled into a milestone.
 - `#416` New career no longer starts with zero funds.
 - `#416` Crashed-vessel recordings now keep their R (rewind) button.
