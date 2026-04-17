@@ -19,9 +19,11 @@ Events captured outside a live recording (at KSC, Tracking Station, or during th
 ## Current-state map (as of 2026-04-17 on `fix/431-event-purge-on-discard`)
 
 - `Source/Parsek/GameStateEvent.cs` — `public struct GameStateEvent` with fields `ut, eventType, key, detail, valueBefore, valueAfter, epoch`. `SerializeInto` / `DeserializeFrom` handle ConfigNode round-trip. New `recordingId` field goes here.
-- `Source/Parsek/GameStateStore.cs:31` — `AddEvent(GameStateEvent e)` stamps `e.epoch = MilestoneStore.CurrentEpoch` before storing. This is the single funnel through which every event enters the store. New `e.recordingId` stamp goes here.
+- `Source/Parsek/GameStateStore.cs:31` — `AddEvent(GameStateEvent e)` stamps `e.epoch = MilestoneStore.CurrentEpoch` before storing. Single funnel into `events`. The resource-event coalescer at `:38-57` preserves the existing slot's `recordingId` and discards the incoming event's tag on match — that's a hazard the purge rule has to close (see step 3a).
 - `Source/Parsek/GameStateStore.cs:237` — `ClearEvents()` wipes the whole list. Stays as-is.
-- `Source/Parsek/GameStateStore.cs:188` — `RemoveEvent(GameStateEvent target)` removes by `ut + eventType + key + epoch` match. Add `PurgeEventsForTree(IEnumerable<string> recordingIds, string reason)` helper with batch semantics.
+- `Source/Parsek/GameStateStore.cs:188` — `RemoveEvent(GameStateEvent target)` removes by `ut + eventType + key + epoch` match. Add `PurgeEventsForRecordings(ICollection<string> recordingIds, string reason)` helper with batch semantics (step 4).
+- `Source/Parsek/GameStateStore.cs:211` — `PruneProcessedEvents` removes from the live list based on the latest committed milestone's EndUT. Called from `ChainSegmentManager.cs:546`, `LedgerOrchestrator.cs:1569`, `ParsekFlight.cs:2464`. After a commit or flush creates a milestone, prune moves the events out of the store.
+- `Source/Parsek/MilestoneStore.cs:42` — `CreateMilestone(recordingId, currentUT)` picks events by epoch + UT window + non-filtered type. The `recordingId` parameter tags the milestone; it does **not** filter which events are picked up. Flush path at `:114-118` calls `CreateMilestone(null, currentUT)` on every `OnSave` (`ParsekScenario.cs:517`), which means mid-flight F5 quicksave pulls tagged in-flight events into a `Committed=true` milestone — those events are then pruned from `GameStateStore.events` and are no longer visible to a later `PurgeEventsForRecordings` scan. This is the hole surfaced in the second review; see step 4b below for the fix.
 - `Source/Parsek/GameStateRecorder.cs` — 17 `GameStateStore.AddEvent` call sites at lines 204, 251, 277, 302, 315, 365, 396, 446, 477, 568, 584, 629, 660, 691, 787, 1038, 1071. None of them set `recordingId` today; they rely on the AddEvent stamp.
 - `Source/Parsek/RecordingStore.cs:981` — `DiscardPendingTree` today does `DeleteRecordingFiles` + `PendingScienceSubjects.Clear()`. Add the event-purge pass here before the files-delete.
 - `Source/Parsek/MergeDialog.cs:107-121` — Discard button in the merge dialog calls `RecordingStore.DiscardPendingTree`; no change needed once the store-level purge is in place.
@@ -92,8 +94,8 @@ internal static void Emit(GameStateEvent evt, string source = null)
         $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
 
     bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
-    bool mid_switch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
-    if (!inFlight && !mid_switch && !string.IsNullOrEmpty(tag))
+    bool midSwitch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+    if (!inFlight && !midSwitch && !string.IsNullOrEmpty(tag))
         ParsekLog.Warn("GameStateRecorder",
             $"Emit drift: event '{evt.eventType}' tagged '{tag}' outside flight and outside LimboVesselSwitch — stale tag?");
     if (inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder())
@@ -126,7 +128,7 @@ internal static string ResolveCurrentRecordingTag()
 }
 ```
 
-`ParsekFlight` exposes `GetActiveRecordingIdForTagging()` as a static that reads `Instance?.activeTree?.ActiveRecordingId`. Add a `ParsekFlight.Instance` static field set in `OnEnable` and cleared in `OnDisable` / `OnDestroy` — small change; flight-scene singleton is how other code accesses this MonoBehaviour already.
+`ParsekFlight.Instance` already exists (`ParsekFlight.cs:26`, set in `Start` at `:473`, cleared at `:847`). Only the `GetActiveRecordingIdForTagging()` accessor is new — `internal static string GetActiveRecordingIdForTagging() => Instance?.activeTree?.ActiveRecordingId ?? "";`. No extra lifecycle plumbing needed.
 
 Call-site rewrite: every `GameStateStore.AddEvent(...)` inside `GameStateRecorder.cs` (17 sites at lines 204, 251, 277, 302, 315, 365, 396, 446, 477, 568, 584, 629, 660, 691, 787, 1038, 1071) switches to `Emit(...)`. `GameStateStore.AddEvent` stays — it's still the single in-process storage funnel — but only `Emit` feeds it during normal operation. Tests that want to insert raw events can still call `AddEvent` directly.
 
@@ -134,7 +136,28 @@ Call-site rewrite: every `GameStateStore.AddEvent(...)` inside `GameStateRecorde
 
 **Clear hooks for `ParsekFlight.Instance` + logging of tag transitions** — log every `activeTree.ActiveRecordingId` assignment at Verbose with the previous and new value; clear `Instance` in `OnDisable` / `OnDestroy`. The clear is a belt-and-braces move — the resolver already handles a null Instance by returning the pending-tree fallback or "".
 
-### Step 3 — `GameStateStore.AddEvent` stamps epoch only
+### Step 3 — Resource-coalescing must be tag-aware (second review, must-fix)
+
+`GameStateStore.AddEvent` coalesces `FundsChanged / ScienceChanged / ReputationChanged` within `ResourceCoalesceEpsilon` (0.1s). Today the match at `GameStateStore.cs:38-57` ignores `recordingId`: if an untagged career slot sits in the store and a tagged in-flight event lands within epsilon, the merged slot keeps the empty tag and the incoming tag is dropped. That event then survives a later `DiscardPendingTree` purge — a silent leak.
+
+Add tag equality to the coalesce match:
+
+```csharp
+if (existing.eventType == e.eventType &&
+    Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon &&
+    string.Equals(existing.recordingId ?? "", e.recordingId ?? "", StringComparison.Ordinal))
+{
+    existing.valueAfter = e.valueAfter;
+    events[i] = existing;
+    ParsekLog.VerboseRateLimited("GameStateStore", "resource-coalesce",
+        $"Coalesced {e.eventType} event at ut={e.ut:F2} tag='{e.recordingId}'");
+    return;
+}
+```
+
+If the tags differ, fall through and append as a new event. Cost: at most one extra event per epsilon window when the scene transitions between tagged and untagged; negligible.
+
+### Step 3b — `GameStateStore.AddEvent` stamps epoch only
 
 ```csharp
 // GameStateStore.cs
@@ -149,7 +172,11 @@ internal static void AddEvent(GameStateEvent e)
 
 The event's `recordingId` is **always** set at `Emit` time. `AddEvent` does not touch it. Direct-test callers pass an explicit `recordingId` or leave it empty.
 
-### Step 4 — Purge on discard
+### Step 4 — Purge on discard (must walk milestones too)
+
+Second review surfaced a hole: `MilestoneStore.FlushPendingEvents` (called on every `OnSave`) moves tagged in-flight events into a `Committed=true` milestone, and `PruneProcessedEvents` removes them from `GameStateStore.events`. An F5 quicksave mid-flight → merge-dialog Discard sequence would find nothing in the live events list and leak every captured event through the surviving milestone.
+
+The fix is to walk both stores on purge. `MilestoneStore` needs a mutable accessor for the events list (or a purge helper of its own that `GameStateStore.PurgeEventsForRecordings` calls through).
 
 ```csharp
 // In GameStateStore.cs
@@ -157,22 +184,70 @@ internal static int PurgeEventsForRecordings(ICollection<string> recordingIds, s
 {
     if (recordingIds == null || recordingIds.Count == 0) return 0;
     var set = recordingIds as HashSet<string> ?? new HashSet<string>(recordingIds);
-    int removed = 0;
+
+    // 1. Live events list
+    var liveRemoved = new List<GameStateEvent>();
     for (int i = events.Count - 1; i >= 0; i--)
     {
         if (!string.IsNullOrEmpty(events[i].recordingId) && set.Contains(events[i].recordingId))
         {
+            liveRemoved.Add(events[i]);
             events.RemoveAt(i);
-            removed++;
         }
     }
-    // Contract snapshots referenced only by the purged events also go.
-    int snapshotsRemoved = PurgeOrphanedContractSnapshots(/* collect purged-event keys */);
+
+    // 2. Milestone event lists — covers the F5-then-discard path.
+    // Any tagged events that were flushed into a milestone must also go;
+    // if a milestone ends up empty it is discarded.
+    var milestoneRemoved = MilestoneStore.PurgeTaggedEvents(set, reason);
+
+    // 3. Contract snapshots — only for purged ContractAccepted events.
+    //    See step 4a below.
+    var allPurged = new List<GameStateEvent>(liveRemoved);
+    allPurged.AddRange(milestoneRemoved);
+    int snapshotsRemoved = PurgeOrphanedContractSnapshots(allPurged);
+
     ParsekLog.Info("GameStateStore",
-        $"PurgeEventsForRecordings: removed {removed} events + {snapshotsRemoved} snapshots ({reason}, ids={recordingIds.Count})");
+        $"PurgeEventsForRecordings ({reason}): live={liveRemoved.Count}, milestone={milestoneRemoved.Count}, snapshots={snapshotsRemoved}, ids={recordingIds.Count}");
+    return liveRemoved.Count + milestoneRemoved.Count;
+}
+```
+
+```csharp
+// In MilestoneStore.cs
+internal static List<GameStateEvent> PurgeTaggedEvents(HashSet<string> recordingIds, string reason)
+{
+    var removed = new List<GameStateEvent>();
+    int emptiedMilestones = 0;
+    for (int i = milestones.Count - 1; i >= 0; i--)
+    {
+        var m = milestones[i];
+        for (int j = m.Events.Count - 1; j >= 0; j--)
+        {
+            var e = m.Events[j];
+            if (!string.IsNullOrEmpty(e.recordingId) && recordingIds.Contains(e.recordingId))
+            {
+                removed.Add(e);
+                m.Events.RemoveAt(j);
+            }
+        }
+        if (m.Events.Count == 0)
+        {
+            milestones.RemoveAt(i);
+            emptiedMilestones++;
+        }
+    }
+    if (removed.Count > 0 || emptiedMilestones > 0)
+        ParsekLog.Info("MilestoneStore",
+            $"PurgeTaggedEvents ({reason}): {removed.Count} events removed, {emptiedMilestones} milestones dropped");
+    ResourceBudget.Invalidate();
     return removed;
 }
 ```
+
+The milestone walk is last-to-first so `RemoveAt` stays O(1) per remove, and empties are dropped in the same pass.
+
+### Step 4a — Contract snapshot purge
 
 Extend `RecordingStore.DiscardPendingTree`:
 
@@ -194,9 +269,9 @@ public static void DiscardPendingTree()
 }
 ```
 
-Contract snapshots (corrected after review): `AddContractSnapshot` is only called from `OnContractAccepted` (`GameStateRecorder.cs:211`). A snapshot belongs to its accept event. Deleting snapshots by "any purged event key" would break the case where a contract was accepted pre-flight (untagged event + untagged snapshot, both retained) and then completed/failed during the discarded recording — the completion event purges, the accept event survives, but the snapshot would wrongly go with it.
+Contract snapshots rule: `AddContractSnapshot` is only called from `OnContractAccepted` (`GameStateRecorder.cs:211`; verified — no other production callers). A snapshot belongs to its accept event. Deleting snapshots by "any purged event key" would break the case where a contract was accepted pre-flight (untagged event + untagged snapshot, both retained) and then completed/failed during the discarded recording — the completion event purges, the accept event survives, but the snapshot would wrongly go with it.
 
-Correct rule: walk the **purged event list**, find only `ContractAccepted` events inside it, collect their GUIDs, and delete snapshots for exactly those GUIDs. Snapshots belonging to retained `ContractAccepted` events are untouched.
+Correct rule: walk the combined purged-event list (live + milestone), find only `ContractAccepted` events inside it, collect their GUIDs, and delete snapshots for exactly those GUIDs. Snapshots belonging to retained `ContractAccepted` events are untouched.
 
 ```csharp
 internal static int PurgeOrphanedContractSnapshots(List<GameStateEvent> purgedEvents)
@@ -223,7 +298,9 @@ internal static int PurgeOrphanedContractSnapshots(List<GameStateEvent> purgedEv
 
 ### Epoch filter cohabitation (decision: instrument, don't retire yet)
 
-Add a cohabitation log so the overlap between the legacy `MilestoneStore.CurrentEpoch` filter and the new recordingId purge is visible. In the milestone/ledger walker that today filters `e.epoch != currentEpoch`, when a filtered event's `recordingId` still matches a live committed recording, log at `Warn` — that would signal drift between the two mechanisms. The epoch filter itself stays in this PR; retiring it is a deliberate follow-up once #432 (Gloops-never-captures) lands and the combined correctness has been playtested. The goal of the log is that if both mechanisms ever disagree, we see it before a user does.
+The legacy epoch filter lives at `MilestoneStore.cs:62` (the `if (e.epoch != epoch) { skippedEpoch++; continue; }` line inside `CreateMilestone`). Cohab log: when that branch fires for an event whose `recordingId` is non-empty AND the corresponding recording still exists as committed (via `RecordingStore.IsCommittedRecordingId(e.recordingId)` — a small helper), emit `ParsekLog.Warn` with both pieces of state. This surfaces drift where the two mechanisms disagree (e.g. an event filtered by epoch but still tagged with a live recording, or vice-versa).
+
+The epoch filter itself stays in this PR; retiring it is a deliberate follow-up once #432 lands and the combined correctness has been playtested.
 
 ### Step 5 — Tests
 
@@ -239,7 +316,10 @@ Add a cohabitation log so the overlap between the legacy `MilestoneStore.Current
 8. **LimboVesselSwitch tagging** — pending tree in LimboVesselSwitch state with `ActiveRecordingId = "rec-A"`, flight scene false but switch in flight, `Emit` event → assert tagged with "rec-A"; no drift-warn log line fires.
 9. **Drift warnings** — in flight with no active recording + no pending switch, `Emit` with a manually-set tag → warn log fires. Outside flight with no switch + empty tag → no warn.
 10. **`UpdateEventDetail` preserves `recordingId`** — seed tagged event, call `UpdateEventDetail` to rewrite the detail, assert `recordingId` unchanged.
-11. **Reset hygiene** — `ResetForTesting` hooks in `GameStateStore`, `RecordingStore`, and `ParsekFlight.TagResolverForTesting`-null clear work independently so test isolation holds.
+11. **Reset hygiene** — `ResetForTesting` hooks in `GameStateStore`, `RecordingStore`, `MilestoneStore`, and a `GameStateRecorder.TagResolverForTesting = null` clear work independently so test isolation holds.
+12. **F5-then-discard invariant** (must-fix from second review) — seed resolver = "rec-A", Emit a ContractAccepted, call `MilestoneStore.FlushPendingEvents(currentUT + 1)` to mimic an F5 mid-flight, assert the event is now in a milestone and gone from `GameStateStore.Events`. Pending tree contains rec-A, `DiscardPendingTree`. Assert: event gone from the milestone, milestone itself dropped (it's now empty), contract snapshot gone.
+13. **Resource-coalesce tag gate** (must-fix from second review) — Emit a tagged `FundsChanged` and an untagged `FundsChanged` within epsilon. Assert both present in the store as separate events (no silent merge). Repeat with two events same tag → merged to one slot.
+14. **Mixed-tag milestone purge** — seed a single milestone with events tagged rec-A, rec-B, and one untagged. Discard a tree containing only rec-A. Assert rec-A events gone from the milestone, rec-B and untagged retained, milestone not dropped.
 
 ### Step 6 — Docs
 
@@ -259,7 +339,7 @@ How #431 + #434 deliver that, without bloating scope:
 
 - **Recording files + sub-trees** — `RecordingStore.DiscardPendingTree` already iterates `pendingTree.Recordings.Values` and calls `DeleteRecordingFiles(rec)` per leaf. Covered.
 - **Science subjects + contract snapshots + every career event** — #431 adds the `recordingId` tag + `PurgeEventsForRecordings` + snapshot-by-accept heuristic. Covered.
-- **Milestones** — `Milestone` already carries `RecordingId` (`Milestone.cs:12`), but milestones are only produced at commit. A discarded pending tree never generated one, so there is nothing to purge. Covered by construction.
+- **Milestones** — `Milestone` carries `RecordingId` (`Milestone.cs:12`). Milestones are produced by `CreateMilestone` from either (a) the commit path (`RecordingStore.CommitTreeDirect` / `CommitTree`) or (b) the flush path called on every `OnSave` (`MilestoneStore.FlushPendingEvents` via `ParsekScenario.cs:517`). The flush path can scoop in-flight tagged events into a `Committed=true` milestone before the player's commit/discard decision has been made — so tagged events do appear in milestones even before (or without) commit. The purge therefore walks `MilestoneStore.Milestones` as well as `GameStateStore.Events` (see step 4). Not covered by construction — covered by the explicit milestone-purge helper.
 - **Kerbal roster / funds / science / reputation state** — these live in KSP's save, not ours. On revert KSP restores them from the launch quicksave; on merge-dialog Discard KSP's state never changed (Parsek's ledger replay applies only committed recordings). Covered by KSP + the commit gate, no Parsek purge needed.
 - **Ledger** — `LedgerOrchestrator.RecalculateAndPatch` runs on every scene load off the committed recordings; since the discarded tree never commits, it never entered the ledger. Covered by construction.
 
