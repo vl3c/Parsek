@@ -34,20 +34,27 @@ namespace Parsek
             e.epoch = MilestoneStore.CurrentEpoch;
 
             // Resource coalescing: if this is a resource event and the last event
-            // of the same type is within the epsilon window, update it instead
+            // of the same type + same recordingId tag is within the epsilon window,
+            // update it instead. #431: the tag equality gate is required — without
+            // it, an untagged career slot + tagged in-flight event within epsilon
+            // would merge into an untagged slot and silently drop the tag, leaking
+            // through the discard purge.
             if (IsResourceEvent(e.eventType) && events.Count > 0)
             {
+                string incomingTag = e.recordingId ?? "";
                 for (int i = events.Count - 1; i >= 0; i--)
                 {
                     var existing = events[i];
+                    string existingTag = existing.recordingId ?? "";
                     if (existing.eventType == e.eventType &&
-                        Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon)
+                        Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon &&
+                        string.Equals(existingTag, incomingTag, StringComparison.Ordinal))
                     {
                         // Update the existing event's valueAfter
                         existing.valueAfter = e.valueAfter;
                         events[i] = existing;
                         ParsekLog.VerboseRateLimited("GameStateStore", "resource-coalesce",
-                            $"Coalesced {e.eventType} event at ut={e.ut:F2}");
+                            $"Coalesced {e.eventType} event at ut={e.ut:F2} tag='{incomingTag}'");
                         return;
                     }
                     // Stop searching once we pass the epsilon window
@@ -241,6 +248,88 @@ namespace Parsek
             events.Clear();
             contractSnapshots.Clear();
             ParsekLog.Info("GameStateStore", $"Cleared {eventCount} events and {snapCount} contract snapshots");
+        }
+
+        /// <summary>
+        /// #431: removes every tagged event whose <see cref="GameStateEvent.recordingId"/>
+        /// is in the given id set. Walks both the live events list AND every milestone's
+        /// events list (via <see cref="MilestoneStore.PurgeTaggedEvents"/>) — the flush-on-save
+        /// path can move tagged events into a milestone before the player decides commit/discard,
+        /// so the purge has to cover both stores. Contract snapshots whose accept event was
+        /// purged are removed too. Untagged events are never touched.
+        /// </summary>
+        internal static int PurgeEventsForRecordings(ICollection<string> recordingIds, string reason)
+        {
+            if (recordingIds == null || recordingIds.Count == 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"PurgeEventsForRecordings: no ids supplied ({reason}) — skipping");
+                return 0;
+            }
+
+            var set = recordingIds as HashSet<string> ?? new HashSet<string>(recordingIds);
+
+            // 1. Live events list
+            var liveRemoved = new List<GameStateEvent>();
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (!string.IsNullOrEmpty(e.recordingId) && set.Contains(e.recordingId))
+                {
+                    liveRemoved.Add(e);
+                    events.RemoveAt(i);
+                }
+            }
+
+            // 2. Milestone event lists — covers the F5-then-discard path.
+            var milestoneRemoved = MilestoneStore.PurgeTaggedEvents(set, reason);
+
+            // 3. Contract snapshots — only those whose ContractAccepted event was purged.
+            var allPurged = new List<GameStateEvent>(liveRemoved.Count + milestoneRemoved.Count);
+            allPurged.AddRange(liveRemoved);
+            allPurged.AddRange(milestoneRemoved);
+            int snapshotsRemoved = PurgeOrphanedContractSnapshots(allPurged);
+
+            ParsekLog.Info("GameStateStore",
+                $"PurgeEventsForRecordings ({reason}): live={liveRemoved.Count}, " +
+                $"milestone={milestoneRemoved.Count}, snapshots={snapshotsRemoved}, ids={set.Count}");
+
+            return liveRemoved.Count + milestoneRemoved.Count;
+        }
+
+        /// <summary>
+        /// #431: deletes contract snapshots whose corresponding <see cref="GameStateEventType.ContractAccepted"/>
+        /// event appears in the purged list. Snapshots are only created by <see cref="AddContractSnapshot"/>
+        /// from <c>GameStateRecorder.OnContractAccepted</c> — so they always follow the accept event's fate.
+        /// A completion/failure/cancel event being purged does NOT drop the snapshot on its own;
+        /// the accept event must be among the purged set for the snapshot to go.
+        /// </summary>
+        internal static int PurgeOrphanedContractSnapshots(List<GameStateEvent> purgedEvents)
+        {
+            if (purgedEvents == null || purgedEvents.Count == 0)
+                return 0;
+
+            var guidsToRemove = new HashSet<string>();
+            for (int i = 0; i < purgedEvents.Count; i++)
+            {
+                var e = purgedEvents[i];
+                if (e.eventType == GameStateEventType.ContractAccepted && !string.IsNullOrEmpty(e.key))
+                    guidsToRemove.Add(e.key);
+            }
+
+            if (guidsToRemove.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = contractSnapshots.Count - 1; i >= 0; i--)
+            {
+                if (guidsToRemove.Contains(contractSnapshots[i].contractGuid))
+                {
+                    contractSnapshots.RemoveAt(i);
+                    removed++;
+                }
+            }
+            return removed;
         }
 
         #endregion

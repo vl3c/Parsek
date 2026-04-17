@@ -48,6 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#431` Discarding a recording now reverses every career effect it captured — contracts, tech, crew changes, milestones, and resource deltas are all purged, including events the flush-on-save path had already bundled into a milestone.
 - `#416` New career no longer starts with zero funds.
 - `#416` Crashed-vessel recordings now keep their R (rewind) button.
 - `#419` Debris recordings from a crash breakup no longer violate monotonic-UT invariants at the parent-breakup boundary.

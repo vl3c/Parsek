@@ -55,7 +55,7 @@ After reverting (or aborting a mission to the Space Center with a recording pend
 | Vessel intact with snapshot | Merge to Timeline, Discard |
 
 - **Merge to Timeline** - Recording is merged; if the vessel is intact, it will appear in the game world when the ghost finishes playing
-- **Discard** - Recording is thrown away
+- **Discard** - Recording is thrown away. Every career effect captured during the discarded flight — contracts accepted or completed, tech researched, crew changes, milestones achieved, funds/science/reputation deltas — is rolled back as if the flight never happened. (Career actions unrelated to a recording, e.g. unlocking a tech node at KSC, stay.)
 
 If **Auto-merge recordings** is enabled in Settings, the merge happens silently without a dialog.
 

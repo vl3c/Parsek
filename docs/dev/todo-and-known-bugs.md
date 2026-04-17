@@ -191,7 +191,7 @@ Currently `GameStateRecorder` runs regardless of recording type, so events captu
 
 ---
 
-## 431. Events captured during a recording should share the recording's commit/discard fate
+## ~~431. Events captured during a recording should share the recording's commit/discard fate~~
 
 **Source:** world-model conversation on #429. Today's epoch mechanic only advances on Revert (`ParsekScenario.cs:970`) and Rewind (`ParsekScenario.cs:1309`), which filters events tagged with the previous epoch out of milestone / ledger walks. But **Discard from the merge dialog** (`MergeDialog.cs:107` → `RecordingStore.DiscardPendingTree` at `RecordingStore.cs:981`) does NOT increment the epoch and only clears `GameStateRecorder.PendingScienceSubjects`. Everything else captured during that flight is still in `GameStateStore.Events` with the current epoch, gets bundled into the next milestone, and stays permanently on the career's ledger — even though the flight that produced it was thrown away.
 
@@ -237,7 +237,7 @@ The symmetric-case is fine: Revert already advances the epoch, so those events g
 
 **Priority:** **HIGHEST** (ships first in the deterministic-timeline correctness cluster — #432 / #433 / #434 depend on its purge semantics).
 
-**Status:** TODO. Size: M. Invariant leak that erodes trust in the ledger-as-truth principle because players discover the symptom hours later ("wait, why is this contract already complete?"). Worth doing before the v0.9 cycle.
+**Status:** ~~DONE~~. `GameStateEvent` carries `recordingId`, stamped at `GameStateRecorder.Emit` (central funnel with LimboVesselSwitch fallback + drift warnings). `RecordingStore.DiscardPendingTree` purges matching events from both `GameStateStore.Events` and `MilestoneStore` (the flush-on-save path moves in-flight events into milestones; the purge walks both stores). Contract snapshots follow their `ContractAccepted` event's fate. Resource-event coalescing is now tag-aware. Legacy epoch filter stays in place with a cohab log at `MilestoneStore.CreateMilestone:62`; retirement is a deliberate follow-up after #432. Tests in `Source/Parsek.Tests/DiscardFateTests.cs`. Review follow-up (P1 + P2): every `!IsFlightScene()` forward to `LedgerOrchestrator.OnKscSpending` is now additionally gated on `ResolveCurrentRecordingTag()` being empty — the FLIGHT -> SPACECENTER teardown window was leaking tagged events to the ledger as untagged KSC actions that survived the later purge. `MilestoneStore.PurgeTaggedEvents` now decrements `LastReplayedEventIndex` when the removed slot sat at-or-before the boundary, mirroring the single-event `RemoveCommittedEvent` path so downstream consumers iterating from `LastReplayedEventIndex + 1` see the correct unreplayed tail.
 
 ---
 

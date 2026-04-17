@@ -40,6 +40,87 @@ namespace Parsek
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
+        /// <summary>
+        /// #431: test hook. When non-null, <see cref="ResolveCurrentRecordingTag"/> returns its result
+        /// instead of probing <see cref="ParsekFlight"/> / <see cref="RecordingStore"/>. Unit tests
+        /// set this to simulate a live recording without spinning up the MonoBehaviour.
+        /// Production code never touches it.
+        /// </summary>
+        internal static System.Func<string> TagResolverForTesting;
+
+        /// <summary>
+        /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
+        /// Resolves the current recording tag, stamps it on the event, logs the emission, and warns
+        /// on drift (tagged event with no live recorder / no pending vessel-switch, or in-flight event
+        /// with an active recorder but no tag). All captured-event sites in this class route through
+        /// <c>Emit</c>.
+        /// </summary>
+        internal static void Emit(GameStateEvent evt, string source)
+        {
+            string tag = ResolveCurrentRecordingTag();
+            if (string.IsNullOrEmpty(evt.recordingId))
+                evt.recordingId = tag ?? "";
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
+
+            bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+            bool midSwitch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+            bool flightAlive = ParsekFlight.Instance != null;
+            // Drift A: non-empty tag with no live flight context. During FLIGHT -> KSC transitions,
+            // ParsekFlight.Instance lingers for a few frames while the scene enum already reads
+            // SPACECENTER and recovery-reward events fire — that path is legitimate, so the warn
+            // gates on Instance == null (not just scene != FLIGHT).
+            if (!inFlight && !midSwitch && !flightAlive && !string.IsNullOrEmpty(tag))
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Emit drift: event '{evt.eventType}' tagged '{tag}' with no live flight context — stale tag?");
+            // Drift B: in flight with a live recorder but no tag resolved.
+            if (inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder())
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
+
+            GameStateStore.AddEvent(evt);
+        }
+
+        /// <summary>
+        /// #431: resolves the current recording id for event tagging.
+        /// Primary source is <see cref="ParsekFlight.GetActiveRecordingIdForTagging"/>; the fallback
+        /// reads <see cref="RecordingStore.PendingTree"/>.ActiveRecordingId while the pending tree is in
+        /// <see cref="PendingTreeState.LimboVesselSwitch"/> — events captured during a vessel-switch stash
+        /// belong to the outgoing recording.
+        /// </summary>
+        internal static string ResolveCurrentRecordingTag()
+        {
+            if (TagResolverForTesting != null)
+                return TagResolverForTesting() ?? "";
+
+            var live = ParsekFlight.GetActiveRecordingIdForTagging();
+            if (!string.IsNullOrEmpty(live)) return live;
+
+            if (RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
+            {
+                var pend = RecordingStore.PendingTree?.ActiveRecordingId;
+                if (!string.IsNullOrEmpty(pend)) return pend;
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// #431: true when a flight recorder is currently live on the active tree. Used by
+        /// <see cref="Emit"/>'s drift-warn branch to flag "in-flight, should have a tag, doesn't."
+        /// </summary>
+        internal static bool HasLiveRecorder() => ParsekFlight.HasLiveRecorderForTagging();
+
+        internal static void ResetForTesting()
+        {
+            TagResolverForTesting = null;
+            PendingScienceSubjects.Clear();
+            SuppressCrewEvents = false;
+            SuppressResourceEvents = false;
+            IsReplayingActions = false;
+        }
+
         private bool subscribed = false;
 
         // Cached facility/building state for polling on scene change
@@ -201,7 +282,7 @@ namespace Parsek
                 key = guid,
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractAccepted");
 
             // Store full contract snapshot for reversal
             try
@@ -223,7 +304,16 @@ namespace Parsek
             // Flight-scene contracts flow through the normal commit-time ConvertEvents path.
             // #405: without this, accepted contracts at KSC never reached the ledger and
             // PatchContracts had no active contracts to preserve on next recalc.
-            if (!IsFlightScene())
+            // #431 gate: during FLIGHT -> SPACECENTER teardown the scene already reads
+            // SPACECENTER but ParsekFlight.Instance is still alive and Emit legitimately
+            // tagged this event with the outgoing recordingId. Re-resolve the tag here
+            // and skip the ledger write when non-empty: the tagged event is already in
+            // GameStateStore and will flow through the commit-time path (or be purged
+            // with the recording on discard). Without this gate the ledger would end up
+            // with an untagged KSC action that survives DiscardPendingTree forever.
+            // Note: `evt` is a struct local, so Emit's `.recordingId` mutation doesn't
+            // reach us — we must call ResolveCurrentRecordingTag() directly.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -248,13 +338,15 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractCompleted");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
 
             // #405: route to ledger immediately when at KSC (contract completions in flight
             // go through the normal commit-time ConvertEvents path).
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted — skip the ledger write when the event
+            // was tagged during FLIGHT -> SPACECENTER teardown.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -274,12 +366,13 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractFailed");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
             // #405: route to ledger immediately when at KSC.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -299,12 +392,13 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractCancelled");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
             // #405: route to ledger immediately when at KSC.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -312,13 +406,13 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractDeclined,
                 key = contract.ContractGuid.ToString(),
                 detail = title
-            });
+            }, "ContractDeclined");
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
         }
 
@@ -362,11 +456,12 @@ namespace Parsek
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "TechResearched");
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
 
             // Write directly to ledger when at KSC (not during flight recording)
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -393,12 +488,13 @@ namespace Parsek
                 valueBefore = Funding.Instance != null ? Funding.Instance.Funds + cost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "PartPurchased");
             ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={cost})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -443,12 +539,13 @@ namespace Parsek
                 key = name,
                 detail = $"trait={crew.trait ?? ""};cost={hireCost.ToString("R", ic)}"
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "CrewHired");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
                 $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
 
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -474,13 +571,13 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewRemoved,
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
-            });
+            }, "KerbalRemoved");
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
         }
 
@@ -565,7 +662,7 @@ namespace Parsek
                 key = name,
                 detail = $"from={oldStatus};to={newStatus}"
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "KerbalStatusChange");
             pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
         }
@@ -581,13 +678,13 @@ namespace Parsek
             string name = pcm?.name ?? "";
             string trait = pcm?.experienceTrait?.TypeName ?? "Pilot";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.KerbalRescued,
                 key = name,
                 detail = $"trait={trait}"
-            });
+            }, "KerbalRescued");
 
             ParsekLog.Info("GameStateRecorder", $"Game state: KerbalRescued '{name}' (trait={trait})");
         }
@@ -626,14 +723,14 @@ namespace Parsek
                 return;
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
-            });
+            }, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
         }
 
@@ -657,14 +754,14 @@ namespace Parsek
                 return;
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ScienceChanged,
                 key = reason.ToString(),
                 valueBefore = oldScience,
                 valueAfter = newScience
-            });
+            }, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
         }
 
@@ -688,14 +785,14 @@ namespace Parsek
                 return;
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ReputationChanged,
                 key = reason.ToString(),
                 valueBefore = oldReputation,
                 valueAfter = newReputation
-            });
+            }, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
         }
 
@@ -784,7 +881,7 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(0.0, 0f, 0.0)
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "MilestoneAchieved");
 
             // Tag the node -> event association so the AwardProgress postfix can find
             // and enrich the right entry. The key is the ProgressNode instance reference,
@@ -796,7 +893,8 @@ namespace Parsek
 
             // Milestones can fire at KSC (e.g., facility-related) or in flight.
             // Write directly to ledger when outside flight to avoid waiting for commit.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1035,11 +1133,14 @@ namespace Parsek
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
                             };
-                            GameStateStore.AddEvent(evt);
+                            Emit(evt, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
 
-                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded)
+                            // #431 gate: see OnContractAccepted — skip ledger write
+                            // when the event was tagged during FLIGHT -> SPACECENTER teardown.
+                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded
+                                && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                                 LedgerOrchestrator.OnKscSpending(evt);
                         }
                     }
@@ -1068,12 +1169,12 @@ namespace Parsek
                                 ? GameStateEventType.BuildingRepaired
                                 : GameStateEventType.BuildingDestroyed;
 
-                            GameStateStore.AddEvent(new GameStateEvent
+                            Emit(new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = db.id
-                            });
+                            }, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{db.id}'");
                         }
