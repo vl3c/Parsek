@@ -166,15 +166,6 @@ namespace Parsek
         // the fixed header above the scroll view).
         private GUIStyle tableBodyBoxStyle;
         private GUIStyle boldHeaderInnerLabel;
-        // Column-header cell background used as a BeginHorizontal container style
-        // (for cells that pair a label with a toggle — Loop, Archive, and the merged
-        // toggle+# cell in the first column). Same visual as the shared column
-        // header style, but with margin zeroed so the BeginHorizontal footprint
-        // equals its Width exactly — otherwise GUI.skin.box's default ~4px margin
-        // on each side pushes later cells right by ~8px per occurrence, misaligning
-        // header columns vs row columns (e.g. Period header sitting right of the
-        // Period column's row content).
-        private GUIStyle colHdrCellContainerStyle;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -398,16 +389,6 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleCenter,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
-            };
-
-            // Zero-margin version of the shared column header style for use as a
-            // BeginHorizontal container. Visual is identical to colHdr; only the
-            // outer margin is stripped so the cell occupies exactly GUILayout.Width(X)
-            // in the row's layout — critical for keeping header cells aligned with
-            // the corresponding row cells (which use plain unstyled BeginHorizontals).
-            colHdrCellContainerStyle = new GUIStyle(parentUI.GetColumnHeaderStyle())
-            {
-                margin = new RectOffset(0, 0, 0, 0)
             };
         }
 
@@ -635,7 +616,8 @@ namespace Parsek
                 if (committed[i].PlaybackEnabled) enableCount++;
             bool allEnabled = enableCount == committed.Count;
 
-            GUILayout.BeginHorizontal(colHdrCellContainerStyle,
+            var colHdrForFirstCell = parentUI.GetColumnHeaderStyle();
+            GUILayout.BeginHorizontal(colHdrForFirstCell,
                 GUILayout.Width(ColW_Enable + ColW_Index),
                 GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
@@ -687,7 +669,7 @@ namespace Parsek
                 if (committed[i].LoopPlayback) loopCount++;
 
             bool allLoop = loopCount == committed.Count;
-            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
+            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
             bool newAllLoop = GUILayout.Toggle(allLoop, "");
@@ -709,7 +691,7 @@ namespace Parsek
             GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
 
             // Hide column header + toggle
-            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
+            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
