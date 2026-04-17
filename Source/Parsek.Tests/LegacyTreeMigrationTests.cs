@@ -18,11 +18,13 @@ namespace Parsek.Tests
     /// post-walk persisted deltas (after ScienceModule cap, ReputationModule curve,
     /// StrategiesModule transform, Effective=false suppression) is structurally wrong.</para>
     ///
-    /// <para>Negative science and reputation residuals are skipped with WARN in the
-    /// zero-coverage branch too: ScienceModule clamps negative earnings to zero, and
-    /// Ledger.Reconcile doesn't yet prune spendings by RecordingId. Negative funds
-    /// work because FundsModule.ProcessFundsEarning handles negatives correctly and
-    /// earnings ARE pruned by RecordingId.</para>
+    /// <para>Negative residuals inject a spending-side synthetic: negative science
+    /// emits a ScienceSpending with Cost=-residual, negative rep emits a
+    /// ReputationPenalty with NominalPenalty=-residual. Negative funds keep the
+    /// existing negative-FundsEarning shape (FundsModule.ProcessFundsEarning handles
+    /// negatives correctly). All three are purged by Ledger.Reconcile on tree
+    /// deletion — spendings are now pruned by RecordingId symmetrically with
+    /// earnings since #441.</para>
     ///
     /// <para>All synthetics carry <c>RecordingId=tree.RootRecordingId</c> so
     /// <see cref="Ledger.Reconcile"/> prunes them with the tree on deletion. Trees
@@ -391,49 +393,107 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // Negative science: skipped with WARN, mark applied
+        // Negative science: inject ScienceSpending synthetic tagged with root recording
         // ================================================================
 
         [Fact]
-        public void NegativeScience_SkipsWithWarn_MarksApplied()
+        public void NegativeScience_InjectsScienceSpendingSynthetic()
         {
             var tree = MakeTree("tree-neg-sci", "rec-neg-sci", 100.0, 200.0,
-                deltaScience: -25.0);
+                deltaScience: -7.7);
             RegisterTree(tree);
 
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.ScienceSpending
+                && a.NodeId == "LegacyMigration:tree-neg-sci");
+            Assert.NotNull(synth);
+            Assert.Equal(7.7f, synth.Cost, precision: 3);
+            Assert.Equal("rec-neg-sci", synth.RecordingId);
+            Assert.Equal(200.0, synth.UT);
+            // No ScienceEarning synthesized (positive-residual path is not taken).
             Assert.DoesNotContain(Ledger.Actions, a =>
-                a.Type == GameActionType.ScienceEarning
-                || a.Type == GameActionType.ScienceSpending);
+                a.Type == GameActionType.ScienceEarning);
             Assert.True(tree.ResourcesApplied);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("negative persisted deltaScience")
-                && l.Contains("tree-neg-sci"));
+                && l.Contains("MigrateLegacyTreeResources: migrated tree")
+                && l.Contains("tree-neg-sci")
+                && l.Contains("deltaScience=-7.7"));
+        }
+
+        [Fact]
+        public void NegativeScience_SyntheticPurgedByReconcile()
+        {
+            // #441 contract: Ledger.Reconcile now prunes spendings by RecordingId, so the
+            // negative-science synthetic is cleaned up when the tree's recordings are
+            // discarded. Without #441's change this test would fail (spending survives).
+            var tree = MakeTree("tree-neg-sci-purge", "rec-neg-sci-purge", 100.0, 200.0,
+                deltaScience: -12.5);
+            RegisterTree(tree);
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+            Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceSpending
+                && a.NodeId == "LegacyMigration:tree-neg-sci-purge");
+
+            Ledger.Reconcile(new HashSet<string>(), maxUT: 10_000.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceSpending);
         }
 
         // ================================================================
-        // Negative reputation: skipped with WARN, mark applied
+        // Negative reputation: inject ReputationPenalty synthetic tagged with root recording
         // ================================================================
 
         [Fact]
-        public void NegativeReputation_SkipsWithWarn_MarksApplied()
+        public void NegativeReputation_InjectsReputationPenaltySynthetic()
         {
             var tree = MakeTree("tree-neg-rep", "rec-neg-rep", 100.0, 200.0,
-                deltaRep: -8f);
+                deltaRep: -5f);
             RegisterTree(tree);
 
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.ReputationPenalty
+                && a.RecordingId == "rec-neg-rep");
+            Assert.NotNull(synth);
+            Assert.Equal(5f, synth.NominalPenalty, precision: 2);
+            Assert.Equal(ReputationPenaltySource.Other, synth.RepPenaltySource);
+            Assert.Equal(200.0, synth.UT);
+            // No ReputationEarning synthesized.
             Assert.DoesNotContain(Ledger.Actions, a =>
-                a.Type == GameActionType.ReputationEarning
-                || a.Type == GameActionType.ReputationPenalty);
+                a.Type == GameActionType.ReputationEarning);
             Assert.True(tree.ResourcesApplied);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("negative persisted deltaRep")
-                && l.Contains("tree-neg-rep"));
+                && l.Contains("MigrateLegacyTreeResources: migrated tree")
+                && l.Contains("tree-neg-rep")
+                && l.Contains("deltaRep=-5"));
+        }
+
+        [Fact]
+        public void NegativeReputation_SyntheticPurgedByReconcile()
+        {
+            // #441 contract: Ledger.Reconcile now prunes spendings by RecordingId, so the
+            // negative-rep ReputationPenalty synthetic is cleaned up when the tree's
+            // recordings are discarded.
+            var tree = MakeTree("tree-neg-rep-purge", "rec-neg-rep-purge", 100.0, 200.0,
+                deltaRep: -3f);
+            RegisterTree(tree);
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+            Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationPenalty
+                && a.RecordingId == "rec-neg-rep-purge");
+
+            Ledger.Reconcile(new HashSet<string>(), maxUT: 10_000.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationPenalty);
         }
 
         // ================================================================

@@ -263,8 +263,12 @@ namespace Parsek
 
         /// <summary>
         /// Prunes the in-memory ledger against the current save state:
-        /// - Earning actions whose recordingId is NOT in validRecordingIds are removed.
-        /// - Spending actions whose UT is strictly after maxUT are removed.
+        /// - Earning and spending actions tagged with a RecordingId NOT in validRecordingIds
+        ///   are removed (null-tagged earnings/spendings are career-level and survive the
+        ///   recording-set check — e.g. milestones achieved at recovery or KSC-side
+        ///   purchases).
+        /// - Spending actions whose UT is strictly after maxUT are removed regardless of
+        ///   their RecordingId.
         /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
         /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
@@ -280,6 +284,7 @@ namespace Parsek
             int before = actions.Count;
             int prunedEarnings = 0;
             int prunedSpendings = 0;
+            int prunedSpendingsByRecordingId = 0;
             int prunedOther = 0;
             int kept = 0;
 
@@ -320,7 +325,11 @@ namespace Parsek
                     continue;
                 }
 
-                // Spending actions: classified by type, pruned by UT
+                // Spending actions: classified by type, pruned by UT and by recordingId.
+                // Null recordingId is valid for KSC-scope career spendings (part purchases,
+                // tech unlocks, facility upgrades, kerbal hires, contract accept/fail/cancel)
+                // and always survives the recordingId check — they're KSC-scope career
+                // spendings that outlive any individual recording.
                 if (RecalculationEngine.IsSpendingType(action.Type))
                 {
                     if (action.UT > maxUT)
@@ -331,6 +340,14 @@ namespace Parsek
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
                             $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"recordingId='{action.RecordingId ?? "(null)"}'");
+                    }
+                    else if (action.RecordingId != null && !validRecordingIds.Contains(action.RecordingId))
+                    {
+                        prunedSpendingsByRecordingId++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned spending: type={action.Type}, " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                     else
                     {
@@ -380,6 +397,7 @@ namespace Parsek
             ParsekLog.Info("Ledger",
                 $"Reconcile complete: before={before}, kept={kept}, " +
                 $"prunedEarnings={prunedEarnings}, prunedSpendings={prunedSpendings}, " +
+                $"prunedSpendingsByRecordingId={prunedSpendingsByRecordingId}, " +
                 $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"validRecordingIds={validRecordingIds.Count}");

@@ -992,8 +992,6 @@ namespace Parsek
             int treesSkippedEmptyRoot = 0;
             int treesSkippedDegraded = 0;
             int treesSkippedPartialCoverage = 0;
-            int treesSkippedNegativeSci = 0;
-            int treesSkippedNegativeRep = 0;
             int treesMigrated = 0;
             int fundsInjected = 0;
             int scienceInjected = 0;
@@ -1092,57 +1090,44 @@ namespace Parsek
                 // synthetic per resource. Synthetics are tagged with RootRecordingId so
                 // Ledger.Reconcile prunes them with the tree on deletion.
                 //
-                // Negative science and negative reputation residuals are NOT injected:
-                // - Negative ScienceEarning is clamped to 0 by ScienceModule.ProcessEarning,
-                //   and negative ScienceSpending would need pruning-by-RecordingId support
-                //   that Ledger.Reconcile does not yet have (only UT-prunes spendings).
-                // - Same for negative ReputationPenalty.
-                // Trees whose flight NET-LOST science/rep are extremely rare; mark applied,
-                // log WARN, defer to a follow-up if this ever surfaces.
+                // Positive residuals inject an earning action (FundsEarning / ScienceEarning /
+                // ReputationEarning). Negative residuals:
+                // - Funds: emit a negative FundsEarning (FundsModule handles negatives, and
+                //   earnings are pruned by RecordingId).
+                // - Science: emit a ScienceSpending with Cost=-residual (magnitude). Under
+                //   #441 Ledger.Reconcile now prunes spendings by RecordingId, so the
+                //   synthetic is cleaned up with the tree.
+                // - Reputation: emit a ReputationPenalty with NominalPenalty=-residual
+                //   (magnitude; ReputationModule internally negates NominalPenalty). Also
+                //   purged by #441's symmetric Reconcile.
 
                 if (TryInjectLegacyFundsEarning(tree, endUT))
                     fundsInjected++;
 
-                bool scienceSkippedNegative = false;
                 if (scienceNonZero)
                 {
                     if (tree.DeltaScience > 0)
                     {
                         InjectLegacyScienceEarning(tree, tree.DeltaScience, endUT);
-                        scienceInjected++;
                     }
                     else
                     {
-                        scienceSkippedNegative = true;
-                        treesSkippedNegativeSci++;
-                        ParsekLog.Warn(Tag,
-                            $"MigrateLegacyTreeResources: tree id='{tree.Id}' " +
-                            $"has negative persisted deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} — " +
-                            $"skipping science synthetic (ScienceModule clamps negative earnings to zero, " +
-                            $"and Ledger.Reconcile does not yet prune spendings by RecordingId). " +
-                            $"Science residual LOST; follow-up needed if this surfaces.");
+                        InjectLegacyScienceSpending(tree, tree.DeltaScience, endUT);
                     }
+                    scienceInjected++;
                 }
 
-                bool repSkippedNegative = false;
                 if (repNonZero)
                 {
                     if (tree.DeltaReputation > 0)
                     {
                         InjectLegacyReputationEarning(tree, (double)tree.DeltaReputation, endUT);
-                        repInjected++;
                     }
                     else
                     {
-                        repSkippedNegative = true;
-                        treesSkippedNegativeRep++;
-                        ParsekLog.Warn(Tag,
-                            $"MigrateLegacyTreeResources: tree id='{tree.Id}' " +
-                            $"has negative persisted deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} — " +
-                            $"skipping reputation synthetic (ReputationPenalty emission would require " +
-                            $"spending-by-RecordingId prune support in Ledger.Reconcile). " +
-                            $"Rep residual LOST; follow-up needed if this surfaces.");
+                        InjectLegacyReputationPenalty(tree, (double)tree.DeltaReputation, endUT);
                     }
+                    repInjected++;
                 }
 
                 ParsekLog.Info(Tag,
@@ -1154,9 +1139,9 @@ namespace Parsek
                     $"deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"(injected={fundsNonZero}), " +
                     $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"(injected={scienceNonZero && !scienceSkippedNegative}), " +
+                    $"(injected={scienceNonZero}), " +
                     $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"(injected={repNonZero && !repSkippedNegative})");
+                    $"(injected={repNonZero})");
 
                 RecordingStore.MarkTreeAsApplied(tree);
                 treesMigrated++;
@@ -1167,7 +1152,6 @@ namespace Parsek
                 $"alreadyApplied={treesAlreadyApplied}, degraded={treesSkippedDegraded}, " +
                 $"noDelta={treesSkippedNoDelta}, emptyRoot={treesSkippedEmptyRoot}, " +
                 $"partialCoverage={treesSkippedPartialCoverage}, " +
-                $"negativeScience={treesSkippedNegativeSci}, negativeRep={treesSkippedNegativeRep}, " +
                 $"migrated={treesMigrated}, fundsInjected={fundsInjected}, " +
                 $"scienceInjected={scienceInjected}, repInjected={repInjected}");
         }
@@ -1205,9 +1189,10 @@ namespace Parsek
         /// <summary>
         /// Science-emission helper: injects a <see cref="GameActionType.ScienceEarning"/>
         /// with <c>SubjectId="LegacyMigration:{treeId}"</c> (no source enum exists).
-        /// Only called for positive residuals — negative science is skipped with a WARN
-        /// upstream. A generous <see cref="GameAction.SubjectMaxValue"/> is set so the
-        /// per-subject hard cap never clips the migrated science on the walk.
+        /// Only called for positive residuals — negative science goes through
+        /// <see cref="InjectLegacyScienceSpending"/> which emits a ScienceSpending instead.
+        /// A generous <see cref="GameAction.SubjectMaxValue"/> is set so the per-subject
+        /// hard cap never clips the migrated science on the walk.
         ///
         /// <para>Note on ContractComplete / strategy transforms (per reviewer NIT):
         /// the ContractComplete reward field used by partial-coverage residual math would
@@ -1232,9 +1217,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Science-spending helper for negative residuals: injects a
+        /// <see cref="GameActionType.ScienceSpending"/> with <c>Cost=-scienceDelta</c>
+        /// (magnitude, since <see cref="ScienceModule.ProcessSpending"/> subtracts
+        /// <c>Cost</c> from the running balance). <see cref="Ledger.Reconcile"/> prunes
+        /// spendings by RecordingId since #441, so this synthetic is purged with the tree
+        /// on deletion — same contract as the positive-residual earning.
+        /// </summary>
+        private static void InjectLegacyScienceSpending(RecordingTree tree, double scienceDelta, double endUT)
+        {
+            float costF = (float)(-scienceDelta);
+            var action = new GameAction
+            {
+                UT = endUT,
+                Type = GameActionType.ScienceSpending,
+                RecordingId = tree.RootRecordingId,
+                NodeId = "LegacyMigration:" + tree.Id,
+                Cost = costF
+            };
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
         /// Reputation-emission helper: injects a <see cref="GameActionType.ReputationEarning"/>
         /// with <see cref="ReputationSource.Other"/>. Only called for positive residuals —
-        /// negative rep is skipped with a WARN upstream.
+        /// negative rep goes through <see cref="InjectLegacyReputationPenalty"/> which emits
+        /// a ReputationPenalty instead.
         /// </summary>
         private static void InjectLegacyReputationEarning(RecordingTree tree, double repDelta, double endUT)
         {
@@ -1245,6 +1253,28 @@ namespace Parsek
                 RecordingId = tree.RootRecordingId,
                 NominalRep = (float)repDelta,
                 RepSource = ReputationSource.Other
+            };
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
+        /// Reputation-penalty helper for negative residuals: injects a
+        /// <see cref="GameActionType.ReputationPenalty"/> with <c>NominalPenalty=-repDelta</c>
+        /// (magnitude; <see cref="ReputationModule"/> stores penalty as a positive magnitude
+        /// and negates it internally before applying the curve).
+        /// <see cref="ReputationPenaltySource.Other"/> matches the earning helper's
+        /// <see cref="ReputationSource.Other"/>. <see cref="Ledger.Reconcile"/> prunes
+        /// spendings by RecordingId since #441.
+        /// </summary>
+        private static void InjectLegacyReputationPenalty(RecordingTree tree, double repDelta, double endUT)
+        {
+            var action = new GameAction
+            {
+                UT = endUT,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = tree.RootRecordingId,
+                NominalPenalty = (float)(-repDelta),
+                RepPenaltySource = ReputationPenaltySource.Other
             };
             Ledger.AddAction(action);
         }

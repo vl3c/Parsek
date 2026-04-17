@@ -339,6 +339,101 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reconcile_SpendingWithInvalidRecordingId_Pruned()
+        {
+            // #441: spendings tagged with a RecordingId NOT in validRecordingIds are
+            // pruned, symmetric with the earnings-by-RecordingId pruning rule.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 17000.0,
+                Type = GameActionType.ScienceSpending,
+                RecordingId = "rec_deleted",
+                NodeId = "advRocketry",
+                Cost = 50f
+            });
+
+            var valid = new HashSet<string>();
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedSpendingsByRecordingId=1"));
+        }
+
+        [Fact]
+        public void Reconcile_SpendingWithValidRecordingId_Kept()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 17000.0,
+                Type = GameActionType.ScienceSpending,
+                RecordingId = "rec_001",
+                NodeId = "basicRocketry",
+                Cost = 25f
+            });
+
+            var valid = new HashSet<string> { "rec_001" };
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal("rec_001", Ledger.Actions[0].RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedSpendingsByRecordingId=0"));
+        }
+
+        [Fact]
+        public void Reconcile_SpendingWithNullRecordingId_SurvivesWhenInRange()
+        {
+            // Null-RecordingId spendings are KSC-scope career spendings (part purchases,
+            // facility upgrades, kerbal hires, contract fails). They always survive the
+            // RecordingId check and are only pruned by UT.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 17000.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "LaunchPad",
+                ToLevel = 2,
+                FacilityCost = 15000f
+                // RecordingId = null — KSC spending
+            });
+
+            var valid = new HashSet<string>(); // empty: no valid recordings
+            Ledger.Reconcile(valid, 18000.0);
+
+            // Null-tagged spending survives the empty-validRecordingIds set because its
+            // RecordingId is null, not orphaned.
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.FacilityUpgrade, Ledger.Actions[0].Type);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedSpendingsByRecordingId=0"));
+        }
+
+        [Fact]
+        public void Reconcile_SpendingWithInvalidRecordingIdAndOutOfRangeUT_CountedAsUtPrune()
+        {
+            // Precedence: UT check runs first, so an out-of-range spending counts under
+            // prunedSpendings (not prunedSpendingsByRecordingId) even if its RecordingId
+            // would also have been orphaned.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ScienceSpending,
+                RecordingId = "rec_deleted",
+                NodeId = "x",
+                Cost = 10f
+            });
+
+            var valid = new HashSet<string>();
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedSpendings=1")
+                && l.Contains("prunedSpendingsByRecordingId=0"));
+        }
+
+        [Fact]
         public void Reconcile_SpendingWithNoRecordingId_PrunedByUT()
         {
             // Spending actions are identified by null recordingId, pruned by UT
