@@ -153,6 +153,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #434 follow-up: dispatch-level guard that decides whether the OnLoad
+        /// quickload-discard branch should fire. Pure function of the three
+        /// classification bits so it can be unit-tested in isolation — the
+        /// <see cref="OnLoad"/> call site it gates is itself not reachable from
+        /// xUnit (ScenarioModule lifecycle).
+        ///
+        /// The truth table that matters:
+        /// <list type="bullet">
+        ///   <item>Pure F5/F9 quickload (<c>isRevert=false</c>, UT back, flight-to-flight): <b>true</b> — hard-discard the stashed-this-transition tree.</item>
+        ///   <item>Revert to Launch (<c>isRevert=true</c>, UT back, flight-to-flight): <b>false</b> — the revert branch owns pending-tree handling via <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>, which preserves sidecar files for F9-from-flight-quicksave.</item>
+        ///   <item>Scene reload with same UT: <b>false</b> — nothing to discard.</item>
+        /// </list>
+        /// </summary>
+        internal static bool ShouldRunQuickloadDiscard(
+            bool utWentBackwards, bool isFlightToFlight, bool isRevert)
+        {
+            return utWentBackwards && isFlightToFlight && !isRevert;
+        }
+
+        /// <summary>
         /// Discards any pending tree that was stashed
         /// during the current scene transition, on a detected quickload
         /// (UT regressed between OnSceneChangeRequested and OnLoad). Clears
@@ -797,8 +817,9 @@ namespace Parsek
                     // `logs/2026-04-17_2158_revert-stress-test`: recording 4f2a8438's .prec /
                     // _ghost.craft files were deleted before `UnstashPendingTreeOnRevert`
                     // could run, which would break F9-from-flight-quicksave in any playthrough
-                    // where the user F5'd during the doomed flight.
-                    if (utWentBackwards && isFlightToFlight && !isRevert)
+                    // where the user F5'd during the doomed flight. Gate extracted to
+                    // ShouldRunQuickloadDiscard so the contract is unit-testable.
+                    if (ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert))
                     {
                         DiscardStashedOnQuickload(preChangeUT, loadedUT);
                     }
