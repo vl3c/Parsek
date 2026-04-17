@@ -353,8 +353,9 @@ namespace Parsek
                     {
                         var member = entry.Chain[c];
                         if (string.IsNullOrEmpty(member.Name)) continue;
-                        string prefix = (c == lastIdx) ? "    \u2514\u2500 " : "    \u251c\u2500 ";
-                        GUILayout.Label(prefix + FormatChainMember(member), StyleForChainMember(member.Status));
+                        GUILayout.Label(
+                            FormatRosterChainMemberText(member, isLast: (c == lastIdx)),
+                            StyleForChainMember(member.Status));
                     }
                 }
             }
@@ -455,6 +456,37 @@ namespace Parsek
             return $"{m.Name} ({tag})";
         }
 
+        /// <summary>
+        /// Leading indent used by every subitem row under a fold/expand parent in this
+        /// window. Four spaces puts the first subitem character roughly under the
+        /// parent kerbal-name's first character (after the "▼ " arrow). Both the
+        /// Roster State tab's chain-member rows and the Mission Outcomes tab's per-
+        /// recording rows share this prefix so the two tabs cannot visually drift
+        /// apart — any edit that changes the prefix must update both format helpers
+        /// (and their parity test will fail if it doesn't).
+        /// </summary>
+        internal const string SubitemIndent = "    ";
+
+        /// <summary>
+        /// Renders a Mission Outcomes subitem row as a single pre-indented string,
+        /// ready to pass to GUILayout.Button. The indent is SubitemIndent.
+        /// </summary>
+        internal static string FormatMissionOutcomeSubitemText(CrewEndStateEntry e)
+        {
+            return SubitemIndent + FormatEndStateRow(e);
+        }
+
+        /// <summary>
+        /// Renders a Roster State chain-member subitem row as a single pre-indented
+        /// string with a tree-branch glyph. <paramref name="isLast"/> picks between
+        /// the "mid" (├─) and "last" (└─) tree characters.
+        /// </summary>
+        internal static string FormatRosterChainMemberText(ChainMember m, bool isLast)
+        {
+            string branch = isLast ? "\u2514\u2500 " : "\u251c\u2500 ";
+            return SubitemIndent + branch + FormatChainMember(m);
+        }
+
         private void DrawEndStatesSection(List<CrewEndStateEntry> endStates)
         {
             if (endStates.Count == 0) return;
@@ -490,12 +522,9 @@ namespace Parsek
                     for (int k = i; k < j; k++)
                     {
                         var e = endStates[k];
-                        // Subitem indent: leading spaces in the text string, matching
-                        // the Roster State tab's chain-member format ("    └─ name ..."
-                        // — see DrawTopologySection). Four spaces puts the first
-                        // character of the colored row roughly under the parent
-                        // kerbal name's first character (after the "▼ " arrow).
-                        if (GUILayout.Button("    " + FormatEndStateRow(e), StyleForEndState(e.EndState)))
+                        // Subitem indent: shared with the Roster State tab's chain-
+                        // member format — see FormatMissionOutcomeSubitemText.
+                        if (GUILayout.Button(FormatMissionOutcomeSubitemText(e), StyleForEndState(e.EndState)))
                         {
                             // Mirrors the Timeline.GoTo → RecordingsTableUI.ScrollToRecording
                             // cross-link pattern (TimelineWindowUI.cs:665). GetTimelineUI()
