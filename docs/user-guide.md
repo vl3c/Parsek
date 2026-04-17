@@ -109,6 +109,29 @@ Click column headers (Dist, In T-) to sort. Default sort is by distance. Click a
 
 The **Warp to Next Spawn** button at the bottom warps to whichever candidate spawns soonest. A screen notification appears when a new ghost craft enters the 500m range.
 
+### Kerbals Window
+
+Click the "Kerbals (N)" button in the main Parsek window to open the Kerbals window. The count shows reserved slots + active stand-ins + retired stand-ins + per-recording fates rows combined. The window has three sections:
+
+- **Kerbal Slots** — per-owner collapsible tree. Each top-level row is an original kerbal (Jeb, Bill, Val, ...); clicking the arrow expands the replacement chain underneath, labelled `(active)`, `(retired)`, or `(displaced)`. Reserved slots (waiting for a committed recording to spawn the real crew back in) show their reservation status inline.
+- **Unlinked Retired** — retired stand-ins that aren't attached to any current kerbal's chain. Usually empty; populated after certain rollback edge cases.
+- **Per-Recording Fates** — chronological record of every kerbal's mission outcomes. Click a kerbal's name header to fold their rows under a compact `N missions — X Dead, Y Recovered, Z Aboard` summary; each detail row shows recording name + end state (`Dead`, `Recovered`, `Aboard`, `Unknown`) color-coded and UT timestamp. **Click any Fates detail row to scroll the Timeline window to the matching recording.**
+
+The window is draggable and resizable. Fold/expand state is transient (resets when the window is closed or the scene changes).
+
+### Career State Window
+
+Click the "Career State" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
+
+- **Contracts** — active contracts with accept UT and deadline, plus Mission Control slot usage (`1/2 now, 2/2 projected`). When the timeline holds a committed recording that hasn't been played yet, its future `ContractAccept` actions appear under a collapsible **Pending in timeline** sub-section separate from **Active now**.
+- **Strategies** — active Administration strategies with source/target resource, commitment percentage, activation UT, and Administration slot usage. Same current-vs-projected split as Contracts when future activations are committed.
+- **Facilities** — level (1-3) and destroyed/repair state for all nine KSC buildings (VAB, SPH, LaunchPad, Runway, Administration, Mission Control, Tracking Station, R&D, Astronaut Complex). Upcoming level changes show as `L2 -> L3 (upcoming)`; destroyed buildings with a pending repair show `(destroyed, repair pending)`.
+- **Milestones** — full chronological list of credited milestones with UT and any funds/rep/science reward. Pending milestones (from committed-but-unplayed recordings) are interleaved and flagged.
+
+The mode banner at the top shows `Career mode - UT {liveUT}` and, when the timeline extends past the live moment, appends `(projection ahead: {delta})` so the current vs. projected split is always visible. The window is hidden-but-clickable in Science and Sandbox modes: Contracts and Strategies tabs show "unavailable in Science mode" / "not tracked in Sandbox mode" messages, Facilities and Milestones still render in Science.
+
+The window is draggable, resizable, and the tab bar uses the same styling as the rest of Parsek. Tab selection resets on close.
+
 ### Settings
 
 Click the "Settings" button in the main Parsek window to open the Settings panel. Settings are saved per-save and can also be accessed from KSP's Difficulty Settings screen (Esc > Settings > Parsek).
