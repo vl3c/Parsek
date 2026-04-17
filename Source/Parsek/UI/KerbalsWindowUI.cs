@@ -25,7 +25,9 @@ namespace Parsek
         private const string KerbalsInputLockId = "Parsek_KerbalsWindow";
         private const float MinWindowWidth = 280f;
         private const float MinWindowHeight = 150f;
-        private const float DefaultWindowWidth = 320f;
+        // Default width is half of CareerStateWindowUI.DefaultWindowWidth (820) so
+        // the two windows can sit side by side on a typical 16:9 monitor.
+        private const float DefaultWindowWidth = 410f;
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 

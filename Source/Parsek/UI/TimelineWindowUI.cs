@@ -100,6 +100,13 @@ namespace Parsek
             ParsekUI.HandleResizeDrag(ref timelineWindowRect, ref isResizingTimelineWindow,
                 MinWindowWidth, MinWindowHeight, "Timeline window");
 
+            // Stabilize width across frames — GUILayoutWindow treats GUILayout.Width()
+            // as a hint, not a cap, and the inner layout (FlexibleSpace, ExpandWidth,
+            // nested scroll view) can push the returned rect.width slightly larger
+            // every frame, accumulating indefinitely. Snapshot width before the call;
+            // if the user isn't actively resizing, restore it afterward.
+            float stableWidth = timelineWindowRect.width;
+
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             timelineWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekTimeline".GetHashCode(),
@@ -110,6 +117,8 @@ namespace Parsek
                 GUILayout.Width(timelineWindowRect.width),
                 GUILayout.Height(timelineWindowRect.height)
             );
+            if (!isResizingTimelineWindow)
+                timelineWindowRect.width = stableWidth;
             parentUI.LogWindowPosition("Timeline", ref lastTimelineWindowRect, timelineWindowRect);
 
             if (timelineWindowRect.Contains(Event.current.mousePosition))
