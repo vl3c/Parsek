@@ -141,8 +141,39 @@ namespace Parsek
 
             DrawCompactBudgetLine();
 
-            // --- Timeline buttons ---
             GUILayout.Space(SpacingLarge);
+
+            // Button order (separator groups requested by the player):
+            //   1. Real Spawn Control  (InFlight-only; its trailing separator is inside the block)
+            //   2. Timeline / Recordings
+            //   3. Kerbals / Career State
+            //   4. Gloops Flight Recorder  (InFlight-only; trailing separator inside the block)
+            //   5. Settings
+
+            // --- Real Spawn Control (InFlight-only, top of the button column) ---
+            if (InFlight && flight != null)
+            {
+                int spawnCount = flight.NearbySpawnCandidates.Count;
+                GUI.enabled = spawnCount > 0;
+                if (GUILayout.Button(string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "Real Spawn Control ({0})", spawnCount)))
+                {
+                    spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
+                    ParsekLog.Verbose("UI",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Real Spawn Control window toggled: {0}",
+                            spawnControlUI.IsOpen ? "open" : "closed"));
+                }
+                GUI.enabled = true;
+                GUILayout.Space(SpacingLarge);
+            }
+
+            if (GUILayout.Button("Timeline"))
+            {
+                timelineUI.IsOpen = !timelineUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
+            }
 
             int committedCount = RecordingStore.CommittedRecordings.Count;
             if (GUILayout.Button($"Recordings ({committedCount})"))
@@ -151,11 +182,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(recordingsTableUI.IsOpen ? "open" : "closed")}");
             }
 
-            if (GUILayout.Button("Timeline"))
-            {
-                timelineUI.IsOpen = !timelineUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
-            }
+            GUILayout.Space(SpacingLarge);
 
             // Kerbals window button: count = visible_slots + orphan_retired + end_state_rows.
             // visible_slots = slots that render in the topology section (excludes
@@ -234,37 +261,21 @@ namespace Parsek
                 careerStateUI.IsOpen = !careerStateUI.IsOpen;
             }
 
-            // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
-            if (InFlight && flight != null)
-            {
-                int spawnCount = flight.NearbySpawnCandidates.Count;
-                GUI.enabled = spawnCount > 0;
-                if (GUILayout.Button(string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    "Real Spawn Control ({0})", spawnCount)))
-                {
-                    spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
-                    ParsekLog.Verbose("UI",
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Real Spawn Control window toggled: {0}",
-                            spawnControlUI.IsOpen ? "open" : "closed"));
-                }
-                GUI.enabled = true;
-            }
+            GUILayout.Space(SpacingLarge);
 
+            // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
             if (InFlight)
             {
-                GUILayout.Space(SpacingLarge);
                 if (GUILayout.Button("Gloops Flight Recorder"))
                 {
                     gloopsUI.IsOpen = !gloopsUI.IsOpen;
                     ParsekLog.Verbose("UI",
                         $"Gloops Flight Recorder window toggled: {(gloopsUI.IsOpen ? "open" : "closed")}");
                 }
+                GUILayout.Space(SpacingLarge);
             }
 
-            // --- Settings button ---
-            GUILayout.Space(SpacingLarge);
+            // --- Settings ---
             if (GUILayout.Button("Settings"))
             {
                 settingsUI.IsOpen = !settingsUI.IsOpen;
@@ -393,6 +404,20 @@ namespace Parsek
             opaqueWindowStyle.onActive.background = MakeOpaqueCopy(opaqueWindowStyle.onActive.background);
             opaqueWindowStyle.hover.background = MakeOpaqueCopy(opaqueWindowStyle.hover.background);
             opaqueWindowStyle.onHover.background = MakeOpaqueCopy(opaqueWindowStyle.onHover.background);
+
+            // Bigger title font + more breathing room above/below the title text so the
+            // title bar is not cramped. Applied here because every Parsek window routes
+            // through GetOpaqueWindowStyle() — one edit retitles them all.
+            int baseFontSize = GUI.skin.window.fontSize;
+            if (baseFontSize <= 0) baseFontSize = GUI.skin.label.fontSize;   // GUI.skin.window often reports 0
+            if (baseFontSize <= 0) baseFontSize = 12;                         // last-resort default
+            opaqueWindowStyle.fontSize = baseFontSize + 2;
+            var p = opaqueWindowStyle.padding;
+            opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
+            // contentOffset.y pushes the title text downward inside the title bar, adding
+            // visual space above the title as well.
+            var co = opaqueWindowStyle.contentOffset;
+            opaqueWindowStyle.contentOffset = new Vector2(co.x, co.y + 3);
         }
 
         /// <summary>
