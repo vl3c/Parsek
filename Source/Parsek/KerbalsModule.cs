@@ -111,8 +111,10 @@ namespace Parsek
         /// This is necessary because loop/disabled/chain status is mutable (users can
         /// toggle at runtime) and is not encoded in GameAction fields.
         /// </summary>
-        public void PrePass(List<GameAction> actions)
+        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
+            // walkNowUT: unused — the kerbals module builds its recording-metadata
+            // cache from RecordingStore, not from action UTs.
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null) return;
 

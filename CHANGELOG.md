@@ -92,6 +92,7 @@ All notable changes to Parsek are documented here.
 - `#414` Ghost visual builds are now throttled to at most 2 per frame, amortizing the scene-load warm-up burst that produced zero-ghost spikes up to ~175 ms. Watch-mode and loop-cycle-rebuild spawns remain exempt so user-visible responsiveness is unaffected.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
+- Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestone rewards or other events that occurred after the rewind point. Contract deadlines that expired between the last pre-cutoff action and the rewind target also now correctly fail their contracts and apply the penalty. Tech-research affordability checks are scoped to the current universal time, so unlocking a node after a rewind no longer reads future science from the persisted ledger.
 
 ### Maintenance
 
