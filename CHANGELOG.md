@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 
 - `#386` Ghost map and tracking station icons now hide their label by default, show on hover, and pin on click — matching stock KSP.
 - Gloops Flight Recorder window keeps its three buttons (Start/Stop, Preview, Discard) in fixed positions across states, graying out unavailable actions instead of rearranging them.
+- `#416` Recordings table header and body columns now line up across recording, group, and chain rows. Row index numbers sit under the `#` character, buttons (G/W/FF/R) and the Period input are 10 px inset from the cell left, and body text indents 5 px to match header text.
 - Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
 - `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose.
 - `#378` Added a rate-limited warn when on-save monotonicity rebuild exceeds 5 ms on a single recording, so save-time stutter is visible in `KSP.log`.
