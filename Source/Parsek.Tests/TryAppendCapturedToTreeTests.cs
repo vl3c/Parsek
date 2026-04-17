@@ -222,5 +222,66 @@ namespace Parsek.Tests
             // Should keep the larger existing value
             Assert.Equal(10000.0, tree.Recordings["root-001"].MaxDistanceFromLaunch);
         }
+
+        [Fact]
+        public void TreeMode_LiftsCapturedRewindSaveOntoRoot()
+        {
+            // #416 R-button: on a joint-break crash, the main recorder is moved to
+            // pendingSplitRecorder (this.recorder becomes null), so FinalizeTreeRecordings'
+            // own CopyRewindSaveToRoot no-ops. TryAppendCapturedToTree is the remaining
+            // bridge — the captured rewind save + reserved/pre-launch budget must land on
+            // the root recording or the committed crash recording has no R button despite
+            // the parsek_rw_*.sfs file existing on disk.
+            var tree = MakeTree("root-001");
+            var rootRec = tree.Recordings["root-001"];
+            Assert.True(string.IsNullOrEmpty(rootRec.RewindSaveFileName));
+
+            var captured = MakeCaptured(120.0, 180.0, destroyed: true);
+            captured.RewindSaveFileName = "parsek_rw_abc123";
+            captured.RewindReservedFunds = 4200.0;
+            captured.RewindReservedScience = 7.5;
+            captured.RewindReservedRep = 1.25f;
+            captured.PreLaunchFunds = 25000.0;
+            captured.PreLaunchScience = 12.0;
+            captured.PreLaunchReputation = 3.0f;
+
+            ParsekFlight.TryAppendCapturedToTree(tree, captured);
+
+            Assert.Equal("parsek_rw_abc123", rootRec.RewindSaveFileName);
+            Assert.Equal(4200.0, rootRec.RewindReservedFunds);
+            Assert.Equal(7.5, rootRec.RewindReservedScience);
+            Assert.Equal(1.25f, rootRec.RewindReservedRep);
+            Assert.Equal(25000.0, rootRec.PreLaunchFunds);
+            Assert.Equal(12.0, rootRec.PreLaunchScience);
+            Assert.Equal(3.0f, rootRec.PreLaunchReputation);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Flight]")
+                && l.Contains("TryAppendCapturedToTree: copied rewind save 'parsek_rw_abc123'"));
+        }
+
+        [Fact]
+        public void TreeMode_DoesNotOverwriteRootRewindSave_FirstWins()
+        {
+            // #416 defensive: if the root already has a rewind save (normal path where
+            // CopyRewindSaveToRoot already ran earlier in the session), the crash-path
+            // bridge call must not clobber it. CopyRewindSaveToRoot enforces first-wins
+            // on RewindSaveFileName and on the reserved/pre-launch budget fields.
+            var tree = MakeTree("root-001");
+            var rootRec = tree.Recordings["root-001"];
+            rootRec.RewindSaveFileName = "parsek_rw_existing";
+            rootRec.PreLaunchFunds = 50000.0;
+            rootRec.RewindReservedFunds = 999.0;
+
+            var captured = MakeCaptured(120.0, 180.0, destroyed: true);
+            captured.RewindSaveFileName = "parsek_rw_newer";
+            captured.RewindReservedFunds = 123.0;
+            captured.PreLaunchFunds = 111.0;
+
+            ParsekFlight.TryAppendCapturedToTree(tree, captured);
+
+            Assert.Equal("parsek_rw_existing", rootRec.RewindSaveFileName);
+            Assert.Equal(50000.0, rootRec.PreLaunchFunds);
+            Assert.Equal(999.0, rootRec.RewindReservedFunds);
+        }
     }
 }
