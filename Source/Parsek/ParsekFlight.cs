@@ -1360,7 +1360,7 @@ namespace Parsek
 
                         continue;
 
-                    case PostDestructionMergeResolution.CancelDeferredMerge:
+                    case PostDestructionMergeResolution.AbortAndKeepRecording:
                         ParsekLog.Info("Flight",
                             "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
                         treeDestructionDialogPending = false;
@@ -3415,7 +3415,7 @@ namespace Parsek
         {
             FinalizeNow,
             WaitForPendingCrashResolution,
-            CancelDeferredMerge,
+            AbortAndKeepRecording,
         }
 
         internal static bool HasPendingPostDestructionCrashResolution(
@@ -3438,7 +3438,7 @@ namespace Parsek
             if (allLeavesTerminal || (activeDestroyed && onlyDebrisBlockersRemain))
                 return PostDestructionMergeResolution.FinalizeNow;
 
-            return PostDestructionMergeResolution.CancelDeferredMerge;
+            return PostDestructionMergeResolution.AbortAndKeepRecording;
         }
 
         /// <summary>

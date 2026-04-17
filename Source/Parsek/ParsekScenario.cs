@@ -985,8 +985,13 @@ namespace Parsek
                         if (RecordingStore.HasPendingTree)
                         {
                             RecordingStore.UnstashPendingTreeOnRevert();
+                            // ScreenMessages.PostScreenMessage calls into Unity's UI stack,
+                            // which isn't wired up in xUnit test hosts — typed catch so
+                            // real runtime errors still surface in logs.
                             try { ParsekLog.ScreenMessage("Recording unstashed (revert)", 4f); }
-                            catch { /* ScreenMessages unavailable outside KSP runtime (unit tests) */ }
+                            catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
+                            catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
+                            catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
                         }
 
                         // Schedule committed resource deduction (singletons may not be ready yet)
