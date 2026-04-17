@@ -103,8 +103,9 @@ namespace Parsek
             // Stabilize width across frames — GUILayoutWindow treats GUILayout.Width()
             // as a hint, not a cap, and the inner layout (FlexibleSpace, ExpandWidth,
             // nested scroll view) can push the returned rect.width slightly larger
-            // every frame, accumulating indefinitely. Snapshot width before the call;
-            // if the user isn't actively resizing, restore it afterward.
+            // every frame, accumulating indefinitely. Snapshot width AFTER HandleResizeDrag
+            // so any intentional user-drag update is already folded in, then always
+            // restore afterward — GUILayoutWindow creep is never the source of truth.
             float stableWidth = timelineWindowRect.width;
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
@@ -117,8 +118,7 @@ namespace Parsek
                 GUILayout.Width(timelineWindowRect.width),
                 GUILayout.Height(timelineWindowRect.height)
             );
-            if (!isResizingTimelineWindow)
-                timelineWindowRect.width = stableWidth;
+            timelineWindowRect.width = stableWidth;
             parentUI.LogWindowPosition("Timeline", ref lastTimelineWindowRect, timelineWindowRect);
 
             if (timelineWindowRect.Contains(Event.current.mousePosition))
@@ -300,15 +300,15 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // Uniform-width filter toggles filling the row. Tier group (Overview /
-            // Details) anchors to the left edge; source group (Recordings / Actions /
-            // Events) anchors to the right edge, with a FlexibleSpace gap between them.
-            // Button width is computed from the current window width so all five
-            // toggles stay the same size regardless of window resize.
+            // Uniform-width filter toggles. Tier group (Overview / Details) anchors
+            // to the left edge; source group (Recordings / Actions / Events) anchors
+            // to the right edge, with a FlexibleSpace gap between them. Buttons are
+            // sized at 80% of the row-fill width so they don't feel chunky, and the
+            // extra slack gets absorbed by the FlexibleSpace gap.
             const float GapWidth = 16f;
             float rowWidth = timelineWindowRect.width - 20f;   // minus window chrome padding
             if (rowWidth < 300f) rowWidth = 300f;
-            float btnW = Mathf.Max(60f, (rowWidth - GapWidth) / 5f);
+            float btnW = Mathf.Max(48f, 0.8f * (rowWidth - GapWidth) / 5f);
 
             GUILayout.BeginHorizontal();
 
@@ -392,25 +392,29 @@ namespace Parsek
 
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
-            // Preset row
+            // Preset row — every preset button (including All and Custom) shares the
+            // same width so the row looks uniform. 30% wider than the previous 70px
+            // to give labels like "This Year" and "Custom" a bit more breathing room.
+            const float PresetBtnWidth = 91f;
+
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
 
             int secsPerDay = ParsekTimeFormat.SecsPerDay;
             int secsPerYear = ParsekTimeFormat.SecsPerYear;
 
-            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT);
-            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT);
-            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT);
+            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, PresetBtnWidth);
+            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, PresetBtnWidth);
+            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, PresetBtnWidth);
 
             // "This Year" = current Kerbin/Earth calendar year boundaries
             double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
             double yearEnd = yearStart + secsPerYear;
-            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT);
+            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, PresetBtnWidth);
 
             // "All" = clear filter
             bool allActive = !filter.IsActive;
-            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(40)) && !allActive)
+            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(PresetBtnWidth)) && !allActive)
             {
                 filter.Clear();
                 sliderMin = sliderBoundMin;
@@ -422,7 +426,7 @@ namespace Parsek
             // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
             if (hasRange)
             {
-                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(70));
+                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(PresetBtnWidth));
                 if (newShowCustom != showCustomRange)
                 {
                     showCustomRange = newShowCustom;
@@ -446,11 +450,16 @@ namespace Parsek
                     GUILayout.Label(rangeLabel, timelineDimStyle);
                 }
 
-                // From slider
+                // From slider — slider gets a vertical nudge so the track aligns
+                // with the label baselines (IMGUI's default slider renders a few px
+                // higher than the adjacent labels in a horizontal row).
                 GUILayout.BeginHorizontal();
                 string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
                 GUILayout.Label("From:", GUILayout.Width(38));
+                GUILayout.BeginVertical();
+                GUILayout.Space(6f);
                 float newMin = GUILayout.HorizontalSlider(sliderMin, sliderBoundMin, sliderBoundMax);
+                GUILayout.EndVertical();
                 GUILayout.Label(fromLabel, GUILayout.Width(120));
                 GUILayout.EndHorizontal();
 
@@ -458,7 +467,10 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 string toLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMax);
                 GUILayout.Label("To:", GUILayout.Width(38));
+                GUILayout.BeginVertical();
+                GUILayout.Space(6f);
                 float newMax = GUILayout.HorizontalSlider(sliderMax, sliderBoundMin, sliderBoundMax);
+                GUILayout.EndVertical();
                 GUILayout.Label(toLabel, GUILayout.Width(120));
                 GUILayout.EndHorizontal();
 
@@ -477,10 +489,10 @@ namespace Parsek
         }
 
         private void DrawPresetButton(TimeRangeFilterState filter, string name,
-            double minUT, double maxUT, double currentUT)
+            double minUT, double maxUT, double currentUT, float width)
         {
             bool isActive = filter.IsActive && filter.ActivePresetName == name;
-            if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(70)) && !isActive)
+            if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(width)) && !isActive)
             {
                 // Clamp to slider bounds so we don't filter outside the data range
                 double clampedMin = System.Math.Max(minUT, sliderBoundMin);
