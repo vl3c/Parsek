@@ -2964,23 +2964,23 @@ namespace Parsek
         /// </summary>
         /// <param name="rec">The recording to evaluate.</param>
         /// <param name="isActiveChainMember">True if the recording belongs to the chain currently being built.</param>
-        /// <param name="isChainLoopingOrDisabled">True if the recording's chain is looping or fully disabled.</param>
+        /// <param name="isChainLooping">True if the recording's chain has at least one branch-0 looping segment.</param>
         internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
             Recording rec,
             bool isActiveChainMember,
-            bool isChainLoopingOrDisabled)
+            bool isChainLooping)
         {
             return ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember,
-                isChainLoopingOrDisabled,
+                isChainLooping,
                 treeContext: null);
         }
 
         internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
             Recording rec,
             bool isActiveChainMember,
-            bool isChainLoopingOrDisabled,
+            bool isChainLooping,
             RecordingTree treeContext)
         {
             // Base condition: must have a snapshot, not already spawned, not destroyed
@@ -3020,10 +3020,12 @@ namespace Parsek
             // above handle this — after first spawn, VesselSpawned=true prevents re-spawning.
             // No blanket LoopPlayback suppression needed here.
 
-            // Suppress spawn for looping or fully-disabled chains
-            if (isChainLoopingOrDisabled)
+            // Suppress spawn for looping chains (ghost loops forever, never reaches a "final" state).
+            // Note: fully-disabled chains used to suppress here too, but that gated career state on
+            // a visual toggle (bug #433). A fully-disabled chain still spawns its vessel at tip.
+            if (isChainLooping)
             {
-                return (false, "chain looping or fully disabled");
+                return (false, "chain looping");
             }
 
             // Breakup-continuous check: the foreground recording continued past a breakup
@@ -3133,9 +3135,8 @@ namespace Parsek
                 return (false, $"orbital vessel deferred to flight scene (terminal={rec.TerminalStateValue})");
 
             // At KSC, no chain is being built → isActiveChainMember = false
-            bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
-                (RecordingStore.IsChainLooping(rec.ChainId) ||
-                 RecordingStore.IsChainFullyDisabled(rec.ChainId));
+            bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId) &&
+                RecordingStore.IsChainLooping(rec.ChainId);
 
             // Intermediate chain segments should not spawn — only the chain tip spawns.
             // In Flight, ShouldSuppressSpawnForChain handles this via runtime GhostChain
@@ -3143,7 +3144,7 @@ namespace Parsek
             if (RecordingStore.IsChainMidSegment(rec))
                 return (false, "intermediate chain segment (not tip)");
 
-            return ShouldSpawnAtRecordingEnd(rec, false, isChainLoopingOrDisabled);
+            return ShouldSpawnAtRecordingEnd(rec, false, isChainLooping);
         }
 
         /// <summary>

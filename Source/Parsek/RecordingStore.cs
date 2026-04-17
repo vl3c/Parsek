@@ -1360,7 +1360,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if any branch-0 enabled segment in the chain has LoopPlayback set.
+        /// Returns true if any branch-0 segment in the chain has LoopPlayback set.
+        /// Note: deliberately does not check PlaybackEnabled (bug #433). Whether the
+        /// chain is looping is a career-state property — it determines if the vessel
+        /// spawns at chain tip. Hiding the ghost visual must not change that answer.
         /// </summary>
         internal static bool IsChainLooping(string chainId)
         {
@@ -1369,29 +1372,10 @@ namespace Parsek
             {
                 var rec = committedRecordings[i];
                 if (rec.ChainId == chainId && rec.ChainBranch == 0 &&
-                    rec.PlaybackEnabled && rec.LoopPlayback)
+                    rec.LoopPlayback)
                     return true;
             }
             return false;
-        }
-
-        /// <summary>
-        /// Returns true if all branch-0 segments in the chain have PlaybackEnabled == false.
-        /// </summary>
-        internal static bool IsChainFullyDisabled(string chainId)
-        {
-            if (string.IsNullOrEmpty(chainId)) return false;
-            bool anyBranch0 = false;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var rec = committedRecordings[i];
-                if (rec.ChainId == chainId && rec.ChainBranch == 0)
-                {
-                    anyBranch0 = true;
-                    if (rec.PlaybackEnabled) return false;
-                }
-            }
-            return anyBranch0; // false if no branch-0 segments found
         }
 
         /// <summary>

@@ -1322,7 +1322,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Chain loop and disable helpers
+        #region Chain loop helper
 
         [Fact]
         public void IsChainLooping_LoopEnabled_ReturnsTrue()
@@ -1343,40 +1343,30 @@ namespace Parsek.Tests
             RecordingStore.CommitRecordingDirect(rec);
 
             Assert.True(RecordingStore.IsChainLooping("chain1"));
-            Assert.False(RecordingStore.IsChainFullyDisabled("chain1"));
         }
 
         [Fact]
-        public void IsChainFullyDisabled_AllDisabled_ReturnsTrue()
+        public void IsChainLooping_DisabledLoopSegment_StillLooping()
         {
+            // Bug #433 invariant: disabling a recording visually must not change
+            // whether its chain is considered looping. The chain is a career-state
+            // property (it determines whether the vessel spawns at tip).
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100 },
                 new TrajectoryPoint { ut = 200 }
             };
 
-            var rec1 = RecordingStore.CreateRecordingFromFlightData(points, "Test1");
-            Assert.NotNull(rec1);
-            rec1.ChainId = "chain2";
-            rec1.ChainIndex = 0;
-            rec1.ChainBranch = 0;
-            rec1.PlaybackEnabled = false;
-            RecordingStore.CommitRecordingDirect(rec1);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "DisabledLoop");
+            Assert.NotNull(rec);
+            rec.ChainId = "chain-disabled-loop";
+            rec.ChainIndex = 0;
+            rec.ChainBranch = 0;
+            rec.PlaybackEnabled = false;
+            rec.LoopPlayback = true;
+            RecordingStore.CommitRecordingDirect(rec);
 
-            var rec2 = RecordingStore.CreateRecordingFromFlightData(points, "Test2");
-            Assert.NotNull(rec2);
-            rec2.ChainId = "chain2";
-            rec2.ChainIndex = 1;
-            rec2.ChainBranch = 0;
-            rec2.PlaybackEnabled = false;
-            RecordingStore.CommitRecordingDirect(rec2);
-
-            Assert.True(RecordingStore.IsChainFullyDisabled("chain2"));
-            Assert.False(RecordingStore.IsChainLooping("chain2"));
-
-            // Enable one segment -- no longer fully disabled
-            RecordingStore.CommittedRecordings[0].PlaybackEnabled = true;
-            Assert.False(RecordingStore.IsChainFullyDisabled("chain2"));
+            Assert.True(RecordingStore.IsChainLooping("chain-disabled-loop"));
         }
 
         #endregion

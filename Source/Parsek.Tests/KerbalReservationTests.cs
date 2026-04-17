@@ -191,9 +191,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recalculate_SkipsDisabledChains()
+        public void Recalculate_DisabledChain_StillReservesCrew()
         {
-            // Create two recordings that form a fully-disabled chain
+            // Bug #433: disabling a chain's playback visual must not release its crew
+            // back to the roster. Reservations follow the committed ledger, not the
+            // visibility toggle.
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             rec.ChainId = "test-chain";
@@ -203,7 +205,7 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.True(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
         }
 
         [Fact]

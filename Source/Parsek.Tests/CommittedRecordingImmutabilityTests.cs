@@ -114,7 +114,7 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false);
+                isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("vessel destroyed", reason);
@@ -137,7 +137,7 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false);
+                isChainLooping: false);
 
             Assert.True(needsSpawn, $"Expected spawn eligible after revert, but got: {reason}");
             Assert.NotNull(rec.VesselSnapshot);
@@ -164,7 +164,7 @@ namespace Parsek.Tests
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false);
+                isChainLooping: false);
 
             Assert.True(needsSpawn, "Vessel segment should be spawn-eligible after boarding continuation stops");
         }
@@ -287,7 +287,7 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false);
+                isChainLooping: false);
 
             Assert.True(needsSpawn, $"Should be spawn-eligible after reset, but got: {reason}");
         }
