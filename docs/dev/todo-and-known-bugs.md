@@ -58,6 +58,118 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 450. Per-spawn time budgeting / coroutine split — #414 follow-up for bimodal single-spawn cost
+
+**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:11489`. One-shot #414 breakdown line (first exceeded frame in the session):
+
+```
+Playback budget breakdown (one-shot, first exceeded frame):
+total=40.1ms mainLoop=11.34ms
+spawn=28.11ms (built=1 throttled=0 max=28.11ms)
+destroy=0.00ms explosionCleanup=0.00ms deferredCreated=0.24ms (1 evts)
+deferredCompleted=0.00ms observabilityCapture=0.43ms
+trajectories=1 ghosts=0 warp=1x
+```
+
+**Concern:** #414's fix caps ghost spawns per frame at 2 via `GhostPlaybackEngine.MaxSpawnsPerFrame`, but this frame built exactly 1 ghost and that single spawn cost 28.11 ms — throttled=0, max=28.11 ms. This is the **bimodal cost distribution** #414 explicitly flagged as requiring a follow-up: "if max > ~10 ms we have a bimodal cost distribution that a count cap alone cannot cover, in which case the follow-up is per-spawn time budgeting or a coroutine split" (see #414 **Fix** section). The smoke test confirms the bimodal case is real on this save.
+
+Breakdown of the exceeded frame: 70% of the budget (28.11 / 40.1 ms) lived inside a single `SpawnGhost` invocation. Candidates for the dominant per-spawn cost:
+- `GhostVisualBuilder.BuildGhostVisuals` — part instantiation + engine FX size-boost pass (PR #316) + reentry material pre-warm.
+- `PartLoader.getPartInfoByName` resolution for every unique part name in the ghost snapshot (cold PartLoader cache on first spawn of a given vessel type).
+- Ghost rigidbody freeze + collider disable walk (`GhostVisualBuilder.ConfigureGhostPart`).
+
+`mainLoop=11.34 ms` with `trajectories=1 ghosts=0` is also on the high side (expected ≤1 ms per trajectory on an established session), worth subtracting from the spawn cost attribution when a follow-up breakdown lands.
+
+**Fix — investigation-first:** add per-phase timing inside `GhostVisualBuilder.BuildGhostVisuals` (matching #414's pattern in `GhostPlaybackEngine.UpdatePlayback`) to identify which sub-phase dominates. One-shot latch on the first spawn whose total exceeds a threshold (say ≥15 ms) emits a `"Ghost build breakdown (one-shot): partsInstantiated=... partsConfigured=... fxWired=... materialsSwapped=... fxSizeBoost=... reentryPrewarm=... "` line. Steady-state cost zero (Stopwatch `Reset/Start/Stop` only on the exceeded path).
+
+Once the dominant sub-phase is identified, the fix is one of:
+- **Per-frame time budget on spawn** (`MaxSpawnBuildMsPerFrame`). `TryReserveSpawnSlot` already has the structural hook — extend the predicate to also check accumulated `spawnTicks` against a budget (e.g. 12 ms) and defer any spawn that would push past the cap, whether or not the count cap has been hit.
+- **Coroutine split of `BuildGhostVisuals`** — yield after each major phase (parts, FX, materials, reentry), so a heavy build spreads across 2-3 frames instead of one. Risk: ghost appears visually in stages, which is ugly if the ghost is in-frame at build time. Mitigate with `ApplyGhostVisibility(false)` during the build and one `ApplyGhostVisibility(true)` at the end of the final coroutine step.
+- **Lazy reentry material pre-warm** (if the breakdown fingers it). Defer the pre-warm to the first frame the ghost is actually moving fast enough to need reentry FX, not at spawn time.
+
+**Files:** `Source/Parsek/GhostVisualBuilder.cs` (per-phase stopwatches + possible coroutine split), `Source/Parsek/GhostPlaybackEngine.cs` (`MaxSpawnBuildMsPerFrame` const + threaded into `TryReserveSpawnSlot`), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (extend `PlaybackBudgetPhases` with build sub-phases), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new one-shot build-breakdown log), `Source/Parsek.Tests/` (new test file or extend `Bug414SpawnThrottleTests.cs`).
+
+**Scope:** Medium. Investigation first (diagnostic-only, mirrors #414 Phase 1), then a targeted fix scoped to the identified dominant sub-phase. Do NOT commit to the coroutine-split approach before the breakdown tells us which sub-phase is at fault — the fix shape changes depending on the answer.
+
+**Dependencies:** #414 shipped — the diagnostic framework and `TryReserveSpawnSlot` hook are already on main.
+
+**Status:** TODO. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns (e.g., entering physics range on a complex vessel). Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+
+---
+
+## 449. Merger boundary discontinuity 132.82 m within a single-source tree
+
+**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17917`. Single WARN per session:
+
+```
+[Parsek][WARN][Merger] MergeTree: boundary discontinuity=132.82m at section[1]
+ut=4004.92 vessel='r0' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=Active
+```
+
+**Concern:** the two adjacent track sections at the boundary are **both** `prevSrc=Active nextSrc=Active` with `prevRef=Absolute nextRef=Absolute` — i.e., both halves come from the active flight recorder (not a background-recorder split, not a revert merge), same reference frame, and still a 132.82 m position jump. The merger's boundary-continuity invariant is that an all-Active / same-reference pair should stitch within a sampling tolerance (usually sub-meter after interpolation). A 132.82 m gap inside a single-source tree points at one of:
+
+1. **Dropped sample window around a physics step large enough to miss the boundary UT** — the recorder's `Update`/`FixedUpdate` sampling may have skipped the frame at ut ≈ 4004.92 (e.g., the 40 ms frame-budget spike at `KSP.log:11489` / see #450, or a Krakensbane float-origin shift at ut=4004.92 that the recorder didn't re-sample through).
+2. **Boundary stitched across a scene-level discontinuity** the merger doesn't tag as a source change — e.g., vessel switch with the recorder keeping the same `Active` source label, or a time-warp rate change that dilated the sample interval.
+3. **Interpolation bug at `Merger.MergeTree` section[1]** — the specific code path that computes the continuity check may be comparing positions in mismatched frames despite both sides claiming `Absolute`.
+
+The smoke-test session recorded two recordings — recording 2 starts at ut ≈ 3988.6 and the WARN lands at ut=4004.92, ~16 s into recording 2. Recording 1 ended at ut ≈ 177, so this is not a cross-recording merge boundary; it is a within-recording section boundary. The `[1]` index suggests section[1] is the second section of recording 2 — consistent with a single section split at ut=4004.92 within recording 2.
+
+**Investigation steps:**
+1. Correlate ut=4004.92 with adjacent KSP.log lines — look for vessel-switch events, Krakensbane shifts, time-warp rate changes, or frame-budget spikes in a ±1 s window. Starting point: `KSP.log:17900-17940`.
+2. Dump the two trajectory points bracketing section[1]'s boundary: their `ut`, `position`, `velocity`, `refFrame`, and sample-interval-to-neighbor. If the gap is >1 physics step's worth of the previous-point velocity, the sample was dropped. If the gap equals `prev_velocity × dt` for the expected `dt`, the recorder sampled correctly but the merger is misinterpreting the positions.
+3. Check `FlightRecorder.HandleVesselSwitchDuringRecording` and `BackgroundRecorder` split paths for any condition that would insert a section boundary without flipping `Src` to `Background` or `Paused`.
+
+**Fix:** depends on the root cause from the investigation. If (1), the recorder needs to clamp-sample at boundary UT or the merger's continuity tolerance needs to widen for known-skipped-frame cases (with a DEBUG trail). If (2), the `Src` label needs extending to distinguish "Active before vessel-switch" from "Active after vessel-switch". If (3), pure bug in `Merger.MergeTree` section-boundary math.
+
+**Files:** `Source/Parsek/Merger.cs` (boundary-continuity check + section assembly), `Source/Parsek/FlightRecorder.cs` / `Source/Parsek/BackgroundRecorder.cs` (sample-dropped or src-relabel paths), `Source/Parsek.Tests/MergerTests.cs` (new case: same-src/same-ref 132 m gap should either stitch with a clamp-sample or WARN with a specific root-cause tag).
+
+**Scope:** Small once the investigation identifies the path; unknown until then.
+
+**Status:** TODO. Priority: low. Single occurrence in a smoke test, recoverable (playback continues through the gap, vessel visibly "teleports" 132 m), not a crash. Worth a diagnostic investigation in the next cycle to prevent it compounding if the underlying cause is systemic (e.g., tied to #450's frame-budget spikes).
+
+---
+
+## 448. KSC reconciliation: `FundsSpending(RnDPartPurchase)` has no matching `FundsChanged` event
+
+**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:10191,10245,10298,10352,10407,10554,10612,10671` — 8 WARNs in the session, all at the same UT:
+
+```
+[LedgerOrchestrator] KSC reconciliation (funds): action FundsSpending
+expected delta=-150.0 (reason='RnDPartPurchase') but no matching FundsChanged
+event within 0.1s of ut=201.3 — missing earning channel or stale event?
+```
+
+Deltas across the 8 WARNs: -150, -150, -400, -1200, -1200, -50, -100, -200 (sum = -3450 funds). Each line corresponds to one `FundsSpending(RnDPartPurchase)` action in the ledger. **The actions themselves were captured correctly** — the #405 fix added the `OnKscSpending(evt)` call inside `OnPartPurchased` at `Source/Parsek/GameStateRecorder.cs:497-498`, so every part purchase writes a ledger action. What's missing is the corresponding `FundsChanged` event in `GameStateStore.Events`, which `ReconcileKscAction` expects within a 0.1 s window for the "untransformed" action class (`RnDPartPurchase` is listed at todo #437's line 353 in the "Untransformed (WARN on missing or mismatched event)" bucket).
+
+**Concern:** the split between "action captured" and "event missing" points at one of three causes:
+
+1. **KSP does not fire `Funding.onFundsChanged` on `AvailablePart` purchase in R&D.** The `OnPartPurchased` handler subscribes to `GameEvents.OnPartPurchased` (`GameStateRecorder.cs:166`), which fires when the player buys a locked part in the R&D screen. The actual funds deduction inside KSP's stock code path may bypass `Funding.AddFunds(-cost)` (and therefore `onFundsChanged`) — the cost is debited directly against `Funding.Instance.Funds`. If so, there is no `FundsChanged` event for the reconciler to match and every RnDPartPurchase action will trip this WARN by construction. Easy to verify: `ilspycmd` on `PartPurchasePopup`/`RDController` and check whether part-purchase goes through `AddFunds` or a direct setter. If direct setter, KSP never emits `onFundsChanged` and our converter has nothing to convert.
+2. **Batch purchase in the same physics tick collapses events.** All 8 WARNs share `ut=201.3` — a batch of part buys through a tech-node unlock or a "buy all parts in node" R&D UI affordance. If KSP does fire `onFundsChanged` but all 8 fire within one tick, `GameStateStore.AddEvent`'s dedup key (by `eventType`/`key`/`ut` bucket) may collapse them to a single stored event, and the reconciler then matches only one of the 8 actions.
+3. **Timing-window mismatch.** The `FundsChanged` event fires, but at a UT that falls outside the 0.1 s window around ut=201.3 (e.g., the purchase records at scene-transition UT while KSP's `onFundsChanged` fires after a small async delay). Less likely given the `TransactionReasons.RnDPartPurchase` matching key is specific enough that a simple window widen should resolve it, but worth ruling out before code changes.
+
+All three are plausible on the evidence alone. Investigation must disambiguate.
+
+**Investigation steps:**
+1. Decompile KSP's part-purchase path (`ilspycmd` on `Assembly-CSharp.dll`, classes `PartPurchasePopup`, `RDController`, `RDPartActionMenu`). Confirm whether the funds deduction goes through `Funding.AddFunds(-cost, TransactionReasons.RnDPartPurchase)` (which fires `onFundsChanged`) or a direct field mutation.
+2. If KSP fires `onFundsChanged`: add a one-shot VERBOSE log inside `GameStateRecorder.OnFundsChanged` that prints `reason + delta + ut` for every `RnDPartPurchase` delta. Re-run the smoke test. If zero lines appear at ut=201.3, KSP didn't fire the event (cause 1). If 8 lines appear but only 1 event sticks in `GameStateStore`, the dedup is collapsing them (cause 2). If 8 lines appear at a different UT than 201.3, it's a window-width problem (cause 3).
+3. If cause (1) is confirmed, the fix is structural: `OnPartPurchased` must emit a synthetic `FundsChanged` event (in addition to the ledger action) at the purchase UT with `reason=RnDPartPurchase` so the reconciler has something to match against. Alternative: widen `ReconcileKscAction`'s RnDPartPurchase bucket to NOT require a matching event (classify it as "action is authoritative, no reconciliation needed").
+4. If cause (2) is confirmed, the dedup logic in `GameStateStore.AddEvent` needs a monotonic counter appended to the key for high-frequency batch events. This is a schema-sensitive change — coordinate with the event format to ensure old saves still load.
+
+**Fix:** depends on which cause the investigation pins. Most likely path (cause 1):
+- Add a helper `GameStateRecorder.EmitSyntheticFundsChanged(float delta, TransactionReasons reason)` that writes a `FundsChanged` `GameStateEvent` with `valueBefore`/`valueAfter` derived from the current `Funding.Instance.Funds` snapshot.
+- Call it from `OnPartPurchased` at the top of the handler, symmetric to the ledger-action write at line 498.
+- Add a regression test in `GameStateRecorderLedgerTests.cs` asserting that an `OnPartPurchased` call produces both a `PartPurchased` event AND a `FundsChanged(RnDPartPurchase)` event, and that `ReconcileKscAction` does not WARN.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs:468-499` (OnPartPurchased — add synthetic event emit), `Source/Parsek/GameActions/LedgerOrchestrator.cs` (ReconcileKscAction — verify the window-match path), `Source/Parsek/GameStateEventConverter.cs` (make sure the synthetic event is NOT converted to a second `FundsSpending` action — must stay a ledger-silent event, only used for reconciliation). Tests: `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
+
+**Scope:** Small once the investigation identifies the cause; 1-2 hours if cause (1) holds.
+
+**Dependencies:** #405 shipped (which added the OnKscSpending call that causes this WARN to fire in the first place — without #405, there'd be no `FundsSpending` action and therefore no reconciliation target). #437 shipped (which added `ReconcileKscAction`). #442 and #443 are separate ledger-channel gaps and do not overlap with this one.
+
+**Status:** TODO. Priority: medium. Diagnostic-only today (the ledger walk still reconciles the KSP funds pool correctly because the action itself is authoritative), but a session with 8 false-positive WARNs per recalc loop drowns real issues. Not release-blocking for v0.8.2; should ship in v0.8.3 alongside the broader reconciliation cleanup.
+
+---
+
 ## 447. `RecordingStopMetricsValid` fails on single-point landed debris leaves
 
 **Source:** in-game test run 2026-04-18 02:25 on save `c5`. `Kerbal Space Program/parsek-test-results.txt` reports `LogContractTests.RecordingStopMetricsValid` FAILED in FLIGHT with `REC-002: Recording e30c5a11537f40a89f2998b18da4f8c5 has 1 points (minimum 2)`. The recording is a breakup debris leaf:
@@ -97,13 +209,54 @@ Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` i
 
 ## 446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording
 
-**Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16200-17274`. Player deletes a Gloops recording via the UI's Discard button; the next frame `GloopsRecorderUI.DrawWindow` throws `NullReferenceException` because it still holds a reference to the just-removed `Recording`. Downstream, `Spawn suppressed for #0 "r0": no vessel snapshot` fires 100+ times from the spawner, which also kept a dangling reference.
+**Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16211` (single `[EXC]` in the whole session). Reproduced at UT ≈ end-of-session after clicking "Discard Recording" on a saved Gloops recording. Stack: `GloopsRecorderUI.DrawWindow ... [0x001b6]` → `DrawIfOpen+<>c__DisplayClass10_0.<DrawIfOpen>b__0` → `GUILayout.LayoutedWindow.DoWindow`.
 
-**Fix:** Defensive null check at the top of `GloopsRecorderUI.DrawWindow` — bail early if the tracked recording is no longer present in `RecordingStore.CommittedRecordings`. Audit the spawner path for the same pattern and clear any cached ghost/recording handle on discard. Unit test: simulate "draw → discard → draw again" sequence; assert no exception and no stale-ref log spam.
+**Root cause (stale IMGUI local after synchronous button side-effect):** `GloopsRecorderUI.DrawWindow` (`Source/Parsek/UI/GloopsRecorderUI.cs:91-195`) caches state at the top of the method:
 
-**Files:** `Source/Parsek/UI/GloopsRecorderUI.cs`; likely also `Source/Parsek/ParsekPlaybackPolicy.cs` or `Source/Parsek/GhostPlaybackEngine.cs` for the spawner dangling-ref.
+```csharp
+bool isRecording      = flight.IsGloopsRecording;                      // line 97
+bool hasLastRecording = flight.LastGloopsRecording != null;            // line 98
+bool isPreviewing     = flight.IsPlaying;                              // line 99
+```
 
-**Status:** TODO. Priority: medium. User-visible exception after a common UI action.
+In the crash path the user is NOT recording (`isRecording=false`) but has a saved Gloops recording (`hasLastRecording=true`). Clicking "Discard Recording" at line 141 takes the `else` branch at line 149-153, which synchronously invokes `flight.DiscardLastGloopsRecording()` → `ParsekFlight.cs:7595` sets `lastGloopsRecording = null` and `DeleteGhostOnlyRecording(idx)` removes the recording. IMGUI does NOT return from `DrawWindow` at this point — the button handler runs inline during the MouseUp pass and execution continues with the remainder of the method.
+
+The cached locals are now stale. Execution falls into `else if (hasLastRecording)` at line 163, reads `var rec = flight.LastGloopsRecording;` at line 165 (now null), and dereferences `rec.VesselName` at line 166 → **NRE**. The IL offset `0x001b6` is consistent with the string-interpolation site at line 166 (or the immediately following `rec.Points.Count` at line 167).
+
+**Log evidence (Player.log ordering within the same dispatch):**
+- 45613 `[VERBOSE][UI] Gloops Discard Recording clicked`
+- 45616 `[INFO][Flight] Deleting ghost-only recording 'r0' at index 1`  ← confirms the `DiscardLastGloopsRecording` branch (not `DiscardGloopsInProgress`, which would log "Gloops in-progress recording discarded")
+- 45643 `[INFO][RecordingStore] Removed recording 'r0' (id=4180a68ae80942f1a1e8d4237f84895c) at index 1`
+- 45647 `NullReferenceException ... GloopsRecorderUI.DrawWindow`
+
+**Note on the prior entry:** this entry originally attributed downstream `Spawn suppressed for #0 "r0": no vessel snapshot` spam to the same discard. That attribution was wrong — grep shows the suppressed-counter climbing (`suppressed=582` at Player.log:31303, `=585` at 31489, `=588` at 31639) long before the discard at 45613, and the vessel name `r0` refers to a different surviving recording at index 0, not the index-1 recording that was deleted. The spawner spam is an independent pre-existing concern, not part of this NRE.
+
+**Fix:** re-evaluate `hasLastRecording` (and `isRecording`, for symmetry) immediately after the discard-button side-effect runs, before the status-label `if/else if/else` ladder. Minimal diff:
+
+```csharp
+// After line 155 (GUI.enabled = true; closing the Discard Recording button block)
+hasLastRecording = flight.LastGloopsRecording != null;
+isRecording      = flight.IsGloopsRecording;
+isPreviewing     = flight.IsPlaying;
+```
+
+Alternative (narrower): null-check `rec` at line 165:
+
+```csharp
+var rec = flight.LastGloopsRecording;
+if (rec == null) { /* fall through to the "no recording" else branch below */ }
+else { GUILayout.Label($"Saved: \"{rec.VesselName}\""); ... }
+```
+
+Prefer the full re-evaluation — it also defends against the same stale-local pattern for the "Stop Preview" button at line 127-134, which nulls `isPreviewing`-relevant state via `flight.StopPlayback()`, and any future state-mutating button added in between.
+
+**Unit test:** add to `Source/Parsek.Tests/` (or the existing `GloopsRecorderUITests` if one exists, otherwise a new file) a test that exercises `DrawWindow` with a mock `ParsekFlight` where the first call to `DiscardLastGloopsRecording` flips `LastGloopsRecording` to null mid-method; assert no exception and that the fallback status label is drawn. Because `DrawWindow` is IMGUI-coupled, the cleanest seam is to extract the status-label block into an `internal static` helper (`RenderStatusLabels(bool isRecording, bool hasLastRecording, Recording lastRec, string activeVesselName)`) that the test can call directly with `lastRec=null`, and have `DrawWindow` call the helper after re-evaluating locals.
+
+**Files:** `Source/Parsek/UI/GloopsRecorderUI.cs:97-195` (re-evaluate locals after button blocks; optionally extract status-label helper), `Source/Parsek.Tests/` (new test), `CHANGELOG.md`.
+
+**Scope:** Small. Single-file fix, one small test.
+
+**Status:** TODO. Priority: medium. User-visible exception after a common UI action; recovers on next frame (IMGUI reruns `DrawWindow` with fresh locals) so the session isn't lost, but the `[EXC]` in KSP.log is a release-quality concern.
 
 ---
 
