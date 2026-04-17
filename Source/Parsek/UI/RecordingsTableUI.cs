@@ -606,11 +606,20 @@ namespace Parsek
         {
             // Header row
             GUILayout.BeginHorizontal();
-            // Select-all enable header checkbox
+
+            // Select-all enable toggle + "#" sortable header live in ONE boxed cell
+            // so the column reads as a single unit (toggle above column 0's toggles,
+            // "#" above column 1's row indices) — each inner widget uses the same
+            // individual cell width as its row counterparts so things line up.
             int enableCount = 0;
             for (int i = 0; i < committed.Count; i++)
                 if (committed[i].PlaybackEnabled) enableCount++;
             bool allEnabled = enableCount == committed.Count;
+
+            var colHdrForFirstCell = parentUI.GetColumnHeaderStyle();
+            GUILayout.BeginHorizontal(colHdrForFirstCell,
+                GUILayout.Width(ColW_Enable + ColW_Index),
+                GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
             if (newAllEnabled != allEnabled)
             {
@@ -618,7 +627,19 @@ namespace Parsek
                     committed[i].PlaybackEnabled = newAllEnabled;
                 ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
             }
-            DrawSortableHeader("#", SortColumn.Index, ColW_Index);
+            // "#" sortable — inline (no outer box because the parent BeginHorizontal
+            // already supplies it; otherwise we'd double-box).
+            string hashArrow = (sortColumn == SortColumn.Index)
+                ? (sortAscending ? " \u25b2" : " \u25bc") : "";
+            if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+            {
+                if (sortColumn == SortColumn.Index) sortAscending = !sortAscending;
+                else { sortColumn = SortColumn.Index; sortAscending = true; }
+                InvalidateSort();
+                ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
+            }
+            GUILayout.EndHorizontal();
+
             DrawSortableHeader("Name", SortColumn.Name, 0, true);
             DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
             DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site);
@@ -1269,8 +1290,11 @@ namespace Parsek
         private void DrawRecordingNameCell(int ri, Recording rec,
             IReadOnlyList<Recording> committed, float indentPx)
         {
-            // Indent inside Name column for grouped/chained recordings
-            if (indentPx > 0f) GUILayout.Space(indentPx);
+            // Indent inside Name column for grouped/chained subitems. The extra 2px
+            // nudge aligns the first character of subitem text precisely with the
+            // parent row's Name start (the parent row has no indent, subitem buttons
+            // have a slight inner offset from GUILayout.Space + button margin).
+            if (indentPx > 0f) GUILayout.Space(indentPx + 2f);
             string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
             if (renamingRecordingIdx == ri)
             {
