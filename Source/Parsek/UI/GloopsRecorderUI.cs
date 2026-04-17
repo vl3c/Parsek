@@ -98,28 +98,70 @@ namespace Parsek
             bool hasLastRecording = flight.LastGloopsRecording != null;
             bool isPreviewing = flight.IsPlaying;
 
-            if (isRecording)
+            // Buttons are drawn in fixed order (primary action / preview / discard)
+            // with text and enablement driven by state. Status labels render below
+            // so button positions never shift between states.
+
+            string primaryLabel = isRecording
+                ? "Stop Recording"
+                : (hasLastRecording ? "Start New Recording" : "Start Recording");
+
+            if (GUILayout.Button(primaryLabel))
             {
-                // --- State B: Recording in progress ---
-                DrawRecordingStatus(flight);
-
-                GUILayout.Space(6f);
-
-                if (GUILayout.Button("Stop Recording"))
+                ParsekLog.Verbose("UI", "Gloops " + primaryLabel + " clicked");
+                if (isRecording)
                 {
-                    ParsekLog.Verbose("UI", "Gloops Stop Recording clicked");
                     flight.StopGloopsRecording();
                 }
-
-                if (GUILayout.Button("Discard"))
+                else
                 {
-                    ParsekLog.Verbose("UI", "Gloops Discard (in-progress) clicked");
+                    if (isPreviewing)
+                        flight.StopPlayback();
+                    flight.StartGloopsRecording();
+                }
+            }
+
+            bool previewEnabled = hasLastRecording && !isRecording;
+            string previewLabel = isPreviewing ? "Stop Preview" : "Preview";
+            GUI.enabled = previewEnabled;
+            if (GUILayout.Button(previewLabel))
+            {
+                ParsekLog.Verbose("UI", "Gloops " + previewLabel + " clicked");
+                if (isPreviewing)
+                    flight.StopPlayback();
+                else
+                    flight.PreviewGloopsRecording();
+            }
+            GUI.enabled = true;
+
+            GUILayout.Space(6f);
+
+            bool discardEnabled = isRecording || hasLastRecording;
+            GUI.enabled = discardEnabled;
+            if (GUILayout.Button("Discard Recording"))
+            {
+                ParsekLog.Verbose("UI", "Gloops Discard Recording clicked");
+                if (isRecording)
+                {
                     flight.DiscardGloopsInProgress();
                 }
+                else
+                {
+                    if (isPreviewing)
+                        flight.StopPlayback();
+                    flight.DiscardLastGloopsRecording();
+                }
+            }
+            GUI.enabled = true;
+
+            GUILayout.Space(6f);
+
+            if (isRecording)
+            {
+                DrawRecordingStatus(flight);
             }
             else if (hasLastRecording)
             {
-                // --- State C: Recording just saved ---
                 var rec = flight.LastGloopsRecording;
                 GUILayout.Label($"Saved: \"{rec.VesselName}\"");
                 GUILayout.Label($"Points: {rec.Points.Count}");
@@ -129,60 +171,14 @@ namespace Parsek
                 GUILayout.Label(string.Format(
                     System.Globalization.CultureInfo.InvariantCulture,
                     "Duration: {0:F1}s", duration));
-
-                GUILayout.Space(6f);
-
-                if (!isPreviewing)
-                {
-                    if (GUILayout.Button("Preview"))
-                    {
-                        ParsekLog.Verbose("UI", "Gloops Preview clicked");
-                        flight.PreviewGloopsRecording();
-                    }
-                }
-                else
-                {
-                    if (GUILayout.Button("Stop Preview"))
-                    {
-                        ParsekLog.Verbose("UI", "Gloops Stop Preview clicked");
-                        flight.StopPlayback();
-                    }
-                }
-
-                if (GUILayout.Button("Discard Recording"))
-                {
-                    ParsekLog.Verbose("UI", "Gloops Discard (saved) clicked");
-                    if (isPreviewing)
-                        flight.StopPlayback();
-                    flight.DiscardLastGloopsRecording();
-                }
-
-                GUILayout.Space(6f);
-
-                if (GUILayout.Button("Start New Recording"))
-                {
-                    ParsekLog.Verbose("UI", "Gloops Start New Recording clicked");
-                    if (isPreviewing)
-                        flight.StopPlayback();
-                    flight.StartGloopsRecording();
-                }
             }
             else
             {
-                // --- State A: Idle ---
                 string vesselName = FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "No vessel";
                 GUILayout.Label($"Vessel: {vesselName}");
                 GUILayout.Label("Ghost-only - loops by default");
-
-                GUILayout.Space(6f);
-
-                if (GUILayout.Button("Start Recording"))
-                {
-                    ParsekLog.Verbose("UI", "Gloops Start Recording clicked");
-                    flight.StartGloopsRecording();
-                }
             }
 
             GUILayout.EndVertical();
