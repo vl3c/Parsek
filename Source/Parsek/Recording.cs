@@ -479,11 +479,11 @@ namespace Parsek
         /// <summary>True if this recording belongs to a chain (has ChainId and valid ChainIndex).</summary>
         internal bool IsChainRecording => !string.IsNullOrEmpty(ChainId);
 
-        /// <summary>
-        /// True if this recording's resources are tracked individually (per-recording deltas).
-        /// False for tree recordings, whose resources are tracked at tree level.
-        /// </summary>
-        internal bool ManagesOwnResources => !IsTreeRecording;
+        // Phase F: ManagesOwnResources removed. The standalone resource applier
+        // (per-recording lump-sum replay via ApplyResourceDeltas) and the tree-level
+        // applier (ApplyTreeLumpSum) are both gone — the ledger drives funds/science/
+        // reputation directly. ResourceBudget now sums every recording uniformly,
+        // and there are no remaining callers gating on standalone-vs-tree.
 
         /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.

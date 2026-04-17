@@ -11,14 +11,9 @@ namespace Parsek
         public double reservedReputation;
     }
 
-    internal struct ResourceDelta
-    {
-        public double funds;
-        public float science;
-        public float reputation;
-        public int targetIndex;
-        public bool hasChange;
-    }
+    // Phase F: ResourceDelta struct removed alongside ComputeStandaloneDelta —
+    // the standalone resource applier (ApplyResourceDeltas) is gone, the ledger
+    // drives funds/science/reputation now.
 
     internal static class ResourceBudget
     {
@@ -173,23 +168,9 @@ namespace Parsek
             return cost;
         }
 
-        internal static double TreeCommittedFundsCost(RecordingTree tree)
-        {
-            if (tree == null || tree.ResourcesApplied) return 0;
-            return -tree.DeltaFunds; // negate: negative delta (spent) -> positive cost
-        }
-
-        internal static double TreeCommittedScienceCost(RecordingTree tree)
-        {
-            if (tree == null || tree.ResourcesApplied) return 0;
-            return -tree.DeltaScience;
-        }
-
-        internal static double TreeCommittedReputationCost(RecordingTree tree)
-        {
-            if (tree == null || tree.ResourcesApplied) return 0;
-            return -(double)tree.DeltaReputation;
-        }
+        // Phase F: TreeCommittedFundsCost / Science / Reputation removed.
+        // Trees no longer track lump-sum deltas; per-recording CommittedFundsCost
+        // (etc.) is summed directly over tree.Recordings.Values in ComputeTotal.
 
         internal static BudgetSummary ComputeTotal(
             IList<Recording> recordings,
@@ -206,7 +187,20 @@ namespace Parsek
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    if (!recordings[i].ManagesOwnResources) continue; // tree recordings handled by tree-level delta
+                    // Phase F round 2: skip tree-child recordings in the flat-list
+                    // loop. RecordingStore.FinalizeTreeCommit adds every tree child
+                    // into committedRecordings AND exposes it via CommittedTrees[i]
+                    // .Recordings, so the per-tree loop below already counts it.
+                    // Without this skip, mixed-store callers (the production
+                    // `ComputeTotal(CommittedRecordings, Milestones, CommittedTrees)`
+                    // shape) double-count every tree child. The old code used
+                    // `!ManagesOwnResources` for the same skip; ManagesOwnResources
+                    // was deleted as part of Phase F, so we branch on TreeId
+                    // directly (set on every tree child — confirmed via
+                    // ChainSegmentManager.AssignTreeId and
+                    // RecordingStore.AddRecordingWithTreeForTesting).
+                    if (recordings[i] != null && recordings[i].TreeId != null)
+                        continue;
                     result.reservedFunds += CommittedFundsCost(recordings[i]);
                     result.reservedScience += CommittedScienceCost(recordings[i]);
                     result.reservedReputation += CommittedReputationCost(recordings[i]);
@@ -215,11 +209,19 @@ namespace Parsek
 
             if (trees != null)
             {
+                // Phase F: iterate per-recording inside each tree instead of summing
+                // a tree-level delta. Each recording's CommittedFundsCost (etc.)
+                // captures its share of the tree's resource impact.
                 for (int i = 0; i < trees.Count; i++)
                 {
-                    result.reservedFunds += TreeCommittedFundsCost(trees[i]);
-                    result.reservedScience += TreeCommittedScienceCost(trees[i]);
-                    result.reservedReputation += TreeCommittedReputationCost(trees[i]);
+                    var tree = trees[i];
+                    if (tree == null) continue;
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        result.reservedFunds += CommittedFundsCost(rec);
+                        result.reservedScience += CommittedScienceCost(rec);
+                        result.reservedReputation += CommittedReputationCost(rec);
+                    }
                 }
             }
 
@@ -237,35 +239,8 @@ namespace Parsek
             return result;
         }
 
-        // --- Standalone resource delta computation ---
-
-        /// <summary>
-        /// Computes resource deltas between two trajectory point indices.
-        /// Pure function — no KSP API calls, no side effects.
-        /// Caller must ensure points.Count >= 2 (existing guard in TickStandaloneResourceDeltas).
-        /// </summary>
-        internal static ResourceDelta ComputeStandaloneDelta(
-            List<TrajectoryPoint> points, int lastAppliedIndex, double currentUT)
-        {
-            int targetIndex = GhostPlaybackLogic.ComputeTargetResourceIndex(
-                points, lastAppliedIndex, currentUT);
-
-            if (targetIndex <= lastAppliedIndex)
-                return new ResourceDelta { targetIndex = lastAppliedIndex };
-
-            int startIdx = Math.Max(lastAppliedIndex, 0);
-            TrajectoryPoint fromPoint = points[startIdx];
-            TrajectoryPoint toPoint = points[targetIndex];
-
-            return new ResourceDelta
-            {
-                funds = toPoint.funds - fromPoint.funds,
-                science = toPoint.science - fromPoint.science,
-                reputation = toPoint.reputation - fromPoint.reputation,
-                targetIndex = targetIndex,
-                hasChange = true
-            };
-        }
+        // Phase F: ComputeStandaloneDelta + ResourceDelta struct removed
+        // alongside ApplyResourceDeltas in ParsekFlight (no remaining callers).
 
         // --- Full cost helpers (ignore application state) ---
 
@@ -287,23 +262,9 @@ namespace Parsek
             return rec.PreLaunchReputation - rec.Points[rec.Points.Count - 1].reputation;
         }
 
-        internal static double FullTreeCommittedFundsCost(RecordingTree tree)
-        {
-            if (tree == null) return 0;
-            return -tree.DeltaFunds;
-        }
-
-        internal static double FullTreeCommittedScienceCost(RecordingTree tree)
-        {
-            if (tree == null) return 0;
-            return -tree.DeltaScience;
-        }
-
-        internal static double FullTreeCommittedReputationCost(RecordingTree tree)
-        {
-            if (tree == null) return 0;
-            return -(double)tree.DeltaReputation;
-        }
+        // Phase F: FullTreeCommittedFundsCost / Science / Reputation removed.
+        // Tree-level lump-sum delta is gone; ComputeTotalFullCost iterates per
+        // recording inside each tree using FullCommittedFundsCost (etc.) directly.
 
         internal static double FullMilestoneCommittedFunds(Milestone m)
         {
@@ -361,7 +322,13 @@ namespace Parsek
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    if (!recordings[i].ManagesOwnResources) continue;
+                    // Phase F round 2: skip tree-child recordings in the flat-list
+                    // loop to avoid double-counting when the caller passes both
+                    // CommittedRecordings (which includes tree children per
+                    // FinalizeTreeCommit) and CommittedTrees. Mirrors the skip in
+                    // ComputeTotal above.
+                    if (recordings[i] != null && recordings[i].TreeId != null)
+                        continue;
                     result.reservedFunds += FullCommittedFundsCost(recordings[i]);
                     result.reservedScience += FullCommittedScienceCost(recordings[i]);
                     result.reservedReputation += FullCommittedReputationCost(recordings[i]);
@@ -370,11 +337,17 @@ namespace Parsek
 
             if (trees != null)
             {
+                // Phase F: iterate per-recording inside each tree.
                 for (int i = 0; i < trees.Count; i++)
                 {
-                    result.reservedFunds += FullTreeCommittedFundsCost(trees[i]);
-                    result.reservedScience += FullTreeCommittedScienceCost(trees[i]);
-                    result.reservedReputation += FullTreeCommittedReputationCost(trees[i]);
+                    var tree = trees[i];
+                    if (tree == null) continue;
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        result.reservedFunds += FullCommittedFundsCost(rec);
+                        result.reservedScience += FullCommittedScienceCost(rec);
+                        result.reservedReputation += FullCommittedReputationCost(rec);
+                    }
                 }
             }
 

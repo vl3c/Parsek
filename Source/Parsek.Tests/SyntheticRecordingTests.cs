@@ -6263,9 +6263,8 @@ namespace Parsek.Tests
                 TreeName = "Undock Test Tree",
                 RootRecordingId = rootId,
                 ActiveRecordingId = childActiveId,
-                PreTreeFunds = 50000,
-                DeltaFunds = -5000,
-                ResourcesApplied = false
+                // Phase F: PreTreeFunds / DeltaFunds / ResourcesApplied removed —
+                // ledger drives funds/science/reputation; tree-level delta gone.
             };
 
             // Root: composite vessel on pad, runs from t0 to tSplit
@@ -6350,9 +6349,7 @@ namespace Parsek.Tests
                 TreeName = "EVA Test Tree",
                 RootRecordingId = rootId,
                 ActiveRecordingId = evaChildId,
-                PreTreeFunds = 40000,
-                DeltaFunds = -1000,
-                ResourcesApplied = false
+                // Phase F: legacy resource fields removed.
             };
 
             // Root: vessel on pad, runs from t0 to tEva
@@ -6450,9 +6447,7 @@ namespace Parsek.Tests
                 TreeName = "Destruction Test Tree",
                 RootRecordingId = rootId,
                 ActiveRecordingId = childOrbitId,
-                PreTreeFunds = 30000,
-                DeltaFunds = -8000,
-                ResourcesApplied = false
+                // Phase F: legacy resource fields removed.
             };
 
             // Root: vessel flies, splits at tSplit
