@@ -1290,11 +1290,8 @@ namespace Parsek
         private void DrawRecordingNameCell(int ri, Recording rec,
             IReadOnlyList<Recording> committed, float indentPx)
         {
-            // Indent inside Name column for grouped/chained subitems. The extra 2px
-            // nudge aligns the first character of subitem text precisely with the
-            // parent row's Name start (the parent row has no indent, subitem buttons
-            // have a slight inner offset from GUILayout.Space + button margin).
-            if (indentPx > 0f) GUILayout.Space(indentPx + 2f);
+            // Indent inside Name column for grouped/chained subitems.
+            if (indentPx > 0f) GUILayout.Space(indentPx);
             string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
             if (renamingRecordingIdx == ri)
             {
@@ -1837,7 +1834,10 @@ namespace Parsek
                 ParsekLog.Info("UI", $"{logKind} '{logId}' playback set to {blockNewEnabled} ({members.Count} recordings)");
             }
 
-            GUILayout.Space(ColW_Index);
+            // Use the same empty-label spacer as DrawGroupTree (which is also what
+            // subitem rows use) so the triangle's X position in this chain/block
+            // header matches sibling group headers and subitems in the column below.
+            GUILayout.Label("", GUILayout.Width(ColW_Index));
 
             if (indent > 0f) GUILayout.Space(indent);
 
