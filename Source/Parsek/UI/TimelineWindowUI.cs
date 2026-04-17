@@ -91,13 +91,14 @@ namespace Parsek
             }
 
             // Position to the left of main window on first open. Default width must
-            // accommodate 6 minimum-width buttons in the preset row (6 * 93 + chrome).
+            // accommodate 6 minimum-width buttons + inter-button margin budget
+            // (6*93 + 14 + chrome ≈ 594), with a little breathing room.
             if (timelineWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 610;
+                float x = mainWindowRect.x - 630;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
                 float height = Math.Max(600f, mainWindowRect.height);
-                timelineWindowRect = new Rect(x, mainWindowRect.y, 600, height);
+                timelineWindowRect = new Rect(x, mainWindowRect.y, 620, height);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
@@ -199,11 +200,13 @@ namespace Parsek
             timelineBlueStyle.normal.textColor = new Color(0.5f, 0.7f, 1f);
 
             // Toggle button: "on" state reuses the button's own rounded-corner texture
-            // but tints it darker via the on-state background color trick. margin zeroed
-            // so buttons pack tightly when laid out at computed widths (the computation
-            // assumes zero inter-cell gap so rows 1 and 2 column-align exactly).
+            // but tints it darker via the on-state background color trick. Explicit
+            // 2px horizontal margin gives adjacent buttons a small visible gap; the
+            // GetResponsiveButtonWidth math below accounts for this exact margin
+            // budget so the 5-button filter row still column-aligns with the
+            // 6-button preset row.
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
-            toggleButtonStyle.margin = new RectOffset(0, 0, 0, 0);
+            toggleButtonStyle.margin = new RectOffset(2, 2, 0, 0);
             toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
@@ -213,14 +216,20 @@ namespace Parsek
         /// <summary>
         /// Shared button width used by every button in the top filter row (5 buttons)
         /// and the time-range preset row (6 buttons). Computed each frame from the
-        /// current window width divided by 6 (the preset row's cell count) so both
-        /// rows scale uniformly and their columns column-align. Floored at
-        /// FilterButtonWidth so buttons never shrink below the minimum.
+        /// current window width so both rows scale uniformly. The margin budget
+        /// (outer+inter-cell gaps at 2px per margin.left/right) is subtracted before
+        /// dividing by 6 so the preset row fills the available span exactly AND the
+        /// filter row's FlexibleSpace expands to exactly one button-plus-gap —
+        /// guaranteeing the Recordings/Actions/Events column centers sit directly
+        /// above This Year/All/Custom in the row below. Floored at FilterButtonWidth
+        /// so buttons never shrink below the minimum legibility width.
         /// </summary>
         private float GetResponsiveButtonWidth()
         {
-            const float horizontalChromePx = 22f;  // approx left+right window padding
-            float avail = timelineWindowRect.width - horizontalChromePx;
+            const float horizontalChromePx = 22f;      // approx left+right window padding
+            // margin=(2,2,0,0): outer left (2) + 5 inter-button gaps (2 each) + outer right (2) = 14
+            const float marginBudget = 14f;
+            float avail = timelineWindowRect.width - horizontalChromePx - marginBudget;
             return Mathf.Max(FilterButtonWidth, avail / 6f);
         }
 
