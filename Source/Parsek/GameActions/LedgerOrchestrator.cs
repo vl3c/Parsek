@@ -670,7 +670,18 @@ namespace Parsek
         /// Full recalculation from ledger to engine to KSP state patch.
         /// Called on: commit, rewind, warp exit, KSP load.
         /// </summary>
-        internal static void RecalculateAndPatch()
+        /// <param name="utCutoff">
+        /// Optional UT cutoff forwarded to <see cref="RecalculationEngine.Recalculate"/>.
+        /// When non-null, actions with <c>UT &gt; utCutoff</c> are excluded from the walk
+        /// (seed actions always survive). Callers that are not rewind-driven pass no
+        /// argument and get <c>null</c> — the default walk-everything behavior. The
+        /// rewind paths (<c>HandleRewindOnLoad</c> + <c>ApplyRewindResourceAdjustment</c>)
+        /// pass the adjusted rewind UT explicitly; <c>RecalculateAndPatch</c> never
+        /// consults <see cref="RewindContext"/> itself, so callers must supply the
+        /// cutoff at the call site before <see cref="RewindContext.EndRewind"/> clears
+        /// the global.
+        /// </param>
+        internal static void RecalculateAndPatch(double? utCutoff = null)
         {
             Initialize();
 
@@ -722,7 +733,30 @@ namespace Parsek
             PurgeGhostOnlyActionsFromLedger();
 
             var actions = new List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actions);
+
+            // Count how many actions survive the cutoff filter for the log summary.
+            // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
+            int actionsAfterCutoff = actions.Count;
+            if (utCutoff.HasValue)
+            {
+                double cutoff = utCutoff.Value;
+                actionsAfterCutoff = 0;
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null) continue;
+                    if (RecalculationEngine.IsSeedType(a.Type) || a.UT <= cutoff)
+                        actionsAfterCutoff++;
+                }
+            }
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
+                : "null";
+            ParsekLog.Info(Tag,
+                $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
+                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+
+            RecalculationEngine.Recalculate(actions, utCutoff);
 
             // KSP state mutations (PostWalk already called by engine)
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);

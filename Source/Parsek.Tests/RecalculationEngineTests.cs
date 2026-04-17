@@ -594,7 +594,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") &&
                 l.Contains("Recalculate complete") &&
-                l.Contains("actions=2"));
+                l.Contains("actionsTotal=2"));
         }
 
         [Fact]

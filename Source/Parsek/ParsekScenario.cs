@@ -1482,8 +1482,14 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
-            // Re-reserve crew from all recording snapshots
-            LedgerOrchestrator.RecalculateAndPatch();
+            // Re-reserve crew from all recording snapshots.
+            // Pass the adjusted rewind UT explicitly so the walk drops any ledger
+            // actions with UT > adjusted (e.g., milestones achieved after the rewind
+            // target). RewindContext.RewindAdjustedUT is still populated at this point;
+            // EndRewind() below clears it. The deferred coroutine captures the same
+            // value into a local BEFORE its yield so its second call is independent
+            // of RewindContext state.
+            LedgerOrchestrator.RecalculateAndPatch(RewindContext.RewindAdjustedUT);
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
             ParsekLog.Info("Rewind",
@@ -2499,7 +2505,11 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
-            LedgerOrchestrator.RecalculateAndPatch();
+            // Pass the adjusted UT captured BEFORE `yield return null` above.
+            // RewindContext.EndRewind() has already cleared the global by the time
+            // this coroutine resumes, so we cannot read from RewindContext here —
+            // the synchronous HandleRewindOnLoad call already ran and cleared state.
+            LedgerOrchestrator.RecalculateAndPatch(adjustedUT);
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;

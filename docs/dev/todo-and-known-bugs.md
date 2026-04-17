@@ -112,6 +112,18 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
+## ~~436. Post-rewind T0 re-credits milestones (and other post-rewind actions) that the player rewound past~~
+
+**Source:** Phase D of `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`. `HandleRewindOnLoad` (`ParsekScenario.cs:1486`) calls `LedgerOrchestrator.RecalculateAndPatch()` synchronously at the end of a rewind, and the deferred coroutine `ApplyRewindResourceAdjustment` (`ParsekScenario.cs:2502`) calls it again a frame later. Neither call supplied a UT cutoff, so `MilestonesModule.ProcessAction` walked every `MilestoneAchievement` action in the ledger regardless of whether its UT was before or after the rewind target. `FirstLaunch +800` (and any other milestone/contract/earning that fired after the rewind UT) re-credited the player at post-rewind T0, producing the stock/Parsek funds mismatch that `KspStatePatcher.PatchFunds` then logged as "suspicious drawdown delta=…" on the next reconcile.
+
+Two-call complication: v2 of the plan tried to read `RewindContext.RewindAdjustedUT` from inside `RecalculateAndPatch`, but `RewindContext.EndRewind()` runs at `ParsekScenario.cs:1492` (between the two calls) and clears the global. The second call would see `0.0` and filter out everything.
+
+**Fix:** `RecalculateAndPatch` now accepts an explicit `double? utCutoff = null` parameter and passes it through to `RecalculationEngine.Recalculate`. When non-null, the engine drops actions whose `UT > utCutoff` from both the pre-pass (`ComputeTotalSpendings`) and the dispatch walk; seed actions (`FundsInitial` / `ScienceInitial` / `ReputationInitial`) are always kept. The rewind caller in `HandleRewindOnLoad` passes `RewindContext.RewindAdjustedUT` directly (still populated at that point). The deferred coroutine captures `adjustedUT` into a local BEFORE its `yield return null` and passes the local — so the second call is independent of `RewindContext` state that `EndRewind` has since cleared. Non-rewind callers (`OnRecordingCommitted`, `OnKspLoad`, `OnKscSpending`, etc.) use the default (`null` → no filtering). A log line on every invocation records `actionsTotal`, `actionsAfterCutoff`, and the cutoff value so silent-cutoff regressions are visible.
+
+**Status:** ~~DONE~~ via the `fix/rewind-ut-cutoff-explicit-param` branch. Unit tests in `Source/Parsek.Tests/RewindUtCutoffTests.cs` cover every action type's cutoff behavior, the null / 0.0 / negative / past-all edge cases, seed-always-survives, the two-pass no-globals regression, mixed earning/spending filtering, and log-content assertions.
+
+---
+
 ## ~~434. Revert to Launch should auto-discard, not open the merge dialog~~
 
 **Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.

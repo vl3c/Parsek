@@ -133,7 +133,15 @@ namespace Parsek
         ///   3. Walk sorted actions, dispatching each to all tiers
         ///   4. Log summary
         /// </summary>
-        internal static void Recalculate(List<GameAction> actions)
+        /// <param name="actions">All game actions to consider. The list is not mutated.</param>
+        /// <param name="utCutoff">
+        /// Optional UT cutoff. When non-null, only actions with <c>UT &lt;= utCutoff</c> are
+        /// fed to the pre-pass and dispatch walk. Seed actions (FundsInitial / ScienceInitial /
+        /// ReputationInitial) are always included regardless of cutoff — they are the baseline
+        /// by definition. Used by the rewind path to prevent post-rewind re-credit of events
+        /// that occurred after the rewind target. When null, no filtering is applied.
+        /// </param>
+        internal static void Recalculate(List<GameAction> actions, double? utCutoff = null)
         {
             if (actions == null)
             {
@@ -141,8 +149,32 @@ namespace Parsek
                 return;
             }
 
+            // UT-cutoff filter (Phase D): drop actions whose UT strictly exceeds the cutoff.
+            // Seed actions always survive because they define the session baseline. When no
+            // cutoff is supplied we reuse the caller's list directly to avoid an allocation.
+            int filteredOut = 0;
+            List<GameAction> effective;
+            if (utCutoff.HasValue)
+            {
+                double cutoff = utCutoff.Value;
+                effective = new List<GameAction>(actions.Count);
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null) continue;
+                    if (IsSeedType(a.Type) || a.UT <= cutoff)
+                        effective.Add(a);
+                    else
+                        filteredOut++;
+                }
+            }
+            else
+            {
+                effective = actions;
+            }
+
             // 1. Sort — stable sort preserving insertion order for equal keys
-            var sorted = SortActions(actions);
+            var sorted = SortActions(effective);
 
             // 2. Reset all modules
             ResetAllModules();
@@ -217,12 +249,29 @@ namespace Parsek
             PostWalkAllModules();
 
             // 5. Log summary
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                : "null";
             ParsekLog.Info("RecalcEngine",
-                $"Recalculate complete: actions={sorted.Count}, " +
+                $"Recalculate complete: actionsTotal={actions.Count}, " +
+                $"actionsAfterCutoff={effective.Count}, cutoffUT={cutoffLabel}, " +
+                $"filteredOut={filteredOut}, walkedSorted={sorted.Count}, " +
                 $"firstTier={firstTierModules.Count} modules ({firstTierDispatches} dispatches), " +
                 $"strategy={strategyDispatches} dispatches, " +
                 $"secondTier={secondTierModules.Count} modules ({secondTierDispatches} dispatches), " +
                 $"facilities={facilitiesDispatches} dispatches");
+        }
+
+        /// <summary>
+        /// Returns true if the action type is a session-baseline seed (FundsInitial,
+        /// ScienceInitial, ReputationInitial). Seeds are always included in recalculation
+        /// regardless of any UT cutoff — they define the starting balance for the walk.
+        /// </summary>
+        internal static bool IsSeedType(GameActionType type)
+        {
+            return type == GameActionType.FundsInitial
+                || type == GameActionType.ScienceInitial
+                || type == GameActionType.ReputationInitial;
         }
 
         // ================================================================
