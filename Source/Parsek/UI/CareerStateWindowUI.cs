@@ -961,7 +961,7 @@ namespace Parsek
                 "ParsekCareerState".GetHashCode(),
                 careerStateWindowRect,
                 DrawCareerStateWindow,
-                "Parsek \u2014 Career State",
+                "Parsek - Career State",
                 opaqueWindowStyle,
                 GUILayout.Width(careerStateWindowRect.width),
                 GUILayout.Height(careerStateWindowRect.height)
@@ -1052,7 +1052,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("UI",
                     "CareerStateWindow: HighLogic.CurrentGame is null; rendering fallback");
-                GUILayout.Label("Career state unavailable \u2014 game not loaded", bannerStyle);
+                GUILayout.Label("Career state unavailable - game not loaded", bannerStyle);
                 if (GUILayout.Button("Close"))
                 {
                     IsOpen = false;
@@ -1127,7 +1127,7 @@ namespace Parsek
             string line;
             if (vm.Mode == Game.Modes.CAREER)
             {
-                line = $"Career mode \u2014 UT {vm.LiveUT.ToString("F0", ic)}";
+                line = $"Career mode - UT {vm.LiveUT.ToString("F0", ic)}";
                 if (vm.HasDivergence)
                 {
                     double ahead = vm.TerminalUT - vm.LiveUT;
@@ -1137,12 +1137,12 @@ namespace Parsek
             }
             else if (vm.Mode == Game.Modes.SCIENCE_SANDBOX)
             {
-                line = "Science mode \u2014 contracts and strategies unavailable";
+                line = "Science mode - contracts and strategies unavailable";
             }
             else
             {
                 // SANDBOX, MISSION_BUILDER, MISSION: all treated as sandbox-equivalent.
-                line = "Sandbox mode \u2014 career state is not tracked";
+                line = "Sandbox mode - career state is not tracked";
             }
             GUILayout.Label(line, bannerStyle);
         }
@@ -1166,7 +1166,7 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             GUILayout.Label(
-                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} \u2014 slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
+                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
                 sectionHeaderStyle);
 
             bool sameAsProjected = RowsEqual(tab.CurrentRows, tab.ProjectedRows);
@@ -1260,7 +1260,7 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             GUILayout.Label(
-                $"Administration L{tab.AdminLevel.ToString(ic)} \u2014 slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
+                $"Administration L{tab.AdminLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
                 sectionHeaderStyle);
 
             bool sameAsProjected = StrategyRowsEqual(tab.CurrentRows, tab.ProjectedRows);

@@ -68,7 +68,7 @@ namespace Parsek
                 "ParsekSettings".GetHashCode(),
                 settingsWindowRect,
                 DrawSettingsWindow,
-                "Parsek \u2014 Settings",
+                "Parsek - Settings",
                 opaqueWindowStyle,
                 GUILayout.Width(280)
             );

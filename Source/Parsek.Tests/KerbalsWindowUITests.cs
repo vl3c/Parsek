@@ -362,7 +362,7 @@ namespace Parsek.Tests
                     OwnerReservedUntilUT = 18230.0
                 };
                 Assert.Equal(
-                    "Jebediah Kerman [Pilot] \u2014 reserved until UT 18230",
+                    "Jebediah Kerman [Pilot] - reserved until UT 18230",
                     KerbalsWindowUI.FormatOwnerHeader(entry));
             }
             finally
@@ -381,7 +381,7 @@ namespace Parsek.Tests
                 OwnerPermanentlyGone = true
             };
             Assert.Equal(
-                "Valentina Kerman [Pilot] \u2014 deceased",
+                "Valentina Kerman [Pilot] - deceased",
                 KerbalsWindowUI.FormatOwnerHeader(entry));
         }
 
@@ -395,7 +395,7 @@ namespace Parsek.Tests
                 OwnerReserved = false
             };
             Assert.Equal(
-                "Bob Kerman [Engineer] \u2014 active",
+                "Bob Kerman [Engineer] - active",
                 KerbalsWindowUI.FormatOwnerHeader(entry));
         }
 
@@ -412,7 +412,7 @@ namespace Parsek.Tests
                 OwnerReservedUntilUT = double.PositiveInfinity
             };
             Assert.Equal(
-                "Jebediah Kerman [Pilot] \u2014 reserved",
+                "Jebediah Kerman [Pilot] - reserved",
                 KerbalsWindowUI.FormatOwnerHeader(entry));
         }
 
@@ -594,7 +594,7 @@ namespace Parsek.Tests
                 EndState = KerbalEndState.Recovered
             };
             Assert.Equal(
-                "Mun Hopper \u2014 Recovered at UT 12045",
+                "Mun Hopper - Recovered at UT 12045",
                 KerbalsWindowUI.FormatEndStateRow(entry));
 
             var unnamed = new KerbalsWindowUI.CrewEndStateEntry
@@ -605,7 +605,7 @@ namespace Parsek.Tests
                 EndState = KerbalEndState.Dead
             };
             Assert.Equal(
-                "(unnamed) \u2014 Dead at UT 50",
+                "(unnamed) - Dead at UT 50",
                 KerbalsWindowUI.FormatEndStateRow(unnamed));
         }
 
@@ -637,7 +637,7 @@ namespace Parsek.Tests
             string result = KerbalsWindowUI.FormatKerbalSummary(
                 "Bill Kerman", entries, 0, entries.Count);
 
-            Assert.Equal("Bill Kerman (1 mission \u2014 1 Recovered)", result);
+            Assert.Equal("Bill Kerman (1 mission - 1 Recovered)", result);
         }
 
         [Fact]
@@ -655,7 +655,7 @@ namespace Parsek.Tests
                 "Jebediah Kerman", entries, 0, entries.Count);
 
             Assert.Equal(
-                "Jebediah Kerman (4 missions \u2014 1 Dead, 2 Recovered, 1 Aboard)",
+                "Jebediah Kerman (4 missions - 1 Dead, 2 Recovered, 1 Aboard)",
                 result);
         }
 
@@ -672,7 +672,7 @@ namespace Parsek.Tests
             string result = KerbalsWindowUI.FormatKerbalSummary(
                 "Bill Kerman", entries, 0, entries.Count);
 
-            Assert.Equal("Bill Kerman (3 missions \u2014 3 Dead)", result);
+            Assert.Equal("Bill Kerman (3 missions - 3 Dead)", result);
             Assert.DoesNotContain("Recovered", result);
             Assert.DoesNotContain("Aboard", result);
             Assert.DoesNotContain("Unknown", result);
@@ -691,7 +691,7 @@ namespace Parsek.Tests
                 "Hanley Kerman", entries, 0, entries.Count);
 
             Assert.Equal(
-                "Hanley Kerman (2 missions \u2014 1 Aboard, 1 Unknown)",
+                "Hanley Kerman (2 missions - 1 Aboard, 1 Unknown)",
                 result);
         }
 
@@ -715,7 +715,7 @@ namespace Parsek.Tests
                 "Bill Kerman", entries, 2, 5);
 
             Assert.Equal(
-                "Bill Kerman (3 missions \u2014 1 Dead, 2 Recovered)",
+                "Bill Kerman (3 missions - 1 Dead, 2 Recovered)",
                 result);
         }
 

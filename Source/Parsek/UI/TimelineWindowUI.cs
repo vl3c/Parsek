@@ -106,7 +106,7 @@ namespace Parsek
                 "ParsekTimeline".GetHashCode(),
                 timelineWindowRect,
                 DrawTimelineWindow,
-                "Parsek \u2014 Timeline",
+                "Parsek - Timeline",
                 opaqueWindowStyle,
                 GUILayout.Width(timelineWindowRect.width),
                 GUILayout.Height(timelineWindowRect.height)
@@ -475,7 +475,7 @@ namespace Parsek
                 sliderMax = (float)clampedMax;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
-                    $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} — " +
+                    $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} - " +
                     $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
             }
         }

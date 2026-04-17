@@ -91,7 +91,7 @@ namespace Parsek
                 "ParsekSpawnControl".GetHashCode(),
                 spawnControlWindowRect,
                 (id) => DrawSpawnControlWindow(id, flight),
-                "Parsek \u2014 Real Spawn Control",
+                "Parsek - Real Spawn Control",
                 opaqueWindowStyle,
                 GUILayout.Width(spawnControlWindowRect.width),
                 GUILayout.Height(spawnControlWindowRect.height)

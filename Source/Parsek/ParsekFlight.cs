@@ -1391,7 +1391,7 @@ namespace Parsek
                 string reason = IsTreePadFailure(activeTree) ? "pad failure" : "idle on pad";
                 ParsekLog.Info("Flight",
                     $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
-                ScreenMessage($"Recording discarded — {reason}", 3f);
+                ScreenMessage($"Recording discarded - {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
                 Patches.FlightResultsPatch.CancelDeferredMerge(
                     $"tree destruction auto-discarded ({reason})");
@@ -4948,7 +4948,7 @@ namespace Parsek
                 pendingBoardingTargetPid = 0;
                 boardingConfirmFrames = 0;
                 Log("ChainToVessel without active chain or boarding confirmation \u2014 treating as normal stop");
-                ParsekLog.ScreenMessage("Recording stopped \u2014 vessel changed", 3f);
+                ParsekLog.ScreenMessage("Recording stopped - vessel changed", 3f);
                 // Leave CaptureAtStop intact for normal revert/merge handling
             }
         }
@@ -5311,7 +5311,7 @@ namespace Parsek
                 else
                 {
                     Log("Auto-record started (EVA from pad)");
-                    ScreenMessage("Recording STARTED (auto \u2014 EVA from pad)", 2f);
+                    ScreenMessage("Recording STARTED (auto - EVA from pad)", 2f);
                 }
             }
             // else: StartRecording failed (paused game or no active vessel).
@@ -7543,7 +7543,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Flight", $"{logTag}: not enough points (< 2)");
                 gloopsRecorder = null;
-                ParsekLog.ScreenMessage("Gloops recording too short — discarded", 2f);
+                ParsekLog.ScreenMessage("Gloops recording too short - discarded", 2f);
                 return;
             }
 

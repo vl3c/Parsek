@@ -142,7 +142,7 @@ namespace Parsek
                 "ParsekKerbals".GetHashCode(),
                 kerbalsWindowRect,
                 DrawKerbalsWindow,
-                "Parsek \u2014 Kerbals",
+                "Parsek - Kerbals",
                 opaqueWindowStyle,
                 GUILayout.Width(kerbalsWindowRect.width),
                 GUILayout.Height(kerbalsWindowRect.height)
@@ -391,7 +391,7 @@ namespace Parsek
             {
                 status = "active";
             }
-            return $"{entry.OwnerName} [{entry.OwnerTrait}] \u2014 {status}";
+            return $"{entry.OwnerName} [{entry.OwnerTrait}] - {status}";
         }
 
         internal static string FormatChainMember(ChainMember m)
@@ -516,7 +516,7 @@ namespace Parsek
             if (aboard > 0) parts.Add($"{aboard} Aboard");
             if (unknown > 0) parts.Add($"{unknown} Unknown");
             string missionLabel = total == 1 ? "1 mission" : $"{total} missions";
-            return $"{kerbalName} ({missionLabel} \u2014 {string.Join(", ", parts)})";
+            return $"{kerbalName} ({missionLabel} - {string.Join(", ", parts)})";
         }
 
         private GUIStyle StyleForEndState(KerbalEndState s)
@@ -534,7 +534,7 @@ namespace Parsek
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             string rec = string.IsNullOrEmpty(e.RecordingName) ? "(unnamed)" : e.RecordingName;
-            return $"{rec} \u2014 {FormatEndState(e.EndState)} at UT {e.EndUT.ToString("F0", ic)}";
+            return $"{rec} - {FormatEndState(e.EndState)} at UT {e.EndUT.ToString("F0", ic)}";
         }
 
         internal static string FormatEndState(KerbalEndState s)

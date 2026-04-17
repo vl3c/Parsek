@@ -15,7 +15,7 @@ namespace Parsek
                 message += "\n\n" + resourceDetail;
 
             ParsekLog.Info("CommittedAction",
-                $"Blocked action: {actionDescription} — {reason}" +
+                $"Blocked action: {actionDescription} - {reason}" +
                 (!string.IsNullOrEmpty(resourceDetail) ? $" ({resourceDetail})" : ""));
 
             PopupDialog.SpawnPopupDialog(
@@ -24,7 +24,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekResourceBlock",
                     message,
-                    "Parsek \u2014 Action Blocked",
+                    "Parsek - Action Blocked",
                     HighLogic.UISkin,
                     new[] { new DialogGUIButton("OK", () => { }) }
                 ),

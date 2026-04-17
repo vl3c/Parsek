@@ -2269,7 +2269,7 @@ namespace Parsek
             {
                 ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
                 RecordingStore.DiscardPendingTree();
-                ScreenMessages.PostScreenMessage("Recording discarded — vessel idle on pad", 4f);
+                ScreenMessages.PostScreenMessage("Recording discarded - vessel idle on pad", 4f);
                 mergeDialogPending = false;
                 yield break;
             }

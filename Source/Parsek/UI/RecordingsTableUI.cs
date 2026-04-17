@@ -307,7 +307,7 @@ namespace Parsek
                 "ParsekRecordings".GetHashCode(),
                 recordingsWindowRect,
                 DrawRecordingsWindow,
-                "Parsek \u2014 Recordings",
+                "Parsek - Recordings",
                 opaqueWindowStyle,
                 GUILayout.Width(recordingsWindowRect.width),
                 GUILayout.Height(recordingsWindowRect.height)
@@ -519,7 +519,7 @@ namespace Parsek
             if (isDebris)
                 return "Debris is not watchable";
             if (!hasGhost)
-                return "No active ghost — recording is in the past/future or has no trajectory points";
+                return "No active ghost - recording is in the past/future or has no trajectory points";
             if (!sameBody)
                 return "Ghost is on a different body";
             if (!inRange)

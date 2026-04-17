@@ -172,7 +172,7 @@ namespace Parsek
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "No vessel";
                 GUILayout.Label($"Vessel: {vesselName}");
-                GUILayout.Label("Ghost-only \u2014 loops by default");
+                GUILayout.Label("Ghost-only - loops by default");
 
                 GUILayout.Space(6f);
 
