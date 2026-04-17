@@ -287,13 +287,31 @@ namespace Parsek
                 var traj = trajectories[i];
                 var f = flags[i];
 
-                // Disabled/suppressed: destroy any active ghost before skipping
+                // Disabled/suppressed: destroy any active ghost before skipping.
+                // Bug #433: only the PlaybackEnabled=false cause is career-neutral, so
+                // only that cause must still fire PlaybackCompleted at past-end — the
+                // policy reads the event to spawn the persistent vessel, which must
+                // happen regardless of the visual toggle. !hasData and
+                // externalVesselSuppressed are structural (no valid trajectory / no
+                // spawn path) and keep their silent-skip behaviour.
                 if (f.skipGhost)
                 {
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "disabled/suppressed");
+                    }
+
+                    if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                            traj, f, ctx.currentUT,
+                            completedEventFired.Contains(i),
+                            earlyDestroyedDebrisCompleted.Contains(i)))
+                    {
+                        bool skipHasPointData = traj.Points != null && traj.Points.Count > 0;
+                        ParsekLog.Verbose("Engine",
+                            $"Disabled past-end completion: #{i} \"{traj.VesselName}\" " +
+                            $"UT={ctx.currentUT:F2} endUT={traj.EndUT:F2} ghostActive=false");
+                        HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false, skipHasPointData);
                     }
                     continue;
                 }

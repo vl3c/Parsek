@@ -8726,15 +8726,14 @@ namespace Parsek
                 bool hasData = GhostPlaybackEngine.HasRenderableGhostData(rec);
 
                 bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
-                bool chainLoopOrDisabled = rec.IsChainRecording &&
-                    (RecordingStore.IsChainLooping(rec.ChainId)
-                     || RecordingStore.IsChainFullyDisabled(rec.ChainId));
+                bool chainLooping = rec.IsChainRecording &&
+                    RecordingStore.IsChainLooping(rec.ChainId);
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChain, chainLoopOrDisabled);
+                    rec, isActiveChain, chainLooping);
 
                 var chainSuppressed = activeGhostChains != null
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
@@ -8757,7 +8756,7 @@ namespace Parsek
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
                     isActiveChainMember = isActiveChain,
-                    isChainLoopingOrDisabled = chainLoopOrDisabled,
+                    isChainLooping = chainLooping,
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
@@ -11198,12 +11197,11 @@ namespace Parsek
 
                 // Check spawn eligibility
                 bool isActiveChainMember = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
-                bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
-                    (RecordingStore.IsChainLooping(rec.ChainId) ||
-                     RecordingStore.IsChainFullyDisabled(rec.ChainId));
+                bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId) &&
+                    RecordingStore.IsChainLooping(rec.ChainId);
 
                 var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChainMember, isChainLoopingOrDisabled);
+                    rec, isActiveChainMember, isChainLooping);
                 if (!needsSpawn)
                     continue;
 

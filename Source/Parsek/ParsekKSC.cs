@@ -155,19 +155,44 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (!ShouldShowInKSC(rec))
+
+                // Structural reject (non-Kerbin, too-short trajectory): no KSC render path
+                // and no KSC spawn path. Clean up any leftover ghosts and skip silently.
+                if (!IsKscStructurallyEligible(rec))
                 {
-                    // Recording no longer eligible (disabled, wrong body, etc.)
-                    // — clean up any active ghosts so they don't linger in the scene.
                     if (kscGhosts.ContainsKey(i))
                     {
                         ParsekLog.Verbose("KSCGhost",
-                            $"Ghost #{i} \"{rec.VesselName}\" no longer eligible — destroying");
+                            $"Ghost #{i} \"{rec.VesselName}\" not structurally eligible — destroying");
                         DestroyKscGhost(kscGhosts[i], i);
                         kscGhosts.Remove(i);
                         loggedGhostSpawn.Remove(i);
                     }
                     DestroyAllKscOverlapGhosts(i);
+                    continue;
+                }
+
+                // Visibility-only reject (PlaybackEnabled=false): ghost must not render,
+                // but the recording's career effect still applies — so once past-end,
+                // drive the same persistent-vessel spawn path the visible branch would.
+                // Bug #433.
+                if (!rec.PlaybackEnabled)
+                {
+                    if (kscGhosts.ContainsKey(i))
+                    {
+                        ParsekLog.Verbose("KSCGhost",
+                            $"Ghost #{i} \"{rec.VesselName}\" playback disabled — destroying visual");
+                        DestroyKscGhost(kscGhosts[i], i);
+                        kscGhosts.Remove(i);
+                        loggedGhostSpawn.Remove(i);
+                    }
+                    DestroyAllKscOverlapGhosts(i);
+                    if (currentUT > rec.EndUT)
+                    {
+                        ParsekLog.Verbose("KSCSpawn",
+                            $"Playback-disabled past-end: attempting spawn for #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                        TrySpawnAtRecordingEnd(i, rec);
+                    }
                     continue;
                 }
 
@@ -488,15 +513,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Filter recordings for KSC ghost display.
+        /// Structural KSC eligibility: the recording describes something that can be
+        /// rendered as a KSC ghost at all (Kerbin body, non-trivial trajectory).
+        /// Does not consider the user-facing PlaybackEnabled visibility toggle — that
+        /// lives in <see cref="ShouldShowInKSC"/>. Bug #433: separating the two lets
+        /// the Update loop still fire past-end spawns for visibility-hidden recordings
+        /// without starting spawns for non-Kerbin or too-short ones.
         /// </summary>
-        internal static bool ShouldShowInKSC(Recording rec)
+        internal static bool IsKscStructurallyEligible(Recording rec)
         {
-            if (!rec.PlaybackEnabled) return false;
             if (rec.Points == null || rec.Points.Count < 2) return false;
             // Only Kerbin recordings (KSC is on Kerbin)
             if (rec.Points[0].bodyName != "Kerbin") return false;
             return true;
+        }
+
+        /// <summary>
+        /// Filter recordings for KSC ghost display. Combines structural eligibility
+        /// with the user's visibility toggle.
+        /// </summary>
+        internal static bool ShouldShowInKSC(Recording rec)
+        {
+            return IsKscStructurallyEligible(rec) && rec.PlaybackEnabled;
         }
 
         /// <summary>

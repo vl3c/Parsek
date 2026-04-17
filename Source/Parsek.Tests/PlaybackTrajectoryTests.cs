@@ -466,7 +466,7 @@ namespace Parsek.Tests
             Assert.Equal(0.0, flags.chainEndUT);
             Assert.False(flags.needsSpawn);
             Assert.False(flags.isActiveChainMember);
-            Assert.False(flags.isChainLoopingOrDisabled);
+            Assert.False(flags.isChainLooping);
             Assert.Null(flags.segmentLabel);
             Assert.Null(flags.recordingId);
             Assert.Equal(0u, flags.vesselPersistentId);
@@ -482,7 +482,7 @@ namespace Parsek.Tests
                 chainEndUT = 500.0,
                 needsSpawn = true,
                 isActiveChainMember = true,
-                isChainLoopingOrDisabled = true,
+                isChainLooping = true,
                 segmentLabel = "Ascent [Kerbin]",
                 recordingId = "abc123",
                 vesselPersistentId = 42
@@ -492,7 +492,7 @@ namespace Parsek.Tests
             Assert.Equal(500.0, flags.chainEndUT, 6);
             Assert.True(flags.needsSpawn);
             Assert.True(flags.isActiveChainMember);
-            Assert.True(flags.isChainLoopingOrDisabled);
+            Assert.True(flags.isChainLooping);
             Assert.Equal("Ascent [Kerbin]", flags.segmentLabel);
             Assert.Equal("abc123", flags.recordingId);
             Assert.Equal(42u, flags.vesselPersistentId);

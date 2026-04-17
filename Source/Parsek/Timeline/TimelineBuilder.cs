@@ -65,7 +65,6 @@ namespace Parsek
             int chainChildSkipped = 0;
             int destroyedSkipped = 0;
             int midChainSkipped = 0;
-            int disabledSkipped = 0;
 
             for (int i = 0; i < recordings.Count; i++)
             {
@@ -132,16 +131,17 @@ namespace Parsek
                 }
 
                 // VesselSpawn at EndUT — vessel materializes after ghost playback.
-                // Skip: disabled playback, mid-chain segments, destroyed terminals (can't spawn
-                // a destroyed vessel), mid-tree segments with a same-PID continuation (#227),
-                // and tree children that aren't the effective vessel leaf.
+                // Skip: mid-chain segments, destroyed terminals (can't spawn a destroyed
+                // vessel), mid-tree segments with a same-PID continuation (#227), and
+                // tree children that aren't the effective vessel leaf.
+                // Bug #433: do NOT gate on rec.PlaybackEnabled. The visibility toggle
+                // is visual-only; the vessel still spawns at ghost-end in-world, so
+                // the timeline must still show it.
                 bool suppressTreeSpawn = hasSamePidContinuation || (isTreeChild && !isTreeLeaf);
-                if (!rec.PlaybackEnabled) disabledSkipped++;
-                else if (isMidChain) midChainSkipped++;
+                if (isMidChain) midChainSkipped++;
                 else if (isDestroyedTerminal) destroyedSkipped++;
 
-                if (rec.PlaybackEnabled && !isMidChain
-                    && !isDestroyedTerminal && !suppressTreeSpawn)
+                if (!isMidChain && !isDestroyedTerminal && !suppressTreeSpawn)
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
                     string displayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody, rec.SegmentBodyName, rec.EndBiome);
@@ -198,7 +198,7 @@ namespace Parsek
                 $"Recording collector: {count} entries from {recordings.Count} recordings " +
                 $"(hidden={hiddenSkipped} debris={debrisSkipped} treeChild={treeChildSkipped} " +
                 $"chainChild={chainChildSkipped} destroyed={destroyedSkipped} " +
-                $"midChain={midChainSkipped} disabled={disabledSkipped} crewDeath={crewDeathCount})");
+                $"midChain={midChainSkipped} crewDeath={crewDeathCount})");
 
             return count;
         }

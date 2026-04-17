@@ -45,6 +45,8 @@ The Gloops window (opened from the "Gloops Flight Recorder" button in the main P
 
 Gloops recording auto-stops if the active vessel changes. Ghost-only recordings get an **X** button in the Recordings Manager's Group column for quick deletion.
 
+Gloops recordings are purely visual. They never charge funds for the vessel you captured, never reserve the kerbals aboard for the loop duration, never complete contracts, and never credit science or milestones — those stay with your normal mission recording (if any) or your between-mission career state.
+
 ### Merge Dialog
 
 After reverting (or aborting a mission to the Space Center with a recording pending), a dialog appears with context-aware options:
@@ -106,7 +108,7 @@ Click the "Recordings" button in the main Parsek window to open the Recordings M
 
 Columns:
 
-- **Playback enable** - per-row checkbox; when unchecked, the ghost is skipped entirely. The header checkbox toggles all rows at once.
+- **Playback enable** - per-row checkbox; when unchecked, the ghost is hidden during playback. Visual-only: the recording's career effects (resources, contracts, crew, and the final vessel spawn) still apply regardless. To fully exclude a recording from the career, Delete (post-commit) or Discard (pre-commit) it. The header checkbox toggles all rows at once.
 - **#** - row index.
 - **Name** - vessel name; double-click to rename.
 - **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`).

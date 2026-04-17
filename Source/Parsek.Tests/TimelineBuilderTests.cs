@@ -104,12 +104,15 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // 4. PlaybackDisabled — no VesselSpawn
+        // 4. PlaybackDisabled still emits VesselSpawn (bug #433)
         // ================================================================
 
         [Fact]
-        public void PlaybackDisabled_NoVesselSpawn()
+        public void PlaybackDisabled_StillEmitsVesselSpawn()
         {
+            // The PlaybackEnabled toggle is visual-only: the vessel still spawns
+            // in-world at ghost-end, so the career timeline must still show that
+            // materialization. Bug #433.
             var rec = MakeRecording("Ghost Ship", 100, 200, playbackEnabled: false);
             var result = TimelineBuilder.Build(
                 new List<Recording> { rec },
@@ -117,10 +120,9 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            // Only RecordingStart — no VesselSpawn since playback disabled
-            Assert.Single(result);
+            Assert.Equal(2, result.Count);
             Assert.Contains(result, e => e.Type == TimelineEntryType.RecordingStart);
-            Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.VesselSpawn);
+            Assert.Contains(result, e => e.Type == TimelineEntryType.VesselSpawn);
         }
 
         // ================================================================
