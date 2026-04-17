@@ -208,6 +208,8 @@ namespace Parsek
             double currentUT, System.Globalization.CultureInfo ic, ParsekFlight flight)
         {
             spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
+            // Dark list-area background (matches Career State / Recordings body look).
+            GUILayout.BeginVertical(GUI.skin.box);
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
@@ -278,6 +280,7 @@ namespace Parsek
                 }
                 GUILayout.EndHorizontal();
             }
+            GUILayout.EndVertical();
             GUILayout.EndScrollView();
         }
 

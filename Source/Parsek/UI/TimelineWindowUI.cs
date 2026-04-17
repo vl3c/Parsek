@@ -527,6 +527,9 @@ namespace Parsek
 
             timelineScrollPos = GUILayout.BeginScrollView(timelineScrollPos, GUILayout.ExpandHeight(true));
 
+            // Dark list-area background (matches Career State / Recordings body look).
+            GUILayout.BeginVertical(GUI.skin.box);
+
             bool dividerDrawn = false;
 
             for (int i = 0; i < cachedTimeline.Count; i++)
@@ -553,6 +556,7 @@ namespace Parsek
                 DrawNowDivider(currentUT);
             }
 
+            GUILayout.EndVertical();
             GUILayout.EndScrollView();
         }
 

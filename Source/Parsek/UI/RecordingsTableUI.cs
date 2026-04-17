@@ -783,6 +783,10 @@ namespace Parsek
 
                 DrawRecordingsTableHeader(committed);
 
+                // Wrap the row block in a dark box so the list area matches the rest
+                // of the mod (Career State / Kerbals / Spawn Control body look).
+                GUILayout.BeginVertical(GUI.skin.box);
+
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
 
@@ -916,6 +920,7 @@ namespace Parsek
                     }
                 }
 
+                GUILayout.EndVertical();
                 GUILayout.EndScrollView();
 
                 // Capture scroll view rect for tooltip visibility guard
