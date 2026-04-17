@@ -304,7 +304,16 @@ namespace Parsek
             // Flight-scene contracts flow through the normal commit-time ConvertEvents path.
             // #405: without this, accepted contracts at KSC never reached the ledger and
             // PatchContracts had no active contracts to preserve on next recalc.
-            if (!IsFlightScene())
+            // #431 gate: during FLIGHT -> SPACECENTER teardown the scene already reads
+            // SPACECENTER but ParsekFlight.Instance is still alive and Emit legitimately
+            // tagged this event with the outgoing recordingId. Re-resolve the tag here
+            // and skip the ledger write when non-empty: the tagged event is already in
+            // GameStateStore and will flow through the commit-time path (or be purged
+            // with the recording on discard). Without this gate the ledger would end up
+            // with an untagged KSC action that survives DiscardPendingTree forever.
+            // Note: `evt` is a struct local, so Emit's `.recordingId` mutation doesn't
+            // reach us — we must call ResolveCurrentRecordingTag() directly.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -335,7 +344,9 @@ namespace Parsek
 
             // #405: route to ledger immediately when at KSC (contract completions in flight
             // go through the normal commit-time ConvertEvents path).
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted — skip the ledger write when the event
+            // was tagged during FLIGHT -> SPACECENTER teardown.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -360,7 +371,8 @@ namespace Parsek
                 $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
             // #405: route to ledger immediately when at KSC.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -385,7 +397,8 @@ namespace Parsek
                 $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
             // #405: route to ledger immediately when at KSC.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -447,7 +460,8 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
 
             // Write directly to ledger when at KSC (not during flight recording)
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -479,7 +493,8 @@ namespace Parsek
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -529,7 +544,8 @@ namespace Parsek
                 $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
                 $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
 
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -877,7 +893,8 @@ namespace Parsek
 
             // Milestones can fire at KSC (e.g., facility-related) or in flight.
             // Write directly to ledger when outside flight to avoid waiting for commit.
-            if (!IsFlightScene())
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1120,7 +1137,10 @@ namespace Parsek
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
 
-                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded)
+                            // #431 gate: see OnContractAccepted — skip ledger write
+                            // when the event was tagged during FLIGHT -> SPACECENTER teardown.
+                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded
+                                && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                                 LedgerOrchestrator.OnKscSpending(evt);
                         }
                     }

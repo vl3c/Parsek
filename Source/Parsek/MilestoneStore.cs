@@ -145,6 +145,7 @@ namespace Parsek
                 return removed;
 
             int emptiedMilestones = 0;
+            int replayIdxAdjustments = 0;
             for (int i = milestones.Count - 1; i >= 0; i--)
             {
                 var m = milestones[i];
@@ -155,10 +156,24 @@ namespace Parsek
                     {
                         removed.Add(e);
                         m.Events.RemoveAt(j);
+                        // #431: mirror RemoveCommittedEvent's single-event path — if the purged
+                        // slot sat at or before the replay boundary, the next surviving event
+                        // shifts into this slot and would be wrongly treated as already-replayed
+                        // by consumers that iterate from LastReplayedEventIndex + 1 (tech/facility
+                        // dupe guards, FindCommittedEvent). Clamp at -1 so an empty pre-boundary
+                        // doesn't underflow.
+                        if (j <= m.LastReplayedEventIndex)
+                        {
+                            m.LastReplayedEventIndex--;
+                            if (m.LastReplayedEventIndex < -1) m.LastReplayedEventIndex = -1;
+                            replayIdxAdjustments++;
+                        }
                     }
                 }
                 if (m.Events.Count == 0)
                 {
+                    // Whole milestone dropped — LastReplayedEventIndex goes with it, no
+                    // adjustment needed.
                     milestones.RemoveAt(i);
                     emptiedMilestones++;
                 }
@@ -168,7 +183,9 @@ namespace Parsek
             {
                 ParsekLog.Info("MilestoneStore",
                     $"PurgeTaggedEvents ({reason}): {removed.Count} events removed, " +
-                    $"{emptiedMilestones} milestones dropped, ids={recordingIds.Count}");
+                    $"{emptiedMilestones} milestones dropped, " +
+                    $"{replayIdxAdjustments} LastReplayedEventIndex adjustments, " +
+                    $"ids={recordingIds.Count}");
                 ResourceBudget.Invalidate();
             }
             else
