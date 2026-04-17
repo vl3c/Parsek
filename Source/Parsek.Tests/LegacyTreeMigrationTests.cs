@@ -653,5 +653,280 @@ namespace Parsek.Tests
                 && l.Contains("deltaScience=")
                 && l.Contains("deltaRep="));
         }
+
+        // ================================================================
+        // Round-3 P1: coverage probe must ignore KerbalAssignment backfills
+        // and must count null-tagged in-window actions as coverage.
+        // ================================================================
+
+        /// <summary>
+        /// <see cref="LedgerOrchestrator.MigrateKerbalAssignments"/> runs inside
+        /// <c>OnKspLoad</c> right before this migration and tags every crewed committed
+        /// recording with a <see cref="GameActionType.KerbalAssignment"/> row. The
+        /// coverage probe must ignore those rows — otherwise every crewed legacy tree
+        /// would be flagged as partially covered and its persisted residual silently
+        /// dropped. Only the stress-test repro's uncrewed probe dodged this.
+        /// </summary>
+        [Fact]
+        public void CoverageProbe_KerbalAssignmentAlone_DoesNotCountAsCoverage()
+        {
+            var tree = MakeTree("tree-crew", "rec-crew", 100.0, 200.0, deltaFunds: 34400.0);
+            RegisterTree(tree);
+
+            // Shape that MigrateKerbalAssignments produces: a KerbalAssignment action
+            // tagged with the tree's recording id, inside the tree's UT window.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-crew",
+                KerbalName = "Jebediah Kerman",
+                KerbalRole = "Pilot",
+                StartUT = 100f,
+                EndUT = 200f
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            // Probe ignored KerbalAssignment -> zero-coverage path -> full delta injected.
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.NotNull(synth);
+            Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
+            Assert.Equal("rec-crew", synth.RecordingId);
+            Assert.True(tree.ResourcesApplied);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("partial ledger coverage")
+                && l.Contains("tree-crew"));
+        }
+
+        /// <summary>
+        /// Boring-but-important negative control: the type filter must not accidentally
+        /// swallow a real resource-impacting row that happens to share a tree with a
+        /// <see cref="GameActionType.KerbalAssignment"/>. Real action should still trip
+        /// the partial-coverage path.
+        /// </summary>
+        [Fact]
+        public void CoverageProbe_KerbalAssignmentPlusRealEarning_CountsAsCoverage()
+        {
+            var tree = MakeTree("tree-mixed", "rec-mixed", 100.0, 200.0, deltaFunds: 34400.0);
+            RegisterTree(tree);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-mixed",
+                KerbalName = "Valentina Kerman",
+                KerbalRole = "Pilot"
+            });
+            // A real funds-impacting row tagged to the same recording. Partial coverage.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = "rec-mixed",
+                MilestoneId = "FirstOrbit",
+                MilestoneFundsAwarded = 5000f
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.True(tree.ResourcesApplied);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("partial ledger coverage")
+                && l.Contains("tree-mixed"));
+        }
+
+        /// <summary>
+        /// <see cref="LedgerOrchestrator.MigrateOldSaveEvents"/> tags its synthesized
+        /// actions with <c>RecordingId = null</c> ("can't reliably map old events to
+        /// specific recordings"). When the null-tagged action's UT falls inside a
+        /// tree's window, that row represents a reward the ledger already carries —
+        /// the coverage probe must register it as coverage to prevent double-crediting.
+        /// </summary>
+        [Fact]
+        public void CoverageProbe_NullTaggedInWindow_CountsAsCoverage()
+        {
+            var tree = MakeTree("tree-null-cov", "rec-null-cov", 100.0, 200.0, deltaFunds: 34400.0);
+            RegisterTree(tree);
+
+            // Shape that MigrateOldSaveEvents emits: a resource-impacting action with
+            // null RecordingId at a UT inside the tree's window.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = null,
+                ContractId = "c-old",
+                FundsReward = 10000f
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.True(tree.ResourcesApplied);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("partial ledger coverage")
+                && l.Contains("tree-null-cov"));
+        }
+
+        /// <summary>
+        /// Null-tag coverage is bounded by the tree's UT window. A null-tagged action
+        /// at a UT OUTSIDE the window is KSC activity unrelated to the tree and must
+        /// not short-circuit the zero-coverage path.
+        /// </summary>
+        [Fact]
+        public void CoverageProbe_NullTaggedOutsideWindow_DoesNotCountAsCoverage()
+        {
+            var tree = MakeTree("tree-null-out", "rec-null-out", 100.0, 200.0, deltaFunds: 1200.0);
+            RegisterTree(tree);
+
+            // Null-tagged KSC action BEFORE tree.StartUT — not the tree's concern.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 50.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = null,
+                ContractId = "c-ksc",
+                AdvanceFunds = 500f
+            });
+            // Null-tagged KSC action AFTER tree.EndUT — also out of window.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 300.0,
+                Type = GameActionType.FundsSpending,
+                RecordingId = null,
+                FundsSpent = 250f,
+                FundsSpendingSource = FundsSpendingSource.Other
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            // Probe ignored both out-of-window actions -> zero coverage -> full injection.
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.NotNull(synth);
+            Assert.Equal(1200f, synth.FundsAwarded, precision: 0);
+            Assert.True(tree.ResourcesApplied);
+        }
+
+        /// <summary>
+        /// Ordering regression: simulate the real <c>OnKspLoad</c> composition
+        /// (<see cref="LedgerOrchestrator.MigrateKerbalAssignments"/> runs first and
+        /// backfills KerbalAssignment rows, then this migration runs). Before the
+        /// round-3 fix the probe would see the backfilled row and falsely skip. Now
+        /// the crewed tree migrates correctly.
+        /// </summary>
+        [Fact]
+        public void OrderingRegression_KerbalBackfillBeforeMigration_StillInjectsDelta()
+        {
+            var tree = MakeTree("tree-order", "rec-order", 100.0, 200.0, deltaFunds: 7500.0);
+            RegisterTree(tree);
+
+            // Step 1: simulate MigrateKerbalAssignments output (its exact shape:
+            // KerbalAssignment rows with RecordingId set to the tree's recording id).
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-order",
+                KerbalName = "Bill Kerman",
+                KerbalRole = "Engineer"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-order",
+                KerbalName = "Bob Kerman",
+                KerbalRole = "Scientist"
+            });
+
+            // Step 2: run our migration as OnKspLoad would.
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.NotNull(synth);
+            Assert.Equal(7500f, synth.FundsAwarded, precision: 0);
+            Assert.True(tree.ResourcesApplied);
+        }
+
+        // ================================================================
+        // IsResourceImpactingAction classifier: exhaustive Theory over every
+        // GameActionType value. Forces a code review when a new enum value is
+        // added — the default-false branch in the classifier would otherwise
+        // silently exclude new action types from the coverage probe.
+        // ================================================================
+
+        [Theory]
+        [InlineData(GameActionType.ScienceEarning,       true)]
+        [InlineData(GameActionType.ScienceSpending,      true)]
+        [InlineData(GameActionType.FundsEarning,         true)]
+        [InlineData(GameActionType.FundsSpending,        true)]
+        [InlineData(GameActionType.MilestoneAchievement, true)]
+        [InlineData(GameActionType.ContractAccept,       true)]
+        [InlineData(GameActionType.ContractComplete,     true)]
+        [InlineData(GameActionType.ContractFail,         true)]
+        [InlineData(GameActionType.ContractCancel,       true)]
+        [InlineData(GameActionType.ReputationEarning,    true)]
+        [InlineData(GameActionType.ReputationPenalty,    true)]
+        [InlineData(GameActionType.KerbalHire,           true)]
+        [InlineData(GameActionType.FacilityUpgrade,      true)]
+        [InlineData(GameActionType.FacilityRepair,       true)]
+        [InlineData(GameActionType.StrategyActivate,     true)]
+        [InlineData(GameActionType.KerbalAssignment,     false)]
+        [InlineData(GameActionType.KerbalRescue,         false)]
+        [InlineData(GameActionType.KerbalStandIn,        false)]
+        [InlineData(GameActionType.FacilityDestruction,  false)]
+        [InlineData(GameActionType.StrategyDeactivate,   false)]
+        [InlineData(GameActionType.FundsInitial,         false)]
+        [InlineData(GameActionType.ScienceInitial,       false)]
+        [InlineData(GameActionType.ReputationInitial,    false)]
+        public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
+        {
+            Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));
+        }
+
+        /// <summary>
+        /// Pins the enum surface: if a new <see cref="GameActionType"/> value is added,
+        /// the InlineData in <c>IsResourceImpactingAction_Theory</c> must be extended
+        /// to match. This check fails loudly when it isn't — preventing a silent
+        /// default-false exclusion from the coverage probe.
+        /// </summary>
+        [Fact]
+        public void IsResourceImpactingAction_Theory_CoversEveryEnumValue()
+        {
+            var attrs = typeof(LegacyTreeMigrationTests)
+                .GetMethod(nameof(IsResourceImpactingAction_Theory))
+                .GetCustomAttributes(typeof(InlineDataAttribute), inherit: false)
+                .Cast<InlineDataAttribute>();
+
+            var covered = new HashSet<GameActionType>();
+            foreach (var a in attrs)
+            {
+                covered.Add((GameActionType)a.GetData(null).First()[0]);
+            }
+
+            var all = Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>().ToList();
+            var missing = all.Where(t => !covered.Contains(t)).ToList();
+
+            Assert.True(missing.Count == 0,
+                $"IsResourceImpactingAction_Theory InlineData is missing entries for: " +
+                $"[{string.Join(", ", missing)}]. Add them with the correct expected value " +
+                "and update LedgerOrchestrator.IsResourceImpactingAction's switch.");
+        }
     }
 }

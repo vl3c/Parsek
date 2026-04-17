@@ -1203,17 +1203,103 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Zero-coverage probe: returns true if <see cref="Ledger.Actions"/> contains at
-        /// least one action whose <see cref="GameAction.RecordingId"/> is a key in
-        /// <see cref="RecordingTree.Recordings"/> and whose UT falls inside
-        /// <paramref name="startUT"/>..<paramref name="endUT"/>.
+        /// Pure classifier: returns true when the given action type actually moves the
+        /// funds/science/reputation pools (so its presence inside a tree's UT window counts
+        /// as ledger coverage for that tree). Non-resource action types — roster changes
+        /// (<see cref="GameActionType.KerbalAssignment"/>, <see cref="GameActionType.KerbalRescue"/>,
+        /// <see cref="GameActionType.KerbalStandIn"/>), <see cref="GameActionType.FacilityDestruction"/>
+        /// (stateful only, no cost), <see cref="GameActionType.StrategyDeactivate"/> (stateful only,
+        /// no cost), and the three <c>*Initial</c> seed types — return false.
         ///
-        /// <para>This replaces the v1 residual-math approach (subtract ledger contribution
-        /// from persisted delta). The reviewer pointed out that persisted tree deltas
-        /// were captured from LIVE KSP state post-commit, so they already reflect
-        /// ScienceModule cap clamping, ReputationModule curve, Effective=false duplicate
-        /// suppression, and strategy reward transforms — comparing those to pre-walk
-        /// raw field sums is structurally wrong for partial coverage.</para>
+        /// <para>This classification exists specifically so the
+        /// <see cref="HasAnyLedgerCoverage"/> probe is not tripped by
+        /// <see cref="MigrateKerbalAssignments"/>'s backfilled <c>KerbalAssignment</c> rows,
+        /// which run earlier in <see cref="OnKspLoad"/> and would otherwise flag every
+        /// crewed legacy tree as partially covered, permanently dropping the residual.</para>
+        ///
+        /// <para>When adding a new <see cref="GameActionType"/>, this switch must be updated
+        /// and the <c>IsResourceImpactingAction_Theory</c> test in
+        /// <c>LegacyTreeMigrationTests.cs</c> will fail until an entry is added — which is
+        /// the intended forcing function for a code review.</para>
+        /// </summary>
+        internal static bool IsResourceImpactingAction(GameActionType t)
+        {
+            switch (t)
+            {
+                // Earnings/spendings that directly move a pool.
+                case GameActionType.FundsEarning:
+                case GameActionType.FundsSpending:
+                case GameActionType.ScienceEarning:
+                case GameActionType.ScienceSpending:
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    return true;
+
+                // Composite rewards/penalties consumed by first-tier + second-tier modules.
+                case GameActionType.MilestoneAchievement:  // MilestoneFunds/Sci/RepAwarded
+                case GameActionType.ContractAccept:        // AdvanceFunds
+                case GameActionType.ContractComplete:      // FundsReward/ScienceReward/RepReward
+                case GameActionType.ContractFail:          // FundsPenalty/RepPenalty
+                case GameActionType.ContractCancel:        // FundsPenalty/RepPenalty
+                    return true;
+
+                // Infrastructure/strategy costs consumed by FundsModule / StrategiesModule.
+                case GameActionType.FacilityUpgrade:       // FacilityCost
+                case GameActionType.FacilityRepair:        // FacilityCost
+                case GameActionType.KerbalHire:            // HireCost
+                case GameActionType.StrategyActivate:      // SetupCost
+                    return true;
+
+                // Non-resource action types: roster changes, stateful facility/strategy flips,
+                // and the immutable seed rows. These are intentionally ignored by the
+                // coverage probe — see class summary for the false-positive this guards.
+                case GameActionType.KerbalAssignment:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.StrategyDeactivate:
+                case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
+                    return false;
+
+                default:
+                    // Conservative: an unrecognized new action type is treated as non-
+                    // resource so it cannot poison the zero-coverage probe. The
+                    // IsResourceImpactingAction_Theory test will flag any new enum value
+                    // that reaches this branch.
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Zero-coverage probe: returns true if <see cref="Ledger.Actions"/> contains at
+        /// least one <see cref="IsResourceImpactingAction"/>-passing action whose UT falls
+        /// inside <paramref name="startUT"/>..<paramref name="endUT"/> AND whose
+        /// <see cref="GameAction.RecordingId"/> is either a key in
+        /// <see cref="RecordingTree.Recordings"/> OR null (null-tagged actions are KSC-scope
+        /// or <see cref="MigrateOldSaveEvents"/> output; both legitimately count as coverage
+        /// because the ledger already carries the reward those events represent).
+        ///
+        /// <para>Two round-2 P1s this shape fixes:</para>
+        /// <list type="number">
+        ///   <item><description><see cref="MigrateKerbalAssignments"/>'s
+        ///   <see cref="GameActionType.KerbalAssignment"/> rows (tagged with recording id,
+        ///   added before this migration runs) are excluded by the type filter — without
+        ///   this, every crewed legacy tree would be falsely flagged as partially covered
+        ///   and its residual silently dropped.</description></item>
+        ///   <item><description><see cref="MigrateOldSaveEvents"/>'s null-tagged reward
+        ///   synthetics (ContractComplete / MilestoneAchievement / ContractAccept from
+        ///   GameStateStore on first load of a pre-ledger save) now DO register as
+        ///   coverage — without this, an uncrewed legacy tree on first load would get
+        ///   its full residual injected on top of the already-migrated rewards,
+        ///   double-crediting.</description></item>
+        /// </list>
+        ///
+        /// <para>Replaces the v1 residual-math approach: persisted tree deltas were captured
+        /// from LIVE KSP state post-commit (post-cap, post-curve, post-strategy-transform,
+        /// post-Effective-suppression), so subtracting pre-walk raw field sums was
+        /// structurally wrong for any tree with partial coverage.</para>
         ///
         /// <para>Pure; does not mutate state. Early-returns on first match.</para>
         /// </summary>
@@ -1228,9 +1314,16 @@ namespace Parsek
             {
                 var action = ledgerActions[i];
                 if (action == null) continue;
-                if (string.IsNullOrEmpty(action.RecordingId)) continue;
-                if (!recordings.ContainsKey(action.RecordingId)) continue;
+                if (!IsResourceImpactingAction(action.Type)) continue;
                 if (action.UT < startUT || action.UT > endUT) continue;
+
+                string recId = action.RecordingId;
+                bool nullTagged = string.IsNullOrEmpty(recId);
+                bool treeTagged = !nullTagged && recordings.ContainsKey(recId);
+                if (!nullTagged && !treeTagged) continue;
+
+                // UT window bound was already checked above. Both tree-tagged and
+                // null-tagged in-window actions count as coverage.
                 return true;
             }
             return false;
