@@ -122,6 +122,22 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction ContractAcceptWithDeadline(double ut, string contractId,
+            float advance, float deadlineUt, float fundsPenalty, float repPenalty = 0f)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.ContractAccept,
+                ContractId = contractId,
+                AdvanceFunds = advance,
+                DeadlineUT = deadlineUt,
+                FundsPenalty = fundsPenalty,
+                RepPenalty = repPenalty,
+                RecordingId = "rec-" + contractId
+            };
+        }
+
         private static GameAction ContractFail(double ut, string contractId, float penalty)
         {
             return new GameAction
@@ -787,6 +803,150 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Deadline-driven ContractsModule.PrePass synthesis under cutoff
+        // (Phase D round 2 — #436 follow-up)
+        // ================================================================
+
+        [Fact]
+        public void DeadlineExpiredBeforeCutoff_SyntheticFailFires()
+        {
+            // Accept at UT=100 with DeadlineUT=300, advance=200, fundsPenalty=500.
+            // A later real action exists at UT=500 (so "last action UT" without a cutoff
+            // would be 500). Cutoff=400 filters the UT=500 action out of the list; the
+            // remaining "last action UT" is 100, which is BEFORE the deadline of 300.
+            // Without the walkNowUT plumbing, the synthetic fail would never fire — the
+            // deadline would appear to be in the future relative to the filtered list's
+            // tail. With the cutoff passed as walkNowUT=400, the deadline IS in the past
+            // and the synthetic ContractFail is injected.
+            //
+            // Expected balances:
+            //   seed   10000
+            //   +advance  +200 (ContractAccept at UT=100)
+            //   -penalty  -500 (synthetic ContractFail at deadlineUT=300)
+            //           = 9700
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-late-fail",
+                    advance: 200f, deadlineUt: 300f, fundsPenalty: 500f),
+                Milestone(500.0, "PostCutoffMilestone", 9999f));
+
+            LedgerOrchestrator.RecalculateAndPatch(400.0);
+
+            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            // Slot released — active contract count should be 0.
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+
+            // The synthetic fail log should mention the cutoff-sourced now.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-late-fail")
+                && l.Contains("source=cutoff"));
+        }
+
+        [Fact]
+        public void DeadlineNotYetExpiredUnderCutoff_NoSyntheticFail()
+        {
+            // Accept at UT=100 with DeadlineUT=700. Cutoff=400. Deadline is in the future
+            // relative to the cutoff — no synthetic fail, contract stays active.
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-still-active",
+                    advance: 200f, deadlineUt: 700f, fundsPenalty: 500f));
+
+            LedgerOrchestrator.RecalculateAndPatch(400.0);
+
+            // Seed + advance, no penalty yet.
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            // Contract is still active.
+            Assert.Equal(1, LedgerOrchestrator.Contracts.GetActiveContractCount());
+
+            // No synthetic fail log for this contract.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-still-active"));
+        }
+
+        [Fact]
+        public void DeadlineExpiredButCutoffIsEarlier_NoSyntheticFail()
+        {
+            // Accept at UT=100 with DeadlineUT=500. Cutoff=300 — rewind UT is BEFORE the
+            // deadline, so from the ledger's perspective the deadline has not yet expired.
+            // Contract stays active after the walk.
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-pre-deadline-rewind",
+                    advance: 200f, deadlineUt: 500f, fundsPenalty: 500f));
+
+            LedgerOrchestrator.RecalculateAndPatch(300.0);
+
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(1, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-pre-deadline-rewind"));
+        }
+
+        [Fact]
+        public void NullCutoff_DeadlineSynthPreservesLastActionUtHeuristic()
+        {
+            // Accept at UT=100 with DeadlineUT=300. A later real action exists at UT=500.
+            // With cutoff=null, the fallback heuristic ("last-action UT") wins — 500 > 300,
+            // so the synthetic fail still fires just like before Phase D. This pins that
+            // non-rewind callers are not regressed by the new parameter.
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-legacy-path",
+                    advance: 200f, deadlineUt: 300f, fundsPenalty: 500f),
+                Milestone(500.0, "PinsLastActionUT", 50f));
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            // seed + advance + milestone funds - penalty = 10000 + 200 + 50 - 500 = 9750
+            Assert.Equal(9750.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+
+            // Log should show the heuristic source, not the cutoff source.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-legacy-path")
+                && l.Contains("source=lastActionUT"));
+        }
+
+        [Fact]
+        public void ExplicitFailTakesPrecedence_NoDoubleSynthesisUnderCutoff()
+        {
+            // Ledger already has an explicit ContractFail at UT=200 for a contract
+            // accepted at UT=100 with DeadlineUT=400. Cutoff=300. The explicit fail
+            // resolves the contract before the cutoff, so ContractsModule.PrePass must
+            // NOT also synthesize a second fail at the deadline — the tracked dict
+            // removes the contract on the first resolution, and since both the accept
+            // and the explicit fail are within the cutoff, tracked[] ends up empty.
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-explicit-fail",
+                    advance: 200f, deadlineUt: 400f, fundsPenalty: 500f),
+                ContractFail(200.0, "c-explicit-fail", penalty: 500f));
+
+            LedgerOrchestrator.RecalculateAndPatch(300.0);
+
+            // seed + advance - single penalty = 10000 + 200 - 500 = 9700
+            // (not 9200 — that would be the double-fail bug)
+            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            // No synthetic injection log for this contract.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-explicit-fail"));
+        }
+
+        // ================================================================
         // Test support
         // ================================================================
 
@@ -799,7 +959,7 @@ namespace Parsek.Tests
             public readonly List<GameAction> ProcessedActions = new List<GameAction>();
 
             public void Reset() { ProcessedActions.Clear(); }
-            public void PrePass(List<GameAction> actions) { }
+            public void PrePass(List<GameAction> actions, double? walkNowUT = null) { }
             public void ProcessAction(GameAction action) { ProcessedActions.Add(action); }
             public void PostWalk() { }
         }

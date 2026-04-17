@@ -203,7 +203,13 @@ namespace Parsek
             // 2c. Pre-pass: let modules compute aggregate data before the walk.
             // Modules may inject synthetic actions (e.g., ContractsModule injects
             // ContractFail for expired deadlines), so we re-sort afterward.
-            PrePassAllModules(sorted);
+            //
+            // Pass the cutoff as the walk's effective "now" so ContractsModule can
+            // detect deadlines that expired between the last pre-cutoff action and
+            // the cutoff itself. Without this, a filtered action list could have its
+            // "last UT" land before a deadline, letting deadline-expired contracts
+            // slip through the rewind without the synthetic ContractFail.
+            PrePassAllModules(sorted, utCutoff);
             sorted = SortActions(sorted);
 
             // 3. Walk sorted actions
@@ -352,19 +358,19 @@ namespace Parsek
         // Internal helpers
         // ================================================================
 
-        private static void PrePassAllModules(List<GameAction> sorted)
+        private static void PrePassAllModules(List<GameAction> sorted, double? walkNowUT)
         {
             for (int i = 0; i < firstTierModules.Count; i++)
-                firstTierModules[i].PrePass(sorted);
+                firstTierModules[i].PrePass(sorted, walkNowUT);
 
             if (strategyTransform != null)
-                strategyTransform.PrePass(sorted);
+                strategyTransform.PrePass(sorted, walkNowUT);
 
             for (int i = 0; i < secondTierModules.Count; i++)
-                secondTierModules[i].PrePass(sorted);
+                secondTierModules[i].PrePass(sorted, walkNowUT);
 
             if (facilitiesModule != null)
-                facilitiesModule.PrePass(sorted);
+                facilitiesModule.PrePass(sorted, walkNowUT);
         }
 
         private static void PostWalkAllModules()

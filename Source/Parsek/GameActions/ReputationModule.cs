@@ -49,9 +49,9 @@ namespace Parsek
         }
 
         /// <inheritdoc/>
-        public void PrePass(System.Collections.Generic.List<GameAction> actions)
+        public void PrePass(System.Collections.Generic.List<GameAction> actions, double? walkNowUT = null)
         {
-            // No pre-pass needed for reputation
+            // No pre-pass needed for reputation; walkNowUT is ignored.
         }
 
         /// <inheritdoc/>

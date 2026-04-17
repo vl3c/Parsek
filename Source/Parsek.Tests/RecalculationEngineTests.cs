@@ -33,6 +33,7 @@ namespace Parsek.Tests
         {
             public int ResetCount;
             public int PrePassCount;
+            public List<double?> PrePassWalkNowUTs = new List<double?>();
             public List<GameAction> ProcessedActions = new List<GameAction>();
 
             public void Reset()
@@ -40,9 +41,10 @@ namespace Parsek.Tests
                 ResetCount++;
             }
 
-            public void PrePass(List<GameAction> actions)
+            public void PrePass(List<GameAction> actions, double? walkNowUT = null)
             {
                 PrePassCount++;
+                PrePassWalkNowUTs.Add(walkNowUT);
             }
 
             public void ProcessAction(GameAction action)
