@@ -45,6 +45,141 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 430. "Why is this blocked?" explainer for the committed-action dialog
+
+**Source:** follow-up on the "paradox communication" thread — currently when the player tries to re-research a tech or re-upgrade a facility that's already committed to a future timeline event, `CommittedActionDialog` pops up with a short "Blocked action: X — reason" message. The reason is generic and the player has no way to see *which* committed action is causing the block, or *when* it will play out.
+
+**Desired behavior:**
+
+- Replace the one-line reason with a structured block:
+  - The action the player tried (e.g. "Research node: Heavier Rocketry").
+  - The committed action that blocks it, including the source recording and its UT (e.g. "Already scheduled at UT 183420 in recording 'Mun Lander 3'").
+  - A `Go to Timeline` button that opens the Timeline window and scrolls to the offending entry (reuses `TimelineWindowUI.ScrollToRecording`).
+  - A `Revert to launch` shortcut if the player actually wants to undo it (routes to the existing rewind dialog pre-filled with the blocking recording).
+- Keep the OK/close path unchanged so existing muscle memory still works.
+
+**Why it matters:**
+
+The mental model of "you can't do this because the timeline already did" is counter-intuitive for a first-time player. Showing the *which* and *when* turns a mysterious block into a debuggable constraint, reinforcing the ledger-as-truth principle every time a block fires.
+
+**Files to touch:**
+
+- `Source/Parsek/CommittedActionDialog.cs` — extend the dialog body; accept an optional `blockingRecordingId` + `blockingUT` + `blockingAction` tuple.
+- `Source/Parsek/Patches/*Patch.cs` (where blocks are triggered for tech research / facility upgrade / part purchase) — pass the conflict context into the dialog instead of just the short reason string.
+- `Source/Parsek/UI/TimelineWindowUI.cs` — already has `ScrollToRecording`; no changes beyond what's there.
+
+**Out of scope for v1:**
+
+- Auto-resolving the block by rewinding silently; this stays an informational dialog, not a one-click rewind.
+- Collapsing multiple overlapping blocks into a summary (each block fires its own dialog as today).
+
+**Status:** TODO. Size: S-M. Best quality-per-effort of the paradox-comms work.
+
+---
+
+## 429. Abandoned-epoch overlay in Timeline
+
+**Source:** follow-up on the "paradox communication / visibility" thread. Parsek uses epochs to isolate actions from timelines the player abandoned via revert — `MilestoneStore.CurrentEpoch` advances on revert, and actions from old epochs are excluded from milestones so they don't contaminate the current branch. The mechanic is load-bearing but currently invisible: a player who reverts several times has no way to see what actions were discarded, which makes "why did my career end up here?" harder to answer than it should be.
+
+**Desired behavior:**
+
+- A **Show abandoned** toggle on the Timeline filter bar (next to Recordings / Actions / Events). Default OFF.
+- When ON, the Timeline additionally renders entries from `MilestoneStore.Milestones` whose `Epoch != CurrentEpoch`, styled with a strikethrough or heavily-dimmed color and an `(abandoned)` tag in the description.
+- The rows are not clickable for cross-link (abandoned recordings aren't in `RecordingStore.CommittedRecordings`), but hovering shows a tooltip with `epoch=N, abandoned on revert at UT {X}` if that metadata is available.
+- Footer count line extends to `N Recordings, M Actions, K Events, J Abandoned` when the toggle is on.
+
+**Why it matters:**
+
+Epochs silently do a lot of work — they're the reason revert doesn't corrupt the current career's ledger. Making them visible (on demand) teaches the player that reverting isn't "rewinding reality", it's "forking into a new branch and keeping the old one as dead weight". Also useful when debugging a career that feels wrong: players can look at abandoned entries and realize "oh right, I reverted away from that Mun mission twice".
+
+**Files to touch:**
+
+- `Source/Parsek/Timeline/TimelineBuilder.cs` — extend the milestone walk to optionally include non-current-epoch entries; tag them with a new `TimelineEntrySource.Abandoned` or an `IsAbandoned` bool on `TimelineEntry`.
+- `Source/Parsek/UI/TimelineWindowUI.cs` — add the `Show abandoned` toggle, route to a new `showAbandonedEntries` field, extend the style switch in `DrawEntryRow` to pick a new `timelineAbandonedStyle` (dim-strikethrough), extend the footer stats.
+- Test coverage in `Source/Parsek.Tests/TimelineBuilderTests.cs` for the new filter branch.
+
+**Out of scope for v1:**
+
+- Re-activating an abandoned branch ("undo the revert"). Pure read-only overlay.
+- Visual grouping of entries by epoch. Linear chronological render is fine.
+
+**Status:** TODO. Size: M. Nice-to-have visibility into a real-but-invisible part of the system.
+
+---
+
+## 428. Preview-rewind pane
+
+**Source:** follow-up on the "cost-of-rewind is hard to intuit" thread. Rewind is the most consequential single action in Parsek — it moves the player back to a chosen launch point and replays forward with existing ghosts. But right now the rewind confirmation dialog shows a single summary line ("Rewind to 'Mun Lander 3' at Y1 D23?") and a raw count of "how many future recordings exist". A player can't tell before confirming: which exact recordings will be preserved, which will be abandoned, which resources / contracts / milestones will be re-rolled, whether crew reservations will shift.
+
+**Desired behavior:**
+
+- Replace the existing one-line confirmation with a two-pane preview dialog anchored on the rewind button.
+- Left pane: **"Preserved"** — committed recordings whose `EndUT <= rewindTargetUT` (stay intact on the ledger); game-action milestones that already fired before the target; crew reservations that complete before the target.
+- Right pane: **"Re-rolled"** — committed recordings whose `StartUT > rewindTargetUT` (they'll still exist but their resource deltas + events re-apply from the target UT forward); milestones pending at UT > target (they'll re-fire); crew reservations spanning the target (standin chain resets).
+- Bottom pane: **"Abandoned"** — recordings strictly between the rewind point and live UT that were created on the branch being abandoned (only present if the player did work between some earlier launch and the rewind target).
+- Each pane shows a count + a preview list of the first ~5 items with `...and N more` if longer.
+- Confirm / Cancel buttons unchanged.
+
+**Why it matters:**
+
+Rewind currently feels like a commitment to the unknown — the player isn't sure what they'll lose. Making the consequences legible before the dialog closes reduces regret and teaches the three buckets (Preserved / Re-rolled / Abandoned), which are the clearest mental model for what rewind actually does.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/RewindConfirmationUI.cs` (new or extension of the existing confirmation helper — current code is inlined in `RecordingsTableUI.ShowRewindConfirmation`).
+- A `RewindPreview.Build(recordings, ledgerActions, milestones, rewindTargetUT, liveUT)` pure helper that classifies each item into Preserved / Re-rolled / Abandoned. Lives next to `TimelineBuilder` since both walk similar data.
+- Tests: classification helper fully covered (happy path + each bucket's edge cases + an item spanning the target UT).
+
+**Out of scope for v1:**
+
+- Previewing the new resource balance after rewind. Just show counts + first few items.
+- Undo for rewind. One-way operation stays one-way.
+
+**Status:** TODO. Size: M-L. Biggest UX win per dollar on the rewind mechanic.
+
+---
+
+## 427. Proactive paradox warnings surface
+
+**Source:** follow-up on the conversation after shipping the Career State window. Today the mod prevents paradoxes mostly via blocks (action-blocked dialog) and a single red over-committed warning in the Timeline's resource footer. There's no centralized surface that says "your committed timeline has these N potential issues" — so a player can build up a career with, e.g., a contract that expires before its committed completion, or a facility upgrade requiring a level that won't be reached in time, and only discover the contradiction when it fires (or silently zeroes out).
+
+**Desired behavior:**
+
+- A **Warnings** badge on the main ParsekUI button row — hidden when count is 0, shown as `Warnings (N)` when any warning rules fire.
+- Clicking opens a small scrollable window listing each warning as a row:
+  - Category tag (`Contract`, `Facility`, `Strategy`, `Resource`, `Crew`).
+  - One-line description (`Contract "Rescue Kerbal" deadline UT 240000 is before committed completion at UT 250000`).
+  - `Go to ...` button linking to the relevant other window (Timeline scroll, Career State tab, etc.).
+- Warnings are computed once per `OnTimelineDataChanged` fan-out (same cache-invalidation channel everything else uses).
+- Starter rule set, each as a pure static helper in `WarningRules.cs`:
+  - **ContractDeadlineMissed** — active contract's `DeadlineUT < terminal-UT of its committed completion recording`.
+  - **FacilityLevelRequirement** — an action requires facility level N but the facility doesn't reach N until after that action's UT.
+  - **StrategySlotOverflow** — projected active strategies > projected max slots (currently only warned in log, not UI).
+  - **ContractSlotOverflow** — same for contracts.
+  - **CrewDoubleBooking** — a stand-in appears in two chains at overlapping UT ranges.
+  - **ResourceOverCommit** — already shown in Timeline budget footer, but also listed here for one-stop-shop.
+
+**Why it matters:**
+
+Action blocking catches paradoxes at the moment the player tries to violate them. Warnings catch *latent* contradictions that the ledger can detect but won't error on — the subtle ones where the ledger silently picks a resolution the player didn't intend (e.g. contract gets zeroed out because its deadline passed unexpectedly). Surfacing these early turns the mod's "structural paradox prevention" into a communicated design contract rather than a hidden invariant.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/WarningsWindowUI.cs` — new scrollable list window.
+- `Source/Parsek/WarningRules.cs` — new pure-static rule evaluators, one method per rule, each returning `List<Warning>` given `(ledger, recordings, modules)`. Heavy unit-test coverage.
+- `Source/Parsek/ParsekUI.cs` — add the badge button + open toggle; integrate with `OnTimelineDataChanged` cache invalidation.
+- `Source/Parsek.Tests/WarningRulesTests.cs` — one test per rule (happy + each flag condition).
+
+**Out of scope for v1:**
+
+- Auto-fix for any warning. Pure read-only surface.
+- Severity levels / color-coding. All warnings are equal in v1; add severity in a follow-up if there are too many of one kind.
+- Per-rule disable toggles. Playtesting can decide which rules feel noisy before we add knobs.
+
+**Status:** TODO. Size: M. Complements the help popup (#426) — where help explains the system, warnings explain *your career's* specific issues. Together they turn the mod from "learn by experimenting" to "learn by seeing the model."
+
+---
+
 ## 426. In-window help popups explaining each Parsek system
 
 **Source:** follow-up conversation during the #416 UI polish pass. A player unfamiliar with the mod has to read `docs/user-guide.md` (out of the game) to understand what each window's sections and columns mean. The mechanics are specific enough (slots vs. stand-ins vs. reservations, per-recording fates, timeline tiers, resource budget semantics, etc.) that even tooltips-on-hover don't carry the full picture. An in-game help surface keeps the explanation next to the thing it explains.
