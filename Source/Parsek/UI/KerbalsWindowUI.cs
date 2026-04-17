@@ -428,11 +428,10 @@ namespace Parsek
                     ? FormatKerbalSummary(name, endStates, i, j)
                     : name;
 
-                // Use groupHeaderStyle (bold) as the button style so unfolded output stays
-                // visually identical to the pre-fold-toggle design — only the arrow prefix
-                // is new. RecordingsTableUI uses GUI.skin.label for its chain blocks because
-                // those are body rows; Per-Recording Fates headers are group headers.
-                if (GUILayout.Button($"{arrow} {headerText}", groupHeaderStyle, GUILayout.ExpandWidth(true)))
+                // Per-kerbal fold row: non-bold label-styled button so the dropdown header
+                // sits visually as a row rather than a sub-heading (RecordingsTableUI uses
+                // the same pattern for its chain blocks).
+                if (GUILayout.Button($"{arrow} {headerText}", GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     ToggleFold(foldedKerbals, name, j - i);
                 }
