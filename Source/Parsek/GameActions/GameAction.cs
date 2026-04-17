@@ -48,7 +48,14 @@ namespace Parsek
         ContractAdvance  = 1,
         Recovery         = 2,
         Milestone        = 3,
-        Other            = 4
+        Other            = 4,
+        /// <summary>
+        /// Synthetic earning injected by <see cref="LedgerOrchestrator.MigrateLegacyTreeResources"/>
+        /// on load to reconcile a pre-Phase-F tree's persisted `DeltaFunds` residual against the
+        /// ledger. Tag-only — <see cref="FundsModule"/> treats it as a normal earning via its
+        /// default branch.
+        /// </summary>
+        LegacyMigration  = 5
     }
 
     /// <summary>Where funds were spent.</summary>

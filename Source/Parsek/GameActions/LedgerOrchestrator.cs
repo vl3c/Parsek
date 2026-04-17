@@ -723,6 +723,17 @@ namespace Parsek
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
 
+            // Phase A migration: pre-existing committed trees that persisted
+            // `DeltaFunds`/`DeltaScience`/`DeltaReputation` but were never converted
+            // into ledger actions (because the income flowed through a channel
+            // `GameStateEventConverter` dropped — milestone rewards, contract advances,
+            // strategy payouts — before that channel was captured) get their residual
+            // injected as a synthetic earning tagged with the tree's RootRecordingId.
+            // This runs AFTER Reconcile (which doesn't know about tree.Delta* fields)
+            // and BEFORE RecalculateAndPatch so the synthesized action enters the same
+            // walk that patches KSP state.
+            MigrateLegacyTreeResources();
+
             RecalculateAndPatch();
             KerbalLoadRepairDiagnostics.EmitAndReset();
         }
@@ -837,6 +848,456 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows})");
+        }
+
+        // ================================================================
+        // Phase A: legacy tree-resource residual migration
+        // ================================================================
+
+        /// <summary>
+        /// Tolerance (absolute value) below which a legacy-tree residual is treated as zero
+        /// and NOT synthesized. Matches field precision of the persisted `deltaFunds` value
+        /// (double) with some slack for floating-point drift across save/load.
+        /// </summary>
+        private const double LegacyMigrationFundsTolerance = 1.0;
+        private const double LegacyMigrationScienceTolerance = 0.1;
+        private const double LegacyMigrationReputationTolerance = 0.1;
+
+        /// <summary>
+        /// Phase A of the ledger / lump-sum resource reconciliation fix
+        /// (`docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`). Walks the
+        /// committed trees and, for each tree with `ResourcesApplied=false` and a
+        /// non-zero persisted `DeltaFunds`/`DeltaScience`/`DeltaReputation`,
+        /// computes the residual (persisted tree delta minus the net ledger
+        /// contribution of actions tagged to the tree's recordings inside its
+        /// UT window) and injects one synthetic <see cref="GameAction"/> per
+        /// resource whose absolute residual exceeds the per-resource tolerance.
+        ///
+        /// Synthetic actions are tagged with the tree's <see cref="RecordingTree.RootRecordingId"/>
+        /// (not the nullable <see cref="RecordingTree.ActiveRecordingId"/>), so
+        /// <see cref="Ledger.Reconcile"/> prunes them together with the tree's
+        /// recordings when the tree is deleted. Trees with an empty
+        /// <c>RootRecordingId</c> are skipped with a WARN.
+        ///
+        /// After synthesizing (or deciding no synthetic is needed), the tree is
+        /// marked <c>ResourcesApplied=true</c> and each of its recordings has
+        /// <c>LastAppliedResourceIndex</c> advanced to the last point. This
+        /// matches the tree-scoped tail of <see cref="RecordingStore.MarkAllFullyApplied"/>
+        /// without touching the global milestone replay index.
+        ///
+        /// Idempotent: repeat runs are no-ops because <c>ResourcesApplied</c> is
+        /// true after the first pass.
+        /// </summary>
+        internal static void MigrateLegacyTreeResources()
+        {
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null || trees.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "MigrateLegacyTreeResources: no committed trees, nothing to migrate");
+                return;
+            }
+
+            int treesConsidered = 0;
+            int treesAlreadyApplied = 0;
+            int treesSkippedNoDelta = 0;
+            int treesSkippedEmptyRoot = 0;
+            int treesMigrated = 0;
+            int fundsInjected = 0;
+            int scienceInjected = 0;
+            int repInjected = 0;
+
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null) continue;
+                treesConsidered++;
+
+                if (tree.ResourcesApplied)
+                {
+                    treesAlreadyApplied++;
+                    continue;
+                }
+
+                bool fundsNonZero = Math.Abs(tree.DeltaFunds) > LegacyMigrationFundsTolerance;
+                bool scienceNonZero = Math.Abs(tree.DeltaScience) > LegacyMigrationScienceTolerance;
+                bool repNonZero = Math.Abs(tree.DeltaReputation) > LegacyMigrationReputationTolerance;
+
+                if (!fundsNonZero && !scienceNonZero && !repNonZero)
+                {
+                    treesSkippedNoDelta++;
+                    ParsekLog.Verbose(Tag,
+                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                        $"all deltas within tolerance (funds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"science={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"rep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
+                        $"marking applied without synthetic injection");
+                    MarkLegacyTreeAsApplied(tree);
+                    treesMigrated++;
+                    continue;
+                }
+
+                // Per-plan: tag synthetics with RootRecordingId (not ActiveRecordingId, which is
+                // nullable — null-recordingId earnings are kept forever by Ledger.Reconcile, which
+                // would defeat the per-tree purge invariant). Skip the tree entirely if the root
+                // id is empty, since we have no correct tag to use.
+                if (string.IsNullOrEmpty(tree.RootRecordingId))
+                {
+                    treesSkippedEmptyRoot++;
+                    ParsekLog.Warn(Tag,
+                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                        $"has empty RootRecordingId — cannot tag synthetic ledger actions, " +
+                        $"skipping (deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                    continue;
+                }
+
+                double endUT = tree.ComputeEndUT();
+                double startUT = ComputeTreeStartUT(tree);
+
+                double ledgerFunds, ledgerScience, ledgerRep;
+                SumLedgerContributionsInTreeWindow(tree, startUT, endUT,
+                    out ledgerFunds, out ledgerScience, out ledgerRep);
+
+                double fundsResidual = tree.DeltaFunds - ledgerFunds;
+                double scienceResidual = tree.DeltaScience - ledgerScience;
+                double repResidual = (double)tree.DeltaReputation - ledgerRep;
+
+                bool injectFunds = Math.Abs(fundsResidual) > LegacyMigrationFundsTolerance;
+                bool injectScience = Math.Abs(scienceResidual) > LegacyMigrationScienceTolerance;
+                bool injectRep = Math.Abs(repResidual) > LegacyMigrationReputationTolerance;
+
+                if (injectFunds)
+                {
+                    InjectLegacyFundsAction(tree, fundsResidual, endUT);
+                    fundsInjected++;
+                }
+                if (injectScience)
+                {
+                    InjectLegacyScienceAction(tree, scienceResidual, endUT);
+                    scienceInjected++;
+                }
+                if (injectRep)
+                {
+                    InjectLegacyReputationAction(tree, repResidual, endUT);
+                    repInjected++;
+                }
+
+                ParsekLog.Info(Tag,
+                    $"MigrateLegacyTreeResources: migrated tree id='{tree.Id}' name='{tree.TreeName}' " +
+                    $"rootRec='{tree.RootRecordingId}' " +
+                    $"startUT={startUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"ledgerFunds={ledgerFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"fundsResidual={fundsResidual.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(injected={injectFunds}), " +
+                    $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"ledgerScience={ledgerScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"scienceResidual={scienceResidual.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(injected={injectScience}), " +
+                    $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"ledgerRep={ledgerRep.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"repResidual={repResidual.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(injected={injectRep})");
+
+                MarkLegacyTreeAsApplied(tree);
+                treesMigrated++;
+            }
+
+            ParsekLog.Info(Tag,
+                $"MigrateLegacyTreeResources complete: considered={treesConsidered}, " +
+                $"alreadyApplied={treesAlreadyApplied}, skippedNoDelta={treesSkippedNoDelta}, " +
+                $"skippedEmptyRoot={treesSkippedEmptyRoot}, migrated={treesMigrated}, " +
+                $"fundsInjected={fundsInjected}, scienceInjected={scienceInjected}, " +
+                $"repInjected={repInjected}");
+        }
+
+        /// <summary>
+        /// Returns the earliest non-zero StartUT across the tree's recordings, or 0 if
+        /// no recording has points. Needed as a conservative lower bound when matching
+        /// ledger actions back to a tree's UT window; <see cref="RecordingTree"/> does
+        /// not carry a stored StartUT field.
+        /// </summary>
+        private static double ComputeTreeStartUT(RecordingTree tree)
+        {
+            double startUT = double.MaxValue;
+            bool any = false;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                double recStart = rec.StartUT;
+                if (recStart <= 0) continue;
+                if (recStart < startUT)
+                {
+                    startUT = recStart;
+                    any = true;
+                }
+            }
+            return any ? startUT : 0.0;
+        }
+
+        /// <summary>
+        /// Walks <see cref="Ledger.Actions"/> once and accumulates the net funds/science/rep
+        /// contribution of actions that (a) have a <see cref="GameAction.RecordingId"/> in the
+        /// tree's recordings and (b) fall inside <paramref name="startUT"/>..<paramref name="endUT"/>.
+        /// Field selection mirrors the consumer modules (<see cref="FundsModule"/>,
+        /// <see cref="ScienceModule"/>, <see cref="ReputationModule"/>) at convert time — the
+        /// walk's Effective gating is intentionally NOT applied here because at load time the
+        /// walk has not yet run; see plan Phase A notes.
+        /// </summary>
+        private static void SumLedgerContributionsInTreeWindow(
+            RecordingTree tree, double startUT, double endUT,
+            out double netFunds, out double netScience, out double netRep)
+        {
+            netFunds = 0.0;
+            netScience = 0.0;
+            netRep = 0.0;
+
+            var recordings = tree.Recordings;
+            if (recordings == null || recordings.Count == 0)
+                return;
+
+            var ledgerActions = Ledger.Actions;
+            int matchedFunds = 0;
+            int matchedScience = 0;
+            int matchedRep = 0;
+
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action == null) continue;
+                if (string.IsNullOrEmpty(action.RecordingId)) continue;
+                if (!recordings.ContainsKey(action.RecordingId)) continue;
+                if (action.UT < startUT || action.UT > endUT) continue;
+
+                switch (action.Type)
+                {
+                    case GameActionType.FundsEarning:
+                        netFunds += (double)action.FundsAwarded;
+                        matchedFunds++;
+                        break;
+                    case GameActionType.FundsSpending:
+                        netFunds -= (double)action.FundsSpent;
+                        matchedFunds++;
+                        break;
+                    case GameActionType.MilestoneAchievement:
+                        netFunds += (double)action.MilestoneFundsAwarded;
+                        netScience += (double)action.MilestoneScienceAwarded;
+                        netRep += (double)action.MilestoneRepAwarded;
+                        matchedFunds++;
+                        matchedScience++;
+                        matchedRep++;
+                        break;
+                    case GameActionType.ContractAccept:
+                        netFunds += (double)action.AdvanceFunds;
+                        matchedFunds++;
+                        break;
+                    case GameActionType.ContractComplete:
+                        // FundsReward/ScienceReward/RepReward are the immutable reward
+                        // amounts captured at the convert boundary — Transformed* is a
+                        // walk-derived field and not populated yet at migration time.
+                        netFunds += (double)action.FundsReward;
+                        netScience += (double)action.ScienceReward;
+                        netRep += (double)action.RepReward;
+                        matchedFunds++;
+                        matchedScience++;
+                        matchedRep++;
+                        break;
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        netFunds -= (double)action.FundsPenalty;
+                        netRep -= (double)action.RepPenalty;
+                        matchedFunds++;
+                        matchedRep++;
+                        break;
+                    case GameActionType.ScienceEarning:
+                        netScience += (double)action.ScienceAwarded;
+                        matchedScience++;
+                        break;
+                    case GameActionType.ScienceSpending:
+                        netScience -= (double)action.Cost;
+                        matchedScience++;
+                        break;
+                    case GameActionType.ReputationEarning:
+                        netRep += (double)action.NominalRep;
+                        matchedRep++;
+                        break;
+                    case GameActionType.ReputationPenalty:
+                        netRep -= (double)action.NominalPenalty;
+                        matchedRep++;
+                        break;
+                    case GameActionType.FacilityUpgrade:
+                    case GameActionType.FacilityRepair:
+                        netFunds -= (double)action.FacilityCost;
+                        matchedFunds++;
+                        break;
+                    case GameActionType.KerbalHire:
+                        netFunds -= (double)action.HireCost;
+                        matchedFunds++;
+                        break;
+                    case GameActionType.StrategyActivate:
+                        netFunds -= (double)action.SetupCost;
+                        matchedFunds++;
+                        break;
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"SumLedgerContributionsInTreeWindow: tree id='{tree.Id}' " +
+                $"startUT={startUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"matched funds={matchedFunds} sci={matchedScience} rep={matchedRep} " +
+                $"netFunds={netFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"netScience={netScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"netRep={netRep.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Injects a synthetic FundsEarning or FundsSpending (depending on sign) to cover the
+        /// legacy tree's funds residual. FundsEarning carries <see cref="FundsEarningSource.LegacyMigration"/>;
+        /// FundsSpending carries <see cref="FundsSpendingSource.Other"/>.
+        ///
+        /// Sign choice: <see cref="FundsModule.ProcessFundsEarning"/> adds the raw FundsAwarded
+        /// value (no clamp, no abs), so a negative FundsEarning would correctly reduce the
+        /// running balance — but would also feed <c>totalEarnings</c> a negative value that
+        /// downstream reservation math (`GetAvailableFunds = initialFunds + totalEarnings - totalCommittedSpendings`)
+        /// doesn't expect. FundsSpending is the cleaner channel for a net negative residual:
+        /// it flows through the pre-pass `ComputeTotalSpendings` and the walk's affordability
+        /// check without polluting totalEarnings.
+        /// </summary>
+        private static void InjectLegacyFundsAction(RecordingTree tree, double fundsResidual, double endUT)
+        {
+            GameAction action;
+            if (fundsResidual >= 0)
+            {
+                action = new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.FundsEarning,
+                    RecordingId = tree.RootRecordingId,
+                    FundsAwarded = (float)fundsResidual,
+                    FundsSource = FundsEarningSource.LegacyMigration
+                };
+            }
+            else
+            {
+                action = new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.FundsSpending,
+                    RecordingId = tree.RootRecordingId,
+                    FundsSpent = (float)(-fundsResidual),
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    DedupKey = "LegacyMigration:" + tree.Id
+                };
+            }
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
+        /// Injects a synthetic ScienceEarning or ScienceSpending to cover the legacy tree's
+        /// science residual. Science origin is encoded in <c>SubjectId = "LegacyMigration:{treeId}"</c>
+        /// because <see cref="GameActionType.ScienceEarning"/> has no source enum.
+        ///
+        /// Sign choice: <see cref="ScienceModule.ProcessEarning"/> clamps effectiveScience to &gt;=0,
+        /// so a negative ScienceEarning is silently zeroed — useless for a negative residual.
+        /// Use ScienceSpending instead for the negative case. A generous SubjectMaxValue is set
+        /// so the subject cap never clips the migrated science on the walk.
+        /// </summary>
+        private static void InjectLegacyScienceAction(RecordingTree tree, double scienceResidual, double endUT)
+        {
+            GameAction action;
+            if (scienceResidual >= 0)
+            {
+                float residualF = (float)scienceResidual;
+                action = new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = tree.RootRecordingId,
+                    SubjectId = "LegacyMigration:" + tree.Id,
+                    ScienceAwarded = residualF,
+                    // Generous cap so the per-subject walk never clips this synthetic earning.
+                    SubjectMaxValue = residualF + 10f
+                };
+            }
+            else
+            {
+                action = new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.ScienceSpending,
+                    RecordingId = tree.RootRecordingId,
+                    NodeId = "LegacyMigration:" + tree.Id,
+                    Cost = (float)(-scienceResidual)
+                };
+            }
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
+        /// Injects a synthetic ReputationEarning or ReputationPenalty to cover the legacy
+        /// tree's reputation residual. <see cref="ReputationSource.Other"/> is reused (no
+        /// dedicated LegacyMigration slot; see plan Phase A).
+        ///
+        /// Sign choice: <see cref="ReputationModule.ProcessRepEarning"/> passes the nominal
+        /// straight into the addition/subtraction curve, so a negative NominalRep would drive
+        /// the subtraction curve — but that path is semantically a penalty, not an earning.
+        /// Emit ReputationPenalty for negative residuals so the walk log and per-type filters
+        /// stay coherent.
+        /// </summary>
+        private static void InjectLegacyReputationAction(RecordingTree tree, double repResidual, double endUT)
+        {
+            GameAction action;
+            if (repResidual >= 0)
+            {
+                action = new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.ReputationEarning,
+                    RecordingId = tree.RootRecordingId,
+                    NominalRep = (float)repResidual,
+                    RepSource = ReputationSource.Other
+                };
+            }
+            else
+            {
+                action = new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.ReputationPenalty,
+                    RecordingId = tree.RootRecordingId,
+                    NominalPenalty = (float)(-repResidual),
+                    RepPenaltySource = ReputationPenaltySource.Other
+                };
+            }
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
+        /// Tree-scoped mirror of the tree half of <see cref="RecordingStore.MarkAllFullyApplied"/>:
+        /// sets <c>ResourcesApplied=true</c> on the tree and advances each recording's
+        /// <c>LastAppliedResourceIndex</c> to the final point when Points is non-empty. Does
+        /// NOT touch <see cref="MilestoneStore.Milestones"/> — that would silently advance
+        /// unrelated milestone replay indices (see plan Phase C).
+        /// </summary>
+        private static void MarkLegacyTreeAsApplied(RecordingTree tree)
+        {
+            tree.ResourcesApplied = true;
+            int advanced = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                if (rec.Points != null && rec.Points.Count > 0)
+                {
+                    rec.LastAppliedResourceIndex = rec.Points.Count - 1;
+                    advanced++;
+                }
+            }
+            ParsekLog.Verbose(Tag,
+                $"MarkLegacyTreeAsApplied: tree id='{tree.Id}' recordingsAdvanced={advanced}");
         }
 
         private struct KerbalAssignmentRepairRename
