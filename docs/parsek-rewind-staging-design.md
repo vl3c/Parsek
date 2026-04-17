@@ -6,6 +6,7 @@
 
 **Version:** 0.5 (revised after fourth review)
 **Status:** Proposed.
+**Target release:** Parsek v0.9 (next minor after the v0.8.x line).
 **Depends on:** `parsek-flight-recorder-design.md` (recording DAG, BranchPoint, controller identity, ghost chains, additive-only invariant, ghost-until-chain-tip), `parsek-timeline-design.md` (rewind via quicksave, ledger replay, merge lifecycle), `parsek-game-actions-and-resources-recorder-design.md` (ledger model, immutable ActionId, reservations, career state replay).
 **Out of scope:** Changes to ghost playback engine internals, merge dialog UI internals, orbital checkpointing, ledger recalculation engine internals, crew reservation manager internals. Debris splits (<2 controllable children) continue today's behavior with no rewind point.
 
