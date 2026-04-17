@@ -23,7 +23,7 @@ namespace Parsek
         /// <summary>
         /// Set of all crew names appearing in any active committed recording.
         /// Built during ProcessAction for O(1) lookups in ComputeRetiredSet
-        /// and IsKerbalInAnyRecording. Excludes loop and disabled-chain recordings.
+        /// and IsKerbalInAnyRecording. Excludes loop recordings.
         /// </summary>
         private HashSet<string> allRecordingCrew = new HashSet<string>();
         private Dictionary<string, HashSet<string>> rawRecordingCrew
@@ -47,7 +47,6 @@ namespace Parsek
             public bool IsLoop;
             public bool IsChainRecording;
             public string ChainId;
-            public bool IsDisabledChain;
             public double EndUT;
         }
 
@@ -125,14 +124,12 @@ namespace Parsek
                 bool isLoop = rec.LoopPlayback;
                 bool isChain = rec.IsChainRecording;
                 string chainId = rec.ChainId;
-                bool isDisabled = RecordingStore.IsChainFullyDisabled(chainId);
 
                 recordingMeta[rec.RecordingId] = new RecordingMeta
                 {
                     IsLoop = isLoop,
                     IsChainRecording = isChain,
                     ChainId = chainId,
-                    IsDisabledChain = isDisabled,
                     EndUT = rec.EndUT
                 };
 
@@ -172,9 +169,6 @@ namespace Parsek
 
             // Skip loop recordings
             if (meta.IsLoop) return;
-
-            // Skip disabled chain recordings
-            if (meta.IsDisabledChain) return;
 
             string name = action.KerbalName;
             if (string.IsNullOrEmpty(name)) return;

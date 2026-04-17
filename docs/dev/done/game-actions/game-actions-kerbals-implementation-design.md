@@ -1,5 +1,7 @@
 # Kerbals Module — Implementation Design
 
+> **Superseded by bug #433 (2026-04-18):** `IsChainFullyDisabled` no longer suppresses kerbal reservations or vessel spawns. The `PlaybackEnabled` toggle is visual-only; crew reservations follow the committed ledger on every recording, including fully-disabled chains. References to `IsChainFullyDisabled` below describe point-in-time behaviour and are no longer accurate.
+
 *Implementation-ready specification for the kerbal reservation, replacement chain, and roster management system. Phased by game mode complexity: Sandbox → Science → Career.*
 
 **Design doc reference:** `docs/parsek-game-actions-system-design.md` section 9

@@ -279,9 +279,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSpawnAtKscEnd_ChainFullyDisabled_ReturnsFalse()
+        public void ShouldSpawnAtKscEnd_ChainFullyDisabled_StillSpawnsAtTip()
         {
-            // Test the chain tip — all members disabled
+            // Bug #433: a fully-disabled chain still spawns its vessel at tip.
+            // Visibility toggle does not gate career state. Mid-segments stay
+            // suppressed by IsChainMidSegment (orthogonal).
             var midRec = MakeEligibleRecording("rec-mid", "DisabledVessel");
             midRec.ChainId = "chain-off";
             midRec.ChainIndex = 0;
@@ -299,14 +301,14 @@ namespace Parsek.Tests
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
-            Assert.False(needsSpawn);
-            Assert.Contains("chain looping or fully disabled", reason);
+            Assert.True(needsSpawn);
+            Assert.Equal("", reason);
         }
 
         [Fact]
         public void ShouldSpawnAtKscEnd_ChainNotLoopingNotDisabled_ReturnsTrue()
         {
-            // Chain tip with no looping and not fully disabled — should spawn
+            // Chain tip with no looping — should spawn
             var midRec = MakeEligibleRecording("rec-mid", "OtherVessel");
             midRec.ChainId = "chain-ok";
             midRec.ChainIndex = 0;

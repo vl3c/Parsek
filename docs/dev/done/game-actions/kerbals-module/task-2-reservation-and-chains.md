@@ -1,5 +1,7 @@
 # Kerbals Task 2: Reservation Computation and Chain Building
 
+> **Superseded by bug #433 (2026-04-18):** the `IsChainFullyDisabled` guard snippets below no longer match the shipped code. Fully-disabled chains now reserve their crew like every other chain; `PlaybackEnabled` is visual-only. See `CHANGELOG.md` and `docs/dev/todo-and-known-bugs.md` entry #433.
+
 **Parent doc:** `docs/dev/plans/game-actions-kerbals-implementation-design.md`
 **Scope:** Pure reservation computation, chain building, slot management. No KSP roster mutation yet (that's Task 3).
 

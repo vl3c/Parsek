@@ -90,7 +90,7 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false,
+                isChainLooping: false,
                 treeContext: null);
 
             Assert.False(needsSpawn);
@@ -111,7 +111,7 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLoopingOrDisabled: false,
+                isChainLooping: false,
                 treeContext: null);
 
             Assert.True(needsSpawn);
