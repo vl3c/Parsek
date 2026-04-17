@@ -203,6 +203,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RevertDetector_Subscribe_DoesNotThrowOnKspGameEventsAdd()
+        {
+            // Regression: KSP's EventData<T>.EvtDelegate..ctor reads evt.Target.GetType().Name
+            // without a null check. A delegate bound to a static method has Target == null,
+            // so GameEvents.*.Add(staticMethod) NREs and aborts ParsekScenario.OnLoad — which
+            // in production (2026-04-17 playtest) silently skipped active-tree restore and the
+            // merge-dialog dispatch. Handlers must be instance-bound so Target is non-null.
+            try
+            {
+                RevertDetector.Subscribe();
+                RevertDetector.Subscribe(); // idempotent re-call must also not throw
+            }
+            finally
+            {
+                RevertDetector.Unsubscribe();
+            }
+        }
+
+        [Fact]
+        public void RevertToLaunch_OnLoadDispatch_SoftUnstashesInsteadOfHardDiscard()
+        {
+            // Regression for 2026-04-17 stress test: revert-to-launch (FLIGHT→FLIGHT, UT
+            // jumps backwards) matched the `utWentBackwards && isFlightToFlight` branch at
+            // ParsekScenario.cs:791, which called DiscardStashedOnQuickload → deleted sidecar
+            // files + purged tagged events BEFORE the isRevert branch could run its soft
+            // UnstashPendingTreeOnRevert path. Breaks F9-from-flight-quicksave because the
+            // ACTIVE_TREE node in the flight F5 points at now-deleted sidecars.
+            //
+            // The fix gates the quickload-discard call with `&& !isRevert`. This test
+            // simulates the dispatch order OnLoad uses post-fix: revert branch wins, sidecar
+            // state survives. The fallback test just below simulates the *without* gate
+            // behaviour to prove the bug's signature when the gate is absent.
+            var tree = MakeTreeWithOneRec("Revert-to-Launch tree", "rec-r2l");
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            RecordingStore.PendingStashedThisTransition = true;
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 600.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "contract-r2l",
+                recordingId = "rec-r2l",
+            });
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Single(GameStateStore.Events);
+
+            // Post-fix dispatch: isRevert=true => skip DiscardStashedOnQuickload; run
+            // UnstashPendingTreeOnRevert instead.
+            RecordingStore.UnstashPendingTreeOnRevert();
+
+            Assert.False(RecordingStore.HasPendingTree);
+            // Critical: the tagged event is still on disk/in memory. MilestoneStore's epoch
+            // bump (elsewhere in the isRevert branch) filters it from post-revert ledger
+            // walks, while the sidecars stay available for F9-from-flight-quicksave.
+            Assert.Single(GameStateStore.Events);
+            Assert.Contains(logLines, l =>
+                l.Contains("Unstashed pending tree 'Revert-to-Launch tree'")
+                && l.Contains("sidecar files preserved"));
+        }
+
+        [Fact]
+        public void RevertToLaunch_UngatedDispatch_WouldDeleteSidecars_DocumentsBug()
+        {
+            // Negative-control: documents what the caller at ParsekScenario.cs:791 did BEFORE
+            // the `&& !isRevert` gate. If a future refactor removes the gate, this test (read
+            // alongside RevertToLaunch_OnLoadDispatch_SoftUnstashesInsteadOfHardDiscard above)
+            // makes the contract explicit: DiscardStashedOnQuickload is a hard purge and must
+            // never be reached from the revert path.
+            var tree = MakeTreeWithOneRec("Would-be-victim tree", "rec-victim");
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            RecordingStore.PendingStashedThisTransition = true;
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 600.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "contract-victim",
+                recordingId = "rec-victim",
+            });
+            Assert.Single(GameStateStore.Events);
+
+            // Simulates the pre-fix path: hard-discard ran before the revert branch.
+            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 708.0, currentUT: 552.0);
+
+            Assert.False(RecordingStore.HasPendingTree);
+            // This is the destructive outcome the gate prevents: tagged events purged.
+            Assert.Empty(GameStateStore.Events);
+        }
+
+        [Fact]
         public void UnstashPendingTreeOnRevert_DifferenceFromDiscardPendingTree()
         {
             // #434 vs #431 semantic contrast:

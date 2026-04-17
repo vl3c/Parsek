@@ -788,7 +788,17 @@ namespace Parsek
                     // tree, isRevert=false (counts and epoch match the quicksave),
                     // so the existing revert-branch discard path never runs — this
                     // is why the bug manifested in the 2026-04-09 playtest.
-                    if (utWentBackwards && isFlightToFlight)
+                    //
+                    // #434 follow-up (2026-04-17): skip this on revert. Revert-to-Launch is
+                    // always `utWentBackwards && isFlightToFlight`, so without the !isRevert
+                    // guard the hard-discard path ran first and deleted sidecar files +
+                    // purged tagged events, defeating the soft-unstash invariant established
+                    // in the isRevert branch below. Observed in
+                    // `logs/2026-04-17_2158_revert-stress-test`: recording 4f2a8438's .prec /
+                    // _ghost.craft files were deleted before `UnstashPendingTreeOnRevert`
+                    // could run, which would break F9-from-flight-quicksave in any playthrough
+                    // where the user F5'd during the doomed flight.
+                    if (utWentBackwards && isFlightToFlight && !isRevert)
                     {
                         DiscardStashedOnQuickload(preChangeUT, loadedUT);
                     }
