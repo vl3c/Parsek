@@ -65,47 +65,17 @@ namespace Parsek
                            "The recordings will play back as ghosts, but no vessel will be placed.";
 
             var capturedDecisions = decisions;
+            int capturedSpawnCount = spawnCount;
 
             DialogGUIButton[] buttons = new[]
             {
                 new DialogGUIButton("Merge to Timeline", () =>
                 {
-                    ApplyVesselDecisions(tree, capturedDecisions);
-                    RecordingStore.CommitPendingTree();
-                    RecordingStore.RunOptimizationPass();
-                    // #292: Refresh quicksave so subsequent F9 quickloads include the
-                    // recording IDs added by this merge (otherwise F9 loads a stale
-                    // quicksave from before the merge and silently drops them).
-                    RecordingStore.RefreshQuicksaveAfterMerge(
-                        "merge dialog Tree Merge", tree.Recordings.Count);
-                    LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
-                    CrewReservationManager.SwapReservedCrewInFlight();
-
-                    ClearPendingFlag();
-                    OnTreeCommitted?.Invoke();
-                    if (spawnCount > 0)
-                        ParsekLog.ScreenMessage(
-                            $"Merged - {spawnCount} vessel(s) will appear after ghost playback", 3f);
-                    else
-                        ParsekLog.ScreenMessage(
-                            "Merged to timeline (no surviving vessels)", 3f);
-                    ParsekLog.Info("MergeDialog",
-                        $"User chose: Tree Merge (tree='{tree.TreeName}', " +
-                        $"recordings={tree.Recordings.Count}, spawnable={spawnCount})");
+                    MergeCommit(tree, capturedDecisions, capturedSpawnCount);
                 }),
                 new DialogGUIButton("Discard", () =>
                 {
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        if (rec.VesselSnapshot != null)
-                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    }
-                    RecordingStore.DiscardPendingTree();
-                    ClearPendingFlag();
-                    ParsekLog.ScreenMessage("Recording discarded", 2f);
-                    ParsekLog.Info("MergeDialog",
-                        $"User chose: Tree Discard (tree='{tree.TreeName}', " +
-                        $"recordings={tree.Recordings.Count})");
+                    MergeDiscard(tree);
                 })
             };
 
@@ -128,6 +98,93 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
+
+        // ================================================================
+        // Tree commit / discard — extracted from the dialog button lambdas
+        // so that unit tests can exercise the post-button work directly
+        // (the lambda itself isn't reachable from outside Unity).
+        //
+        // Phase C of the ledger / lump-sum reconciliation fix
+        // (`docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`) wires
+        // <see cref="RecordingStore.MarkTreeAsApplied"/> into the merge path
+        // so the next FLIGHT scene does not re-fire <c>ApplyTreeLumpSum</c>
+        // on this tree (the in-flight commit path
+        // <see cref="ParsekFlight.CommitTreeFlight"/> already does the
+        // equivalent inline; this brings the merge dialog into parity).
+        //
+        // Discard intentionally does NOT mark applied: the tree is being
+        // wiped from storage, so its <c>ResourcesApplied</c> flag has no
+        // surviving reader.
+        // ================================================================
+
+        /// <summary>
+        /// Implements the "Merge to Timeline" branch of the dialog.
+        /// </summary>
+        internal static void MergeCommit(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            int spawnCount)
+        {
+            if (tree == null)
+            {
+                ParsekLog.Warn("MergeDialog", "MergeCommit: tree is null — nothing to commit");
+                return;
+            }
+
+            ApplyVesselDecisions(tree, decisions);
+            RecordingStore.CommitPendingTree();
+            // Phase C: disarm the lump-sum replay path that would otherwise
+            // re-fire on the next FLIGHT scene entry. Must run after the
+            // tree has been moved from pending to committed state.
+            RecordingStore.MarkTreeAsApplied(tree);
+            RecordingStore.RunOptimizationPass();
+            // #292: Refresh quicksave so subsequent F9 quickloads include the
+            // recording IDs added by this merge (otherwise F9 loads a stale
+            // quicksave from before the merge and silently drops them).
+            RecordingStore.RefreshQuicksaveAfterMerge(
+                "merge dialog Tree Merge", tree.Recordings.Count);
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+            CrewReservationManager.SwapReservedCrewInFlight();
+
+            ClearPendingFlag();
+            OnTreeCommitted?.Invoke();
+            if (spawnCount > 0)
+                ParsekLog.ScreenMessage(
+                    $"Merged - {spawnCount} vessel(s) will appear after ghost playback", 3f);
+            else
+                ParsekLog.ScreenMessage(
+                    "Merged to timeline (no surviving vessels)", 3f);
+            ParsekLog.Info("MergeDialog",
+                $"User chose: Tree Merge (tree='{tree.TreeName}', " +
+                $"recordings={tree.Recordings.Count}, spawnable={spawnCount})");
+        }
+
+        /// <summary>
+        /// Implements the "Discard" branch of the dialog. Does NOT call
+        /// <see cref="RecordingStore.MarkTreeAsApplied"/>: the tree is
+        /// removed from storage by <see cref="RecordingStore.DiscardPendingTree"/>
+        /// so the flag has no surviving reader.
+        /// </summary>
+        internal static void MergeDiscard(RecordingTree tree)
+        {
+            if (tree == null)
+            {
+                ParsekLog.Warn("MergeDialog", "MergeDiscard: tree is null — nothing to discard");
+                return;
+            }
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec.VesselSnapshot != null)
+                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            }
+            RecordingStore.DiscardPendingTree();
+            ClearPendingFlag();
+            ParsekLog.ScreenMessage("Recording discarded", 2f);
+            ParsekLog.Info("MergeDialog",
+                $"User chose: Tree Discard (tree='{tree.TreeName}', " +
+                $"recordings={tree.Recordings.Count})");
+        }
 
         #region Extracted helpers
 

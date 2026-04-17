@@ -5697,19 +5697,12 @@ namespace Parsek
                 activeRec.LastAppliedResourceIndex = activeRec.Points.Count - 1;
             }
 
-            // Tree resources are already live in the game — mark as applied
-            activeTree.ResourcesApplied = true;
-
-            // Mark all tree recordings' resource indices as fully applied
-            int markedCount = 0;
-            foreach (var rec in activeTree.Recordings.Values)
-            {
-                if (rec.Points.Count > 0)
-                {
-                    rec.LastAppliedResourceIndex = rec.Points.Count - 1;
-                    markedCount++;
-                }
-            }
+            // Tree resources are already live in the game — mark as applied via the
+            // shared tree-scoped primitive. Phase C of the ledger / lump-sum reconciliation
+            // fix (`docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`) replaced the
+            // inline equivalent with this call so the in-flight commit and merge-dialog
+            // commit paths stay in lockstep.
+            int markedCount = RecordingStore.MarkTreeAsApplied(activeTree);
             ParsekLog.Info("Flight",
                 $"CommitTreeFlight: ResourcesApplied=true, marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
 

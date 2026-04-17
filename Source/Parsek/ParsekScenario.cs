@@ -371,12 +371,44 @@ namespace Parsek
                 {
                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
                     var treeToCommit = RecordingStore.PendingTree;
-                    RecordingStore.CommitPendingTree();
+                    // Resources were applied live during the originating flight (the
+                    // pending tree came from a prior FLIGHT scene). MarkTreeAsApplied
+                    // disarms the lump-sum replay path so the next FLIGHT entry does
+                    // not re-credit the already-live income — same rationale as
+                    // MergeDialog.MergeCommit (Phase C).
+                    CommitPendingTreeAsApplied(treeToCommit);
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
                 }
             }
+        }
+
+        /// <summary>
+        /// Thin commit-seam used by every non-dialog tree-commit path in
+        /// <see cref="ParsekScenario"/> (<see cref="SafetyNetAutoCommitPending"/>,
+        /// the scene-exit auto-merge branch, and the outside-Flight auto-commit branch).
+        ///
+        /// <para>Performs the two steps that every auto-commit path must run in lockstep:</para>
+        /// <list type="number">
+        ///   <item><description><see cref="RecordingStore.CommitPendingTree"/> — moves the tree from pending to committed state.</description></item>
+        ///   <item><description><see cref="RecordingStore.MarkTreeAsApplied(RecordingTree)"/> — disarms the legacy lump-sum replay path so the next FLIGHT entry does not re-credit resources that were already live during the originating flight.</description></item>
+        /// </list>
+        ///
+        /// <para>Callers chain <see cref="LedgerOrchestrator.NotifyLedgerTreeCommitted(RecordingTree)"/>
+        /// themselves — kept outside this seam because the orchestrator call runs heavy
+        /// recalculation + patching and some call sites log / screen-message around it.</para>
+        ///
+        /// <para>Do NOT call from post-revert or other rollback paths where KSP's funds
+        /// have been rewound to pre-flight: those paths legitimately want the next
+        /// <c>ApplyTreeLumpSum</c> to re-credit the income. None of the current callers
+        /// are on that path — the revert branch runs <see cref="RecordingStore.DiscardPendingTree"/>
+        /// (or <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
+        /// </summary>
+        internal static void CommitPendingTreeAsApplied(RecordingTree tree)
+        {
+            RecordingStore.CommitPendingTree();
+            RecordingStore.MarkTreeAsApplied(tree);
         }
 
         /// <summary>
@@ -1183,7 +1215,11 @@ namespace Parsek
                                 {
                                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
                                     var treeToCommit = RecordingStore.PendingTree;
-                                    RecordingStore.CommitPendingTree();
+                                    // Resources were applied live during the flight we are now
+                                    // exiting (!isRevert is checked upstream at line ~1143), so
+                                    // mark applied to disarm the lump-sum replay path — same
+                                    // rationale as MergeDialog.MergeCommit (Phase C).
+                                    CommitPendingTreeAsApplied(treeToCommit);
                                     LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                                     ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                                 }
@@ -1345,7 +1381,11 @@ namespace Parsek
                                     CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                                 rec.VesselSnapshot = null;
                             }
-                            RecordingStore.CommitPendingTree();
+                            // Esc > Abort Mission → Space Center path: the flight that produced
+                            // this pending tree already applied its resources live. Mark applied
+                            // to disarm the lump-sum replay path — same rationale as
+                            // MergeDialog.MergeCommit (Phase C).
+                            CommitPendingTreeAsApplied(pt);
                             LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
                             ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                                 $"(scene: {HighLogic.LoadedScene})");
