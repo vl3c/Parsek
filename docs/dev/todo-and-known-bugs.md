@@ -58,6 +58,43 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 447. `RecordingStopMetricsValid` fails on single-point landed debris leaves
+
+**Source:** in-game test run 2026-04-18 02:25 on save `c5`. `Kerbal Space Program/parsek-test-results.txt` reports `LogContractTests.RecordingStopMetricsValid` FAILED in FLIGHT with `REC-002: Recording e30c5a11537f40a89f2998b18da4f8c5 has 1 points (minimum 2)`. The recording is a breakup debris leaf:
+
+- Parent tree `10d7ab5b840147b8bd6ffd1d02ef4092` (`r0`, terminal=`Destroyed`)
+- BranchPoint `516bdbaae8334a08b65125c73e1ba99c` type=`Breakup`, cause=`CRASH`, `debrisCount=1`, `coalesceWindow=0.5`
+- Leaf `e30c5a11537f40a89f2998b18da4f8c5` named `r0 Debris`: `IsDebris=true`, `TerminalStateValue=Landed`, 1 trajectory point at ut=4134.76 inside 1 TRACK_SECTION (4134.76→4135.26), 2 PART_EVENTs at ut=4135.26 (`ShroudJettisoned`, `EngineShutdown`), duration 0s. `.prec.txt` at `saves/c5/Parsek/Recordings/e30c5a11537f40a89f2998b18da4f8c5.prec.txt` confirms the shape.
+
+Diagnostics snapshot: `rec[2] "r0 Debris" — 42.0 KB (1 pts, 2 evts, 0 segs) 0s 83.9 KB/s`.
+
+**Root cause:** Same pathology as #359 ("one-point destroyed debris stubs after merge") but for a different terminal state. `ParsekFlight.CreateBreakupChildRecording` (`Source/Parsek/ParsekFlight.cs:3048`) + `ProcessBreakupEvent` (`ParsekFlight.cs:3305-3352`) seed the debris recording with only the single pre-captured split-time trajectory point from `CrashCoalescer.GetPreCapturedTrajectoryPoint`. When the debris lands (or its `DebrisTTLSeconds` expires) before any additional background sample is taken, the recording finalizes with exactly 1 point inside 1 section.
+
+The #359 cleanup pruner `PruneSinglePointDestroyedDebrisLeaves` (`ParsekFlight.cs:6974`, predicate `IsSinglePointDestroyedDebrisLeaf` at `ParsekFlight.cs:7082`, called from commit/revert paths including `ParsekScenario.cs:2364`) skips this leaf for two reasons:
+
+```csharp
+// ParsekFlight.cs:7086 — guard 1 rejects Landed debris
+if (!rec.IsDebris || rec.TerminalStateValue != TerminalState.Destroyed) return false;
+// ParsekFlight.cs:7089 — guard 2 rejects section-backed single-point debris
+return rec.TrackSections == null || rec.TrackSections.Count == 0;
+```
+
+The failing recording fails both guards: terminal is `Landed` (not `Destroyed`), and the single point lives inside a TRACK_SECTION (`TrackSections.Count == 1`). The #359 fix deliberately narrowed the predicate; a section-backed non-destroyed single-point debris leaf slips past commit and later trips REC-002 on reload.
+
+**Fix:** Widen `IsSinglePointDestroyedDebrisLeaf` (and rename to drop `Destroyed`) so it accepts any terminal state for a debris leaf with exactly 1 trajectory point, 0 orbit segments, no `SurfacePos`, and at most 1 TRACK_SECTION that contains only the same point. A 1-point 0-duration debris leaf carries no playable trajectory regardless of terminal state; pruning it is consistent with #359's original intent. Add a covering unit test variant for `TerminalState.Landed` (and one for `TerminalState.Recovered`) in the same test file that exercises the destroyed case. Update #359's entry with a back-reference noting the widened predicate.
+
+Alternative (weaker) fix: relax REC-002 by skipping `rec.IsDebris` in `RecordingStopMetricsValid` (`Source/Parsek/InGameTests/LogContractTests.cs:200-235`). Rejected because it drops the contract for real tumbling debris whose sampling legitimately produces ≥2 points today, and hides future creation-path regressions that skip the second sample entirely.
+
+Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` in `CreateBreakupChildRecording`. Adds zero-motion tail samples that all downstream consumers would have to learn to ignore.
+
+**Files:** `Source/Parsek/ParsekFlight.cs:6974-7090` (pruner + predicate, rename), `Source/Parsek/ParsekScenario.cs:2364` (caller — no change required), `Source/Parsek.Tests/` (new unit-test variants for Landed + Recovered terminal states). No migration required for existing saves: the pruner runs on commit/revert, so loading `c5` (or any affected save) and performing any action that commits/reverts will sweep the stale leaf.
+
+**Scope:** Small. Single-branch widening of one predicate + 2 test variants. No schema change, no serialization change.
+
+**Status:** TODO. Priority: medium. User-invisible in normal play (REC-002 fires only under Ctrl+Shift+T), but the leaf it represents is dead data taking 42 KB sidecar space per occurrence, and the underlying creation gap will keep producing these until fixed. Pair with any future follow-up to #359.
+
+---
+
 ## 446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording
 
 **Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16200-17274`. Player deletes a Gloops recording via the UI's Discard button; the next frame `GloopsRecorderUI.DrawWindow` throws `NullReferenceException` because it still holds a reference to the just-removed `Recording`. Downstream, `Spawn suppressed for #0 "r0": no vessel snapshot` fires 100+ times from the spawner, which also kept a dangling reference.
