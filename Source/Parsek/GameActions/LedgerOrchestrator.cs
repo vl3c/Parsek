@@ -1914,8 +1914,401 @@ namespace Parsek
                 $"KSC spending recorded: type={action.Type}, UT={evt.ut:F1}, " +
                 $"key={evt.key ?? "(none)"}");
 
+            // Phase B (plan: fix-ledger-lump-sum-reconciliation.md): KSC-side ledger writes
+            // were bypassing the commit-time reconciliation hook used by recording commits.
+            // Key-match this action against the nearest FundsChanged/ScienceChanged/
+            // ReputationChanged event in GameStateStore (paired by KSP TransactionReasons,
+            // scoped to untransformed action types only) and log WARN on missing event or
+            // delta mismatch. Surfaces missing earning channels (strategy, world first, etc.)
+            // as they happen without triggering false positives on curve-/strategy-
+            // transformed rewards.
+            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
+
             RecalculateAndPatch();
         }
+
+        /// <summary>
+        /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
+        /// KSC-write path: <see cref="Untransformed"/> types have raw action fields that
+        /// equal the post-walk contribution (WARN on missing/mismatched event);
+        /// <see cref="Transformed"/> types are subject to strategy diversion or reputation
+        /// curve (skip with VERBOSE until a post-walk reconciliation phase lands);
+        /// <see cref="NoResourceImpact"/> types short-circuit silently.
+        /// </summary>
+        internal enum KscReconcileClass
+        {
+            NoResourceImpact,
+            Untransformed,
+            Transformed
+        }
+
+        /// <summary>
+        /// Compact description of what an untransformed action expects to see in
+        /// GameStateStore: the event type, the KSP <c>TransactionReasons</c> key the
+        /// emitter writes on it, and the signed delta the action's raw field should
+        /// represent. Returned by <see cref="ClassifyAction"/>.
+        /// </summary>
+        internal struct KscActionExpectation
+        {
+            public KscReconcileClass Class;
+            public GameStateEventType EventType; // meaningful only when Class == Untransformed
+            public string ExpectedReasonKey;      // matches GameStateEvent.key (TransactionReasons.ToString())
+            public double ExpectedDelta;         // signed
+            public string SkipReason;            // meaningful only when Class == Transformed
+        }
+
+        /// <summary>
+        /// Pure classifier: maps a KSC-path <see cref="GameAction"/> to its reconciliation
+        /// class + expected paired resource event. Used by <see cref="ReconcileKscAction"/>.
+        /// <para>
+        /// Event keys are <c>TransactionReasons.ToString()</c> as written by
+        /// <see cref="GameStateRecorder"/>'s <c>OnFundsChanged</c> / <c>OnScienceChanged</c> /
+        /// <c>OnReputationChanged</c> handlers (see their <c>key = reason.ToString()</c>
+        /// lines).
+        /// </para>
+        /// </summary>
+        internal static KscActionExpectation ClassifyAction(GameAction action)
+        {
+            if (action == null)
+                return new KscActionExpectation { Class = KscReconcileClass.NoResourceImpact };
+
+            switch (action.Type)
+            {
+                // ---- Untransformed: raw field equals post-walk contribution. ----
+
+                case GameActionType.FundsSpending:
+                    // The KSC path uses FundsSpending only for part purchases (via
+                    // ConvertPartPurchased → source=Other); vessel build comes from the
+                    // flight path, facility/hire/strategy use their own action types.
+                    // Strategy input (source=Strategy) is not yet captured on KSC (Phase
+                    // E1.5) — skip if we ever see it.
+                    if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
+                    {
+                        return new KscActionExpectation
+                        {
+                            Class = KscReconcileClass.Transformed,
+                            SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
+                        };
+                    }
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "RnDPartPurchase",
+                        ExpectedDelta = -action.FundsSpent
+                    };
+
+                case GameActionType.ScienceSpending:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.ScienceChanged,
+                        ExpectedReasonKey = "RnDTechResearch",
+                        ExpectedDelta = -action.Cost
+                    };
+
+                case GameActionType.FacilityUpgrade:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "StructureConstruction",
+                        ExpectedDelta = -action.FacilityCost
+                    };
+
+                case GameActionType.FacilityRepair:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "StructureRepair",
+                        ExpectedDelta = -action.FacilityCost
+                    };
+
+                case GameActionType.KerbalHire:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "CrewRecruited",
+                        ExpectedDelta = -action.HireCost
+                    };
+
+                case GameActionType.ContractAccept:
+                    // Advance funds are unconditional (FundsModule.ProcessContractAccept
+                    // does not strategy-transform the advance). Zero-advance contracts
+                    // produce no FundsChanged event and are silent.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "ContractAdvance",
+                        ExpectedDelta = action.AdvanceFunds
+                    };
+
+                case GameActionType.StrategyActivate:
+                    // StrategyActivate has a SetupCost in the plan, but StrategyLifecyclePatch
+                    // is Phase E1.5 work — no capture yet. Skip for now.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "strategy activate setup cost not yet KSC-captured (Phase E1.5)"
+                    };
+
+                // ---- Transformed: raw fields do not equal post-walk contribution. ----
+
+                case GameActionType.ContractComplete:
+                    // FundsReward/RepReward/ScienceReward subject to StrategiesModule's
+                    // TransformedFundsReward/Rep/Science during the walk; RepReward also
+                    // passes through ApplyReputationCurve. Post-walk reconciliation hook
+                    // will live in Phase D's RecalculationEngine changes.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "contract rewards transformed by strategy + rep curve"
+                    };
+
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    // FundsPenalty is raw, but RepPenalty passes through the reputation
+                    // curve. Partial coverage would be awkward; skip until the walk-aware
+                    // hook exists.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "contract penalty rep curve not yet post-walk-aware"
+                    };
+
+                case GameActionType.MilestoneAchievement:
+                    // Current modules do not strategy-transform milestone rewards, but
+                    // some stock/stock-alike mods divert. Skip for safety until the
+                    // post-walk hook lands.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "milestone rewards may be mod-transformed"
+                    };
+
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "reputation curve not yet post-walk-aware"
+                    };
+
+                case GameActionType.FundsEarning:
+                case GameActionType.ScienceEarning:
+                    // Earning actions on the KSC path would be direct deposits (not seen
+                    // today — recovery/contract/milestone flow through their own action
+                    // types). Skip to be safe; strategy payout income will land here once
+                    // Phase E1.5 captures it.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "direct earning may be strategy-transformed"
+                    };
+
+                // ---- No resource impact: short-circuit silently. ----
+
+                case GameActionType.KerbalAssignment:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.StrategyDeactivate:
+                case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
+                default:
+                    return new KscActionExpectation { Class = KscReconcileClass.NoResourceImpact };
+            }
+        }
+
+        /// <summary>
+        /// Per-action reconciliation for KSC-side ledger writes. Called from
+        /// <see cref="OnKscSpending"/>. Compares the action's expected paired resource
+        /// event — matched by <see cref="GameStateEventType"/> + KSP <c>TransactionReasons</c>
+        /// key within <see cref="KscReconcileEpsilonSeconds"/> — against the delta the
+        /// action's raw field represents, and logs WARN on missing or mismatched event.
+        /// Log-only: the action has already been written to the ledger by the caller.
+        /// <para>
+        /// Scope: <b>untransformed action types only</b> (part purchase, tech unlock,
+        /// facility upgrade/repair, kerbal hire, contract advance). Transformed types
+        /// (contract rewards, milestones, reputation earnings) skip with a rate-limited
+        /// VERBOSE line — their raw fields are subject to strategy diversion and the
+        /// reputation curve, so a post-walk hook (Phase D territory) is required for
+        /// those. See <see cref="ClassifyAction"/> for the full type map.
+        /// </para>
+        /// <para>
+        /// Coalescing safety: <see cref="GameStateStore.AddEvent"/> merges
+        /// same-type/same-tag resource events within a 0.1 s window into a single slot.
+        /// Two back-to-back KSC actions of the same kind (e.g. two part purchases) share
+        /// one coalesced event with the summed delta. This reconciler handles that by
+        /// summing both sides across a UT window: expected from ledger actions with the
+        /// same expectation classification within <see cref="KscReconcileEpsilonSeconds"/>
+        /// of <paramref name="ut"/>, observed from events with the matching key in the
+        /// same window. The current action is already in <paramref name="ledgerActions"/>
+        /// (the caller adds it before calling).
+        /// </para>
+        /// <para>
+        /// Internal static + parameterized on <paramref name="events"/> and
+        /// <paramref name="ledgerActions"/> for testability — production calls pass
+        /// <see cref="GameStateStore.Events"/> and <see cref="Ledger.Actions"/>.
+        /// </para>
+        /// </summary>
+        internal static void ReconcileKscAction(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            GameAction action,
+            double ut)
+        {
+            if (action == null) return;
+
+            var expectation = ClassifyAction(action);
+
+            switch (expectation.Class)
+            {
+                case KscReconcileClass.NoResourceImpact:
+                    return;
+
+                case KscReconcileClass.Transformed:
+                    // Rate-limited VERBOSE so a long session with many contract completions
+                    // doesn't drown the log, but one line always lands on the first call
+                    // per type so the skip is observable during debugging.
+                    ParsekLog.VerboseRateLimited(Tag,
+                        $"ksc-reconcile-skip:{action.Type}",
+                        $"KSC reconciliation: {action.Type} skipped " +
+                        $"(transformation not yet post-walk-aware: {expectation.SkipReason}) ut={ut:F1}");
+                    return;
+
+                case KscReconcileClass.Untransformed:
+                    break;
+            }
+
+            // Zero-expected-delta actions (e.g. a ContractAccept with no advance) have no
+            // paired event — silent.
+            const double fundsTol = 1.0;
+            const double repTol = 0.1;
+            const double sciTol = 0.1;
+
+            double tol;
+            switch (expectation.EventType)
+            {
+                case GameStateEventType.FundsChanged: tol = fundsTol; break;
+                case GameStateEventType.ReputationChanged: tol = repTol; break;
+                case GameStateEventType.ScienceChanged: tol = sciTol; break;
+                default:
+                    ParsekLog.Warn(Tag,
+                        $"KSC reconciliation: unexpected EventType {expectation.EventType} " +
+                        $"for action {action.Type} — classifier bug");
+                    return;
+            }
+
+            if (Math.Abs(expectation.ExpectedDelta) <= tol)
+                return;
+
+            // Sum expected across all ledger actions that classify to the same
+            // (EventType, ExpectedReasonKey) pair within the UT epsilon. Handles the
+            // coalescing case where back-to-back same-kind actions share one event.
+            double summedExpected = 0;
+            int expectedCount = 0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var other = ledgerActions[i];
+                    if (other == null) continue;
+                    if (Math.Abs(other.UT - ut) > KscReconcileEpsilonSeconds) continue;
+                    var otherExp = ClassifyAction(other);
+                    if (otherExp.Class != KscReconcileClass.Untransformed) continue;
+                    if (otherExp.EventType != expectation.EventType) continue;
+                    if (otherExp.ExpectedReasonKey != expectation.ExpectedReasonKey) continue;
+                    if (Math.Abs(otherExp.ExpectedDelta) <= tol) continue;
+                    summedExpected += otherExp.ExpectedDelta;
+                    expectedCount++;
+                }
+            }
+            // Defensive: if the caller didn't include `action` in ledgerActions (e.g.
+            // called from a non-production path), count it ourselves.
+            if (expectedCount == 0)
+            {
+                summedExpected = expectation.ExpectedDelta;
+                expectedCount = 1;
+            }
+
+            // Sum observed across all matching events in the same UT epsilon. Coalescing
+            // typically collapses this to a single event, but summing is correct either way.
+            double summedObserved = 0;
+            int observedCount = 0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.eventType != expectation.EventType) continue;
+                    if (Math.Abs(e.ut - ut) > KscReconcileEpsilonSeconds) continue;
+                    string eventKey = e.key ?? "";
+                    if (!string.Equals(eventKey, expectation.ExpectedReasonKey, StringComparison.Ordinal))
+                        continue;
+                    summedObserved += (e.valueAfter - e.valueBefore);
+                    observedCount++;
+                }
+            }
+
+            string channelTag = ResourceChannelTag(expectation.EventType);
+
+            if (observedCount == 0)
+            {
+                // No paired event whatsoever — the real "missing earning channel" signal.
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={expectation.ExpectedDelta:F1} " +
+                    $"(reason='{expectation.ExpectedReasonKey}') but no matching {expectation.EventType} event within " +
+                    $"{KscReconcileEpsilonSeconds:F1}s of ut={ut:F1} — missing earning channel or stale event?");
+                return;
+            }
+
+            if (Math.Abs(summedExpected - summedObserved) > tol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={expectation.ExpectedDelta:F1}, " +
+                    $"aggregate expected={summedExpected:F1} across {expectedCount} ledger action(s) vs " +
+                    $"observed={summedObserved:F1} across {observedCount} event(s) keyed '{expectation.ExpectedReasonKey}' " +
+                    $"— delta mismatch at ut={ut:F1}");
+            }
+        }
+
+        /// <summary>Pure: short channel tag used in the reconciliation log lines.</summary>
+        internal static string ResourceChannelTag(GameStateEventType t)
+        {
+            switch (t)
+            {
+                case GameStateEventType.FundsChanged: return "funds";
+                case GameStateEventType.ReputationChanged: return "rep";
+                case GameStateEventType.ScienceChanged: return "sci";
+                default: return t.ToString();
+            }
+        }
+
+        /// <summary>
+        /// UT window (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
+        /// action with its resource-changed event and to aggregate both sides across
+        /// coalesced same-key entries. Must match <c>GameStateStore.ResourceCoalesceEpsilon</c>
+        /// (private, 0.1 s — see <c>GameStateStore.cs:21</c> and <c>AddEvent</c> at line 42).
+        /// <para>
+        /// Rationale: within this window, <see cref="GameStateStore.AddEvent"/> has
+        /// already merged same-type/same-tag resource deltas into a single slot, so
+        /// summing ledger actions and events across the window is safe by construction
+        /// — the summed observed delta is one coalesced entry that equals the sum of
+        /// the individual raw deltas. Beyond this window same-key events stay separate
+        /// in the store, so aggregating them would cross-attribute deltas and opposing
+        /// per-action errors could cancel out (review round 3, PR #340).
+        /// </para>
+        /// <para>
+        /// If <c>GameStateStore.ResourceCoalesceEpsilon</c> ever changes, update this
+        /// value in lockstep. The two constants encode the same physical invariant.
+        /// </para>
+        /// </summary>
+        internal const double KscReconcileEpsilonSeconds = 0.1;
 
         /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
