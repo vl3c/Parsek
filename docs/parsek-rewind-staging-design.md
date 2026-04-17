@@ -497,6 +497,15 @@ Virtual node in `GroupHierarchyStore`. Membership derived per frame from ERS fil
 
 Triggered from `ParsekFlight.DeferredJointBreakCheck`, `DeferredUndockBranch`, or the EVA handler after the classifier identifies >=2 controllable entities.
 
+**RPs are speculative.** At split time, we do not yet know whether any sibling will need a rewind. The purpose of Rewind Points is to let the player re-fly a sibling that ended badly — a destroyed booster, a dead kerbal, a crashed EVA — *not* to offer rewind on every split regardless of outcome. A kerbal who EVAs and then coasts to a stable orbit, or a booster that happens to land safely on its own, has nothing to re-do: the recording spawns them at the correct final state, the player never needs to take over. The RP for such a split is useless.
+
+Since we can only classify outcomes at session merge (after each vessel's terminal state is known), v1 writes an RP **speculatively** on every multi-controllable split and then **reaps it in the same session merge transaction** if no sibling ended up as an Unfinished Flight (see §6.6 step 9 for the reap check, §6.6 step 10 for the file delete). Net effect:
+
+- **All-stable split** (e.g. EVA to orbit, booster lands via chute, undock with both halves completing their missions): RP is written at the split, survives only until session merge, then reaped. Transient quicksave lives one session, then the file is gone. The player never sees a Rewind Point UI entry for this split.
+- **Split with >=1 unfinished sibling** (e.g. booster BG-crashes into ground, EVA kerbal left stranded): RP is written at the split, survives session merge, persists until all siblings resolve (merged as immutable or superseded). The player sees Unfinished Flights entries for the unfinished siblings and can invoke the RP.
+
+This is the only sensible behavior given we cannot predict outcomes at split time; the alternative (defer quicksave until merge) would require capturing split-moment world state some other way, which is exactly what the KSP quicksave provides. The cost of being wrong-optimistic (writing a speculative quicksave that reaps at merge) is small: one transient ~1-2 MB file for the duration of one session, deleted automatically at merge.
+
 1. Child Recordings created by the existing flight-recorder pipeline. Their `Id` values are stable.
 2. Construct RP with ChildSlots, empty PidSlotMap and RootPartPidMap.
 3. `IsSessionProvisional` and `CreatingSessionId` reflect any currently-active `ReFlySessionMarker`.
