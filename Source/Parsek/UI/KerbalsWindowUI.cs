@@ -6,11 +6,12 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Kerbals roster window — renders each career-kerbal slot as a collapsible
-    /// per-owner chain (reserved/active/retired/displaced stand-ins indented as
-    /// tree children), plus an Unlinked Retired tail section for stand-ins that
-    /// no longer belong to any slot, plus the Per-Recording Fates section with
-    /// per-kerbal fold/unfold (#415-1).
+    /// Kerbals window — two tabs:
+    ///   * "Roster State": per-owner collapsible chain (reserved/active/retired/
+    ///     displaced stand-ins) plus the Unlinked Retired tail for stand-ins that
+    ///     no longer belong to any slot.
+    ///   * "Mission Outcomes": per-kerbal chronological committed-mission history
+    ///     (Aboard / Recovered / Dead / Unknown) with per-kerbal fold (#415-1).
     /// </summary>
     internal class KerbalsWindowUI
     {
@@ -34,7 +35,7 @@ namespace Parsek
         private const string FoldedArrow = "\u25b6";
         private const string UnfoldedArrow = "\u25bc";
 
-        // Transient fold state for Per-Recording Fates groups. Default-unfolded means we
+        // Transient fold state for Mission Outcomes groups. Default-unfolded means we
         // only store names that are currently folded, so HashSet fits the access pattern.
         // InvalidateCache does NOT clear this — fold is UI preference, not data.
         internal readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
@@ -63,7 +64,7 @@ namespace Parsek
 
         private static readonly string[] TabLabels = new[]
         {
-            "Kerbal Slots", "Per-Recording Fates"
+            "Roster State", "Mission Outcomes"
         };
 
         internal struct KerbalsViewModel

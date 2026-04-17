@@ -59,7 +59,7 @@ are fixed in the same PR branch with additional commits:
 - Suggested starter content:
   - **Recordings** — column-by-column walkthrough, L/R/FF/W/Hide button meanings, group vs chain vs ghost-only distinction.
   - **Timeline** — Overview vs Details tiers, Recordings/Actions/Events source toggles, time-range filter, resource-budget footer, loop toggle semantics on entry rows, GoTo cross-link.
-  - **Kerbals** — slots vs stand-ins vs reservations (Kerbal Slots tab), chronological outcomes per kerbal (Per-Recording Fates tab), Fates-click-scrolls-Timeline.
+  - **Kerbals** — slots vs stand-ins vs reservations (Roster State tab), chronological outcomes per kerbal (Mission Outcomes tab), outcome-click-scrolls-Timeline.
   - **Career State** — contracts / strategies / facilities / milestones tabs, current-vs-projected columns when the timeline holds pending recordings, Mission Control / Administration slot math.
   - **Real Spawn Control** — what it does (warp-to-vessel-spawn), State column, 500m proximity trigger.
   - **Gloops** — ghost-only manual recording, loop-by-default commit, X delete button in Recordings.

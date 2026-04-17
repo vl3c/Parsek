@@ -172,11 +172,12 @@ The **Warp to Next Spawn** button at the bottom warps to whichever candidate spa
 
 ### Kerbals Window
 
-Click the "Kerbals (N)" button in the main Parsek window to open the Kerbals window. The count shows reserved slots + active stand-ins + retired stand-ins + per-recording fates rows combined. The window has three sections:
+Click the "Kerbals (N)" button in the main Parsek window to open the Kerbals window. The count shows reserved slots + active stand-ins + retired stand-ins + mission-outcome rows combined. The window has two tabs:
 
-- **Kerbal Slots** — per-owner collapsible tree. Each top-level row is an original kerbal (Jeb, Bill, Val, ...); clicking the arrow expands the replacement chain underneath, labelled `(active)`, `(retired)`, or `(displaced)`. Reserved slots (waiting for a committed recording to spawn the real crew back in) show their reservation status inline.
-- **Unlinked Retired** — retired stand-ins that aren't attached to any current kerbal's chain. Usually empty; populated after certain rollback edge cases.
-- **Per-Recording Fates** — chronological record of every kerbal's mission outcomes. Click a kerbal's name header to fold their rows under a compact `N missions — X Dead, Y Recovered, Z Aboard` summary; each detail row shows recording name + end state (`Dead`, `Recovered`, `Aboard`, `Unknown`) color-coded and UT timestamp. **Click any Fates detail row to scroll the Timeline window to the matching recording.**
+- **Roster State** — per-owner collapsible tree of slots and their replacement chains.
+  - Each top-level row is an original kerbal (Jeb, Bill, Val, ...); clicking the arrow expands the replacement chain underneath, labelled `(active)`, `(retired)`, or `(displaced)`. Reserved slots (waiting for a committed recording to spawn the real crew back in) show their reservation status inline.
+  - An **Unlinked Retired** sub-section lists retired stand-ins that aren't attached to any current kerbal's chain. Usually empty; populated after certain rollback edge cases.
+- **Mission Outcomes** — chronological record of every kerbal's mission outcomes. Click a kerbal's name header to fold their rows under a compact `N missions - X Dead, Y Recovered, Z Aboard` summary; each detail row shows recording name + end state (`Dead`, `Recovered`, `Aboard`, `Unknown`) color-coded and UT timestamp. **Click any detail row to scroll the Timeline window to the matching recording.**
 
 The window is draggable and resizable. Fold/expand state is transient (resets when the window is closed or the scene changes).
 
