@@ -45,6 +45,57 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 433. `PlaybackEnabled` toggle should be visual-only — stop gating vessel spawn and crew reservations
+
+**Source:** investigation triggered by the "timeline is deterministic" principle. The Recordings window's leftmost checkbox (`Recording.PlaybackEnabled`, defined at `Recording.cs:116` with the comment `"false = skip ghost during playback"`) claims to be a rendering hint. In practice, the flag also silently suppresses career-state effects in two places, which violates the deterministic-timeline principle (the recording is on the committed ledger regardless of whether its ghost is visible).
+
+**Current behavior (audited):**
+
+- Ghost rendering — *skipped* when disabled. `GhostPlaybackEngine.cs:276-285` destroys / skips the ghost under the `skipGhost` flag set from `!rec.PlaybackEnabled` at `ParsekFlight.cs:8763`. **Correct — visual-only.**
+- KSC tracking-station visibility — *hidden* via `ParsekKSC.cs:495 ShouldShowInKSC` early return. Correct, visual-only.
+- Ledger `Actions` — *still applied*. No check in `LedgerOrchestrator` / `RecalculationEngine`. Correct.
+- `ResourceBudget` funds/sci/rep — *still subtracted*. No filter in `ResourceBudget.ComputeTotal`. Correct.
+- **Vessel spawn at ghost-end** — *gated by `PlaybackEnabled`*. Per `design-timeline.md:102`: "Emits `VesselSpawn` at `rec.StartUT` if `rec.PlaybackEnabled`". **Bug.** If the mission's vessel was supposed to persist (station, rover, flagship), toggling playback off silently drops the spawn, leaving the career with the mission's resource / contract effects applied but the vessel missing.
+- **Crew reservations for fully-disabled chains** — *skipped*. `KerbalsModule.cs:176-177`: `if (meta.IsDisabledChain) return;` in `ProcessAction` short-circuits before the recording's crew names are added to `allRecordingCrew`. **Bug.** The stand-in chain can release crew that logically still belong to the mission.
+
+**The invariant that should hold:**
+
+> `PlaybackEnabled = false` means "don't render this recording's ghost". It does NOT mean "pretend this recording doesn't exist". Every career-state effect — ledger actions, resource deltas, crew reservations, vessel spawn at end — stays active regardless of the flag.
+
+**Desired behavior:**
+
+- `ParsekFlight.cs:8763` — keep `skipGhost` gated by `!rec.PlaybackEnabled` (visual-only; correct).
+- `ParsekFlight` vessel-spawn-at-ghost-end path — remove the `PlaybackEnabled` gate. Spawn runs unconditionally at `rec.StartUT + rec.Duration` (or wherever the spawn decision lives; verify against `design-timeline.md:102`).
+- `KerbalsModule.cs:176-177` — drop the `IsDisabledChain` early-return. Crew reservations follow ledger actions, not the visual toggle.
+- `RecordingStore.IsChainFullyDisabled` — audit all other call sites (`RecordingStore.cs:1288, 1307`, `RecordingOptimizer.cs:55`) and decide per-site whether they're genuine visual concerns (keep) or career-state concerns (drop the gate).
+- Update `Recording.cs:116` comment from `"false = skip ghost during playback"` to a clearer `"false = hide ghost during playback; does not affect ledger actions, vessel spawn, crew reservations, or resource budget"`.
+- Update `design-timeline.md:102` to remove the `if (rec.PlaybackEnabled)` qualifier on `VesselSpawn` emission.
+- User-guide note: "The enable checkbox hides the ghost visual — nothing else. Resources, contracts, crew, and the final vessel still follow the committed mission."
+
+**Files likely to touch:**
+
+- `Source/Parsek/ParsekFlight.cs` — vessel-spawn gate at the spawn site.
+- `Source/Parsek/KerbalsModule.cs` — drop lines 176-177 and any related `IsDisabledChain` branch upstream.
+- `Source/Parsek/Recording.cs` — comment update.
+- `Source/Parsek/RecordingStore.cs` / `Source/Parsek/RecordingOptimizer.cs` — audit remaining gate sites.
+- `Source/Parsek.Tests/PlaybackEnabledScopeTests.cs` (new) — per call-site test verifying that disabling a recording does NOT suppress its ledger actions, resource cost, crew reservation, or vessel spawn.
+- `docs/design-timeline.md` — doc correction.
+- `docs/user-guide.md` — Recordings Manager column description: clarify the checkbox is visual-only.
+
+**Related edge cases to work through in the plan:**
+
+- A disabled recording at a loop boundary — today `RecordingStore.cs:1288` checks `PlaybackEnabled && LoopPlayback`. Loop is a visual concept (the ghost replays). Keep the visual gate here; no change.
+- Chain that's PARTIALLY disabled (some recordings enabled, some disabled) — the fully-disabled-chain path at `KerbalsModule.cs:176-177` is specifically the all-off case. Partial chains already work correctly because each recording's crew is enumerated per-recording. The fix is to remove the all-off special case, making behavior uniform.
+
+**Out of scope for v1 of this fix:**
+
+- Adding a SEPARATE "skip career effects" toggle for players who explicitly want to exclude a recording from the ledger — this would contradict the deterministic-timeline principle; if a player wants to exclude a recording's effects, the answer is Delete (post-commit) or Discard (pre-commit), not a toggle.
+- Retroactively reconciling saves where a disabled recording's vessel "should have" spawned but didn't. The player can toggle the recording back on to trigger the spawn at the next ghost-end cycle, or re-rewind through it.
+
+**Status:** TODO. Size: S-M. **Correctness bug under the deterministic-timeline principle.** Pairs conceptually with #431 (which also enforces "career state flows from the committed ledger, not from UI state"). Ship before any rework that depends on the toggle's semantics being visual-only.
+
+---
+
 ## 432. Gloops ghost-only recordings must not capture or apply any game events
 
 **Source:** world-model conversation follow-up to #431. Gloops recordings (the "Gloops - Ghosts Only" group) are manual captures made for pure visual / airshow replays — they're flagged `IsGhostOnly`, auto-loop by default, and never spawn a real vessel at ghost-end. Their intent is decorative: the player records a cinematic flight and wants to see it loop in the background forever. They should have zero career-state footprint: no contracts, no science, no funds deltas, no milestones, no reputation, no tech research, no part purchases — nothing that a Gloops recording does in-flight should leak into the committed career ledger.
