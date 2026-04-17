@@ -69,6 +69,12 @@ dotnet build
 
 Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Managed/`.
 
+## In Design
+
+Active design work beyond the current shipped feature set:
+
+- **Rewind to Staging** - go back to a past staging, undock, or EVA event and fly the other half of the mission. Launch an AB stack, stage, take B to orbit and commit it - then rewind to the separation moment and fly A back down as a self-landing booster. Previously-merged siblings play as ghosts of their original flights; the new attempt commits additively without touching the original timeline. Works for any split that produces two or more controllable vessels (stage decouple, undock, EVA). Design doc: [`docs/parsek-rewind-staging-design.md`](docs/parsek-rewind-staging-design.md).
+
 ## Beyond Recording
 
 Parsek's infrastructure - looped playback, vessel snapshots, game state tracking, resource budgeting - forms a natural foundation to build on. These are not planned features, just ideas that the architecture makes possible:

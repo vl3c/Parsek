@@ -249,6 +249,24 @@ follow-up is validation/tuning work against larger corpora rather than another p
 
 ---
 
+## Rewind to Staging (in design, post-v0.8.2)
+
+Go back to a past multi-controllable split event and fly the sibling vessel you did not originally fly. The motivating case is booster recovery: launch an AB stack, stage, take B to orbit and commit - then rewind to the separation moment and fly A back down as a self-landing booster. The same mechanism covers any split that produces two or more controllable entities: stage decouples, undocks, and EVA.
+
+**Design doc:** [`docs/parsek-rewind-staging-design.md`](parsek-rewind-staging-design.md).
+
+- **Rewind Points at split time** - every multi-controllable split writes a KSP quicksave into `saves/<save>/Parsek/RewindPoints/` plus a persistent-id-to-slot map captured at save time, so the post-load strip can reliably identify which vessels to replace with ghosts.
+- **Unfinished Flights group** - a virtual, computed group in the Recordings Manager lists every committed BG-crash sibling whose parent split has a Rewind Point. Membership updates automatically as flights are flown and merged.
+- **Append-only supersede** - invoking a Rewind Point and merging a new attempt adds a `RecordingSupersede(old, new)` relation record. The original recording is never mutated or deleted; ghost/claim subsystems filter via the relation list. Preserves the flight-recorder's monotonic additive tree invariant.
+- **Narrow v1 supersede scope** - the only ledger retirement on supersede is `KerbalDeath` (and reputation penalties bundled with it); kerbals return to active via the normal reservation walk. Contract completions, milestones, facility upgrades, strategies, tech, science, and other rep/funds deltas from the original attempt stay in career totals (these are KSP-sticky and can't be safely re-emitted).
+- **Crashed re-fly stays rewindable** - merging a crashed attempt commits it as `CommittedProvisional Crashed`; the supersede chain extends and the slot remains an Unfinished Flight the player can try again. Merging a stable outcome (Landed, Orbited, Recovered) seals the slot.
+- **Effective-state model** - a single `Effective Recording Set` plus `Effective Ledger Set` abstraction gives every subsystem one rule for "what counts right now." A narrow session-suppressed subtree carve-out applies during an active re-fly only to physical-visibility subsystems (ghost walker, claim tracker, map/tracking-station/CommNet). Career state keeps reading through directly.
+- **Journaled staged merge** - irreversible file operations (deleting reap-eligible Rewind Point quicksaves) happen only after a durable save, so crashes mid-merge are recoverable on the next load.
+
+This slots between the shipped v0.8.x work and Phase 12. Phase 12 (logistics routes) does not depend on it, and it does not depend on Phase 12 - both use the resource/inventory/crew manifests shipped in Phase 11.
+
+---
+
 ## Phase 12: Looped Transport Logistics
 
 Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
@@ -351,6 +369,11 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     │  Observability + ghost LOD + trajectory/snapshot shrink shipped;
     │  remaining follow-up is synthetic stress benchmarking/tuning
     │
+    ├──▶ Rewind to Staging (in design, post-v0.8.2)
+    │      Rewind Points at multi-controllable splits, Unfinished Flights
+    │      group, append-only supersede, narrow v1 scope. Independent of
+    │      Phase 12 — both consume Phase 11 resource/inventory/crew manifests.
+    │
     ▼
 Phase 12: Looped Transport Logistics
     │  Routes = looped recordings with resource delivery
@@ -418,5 +441,5 @@ Ghost escape orbits clip at finite distance (~12,000 km). Active vessels show fu
 - **Racing modes or lap timing**
 - **AI playback or autopilot**
 - **Real-time multiplayer synchronization** — Parsek's multiplayer model is async (Phases 13–14). No shared physics simulation, no lockstep networking.
-- **Taking control of recorded vessels** — jumping into a ghost mid-playback creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff.
+- **Taking control of recorded vessels mid-playback** — jumping into a live ghost while it is playing out creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff. **Note:** the narrower "Rewind to Staging" feature (see above) does allow re-flying a sibling vessel from a past split event — that works because it rewinds UT to the split moment and replaces the sibling's BG-crash via append-only supersede, rather than hijacking an in-flight ghost.
 - **Timeline branching or alternate histories**
