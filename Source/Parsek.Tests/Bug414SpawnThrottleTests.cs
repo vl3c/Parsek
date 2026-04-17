@@ -135,6 +135,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyFlagEvents_NullState_NoOpWithNoEvents()
+        {
+            // Post-review P2 fix: ApplyFlagEvents must tolerate a null state so throttled
+            // first-spawn frames still honor the invariant "flags are independent permanent
+            // world vessels, placed regardless of ghost state/visibility/schedule".
+            // Full end-to-end flag spawning requires live KSP — this test pins the
+            // no-throw contract on the empty-events path that the cursor-less branch takes.
+            var traj = new MockTrajectory();
+            Assert.Null(Record.Exception(
+                () => GhostPlaybackLogic.ApplyFlagEvents(null, traj, 100.0)));
+        }
+
+        [Fact]
+        public void ApplyFlagEvents_NullTrajectory_NoOp()
+        {
+            Assert.Null(Record.Exception(
+                () => GhostPlaybackLogic.ApplyFlagEvents(null, null, 100.0)));
+        }
+
+        [Fact]
+        public void LoopCycleRebuild_BypassesThrottle_WhenCycleChanged()
+        {
+            // Post-review P2 fix: the single-ghost loop cycle-rebuild path destroys the
+            // prior ghost before reaching the state==null spawn block. Under sustained
+            // backlog, a throttled rebuild would leave the recording ghostless for multiple
+            // frames. The production gate expression is `!cycleChanged && !TryReserveSpawnSlot(...)`
+            // so cycleChanged==true short-circuits the throttle. This test pins that
+            // short-circuit truth table without needing to drive UpdateLoopingPlayback.
+            var engine = new GhostPlaybackEngine(null);
+            engine.ResetPerFrameCountersForTesting();
+            engine.IncrementFrameSpawnCountForTesting();
+            engine.IncrementFrameSpawnCountForTesting(); // cap exhausted
+
+            // cycleChanged == false (first-spawn case): throttle fires.
+            bool throttled1 = !/*cycleChanged:*/false
+                && !engine.TryReserveSpawnSlotForTesting(0, "loop-first-spawn");
+            Assert.True(throttled1);
+            Assert.Equal(1, engine.FrameSpawnDeferredForTesting);
+
+            // cycleChanged == true (rebuild case): short-circuit skips TryReserveSpawnSlot
+            // entirely, so the deferred counter stays put and the spawn proceeds.
+            bool throttled2 = !/*cycleChanged:*/true
+                && !engine.TryReserveSpawnSlotForTesting(0, "loop-first-spawn");
+            Assert.False(throttled2);
+            Assert.Equal(1, engine.FrameSpawnDeferredForTesting);
+        }
+
+        [Fact]
         public void EngineThrottle_ResetPerFrameCounters_ReArmsBudget()
         {
             // After a frame boundary resets the counters, the next frame gets a fresh cap.

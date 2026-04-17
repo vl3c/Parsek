@@ -1489,18 +1489,35 @@ namespace Parsek
         internal static void ApplyFlagEvents(GhostPlaybackState state, IPlaybackTrajectory rec, double currentUT)
         {
             if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
-            if (state == null) return;
 
-            while (state.flagEventIndex < rec.FlagEvents.Count)
+            if (state != null)
             {
-                var evt = rec.FlagEvents[state.flagEventIndex];
-                if (evt.ut > currentUT) break;
+                // Fast path: cursor-driven walk advances the per-state index monotonically.
+                while (state.flagEventIndex < rec.FlagEvents.Count)
+                {
+                    var evt = rec.FlagEvents[state.flagEventIndex];
+                    if (evt.ut > currentUT) break;
 
-                // Spawn a real, permanent flag vessel — skip if one already exists at this position
+                    // Spawn a real, permanent flag vessel — skip if one already exists at this position
+                    if (!FlagExistsAtPosition(evt))
+                        GhostVisualBuilder.SpawnFlagVessel(evt);
+
+                    state.flagEventIndex++;
+                }
+                return;
+            }
+
+            // Bug #414: state-less fallback. Reached when the caller cannot yet produce a
+            // GhostPlaybackState (e.g. first-spawn visual build is throttled for a frame) but
+            // we still want flag vessels — which are independent permanent world objects — to
+            // be placed on schedule. `FlagExistsAtPosition` dedups, so a follow-up state-aware
+            // walk starting from `flagEventIndex = 0` on the next frame is cheap and correct.
+            for (int i = 0; i < rec.FlagEvents.Count; i++)
+            {
+                var evt = rec.FlagEvents[i];
+                if (evt.ut > currentUT) break;
                 if (!FlagExistsAtPosition(evt))
                     GhostVisualBuilder.SpawnFlagVessel(evt);
-
-                state.flagEventIndex++;
             }
         }
 

@@ -556,6 +556,14 @@ namespace Parsek
             if (allowEarlyDestroyedDebrisCompletion && earlyDestroyedDebrisCompleted.Contains(i))
                 return true;
 
+            // Flag events spawn permanent world vessels — apply regardless of ghost state,
+            // zone distance, or spawn-throttle (#249, #414). Unlike visual part events (mesh
+            // toggles), flags are independent entities that must exist whether or not the
+            // ghost is visible AND whether or not the ghost's visual build has happened yet.
+            // When `state` is null (first-spawn throttled or not yet run this frame),
+            // ApplyFlagEvents falls back to a state-less walk with FlagExistsAtPosition dedup.
+            GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
+
             if (state == null)
             {
                 // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
@@ -587,11 +595,6 @@ namespace Parsek
                 i, traj, state, ctx.currentUT, ctx.activeVesselPos);
             CachePlaybackDistances(state, activeVesselDistance, renderDistance);
             var zoneResult = positioner.ApplyZoneRendering(i, state, traj, renderDistance, ctx.protectedIndex);
-
-            // Flag events spawn permanent world vessels — apply regardless of zone distance (#249).
-            // Unlike visual part events (mesh toggles), flags are independent entities that must
-            // exist whether or not the ghost is visible.
-            GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
 
             if (zoneResult.hiddenByZone)
             {
@@ -899,16 +902,19 @@ namespace Parsek
 
             if (state == null)
             {
-                // Bug #414: two paths reach here — (a) very first loop-ghost spawn for this
-                // trajectory, and (b) the single-ghost cycle-rebuild branch above that
-                // destroys the prior ghost and nulls state. Both are safe to throttle: (a)
-                // is a brand-new appearance, and (b) has already fired the ExplosionHoldEnd
-                // camera anchor at line 868 so a 1-frame deferral only delays RetargetToNewGhost
-                // by one frame — the camera does not snap to active vessel in the meantime.
-                // The OVERLAP-loop cycle change (UpdateOverlapPlayback near line 1038) is
-                // what's actually exempt, because there the old primary is moved to the
-                // overlap list unconditionally before the spawn call.
-                if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
+                // Bug #414: two paths reach here:
+                //   (a) very first loop-ghost spawn for this trajectory — safe to throttle
+                //       because nothing visible is being replaced; a 1-frame delay on first
+                //       appearance is invisible.
+                //   (b) the single-ghost cycle-rebuild branch above that destroyed the
+                //       prior ghost and nulled state — NOT safe to throttle. Under sustained
+                //       spawn backlog, a throttled cycle-rebuild can leave the recording
+                //       ghostless for multiple frames, which the ExplosionHoldEnd camera
+                //       anchor only masks for the expected 1-frame gap.
+                // The `cycleChanged` flag (captured at line 852) is true iff we're in case
+                // (b). The OVERLAP-loop cycle change (UpdateOverlapPlayback) is exempt for
+                // the same reason via its unconditional overlap-move-before-spawn sequence.
+                if (!cycleChanged && !TryReserveSpawnSlot(index, "loop-first-spawn"))
                     return;
                 SpawnGhost(index, traj, loopUT);
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
