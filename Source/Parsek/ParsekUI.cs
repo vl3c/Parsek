@@ -414,10 +414,6 @@ namespace Parsek
             opaqueWindowStyle.fontSize = baseFontSize + 2;
             var p = opaqueWindowStyle.padding;
             opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
-            // contentOffset.y pushes the title text downward inside the title bar, adding
-            // visual space above the title as well.
-            var co = opaqueWindowStyle.contentOffset;
-            opaqueWindowStyle.contentOffset = new Vector2(co.x, co.y + 3);
         }
 
         /// <summary>
