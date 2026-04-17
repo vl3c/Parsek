@@ -60,7 +60,7 @@ So `#432`'s target surface is the single-recording case. The apply-side filter u
   - `:165` inside `OnRecordingCommitted` — not reached for Gloops.
   - `:800` inside `MigrateKerbalAssignments` (`LedgerOrchestrator.cs:769-840`), which walks **every** recording in `RecordingStore.CommittedRecordings` unconditionally. The function extracts crew via `ExtractCrewFromRecording` (`LedgerOrchestrator.cs:537-583`), which reads `rec.GhostVisualSnapshot ?? rec.VesselSnapshot` (`:543`) — not just `VesselSnapshot`. Gloops recordings populate **both** (`ParsekFlight.cs:7546` sets `GhostVisualSnapshot`, `:7550` sets `VesselSnapshot`), so the crew extraction hits the `GhostVisualSnapshot` branch first. **This is the real leak**: a Gloops recording of a crewed vessel today produces `KerbalAssignment` rows on every ledger load, reserving those kerbals for the Gloops loop duration. The user's earlier bug-entry phrasing "leaks into the ledger" is this specific path.
 - `LedgerOrchestrator.PopulateUnpopulatedCrewEndStates` (`LedgerOrchestrator.cs:1040-1058`). Safety-net pass called from `RecalculateAndPatch` (`:651`) that walks every committed recording and mutates `rec.CrewEndStates` via `KerbalsModule.PopulateCrewEndStates(rec)` when needed. For a Gloops recording this does an in-memory mutation that serves no purpose (the CrewEndStates are never read for a recording that produces no actions), but it is **not** a ledger leak — no ledger row is produced. Intentionally **not guarded** by this PR: the mutation is harmless, the cost is trivial, and adding the guard would mean touching a third function that doesn't write to the ledger. Documented here so the next reader doesn't wonder why.
-- `LedgerOrchestrator.RecalculateAndPatch` (`LedgerOrchestrator.cs:612-672`). Builds `actions` from `Ledger.Actions` at `:653`, sorts, walks. Action-driven — doesn't re-probe `IsGhostOnly`. Suitable place for the belt-and-braces filter.
+- `LedgerOrchestrator.RecalculateAndPatch` (`LedgerOrchestrator.cs:612-672`). Builds `actions` from `Ledger.Actions` at `:653`, sorts, walks. Action-driven — doesn't re-probe `IsGhostOnly`. Suitable place for the belt-and-braces ledger purge (mutates `Ledger.Actions`, so raw-ledger consumers see a clean list too).
 - `RecalculationEngine.Recalculate` (`RecalculationEngine.cs:136-226`). Pure over a `List<GameAction>` — no change needed.
 
 ### Capture-side paths — unchanged
@@ -123,50 +123,78 @@ if (rec.Points.Count == 0) ...
 
 These two early-returns close the real leak at `MigrateKerbalAssignments:800`. A Gloops-crewed recording on next ledger load returns an empty `desired` from `CreateKerbalAssignmentActions`; `KerbalAssignmentActionsMatch(existing, empty)` returns false when there are stale rows (from pre-fix builds); `Ledger.ReplaceActionsForRecording(KerbalAssignment, rec.RecordingId, empty)` cleans them out. One-shot self-heal with no extra code.
 
-### Step 2 — Belt-and-braces walk filter in `RecalculateAndPatch`
+### Step 2 — Belt-and-braces purge in `RecalculateAndPatch` (mutates `Ledger.Actions`)
 
-Drop any action whose `RecordingId` maps to an `IsGhostOnly` recording before handing the list to `RecalculationEngine.Recalculate`. This catches future regressions where some new path deposits a Gloops-tagged action into the ledger, and makes the invariant "no Gloops action reaches the walk" explicit instead of implied.
+Remove any action whose `RecordingId` maps to an `IsGhostOnly` recording **from `Ledger.Actions` itself**, not just from a walk-time copy. Raw-ledger consumers — the Timeline window (`TimelineBuilder.cs:21` reads `ledgerActions`), the career-state windows, ledger serialization — all read `Ledger.Actions` directly. Filtering only the walk copy would leave those consumers with a dirty view. The purge runs at the top of `RecalculateAndPatch` (called on commit, rewind, warp exit, load), so the ledger stays clean across every normal lifecycle event.
 
 ```csharp
-// LedgerOrchestrator.cs:653 — inside RecalculateAndPatch, before Recalculate.
+// LedgerOrchestrator.cs — inside RecalculateAndPatch, before the actions copy.
+// #432: purge any ghost-only-tagged actions from the ledger before the walk.
+// Mutates Ledger.Actions directly so raw-ledger consumers never see stale rows.
+// Idempotent — no-op when no ghost-only recordings exist or no actions are
+// tagged with them.
+PurgeGhostOnlyActionsFromLedger();
+
 var actions = new List<GameAction>(Ledger.Actions);
-
-// #432: belt-and-braces filter — no action tagged with a ghost-only recording
-// reaches the walk. Step 1's action-creation guards should prevent any such
-// action from being produced today; this catches future regressions.
-int beforeFilter = actions.Count;
-actions = FilterOutGhostOnlyActions(actions);
-int filtered = beforeFilter - actions.Count;
-if (filtered > 0)
-    ParsekLog.Info(Tag,
-        $"RecalculateAndPatch: filtered {filtered} action(s) tagged with ghost-only recordings");
-
 RecalculationEngine.Recalculate(actions);
 ```
 
 ```csharp
-// LedgerOrchestrator.cs — new internal static helper, unit-testable.
-internal static List<GameAction> FilterOutGhostOnlyActions(List<GameAction> actions)
+// LedgerOrchestrator.cs — new internal static helper.
+internal static int PurgeGhostOnlyActionsFromLedger()
 {
-    if (actions == null || actions.Count == 0) return actions ?? new List<GameAction>();
+    var recs = RecordingStore.CommittedRecordings;
+    if (recs == null || recs.Count == 0) return 0;
 
     var ghostOnlyIds = new HashSet<string>(StringComparer.Ordinal);
-    var recs = RecordingStore.CommittedRecordings;
     for (int i = 0; i < recs.Count; i++)
-        if (recs[i].IsGhostOnly && !string.IsNullOrEmpty(recs[i].RecordingId))
-            ghostOnlyIds.Add(recs[i].RecordingId);
+    {
+        var r = recs[i];
+        if (r != null && r.IsGhostOnly && !string.IsNullOrEmpty(r.RecordingId))
+            ghostOnlyIds.Add(r.RecordingId);
+    }
 
-    if (ghostOnlyIds.Count == 0) return actions;
+    if (ghostOnlyIds.Count == 0) return 0;
 
-    var kept = new List<GameAction>(actions.Count);
-    for (int i = 0; i < actions.Count; i++)
-        if (string.IsNullOrEmpty(actions[i].RecordingId) || !ghostOnlyIds.Contains(actions[i].RecordingId))
-            kept.Add(actions[i]);
-    return kept;
+    int removedTotal = 0;
+    foreach (var id in ghostOnlyIds)
+        removedTotal += Ledger.RemoveActionsForRecording(id);
+
+    if (removedTotal > 0)
+        ParsekLog.Info(Tag,
+            $"PurgeGhostOnlyActionsFromLedger: removed {removedTotal} action(s) tagged with ghost-only recordings");
+
+    return removedTotal;
 }
 ```
 
-Performance: O(recordings + actions). `CommittedRecordings` is typically under 100 entries, `Ledger.Actions` under a few thousand. Negligible versus the existing sort + walk in `RecalculationEngine.Recalculate`.
+```csharp
+// Ledger.cs — new helper. Removes every action with the given RecordingId
+// regardless of Type. Null/empty recordingId is a no-op. Used by the
+// #432 purge + any future code that needs cross-type ledger cleanup.
+internal static int RemoveActionsForRecording(string recordingId)
+{
+    if (string.IsNullOrEmpty(recordingId)) return 0;
+
+    int removed = 0;
+    for (int i = actions.Count - 1; i >= 0; i--)
+    {
+        if (string.Equals(actions[i].RecordingId, recordingId, StringComparison.Ordinal))
+        {
+            actions.RemoveAt(i);
+            removed++;
+        }
+    }
+    if (removed > 0)
+        ParsekLog.Verbose("Ledger",
+            $"RemoveActionsForRecording: recordingId='{recordingId}', removed={removed}, total={actions.Count}");
+    return removed;
+}
+```
+
+`Ledger.ReplaceActionsForRecording(type, id, new)` already exists but keys on (type, id) — useful for `MigrateKerbalAssignments` which owns only `KerbalAssignment`. For the ghost-only purge we need cross-type removal, hence the new helper.
+
+Performance: O(recordings + actions) per call. `CommittedRecordings` is typically under 100 entries, `Ledger.Actions` under a few thousand. Reverse walk on `Ledger.Actions` makes each remove O(1). Negligible versus the existing sort + walk in `RecalculationEngine.Recalculate`.
 
 ### Step 3 — No capture-side changes
 
@@ -176,9 +204,9 @@ Confirmed by the 2026-04-17 clarification. `GameStateRecorder.Emit`, the `OnCont
 
 Originally proposed `GetActiveRecordingGhostOnlyFlag()` / `IsGloopsCaptureActive()`. With the capture-side dropped, the accessor has no caller — the apply-side code already has the `Recording` object in hand and reads `rec.IsGhostOnly` directly. Dropped as dead code.
 
-### Step 5 — No retroactive save cleanup
+### Step 5 — Retroactive save cleanup covered by the purge
 
-Parsek is in beta. Pre-fix saves with stale `KerbalAssignment` rows tagged with a ghost-only recording id are self-healed on next load via step 1 (`CreateKerbalAssignmentActions` returns empty, `MigrateKerbalAssignments` calls `Ledger.ReplaceActionsForRecording` with the empty list). No separate migration pass needed.
+Pre-fix saves with stale ledger rows tagged with a ghost-only recording id (any action type — `KerbalAssignment`, `FundsSpending`, `FundsEarning`, etc.) are cleaned by the step-2 purge on the first `RecalculateAndPatch` after load. `OnKspLoad` calls `RecalculateAndPatch` after running `MigrateKerbalAssignments`, so the sequence on load is: reconcile → migrate-kerbal-assignments (type-specific rewrite for `KerbalAssignment`) → recalculate (cross-type ghost-only purge, then walk). The purge is a superset of the migration's ghost-only handling; the migration still does its own work for non-ghost-only recordings where it matters most.
 
 Event-store side: events captured during pre-fix Gloops windows were already tagged correctly per #431 (with the normal recording's id, or empty for Gloops-solo) — Gloops never owned them in the first place. No cleanup needed.
 
@@ -189,17 +217,22 @@ New `Source/Parsek.Tests/GloopsEventSuppressionTests.cs`. `[Collection("Sequenti
 1. **`create_kerbal_assignment_actions_returns_empty_for_ghost_only`** — build a synthetic `Recording` with `IsGhostOnly = true` and a `VesselSnapshot` containing one crew entry. Add to `committedRecordings`. Call `LedgerOrchestrator.CreateKerbalAssignmentActions(recId, startUT, endUT)`. Assert the result is empty and the Verbose `"is ghost-only — skipping"` line fired.
 2. **`create_kerbal_assignment_actions_returns_rows_for_normal`** — same setup but `IsGhostOnly = false`. Assert the result contains one `KerbalAssignment` action.
 3. **`create_vessel_cost_actions_returns_empty_for_ghost_only`** — synthetic `Recording` with `IsGhostOnly = true`, `PreLaunchFunds = 5000`, first-point funds 4000, `TerminalStateValue = Recovered`, last-point funds 9000, penultimate-point funds 5000. Call `CreateVesselCostActions`. Without the guard the result would hold a `FundsSpending` (cost=1000) + `FundsEarning` (recovery=4000); with the guard, asserts empty and the Verbose `"is ghost-only — skipping"` line fired.
-4. **`filter_out_ghost_only_actions_drops_ghost_only_and_keeps_others`** — seed `committedRecordings` with two test recordings, one `IsGhostOnly = true` (id `"gloops-A"`), one `IsGhostOnly = false` (id `"normal-B"`). Build a `List<GameAction>` with three entries: one tagged `"gloops-A"`, one tagged `"normal-B"`, one with empty `RecordingId`. Call `FilterOutGhostOnlyActions`. Assert the returned list contains exactly the `"normal-B"` and the empty-tagged actions. Empty-tag preservation is deliberate — audited against `InitialFunds` / `InitialScience` / `InitialReputation` seed actions and KSC-spending-forwarded actions at `LedgerOrchestrator.cs:625, 631, 637, 1350`, all of which legitimately use empty `RecordingId` and must survive the filter.
-5. **`active_recording_tag_never_returns_gloops_id`** — regression guard that locks the "Gloops never owns events" invariant in place. Configure a test scenario where a normal `activeTree` holds id `"normal-A"` and a Gloops recording has already been committed with id `"gloops-B"`. Assert `ParsekFlight.GetActiveRecordingIdForTagging()` returns `"normal-A"` or empty, never `"gloops-B"`. Pair with a second test that uses `GameStateRecorder.TagResolverForTesting` to force-resolve a Gloops-tagged event into the store (bypassing the live resolver), then assert `PurgeEventsForRecordings(new[] { "gloops-B" })` removes that forced event — verifying the purge mechanism works, while the default resolver never produces such events in the first place. The trivial "zero-events-removed" assertion is too weak; these two tests together pin down both halves of the invariant.
-6. **`recalculate_and_patch_filter_log_line_fires_when_ghost_only_action_present`** — seed one ghost-only recording in `committedRecordings`, seed `Ledger.Actions` with one action tagged with that id. Trigger `RecalculateAndPatch`. Assert the `"filtered 1 action(s)"` Info log line fired.
-7. **`recalculate_and_patch_no_filter_log_when_no_ghost_only_recordings`** — same but no ghost-only recording in `committedRecordings`. Assert the filter log line did NOT fire (nothing filtered).
-8. **`migrate_kerbal_assignments_replaces_stale_ghost_only_rows_with_empty`** — simulate a pre-fix save state by seeding `Ledger.Actions` with a `KerbalAssignment` row tagged with a ghost-only recording's id. Add that ghost-only recording to `committedRecordings`. Call `MigrateKerbalAssignments`. Assert the stale row was removed via `Ledger.ReplaceActionsForRecording`-style replacement, and the "repaired N recording(s)" info log fired.
+4. **`PurgeGhostOnlyActionsFromLedger_DropsGhostOnlyRowsAndMutatesLedger`** — seed `committedRecordings` with one `IsGhostOnly = true` (id `"gloops-A"`) and one normal recording (id `"normal-B"`). Seed `Ledger.Actions` with three entries: one tagged `"gloops-A"`, one tagged `"normal-B"`, one with empty `RecordingId`. Call the helper directly. Assert `Ledger.Actions.Count == 2`, ghost-only row gone from `Ledger.Actions` itself (not just filtered out of a copy), normal and empty-tag rows retained. Empty-tag preservation is deliberate — audited against `InitialFunds` / `InitialScience` / `InitialReputation` seed actions and KSC-spending-forwarded actions at `LedgerOrchestrator.cs:625, 631, 637, 1350`, all of which legitimately use empty `RecordingId`.
+5. **`PurgeGhostOnlyActionsFromLedger_PreservesMigratedOldSaveActionsWithNullTag`** — covers `MigrateOldSaveEvents` output (null `RecordingId`). Asserts null-tag `FundsSpending` survives alongside empty-tag seeds; ghost-only row is removed. Documents the intentional tradeoff that old-save migrated rows can't be mapped back to a recording and must be preserved.
+6. **`PurgeGhostOnlyActionsFromLedger_NoGhostOnlyRecordings_Noop`** — ensures the helper is a clean no-op when no ghost-only recordings exist. `Ledger.Actions` unchanged, `removed == 0`.
+7. **`PurgeGhostOnlyActionsFromLedger_RemovesAllTypesForGhostOnlyRecording`** — seeds three actions of different types (`KerbalAssignment` + `FundsSpending` + `FundsEarning`) all tagged to a ghost-only recording. Asserts all three removed. Differentiates from `ReplaceActionsForRecording`'s per-type semantics — the purge is cross-type.
+8. **`RecalculateAndPatch_PurgesGhostOnlyActions_AndSecondCallIsNoop`** — seeds one ghost-only recording and one stale action tagged with its id. Triggers `RecalculateAndPatch`. Asserts the `"PurgeGhostOnlyActionsFromLedger: removed 1 action(s)"` Info log fired and the row is gone from `Ledger.Actions`. A second `RecalculateAndPatch` call does NOT fire the purge log — the ledger is already clean (contrast with the old walk-filter design where the log would fire every recalc).
+9. **`RecalculateAndPatch_NoPurgeLog_WhenNoGhostOnlyRecordings`** — same but no ghost-only recording. Asserts the purge log did NOT fire, normal action survives.
+10. **`PurgeEventsForRecordings_RemovesForcedGloopsTaggedEvent_LiveAndSnapshot`** — pins the `GameStateStore.PurgeEventsForRecordings` mechanism across live events + orphan contract snapshots. Forces a Gloops-tagged `ContractAccepted` via `GameStateRecorder.TagResolverForTesting`, adds a matching `ContractSnapshot`, asserts both are removed by the purge. The test exercises the purge path for a safety story — the default resolver never produces Gloops-tagged events in the first place (invariant held by architecture: `GetActiveRecordingIdForTagging` reads `activeTree.ActiveRecordingId`, which `CommitGloopsRecording` does not touch).
+11. **`OnKspLoad_RewritesStaleGhostOnlyKerbalRowsToEmpty`** — simulates a pre-fix save with a stale `KerbalAssignment` row on a Gloops recording. Calls `OnKspLoad`. Asserts the row is gone (either via `MigrateKerbalAssignments` → `ReplaceActionsForRecording` OR via the subsequent `RecalculateAndPatch` → `PurgeGhostOnlyActionsFromLedger`; both run in sequence, test only pins the final state).
 
-All tests use `ParsekLog.ResetTestOverrides()` + any necessary `LedgerOrchestrator.ResetForTesting` hooks in Dispose. Test setup adds synthetic recordings via `RecordingStore.AddCommittedInternal` (`:425`) — the private `committedRecordings` list is not accessible directly. No new Gloops-side test hook is needed — no capture-side changes, no new accessor. `GameStateRecorder.TagResolverForTesting` is used only for the second half of test 5 to force-resolve a Gloops-tagged event.
+Tautological resolver test dropped — `ParsekFlight.GetActiveRecordingIdForTagging` reads `Instance?.activeTree?.ActiveRecordingId` and `Instance` is null in xUnit (no MonoBehaviour setup), so any assertion on its return value is trivially satisfied. The "Gloops never owns events" invariant is architectural (no code path assigns a Gloops id to `activeTree.ActiveRecordingId`, verified by code audit, documented in plan) rather than unit-testable without a full ParsekFlight/activeTree harness.
+
+All tests use `ParsekLog.ResetTestOverrides()` + `LedgerOrchestrator.ResetForTesting` hooks in Dispose. Test setup adds synthetic recordings via `RecordingStore.AddRecordingWithTreeForTesting` (`:2170`). No new Gloops-side test hook is needed. `GameStateRecorder.TagResolverForTesting` is used only in test 10 to force-resolve a Gloops-tagged event into the store.
 
 ### Step 7 — Post-build verification
 
-`dotnet build` + `dotnet test` from the worktree. Deploy and grep the deployed DLL for the new `"FilterOutGhostOnlyActions"` or `"is ghost-only — skipping"` UTF-16 string to confirm the correct build is live. Manual playtest recipe:
+`dotnet build` + `dotnet test` from the worktree. Deploy and grep the deployed DLL for the new `"PurgeGhostOnlyActionsFromLedger"` or `"is ghost-only — skipping"` UTF-16 string to confirm the correct build is live. Manual playtest recipe:
 
 1. Start a career save, launch a crewed plane.
 2. Open Gloops window, Start Recording.
@@ -219,7 +252,7 @@ All tests use `ParsekLog.ResetTestOverrides()` + any necessary `LedgerOrchestrat
 
 **In scope:**
 - `CreateKerbalAssignmentActions` and `CreateVesselCostActions` early-return on `rec.IsGhostOnly`.
-- `LedgerOrchestrator.FilterOutGhostOnlyActions` + `RecalculateAndPatch` pre-pass filter.
+- `LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger` + `Ledger.RemoveActionsForRecording` helper, called from `RecalculateAndPatch` to mutate `Ledger.Actions` in place.
 - New `Source/Parsek.Tests/GloopsEventSuppressionTests.cs`.
 - Doc updates per step 8.
 
@@ -232,9 +265,9 @@ All tests use `ParsekLog.ResetTestOverrides()` + any necessary `LedgerOrchestrat
 
 ## Risks
 
-- **`FilterOutGhostOnlyActions` overhead on every `RecalculateAndPatch`.** O(recordings + actions). Negligible next to the existing sort + walk. No index needed. The helper allocates a `HashSet<string>` every call even on loads with zero ghost-only recordings (early-return happens after the HashSet walk). If that allocation shows up in a future profile, cache the ghost-only id set on `RecordingStore.Committed` changes; for now, keep it simple.
-- **A future code path accidentally generating a Gloops-tagged action.** Caught by the walk filter (step 2) with an Info log identifying the count. Any non-zero count in a live save is a signal to find and fix the new path. The log line fires on every such call, so if it becomes noise, it indicates a real leak worth tracing.
-- **Multi-recording Gloops (#435) future interaction.** When #435 lands, every leaf in a Gloops tree will have `IsGhostOnly = true`. The existing per-recording `FindRecordingById(...).IsGhostOnly` and `FilterOutGhostOnlyActions` logic both read per-recording flags, so the tree case works automatically. No #432 re-work needed.
+- **`PurgeGhostOnlyActionsFromLedger` overhead on every `RecalculateAndPatch`.** O(recordings + actions). Negligible next to the existing sort + walk. Reverse walk on `Ledger.Actions` makes each remove O(1). The helper allocates a `HashSet<string>` every call, but early-returns before touching `Ledger.Actions` if the set is empty — so steady-state saves with no ghost-only recordings pay only the HashSet allocation (skip the mutation walk entirely). If the HashSet allocation ever shows up in a profile, cache the ghost-only id set on `RecordingStore.Committed` changes; for now, keep it simple.
+- **A future code path accidentally generating a Gloops-tagged action.** Caught by the purge (step 2) with an Info log identifying the count. Fires once per `RecalculateAndPatch` that finds any ghost-only rows to remove — so steady-state post-purge it's silent. A fresh non-zero count after a commit/rewind is a signal to find and fix the new path.
+- **Multi-recording Gloops (#435) future interaction.** When #435 lands, every leaf in a Gloops tree will have `IsGhostOnly = true`. The existing per-recording `FindRecordingById(...).IsGhostOnly` and `PurgeGhostOnlyActionsFromLedger` logic both read per-recording flags, so the tree case works automatically. No #432 re-work needed.
 
 ## Sequencing
 

@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// #432 — Gloops ghost-only recordings must contribute zero actions to the ledger.
     /// Covers the two action-creation guards in <see cref="LedgerOrchestrator"/>
     /// (<c>CreateKerbalAssignmentActions</c>, <c>CreateVesselCostActions</c>), the
-    /// belt-and-braces <c>FilterOutGhostOnlyActions</c> pre-pass, the walk-integration
+    /// belt-and-braces <c>PurgeGhostOnlyActionsFromLedger</c> pre-pass, the walk-integration
     /// log signal from <c>RecalculateAndPatch</c>, the self-heal path through
     /// <c>MigrateKerbalAssignments</c> → <c>OnKspLoad</c>, and the invariant that
     /// events never get tagged with a Gloops recording's id in the first place.
@@ -140,117 +140,95 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // 4. FilterOutGhostOnlyActions — drops ghost-only, keeps normal + empty-tag
+        // 4. PurgeGhostOnlyActionsFromLedger — mutates Ledger.Actions in place
         // ================================================================
 
         [Fact]
-        public void FilterOutGhostOnlyActions_DropsGhostOnlyAndKeepsOthers()
+        public void PurgeGhostOnlyActionsFromLedger_DropsGhostOnlyRowsAndMutatesLedger()
         {
-            // Seed two recordings: one ghost-only, one normal.
+            // Seed two committed recordings: one ghost-only, one normal.
             var ghostOnly = new Recording { RecordingId = "gloops-A", IsGhostOnly = true };
             var normal = new Recording { RecordingId = "normal-B", IsGhostOnly = false };
             RecordingStore.AddRecordingWithTreeForTesting(ghostOnly);
             RecordingStore.AddRecordingWithTreeForTesting(normal);
 
-            // Three actions: one ghost-only-tagged, one normal-tagged, one empty-tagged
-            // (legitimate empty-RecordingId cases include InitialFunds/Science/Reputation
-            //  seed actions and KSC-spending-forwarded rows — those must survive the filter).
-            var actions = new List<GameAction>
-            {
-                new GameAction { RecordingId = "gloops-A", Type = GameActionType.KerbalAssignment },
-                new GameAction { RecordingId = "normal-B", Type = GameActionType.KerbalAssignment },
-                new GameAction { RecordingId = "", Type = GameActionType.FundsInitial },
-            };
+            // Pre-fix / regression scenario: three stale actions in Ledger.Actions —
+            // one tagged to the ghost-only recording, one to the normal one, and a
+            // legitimate empty-tag seed row (which must survive — empty-RecordingId
+            // actions cover InitialFunds/Science/Reputation seeds, KSC-spending-
+            // forwarded rows, and MigrateOldSaveEvents output).
+            Ledger.AddAction(new GameAction { RecordingId = "gloops-A", Type = GameActionType.KerbalAssignment });
+            Ledger.AddAction(new GameAction { RecordingId = "normal-B", Type = GameActionType.KerbalAssignment });
+            Ledger.AddAction(new GameAction { RecordingId = "", Type = GameActionType.FundsInitial });
 
-            var filtered = LedgerOrchestrator.FilterOutGhostOnlyActions(actions);
+            Assert.Equal(3, Ledger.Actions.Count);
 
-            Assert.Equal(2, filtered.Count);
-            Assert.DoesNotContain(filtered, a => a.RecordingId == "gloops-A");
-            Assert.Contains(filtered, a => a.RecordingId == "normal-B");
-            Assert.Contains(filtered, a => string.IsNullOrEmpty(a.RecordingId));
+            int removed = LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger();
+
+            Assert.Equal(1, removed);
+            Assert.Equal(2, Ledger.Actions.Count);
+            // Timeline / career-state views read Ledger.Actions directly, so mutate
+            // in place — not just filter a walk-time copy.
+            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == "gloops-A");
+            Assert.Contains(Ledger.Actions, a => a.RecordingId == "normal-B");
+            Assert.Contains(Ledger.Actions, a => string.IsNullOrEmpty(a.RecordingId));
         }
 
         [Fact]
-        public void FilterOutGhostOnlyActions_PreservesMigratedOldSaveActionsWithEmptyTag()
+        public void PurgeGhostOnlyActionsFromLedger_PreservesMigratedOldSaveActionsWithNullTag()
         {
             // MigrateOldSaveEvents (LedgerOrchestrator.cs:803) converts pre-ledger
             // save events into GameActions with null/empty RecordingId — documented
-            // intentional tradeoff: we can't reliably map them to specific recordings.
-            // The filter must keep these alongside the legitimate seed-action empty tags.
+            // intentional tradeoff: we cannot reliably map them to specific recordings.
+            // The purge must keep these alongside the legitimate seed-action empty tags.
             var ghostOnly = new Recording { RecordingId = "gloops-old", IsGhostOnly = true };
             RecordingStore.AddRecordingWithTreeForTesting(ghostOnly);
 
-            var actions = new List<GameAction>
-            {
-                // Simulated MigrateOldSaveEvents output: a FundsSpending with null tag.
-                new GameAction { RecordingId = null, Type = GameActionType.FundsSpending, FundsSpent = 1000f },
-                // Simulated InitialFunds seed.
-                new GameAction { RecordingId = "", Type = GameActionType.FundsInitial },
-                // The actually-ghost-only-tagged row that must be dropped.
-                new GameAction { RecordingId = "gloops-old", Type = GameActionType.KerbalAssignment },
-            };
+            Ledger.AddAction(new GameAction { RecordingId = null, Type = GameActionType.FundsSpending, FundsSpent = 1000f });
+            Ledger.AddAction(new GameAction { RecordingId = "", Type = GameActionType.FundsInitial });
+            Ledger.AddAction(new GameAction { RecordingId = "gloops-old", Type = GameActionType.KerbalAssignment });
 
-            var filtered = LedgerOrchestrator.FilterOutGhostOnlyActions(actions);
+            int removed = LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger();
 
-            Assert.Equal(2, filtered.Count);
-            Assert.Contains(filtered, a => a.Type == GameActionType.FundsSpending && a.RecordingId == null);
-            Assert.Contains(filtered, a => a.Type == GameActionType.FundsInitial);
-            Assert.DoesNotContain(filtered, a => a.RecordingId == "gloops-old");
+            Assert.Equal(1, removed);
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsSpending && a.RecordingId == null);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsInitial);
+            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == "gloops-old");
         }
 
         [Fact]
-        public void FilterOutGhostOnlyActions_NoGhostOnlyRecordings_ReturnsInputUnchanged()
+        public void PurgeGhostOnlyActionsFromLedger_NoGhostOnlyRecordings_Noop()
         {
             var normal = new Recording { RecordingId = "normal-only", IsGhostOnly = false };
             RecordingStore.AddRecordingWithTreeForTesting(normal);
 
-            var actions = new List<GameAction>
-            {
-                new GameAction { RecordingId = "normal-only", Type = GameActionType.KerbalAssignment },
-                new GameAction { RecordingId = "", Type = GameActionType.FundsInitial },
-            };
+            Ledger.AddAction(new GameAction { RecordingId = "normal-only", Type = GameActionType.KerbalAssignment });
+            Ledger.AddAction(new GameAction { RecordingId = "", Type = GameActionType.FundsInitial });
 
-            var filtered = LedgerOrchestrator.FilterOutGhostOnlyActions(actions);
+            int removed = LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger();
 
-            // When no ghost-only recordings exist, the filter short-circuits to the input.
-            Assert.Equal(2, filtered.Count);
+            Assert.Equal(0, removed);
+            Assert.Equal(2, Ledger.Actions.Count);
         }
 
-        // ================================================================
-        // 5. Active-recording tag never returns a Gloops id (invariant guard)
-        //    + forced Gloops-tagged event can be purged (mechanism check)
-        // ================================================================
-
         [Fact]
-        public void GetActiveRecordingIdForTagging_WithGloopsAndNormalCommitted_NeverReturnsGloopsId()
+        public void PurgeGhostOnlyActionsFromLedger_RemovesAllTypesForGhostOnlyRecording()
         {
-            // Seed BOTH a committed Gloops recording and a committed normal recording.
-            // The resolver must never return the Gloops id — proving that empty return
-            // is due to the resolver honoring the active tree (empty in tests, no
-            // ParsekFlight.Instance), not due to "the Gloops recording happened to be
-            // skipped because no recording was committed at all."
-            var gloops = new Recording
-            {
-                RecordingId = "gloops-B",
-                VesselName = "Air Show",
-                IsGhostOnly = true,
-            };
-            gloops.Points.Add(new TrajectoryPoint { ut = 10.0 });
-            gloops.Points.Add(new TrajectoryPoint { ut = 20.0 });
-            RecordingStore.CommitGloopsRecording(gloops);
+            // A ghost-only recording may have multiple action types leaked in from
+            // different migration / past-code paths — the purge must remove them all,
+            // not just one type (as ReplaceActionsForRecording would for KerbalAssignment).
+            var ghostOnly = new Recording { RecordingId = "gloops-multi", IsGhostOnly = true };
+            RecordingStore.AddRecordingWithTreeForTesting(ghostOnly);
 
-            var normal = new Recording { RecordingId = "normal-A", IsGhostOnly = false };
-            RecordingStore.AddRecordingWithTreeForTesting(normal);
+            Ledger.AddAction(new GameAction { RecordingId = "gloops-multi", Type = GameActionType.KerbalAssignment });
+            Ledger.AddAction(new GameAction { RecordingId = "gloops-multi", Type = GameActionType.FundsSpending, FundsSpent = 5000f });
+            Ledger.AddAction(new GameAction { RecordingId = "gloops-multi", Type = GameActionType.FundsEarning, FundsAwarded = 3000f });
 
-            // Call the resolver many times to rule out any nondeterministic path.
-            for (int i = 0; i < 10; i++)
-            {
-                string tag = ParsekFlight.GetActiveRecordingIdForTagging();
-                Assert.NotEqual("gloops-B", tag);
-                // May return "" or "normal-A" depending on activeTree wiring; never the Gloops id.
-                Assert.True(tag == "" || tag == "normal-A",
-                    $"Unexpected tag '{tag}' — resolver must return the active tree's id or empty");
-            }
+            int removed = LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger();
+
+            Assert.Equal(3, removed);
+            Assert.Empty(Ledger.Actions);
         }
 
         [Fact]
@@ -292,14 +270,13 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // 6-7. RecalculateAndPatch integration — log fires when filtering happens
+        // RecalculateAndPatch integration — purge happens in-place, log fires once,
+        // subsequent calls are no-ops because the ledger is already clean.
         // ================================================================
 
         [Fact]
-        public void RecalculateAndPatch_FilterLogFires_WhenGhostOnlyActionPresent()
+        public void RecalculateAndPatch_PurgesGhostOnlyActions_AndSecondCallIsNoop()
         {
-            // Seed a ghost-only recording and a stale ledger row tagged with its id
-            // (simulating a pre-fix save that leaked into Ledger.Actions).
             var ghostOnly = new Recording { RecordingId = "gloops-stale", IsGhostOnly = true };
             RecordingStore.AddRecordingWithTreeForTesting(ghostOnly);
 
@@ -317,24 +294,24 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch();
 
+            // Purge log fired and the stale row is gone from Ledger.Actions itself.
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("filtered 1 action(s) tagged with ghost-only recordings"));
+                && l.Contains("PurgeGhostOnlyActionsFromLedger")
+                && l.Contains("removed 1 action(s)"));
+            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == "gloops-stale");
 
-            // Filter fires on every RecalculateAndPatch as long as the stale row sits in
-            // Ledger.Actions. The self-heal path (via MigrateKerbalAssignments in
-            // OnKspLoad) is what actually rewrites the stale row — the walk filter itself
-            // does not mutate Ledger.Actions. Verify this: a second call produces another
-            // filter line with the same count.
+            // Second call is a no-op: nothing left to purge, so no purge log line fires.
             logLines.Clear();
             LedgerOrchestrator.RecalculateAndPatch();
-            Assert.Contains(logLines, l =>
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("filtered 1 action(s) tagged with ghost-only recordings"));
+                && l.Contains("PurgeGhostOnlyActionsFromLedger")
+                && l.Contains("removed"));
         }
 
         [Fact]
-        public void RecalculateAndPatch_NoFilterLog_WhenNoGhostOnlyRecordings()
+        public void RecalculateAndPatch_NoPurgeLog_WhenNoGhostOnlyRecordings()
         {
             var normal = new Recording { RecordingId = "normal-only", IsGhostOnly = false };
             RecordingStore.AddRecordingWithTreeForTesting(normal);
@@ -355,7 +332,10 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("filtered") && l.Contains("ghost-only"));
+                && l.Contains("PurgeGhostOnlyActionsFromLedger")
+                && l.Contains("removed"));
+            // Normal action survives.
+            Assert.Contains(Ledger.Actions, a => a.RecordingId == "normal-only");
         }
 
         // ================================================================

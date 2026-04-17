@@ -609,40 +609,42 @@ namespace Parsek
         }
 
         /// <summary>
-        /// #432: filters out any action whose <see cref="GameAction.RecordingId"/> belongs to a
-        /// ghost-only (Gloops) recording. Pure belt-and-braces defense — today's action-creation
-        /// paths already skip ghost-only recordings, but this catches future regressions and any
-        /// stale ledger rows left by pre-fix builds. Empty-RecordingId actions (InitialFunds /
-        /// InitialScience / InitialReputation seeds at <c>:625,631,637</c>, KSC-forwarded rows at
-        /// <c>:1350</c>) are preserved.
+        /// #432: removes every action in <see cref="Ledger.Actions"/> whose <c>RecordingId</c>
+        /// belongs to a ghost-only (Gloops) recording. Mutates the ledger in place so raw-ledger
+        /// consumers (Timeline, career-state views) see a clean list — filtering only the walk
+        /// copy would leave stale rows visible elsewhere. Action-creation guards
+        /// (<see cref="CreateKerbalAssignmentActions"/>, <see cref="CreateVesselCostActions"/>)
+        /// already prevent new ghost-only rows from being produced; this catches pre-fix saves
+        /// and any future regression that deposits a ghost-only-tagged action via some other
+        /// path. Empty-<c>RecordingId</c> actions (InitialFunds / InitialScience / InitialReputation
+        /// seeds, KSC-spending-forwarded rows, and <see cref="MigrateOldSaveEvents"/> output) are
+        /// preserved — <see cref="Ledger.RemoveActionsForRecording"/> keys strictly on non-empty ids.
+        /// Returns the number of actions removed.
         /// </summary>
-        internal static List<GameAction> FilterOutGhostOnlyActions(List<GameAction> actions)
+        internal static int PurgeGhostOnlyActionsFromLedger()
         {
-            if (actions == null || actions.Count == 0)
-                return actions ?? new List<GameAction>();
+            var recs = RecordingStore.CommittedRecordings;
+            if (recs == null || recs.Count == 0) return 0;
 
             var ghostOnlyIds = new HashSet<string>(StringComparer.Ordinal);
-            var recs = RecordingStore.CommittedRecordings;
-            if (recs != null)
+            for (int i = 0; i < recs.Count; i++)
             {
-                for (int i = 0; i < recs.Count; i++)
-                {
-                    var r = recs[i];
-                    if (r != null && r.IsGhostOnly && !string.IsNullOrEmpty(r.RecordingId))
-                        ghostOnlyIds.Add(r.RecordingId);
-                }
+                var r = recs[i];
+                if (r != null && r.IsGhostOnly && !string.IsNullOrEmpty(r.RecordingId))
+                    ghostOnlyIds.Add(r.RecordingId);
             }
 
-            if (ghostOnlyIds.Count == 0) return actions;
+            if (ghostOnlyIds.Count == 0) return 0;
 
-            var kept = new List<GameAction>(actions.Count);
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var a = actions[i];
-                if (string.IsNullOrEmpty(a.RecordingId) || !ghostOnlyIds.Contains(a.RecordingId))
-                    kept.Add(a);
-            }
-            return kept;
+            int removedTotal = 0;
+            foreach (var id in ghostOnlyIds)
+                removedTotal += Ledger.RemoveActionsForRecording(id);
+
+            if (removedTotal > 0)
+                ParsekLog.Info(Tag,
+                    $"PurgeGhostOnlyActionsFromLedger: removed {removedTotal} action(s) tagged with ghost-only recordings");
+
+            return removedTotal;
         }
 
         /// <summary>
@@ -709,20 +711,17 @@ namespace Parsek
             // End-state population safety net: catch recordings with unpopulated end states
             PopulateUnpopulatedCrewEndStates();
 
+            // #432: purge any ghost-only-tagged actions from the ledger before the walk.
+            // Mutates Ledger.Actions directly so raw-ledger consumers (Timeline window,
+            // career-state views) never see stale rows — filtering the walk copy alone
+            // would leave Ledger.Actions dirty. Idempotent — no-op when no ghost-only
+            // recordings exist or no actions are tagged with them. CreateKerbalAssignment-
+            // Actions / CreateVesselCostActions already skip ghost-only recordings; this
+            // catches pre-fix saves and any future regression that deposits a ghost-only-
+            // tagged action via some other path.
+            PurgeGhostOnlyActionsFromLedger();
+
             var actions = new List<GameAction>(Ledger.Actions);
-
-            // #432: belt-and-braces filter — no action tagged with a ghost-only recording
-            // reaches the walk. CreateKerbalAssignmentActions and CreateVesselCostActions
-            // already skip ghost-only recordings; this catches future regressions and
-            // pre-fix saves where a stale action might still sit in Ledger.Actions
-            // (self-heals on next MigrateKerbalAssignments pass).
-            int beforeFilter = actions.Count;
-            actions = FilterOutGhostOnlyActions(actions);
-            int filtered = beforeFilter - actions.Count;
-            if (filtered > 0)
-                ParsekLog.Info(Tag,
-                    $"RecalculateAndPatch: filtered {filtered} action(s) tagged with ghost-only recordings");
-
             RecalculationEngine.Recalculate(actions);
 
             // KSP state mutations (PostWalk already called by engine)

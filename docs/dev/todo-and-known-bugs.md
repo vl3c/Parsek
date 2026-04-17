@@ -237,8 +237,9 @@ Concretely: today `CommitGloopsRecording` (`RecordingStore.cs:394`) bypasses `No
 
 **Files likely to touch:**
 
-- `Source/Parsek/GameActions/LedgerOrchestrator.cs` — `CreateKerbalAssignmentActions` (`:471`) and `CreateVesselCostActions` (`:397`) early-return on `rec.IsGhostOnly`; add `FilterOutGhostOnlyActions` helper and call from `RecalculateAndPatch` (`:653`).
-- `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` (new) — assert ghost-only recordings produce zero actions from both creation paths, walk filter drops any stale ghost-only-tagged actions.
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs` — `CreateKerbalAssignmentActions` (`:471`) and `CreateVesselCostActions` (`:397`) early-return on `rec.IsGhostOnly`; add `PurgeGhostOnlyActionsFromLedger` helper (mutates `Ledger.Actions` in place — filtering only the walk copy would leave Timeline and other raw-ledger consumers dirty) and call from `RecalculateAndPatch` (`:653`).
+- `Source/Parsek/GameActions/Ledger.cs` — add `RemoveActionsForRecording(string)` removing every action tagged with the given recording id regardless of type.
+- `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` (new) — assert ghost-only recordings produce zero actions from both creation paths, purge mutates `Ledger.Actions` and removes every type (not just `KerbalAssignment`).
 - `docs/user-guide.md` Gloops section — add a one-line note: "Gloops recordings have no effect on your career's contracts, science, funds, or milestones — they're purely visual."
 
 **Out of scope for v1 of this fix:**
@@ -249,7 +250,7 @@ Concretely: today `CommitGloopsRecording` (`RecordingStore.cs:394`) bypasses `No
 
 **Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
-**Status:** ~~DONE~~. Purely apply-side fix: `CreateKerbalAssignmentActions` and `CreateVesselCostActions` in `LedgerOrchestrator` early-return on `rec.IsGhostOnly` with a Verbose log; `LedgerOrchestrator.FilterOutGhostOnlyActions` runs as a pre-pass in `RecalculateAndPatch` (`LedgerOrchestrator.cs:666-676`) as belt-and-braces against stale ledger rows. Self-heal: pre-fix saves with `KerbalAssignment` rows tagged to a Gloops recording get rewritten to an empty set on next `OnKspLoad` → `MigrateKerbalAssignments` pass. No capture-side guards — Gloops never owns events per #431's tagging; events during a Gloops window flow to the parallel normal recording (if any) or to between-mission career state (if none). Tests in `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` cover both action-creation paths, the filter helper, the resolver invariant, the purge mechanism with a forced Gloops-tagged event, the `RecalculateAndPatch` log signal, and the `OnKspLoad` self-heal.
+**Status:** ~~DONE~~. Purely apply-side fix: `CreateKerbalAssignmentActions` and `CreateVesselCostActions` in `LedgerOrchestrator` early-return on `rec.IsGhostOnly` with a Verbose log. `LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger` runs at the top of `RecalculateAndPatch` and **mutates `Ledger.Actions` in place** — so raw-ledger consumers (Timeline window, career-state views) see a clean list too, not just the walk. Built on a new `Ledger.RemoveActionsForRecording(string)` that removes every action for a given recording id regardless of type — covers `FundsSpending` / `FundsEarning` / `KerbalAssignment` etc. Pre-fix saves self-heal on the first `RecalculateAndPatch` after load (called from `OnKspLoad`). No capture-side guards — Gloops never owns events per #431's tagging; events during a Gloops window flow to the parallel normal recording (if any) or to between-mission career state (if none). Tests in `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` cover both action-creation guards, the purge mechanism across all types, empty-tag preservation (`InitialFunds` seeds and `MigrateOldSaveEvents` output), the purge-log idempotency (fires once, then ledger is clean and the second call is a no-op), the `PurgeEventsForRecordings` orphan-contract-snapshot path, and the `OnKspLoad` → `MigrateKerbalAssignments` self-heal.
 
 ---
 
