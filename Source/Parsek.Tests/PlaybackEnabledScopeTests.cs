@@ -125,16 +125,18 @@ namespace Parsek.Tests
             // Orbit-only recording (no Points, no SurfacePos) still counts as
             // renderable data per the engine's contract. Hiding it must not
             // suppress the spawn at end. Bug #433 follow-up.
+            //
+            // EndUTOverride decouples EndUT from the empty Points list so
+            // `pastEnd = currentUT > 200` is the *realistic* trigger, not a
+            // MockTrajectory EndUT=0 artefact.
             var traj = new MockTrajectory();
             traj.PlaybackEnabled = false;
             traj.OrbitSegments = new List<OrbitSegment>
             {
                 new OrbitSegment { startUT = 100, endUT = 200 }
             };
+            traj.EndUTOverride = 200;
 
-            // EndUT defaults to 0 with no Points; override via a dummy flag to set
-            // the effective-end comparison. The helper uses traj.EndUT for pastEnd
-            // and flags.chainEndUT for pastEffectiveEnd — only one needs to hold.
             var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
             bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
                 traj, flags, currentUT: 250,
@@ -144,13 +146,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldFireHiddenPastEndCompletion_OrbitOnlyBeforeEnd_ReturnsFalse()
+        {
+            // Mirror of the orbit-only test above, proving the HasRenderableGhostData
+            // guard does not mask the pastEnd check: with renderable data but
+            // before EndUT and before chainEndUT, completion must NOT fire.
+            var traj = new MockTrajectory();
+            traj.PlaybackEnabled = false;
+            traj.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 100, endUT = 200 }
+            };
+            traj.EndUTOverride = 200;
+
+            var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
+            bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                traj, flags, currentUT: 150,
+                completionAlreadyFired: false, earlyDebrisCompletion: false);
+
+            Assert.False(fire);
+        }
+
+        [Fact]
         public void ShouldFireHiddenPastEndCompletion_SurfaceOnlyPastEnd_ReturnsTrue()
         {
             // Surface-only recording (no Points, no OrbitSegments) is also
             // renderable per the engine's contract. Must not silently suppress.
+            // EndUTOverride isolates the pastEnd trigger from the empty-Points artefact.
             var traj = new MockTrajectory();
             traj.PlaybackEnabled = false;
             traj.SurfacePos = new SurfacePosition { latitude = 0, longitude = 0, altitude = 0, body = "Kerbin" };
+            traj.EndUTOverride = 200;
 
             var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
             bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
