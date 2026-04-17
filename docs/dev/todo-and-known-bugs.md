@@ -58,6 +58,22 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~435. KSC-side ledger writes bypass the commit-time earnings reconciliation hook (Phase B of ledger/lump-sum fix)~~
+
+**Source:** plan `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` (Phase B). `LedgerOrchestrator.OnKscSpending` (line 1333+) writes a single `GameAction` to the ledger for every KSC-side spending event (part purchase, tech unlock, facility upgrade, crew hire, contract accept/complete/fail/cancel, milestone). Unlike `OnRecordingCommitted`, which runs `ReconcileEarningsWindow` to compare dropped `FundsChanged`/`ScienceChanged`/`ReputationChanged` deltas against emitted action deltas, `OnKscSpending` had no such check. A KSC-window-only earning channel that is not yet captured (strategy payouts are the canonical case — see Phase E1.5) could silently enter the store but never the ledger, and the mismatch would only surface downstream as a `PatchFunds: suspicious drawdown` WARN.
+
+**Fix:** Added `LedgerOrchestrator.ReconcileKscAction(IReadOnlyList<GameStateEvent> events, GameAction action, double ut)` and called it from `OnKscSpending` right after `Ledger.AddAction`. The helper computes the action's net funds/sci/rep impact (covering `FundsSpending`, `ScienceSpending`, `FacilityUpgrade`/`Repair`, `KerbalHire`, `MilestoneAchievement`, `ContractAccept`/`Complete`/`Fail`/`Cancel`, `FundsEarning`, `ReputationEarning`/`Penalty`, `ScienceEarning`) and compares against the sum of `FundsChanged`/`ReputationChanged`/`ScienceChanged` events within `KscReconcileEpsilonSeconds = 0.5 s` of the action UT. Same tolerances as `ReconcileEarningsWindow` (1.0 funds, 0.1 sci/rep). Log-only: the action has already been written. Tolerance-gated per channel — only warns when either expected or observed is non-zero, so untouched resources don't produce noise.
+
+**Scope intentionally excluded:** the Phase-A legacy-save migration (`MigrateLegacyTreeResources`) and the tree-scoped `+34400` reproducer test — both ship with Phase A on `fix/legacy-tree-resource-residual-migration` (PR #338) and in a follow-up PR after Phase A lands.
+
+**Tests:** eight new cases appended to `Source/Parsek.Tests/EarningsReconciliationTests.cs` — `ReconcileKsc_PartPurchaseMatchesFundsChanged_NoWarn`, `ReconcileKsc_PartPurchaseMismatch_LogsWarn`, `ReconcileKsc_FacilityUpgradeMatchesFunds_NoWarn`, `ReconcileKsc_TechUnlockMatchesScience_NoWarn`, `ReconcileKsc_TechUnlockMismatch_LogsWarn`, `ReconcileKsc_EventOutsideEpsilon_LogsWarn`, `ReconcileKsc_KerbalAssignment_NoReconciliation`, `ReconcileKsc_NullEvents_NoThrow`.
+
+**Files touched:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
+
+**Status:** ~~Fixed~~ (Phase B). Phase A (PR #338) and the deeper structural work (Phases C-F) still to come per the plan doc.
+
+---
+
 ## ~~434. Revert to Launch should auto-discard, not open the merge dialog~~
 
 **Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.

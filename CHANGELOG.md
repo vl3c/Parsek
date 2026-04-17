@@ -48,6 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- KSC-side ledger writes (part purchases, tech unlocks, facility upgrades, crew hires, contract accept/complete/fail/cancel, milestones) now reconcile against nearby `FundsChanged`/`ScienceChanged`/`ReputationChanged` events and log a WARN on mismatch, surfacing missing earning channels at the point they occur instead of accumulating silently.
 - `#434` KSP's stock crash/mission report (with its Revert buttons) now shows first on vessel destruction; Parsek's merge dialog no longer pre-empts it. Revert to Launch and Revert to VAB/SPH soft-clear the pending recording — sidecar files and captured events stay on disk so a flight quicksave can still be F9'd back into, while the bumped milestone epoch keeps reverted events out of the current ledger.
 - `#434` Fixed a NullReferenceException in `RevertDetector.Subscribe` that aborted `ParsekScenario.OnLoad` before the merge-dialog dispatch path could run, so going back to Space Center after a flight silently auto-committed the pending tree instead of showing the merge/discard dialog.
 - `#434` Revert to Launch no longer accidentally deletes the in-flight recording's files, so a flight F5 quicksave can still be F9'd back in after reverting. Stale science captured between the launch quicksave and the revert is also now cleared even when no recording was yet stashed.

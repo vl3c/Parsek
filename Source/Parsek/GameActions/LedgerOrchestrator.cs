@@ -1353,8 +1353,165 @@ namespace Parsek
                 $"KSC spending recorded: type={action.Type}, UT={evt.ut:F1}, " +
                 $"key={evt.key ?? "(none)"}");
 
+            // Phase B (plan: fix-ledger-lump-sum-reconciliation.md): KSC-side ledger writes
+            // were bypassing the commit-time reconciliation hook used by recording commits.
+            // Compare the synthesized action's net funds/sci/rep impact against the nearest
+            // FundsChanged/ScienceChanged/ReputationChanged events in GameStateStore and
+            // log WARN on mismatch — surfaces missing earning channels (strategy, world
+            // first, etc.) as they happen instead of accumulating silently.
+            ReconcileKscAction(GameStateStore.Events, action, evt.ut);
+
             RecalculateAndPatch();
         }
+
+        /// <summary>
+        /// Per-action reconciliation for KSC-side ledger writes. Called from
+        /// <see cref="OnKscSpending"/>. Compares the action's computed funds/sci/rep net
+        /// delta against the sum of <see cref="GameStateEventType.FundsChanged"/> /
+        /// <see cref="GameStateEventType.ScienceChanged"/> /
+        /// <see cref="GameStateEventType.ReputationChanged"/> events in <paramref name="events"/>
+        /// whose UT is within <see cref="KscReconcileEpsilonSeconds"/> of <paramref name="ut"/>,
+        /// and logs WARN on mismatch beyond tolerance. Log-only: the action has already been
+        /// written to the ledger by the caller.
+        /// <para>
+        /// Internal static + parameterized on <paramref name="events"/> for testability —
+        /// production calls pass <see cref="GameStateStore.Events"/>. KSC writes are
+        /// single-action and happen on the same frame as the triggering resource event,
+        /// so a small UT epsilon is sufficient to pair them (no cross-window bookkeeping
+        /// needed like <see cref="ReconcileEarningsWindow"/>).
+        /// </para>
+        /// </summary>
+        internal static void ReconcileKscAction(
+            IReadOnlyList<GameStateEvent> events,
+            GameAction action,
+            double ut)
+        {
+            if (action == null) return;
+
+            // 1. Compute the action's expected net delta per resource.
+            double expectedFunds = 0;
+            double expectedRep = 0;
+            double expectedSci = 0;
+
+            switch (action.Type)
+            {
+                case GameActionType.FundsEarning:
+                    expectedFunds = action.FundsAwarded;
+                    break;
+                case GameActionType.FundsSpending:
+                    expectedFunds = -action.FundsSpent;
+                    break;
+                case GameActionType.ReputationEarning:
+                    expectedRep = action.NominalRep;
+                    break;
+                case GameActionType.ReputationPenalty:
+                    expectedRep = -action.NominalPenalty;
+                    break;
+                case GameActionType.ScienceEarning:
+                    expectedSci = action.ScienceAwarded;
+                    break;
+                case GameActionType.ScienceSpending:
+                    expectedSci = -action.Cost;
+                    break;
+                case GameActionType.ContractAccept:
+                    // Advance funds credited at accept — captured by OnContractAccepted.
+                    expectedFunds = action.AdvanceFunds;
+                    break;
+                case GameActionType.ContractComplete:
+                    expectedFunds = action.FundsReward;
+                    expectedRep = action.RepReward;
+                    expectedSci = action.ScienceReward;
+                    break;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    expectedFunds = -action.FundsPenalty;
+                    expectedRep = -action.RepPenalty;
+                    break;
+                case GameActionType.MilestoneAchievement:
+                    expectedFunds = action.MilestoneFundsAwarded;
+                    expectedRep = action.MilestoneRepAwarded;
+                    expectedSci = action.MilestoneScienceAwarded;
+                    break;
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                    expectedFunds = -action.FacilityCost;
+                    break;
+                case GameActionType.KerbalHire:
+                    expectedFunds = -action.HireCost;
+                    break;
+                default:
+                    // Types with no resource impact (KerbalAssignment, FacilityDestruction,
+                    // KerbalRescue, StrategyActivate/Deactivate): nothing to reconcile.
+                    return;
+            }
+
+            // 2. Sum resource-changed events near this UT.
+            double observedFunds = 0;
+            double observedRep = 0;
+            double observedSci = 0;
+
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (Math.Abs(e.ut - ut) > KscReconcileEpsilonSeconds) continue;
+                    switch (e.eventType)
+                    {
+                        case GameStateEventType.FundsChanged:
+                            observedFunds += (e.valueAfter - e.valueBefore);
+                            break;
+                        case GameStateEventType.ReputationChanged:
+                            observedRep += (e.valueAfter - e.valueBefore);
+                            break;
+                        case GameStateEventType.ScienceChanged:
+                            observedSci += (e.valueAfter - e.valueBefore);
+                            break;
+                    }
+                }
+            }
+
+            // 3. Compare and WARN on mismatch beyond tolerance. Use the same tolerances
+            // as ReconcileEarningsWindow for consistency. Only check a channel if either
+            // the action expected to move it OR an event was observed — this avoids
+            // noisy warns for untouched resources where both sides are zero.
+            const double fundsTol = 1.0;
+            const double repTol = 0.1;
+            const double sciTol = 0.1;
+
+            if ((expectedFunds != 0 || observedFunds != 0) &&
+                Math.Abs(expectedFunds - observedFunds) > fundsTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation (funds): action {action.Type} expected delta={expectedFunds:F1} vs " +
+                    $"store observed delta={observedFunds:F1} — missing earning channel or stale event? " +
+                    $"ut={ut:F1}");
+            }
+            if ((expectedRep != 0 || observedRep != 0) &&
+                Math.Abs(expectedRep - observedRep) > repTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation (rep): action {action.Type} expected delta={expectedRep:F1} vs " +
+                    $"store observed delta={observedRep:F1} — missing earning channel or stale event? " +
+                    $"ut={ut:F1}");
+            }
+            if ((expectedSci != 0 || observedSci != 0) &&
+                Math.Abs(expectedSci - observedSci) > sciTol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation (sci): action {action.Type} expected delta={expectedSci:F1} vs " +
+                    $"store observed delta={observedSci:F1} — missing earning channel or stale event? " +
+                    $"ut={ut:F1}");
+            }
+        }
+
+        /// <summary>
+        /// UT epsilon (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
+        /// action with the resource-changed event(s) emitted by the same KSP callback.
+        /// KSC callbacks fire in the same frame as the resource change; 0.5 s leaves
+        /// room for capture-order jitter without matching unrelated events.
+        /// </summary>
+        internal const double KscReconcileEpsilonSeconds = 0.5;
 
         /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the

@@ -243,5 +243,206 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
         }
+
+        // ================================================================
+        // Phase B — KSC-side per-action reconciliation
+        // (LedgerOrchestrator.ReconcileKscAction, wired from OnKscSpending)
+        // ================================================================
+
+        [Fact]
+        public void ReconcileKsc_PartPurchaseMatchesFundsChanged_NoWarn()
+        {
+            // KSC part purchase of 600 funds with matching FundsChanged.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(1000, 50000, 49400)  // -600
+            };
+            var action = new GameAction
+            {
+                UT = 1000,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,
+                DedupKey = "solidBooster.v2"
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 1000);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_PartPurchaseMismatch_LogsWarn()
+        {
+            // KSC part purchase logs 600 spent but the store observed -610 (off by 10).
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(1000, 50000, 49390)  // -610
+            };
+            var action = new GameAction
+            {
+                UT = 1000,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,
+                DedupKey = "solidBooster.v2"
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 1000);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (funds)") &&
+                l.Contains("FundsSpending") &&
+                l.Contains("-600") &&
+                l.Contains("-610"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_FacilityUpgradeMatchesFunds_NoWarn()
+        {
+            // Facility upgrade costing 75000 funds with matching FundsChanged.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(2000, 200000, 125000)  // -75000
+            };
+            var action = new GameAction
+            {
+                UT = 2000,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "VehicleAssemblyBuilding",
+                ToLevel = 2,
+                FacilityCost = 75000f
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 2000);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_TechUnlockMatchesScience_NoWarn()
+        {
+            // Tech node unlock costing 45 science with matching ScienceChanged.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 3000,
+                    eventType = GameStateEventType.ScienceChanged,
+                    valueBefore = 120,
+                    valueAfter = 75  // -45
+                }
+            };
+            var action = new GameAction
+            {
+                UT = 3000,
+                Type = GameActionType.ScienceSpending,
+                NodeId = "basicRocketry",
+                Cost = 45f
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 3000);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_TechUnlockMismatch_LogsWarn()
+        {
+            // Tech node unlock recorded as 45 science but the store observed -55 (off by 10).
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 3000,
+                    eventType = GameStateEventType.ScienceChanged,
+                    valueBefore = 120,
+                    valueAfter = 65  // -55
+                }
+            };
+            var action = new GameAction
+            {
+                UT = 3000,
+                Type = GameActionType.ScienceSpending,
+                NodeId = "basicRocketry",
+                Cost = 45f
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 3000);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (sci)") &&
+                l.Contains("ScienceSpending") &&
+                l.Contains("-45") &&
+                l.Contains("-55"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_EventOutsideEpsilon_LogsWarn()
+        {
+            // A FundsChanged far outside the epsilon window (1 second away) must NOT
+            // be paired with the action; with no paired event the action's expected
+            // -600 shows as a mismatch vs observed 0 and WARNs.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(1000 - 1.0, 50000, 49400)  // 1 s before, outside 0.5 s epsilon
+            };
+            var action = new GameAction
+            {
+                UT = 1000,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,
+                DedupKey = "solidBooster.v2"
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 1000);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (funds)"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_KerbalAssignment_NoReconciliation()
+        {
+            // Non-resource action types (e.g. KerbalAssignment) short-circuit — no WARN
+            // even if unrelated FundsChanged events are nearby.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(4000, 0, 12345)  // entirely unrelated
+            };
+            var action = new GameAction
+            {
+                UT = 4000,
+                Type = GameActionType.KerbalAssignment,
+                KerbalName = "Jeb"
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(events, action, ut: 4000);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_NullEvents_NoThrow()
+        {
+            // Defensive: null events list should be handled. The action expected a
+            // funds delta and the observed was 0, so a WARN still fires.
+            var action = new GameAction
+            {
+                UT = 5000,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 100f,
+                DedupKey = "part"
+            };
+
+            LedgerOrchestrator.ReconcileKscAction(null, action, ut: 5000);
+
+            Assert.Contains(logLines, l => l.Contains("KSC reconciliation (funds)"));
+        }
     }
 }
