@@ -46,7 +46,7 @@ namespace Parsek
         // cells without over-inflating them.
         private const float ColHeaderHeight = 32f;
         private const float ColW_Site = 90f;
-        private const float ColW_Group = 50f;
+        private const float ColW_Group = 60f;
 
         // Reusable per-frame buffers (avoid allocation each frame)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
@@ -342,7 +342,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    1196, recHeight);
+                    1280, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -909,10 +909,10 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Info toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1654f)
-                        recordingsWindowRect.width = 1654f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1738f)
+                        recordingsWindowRect.width = 1738f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 1196f;
+                        recordingsWindowRect.width = 1280f;
                 }
             }
 
