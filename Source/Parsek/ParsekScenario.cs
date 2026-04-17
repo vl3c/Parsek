@@ -141,13 +141,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Discards a pending tree from an abandoned future / stale context and clears any
-        /// deferred stock flight-results state tied to that tree owner.
+        /// Discards a pending tree from an abandoned future / stale context.
+        /// #434: previously also cleared FlightResultsPatch deferred-results state; that patch
+        /// is gone now. Kept as a single entry point so callers have a named reason-string slot
+        /// for logging.
         /// </summary>
         internal static void DiscardPendingTreeAndAbandonDeferredFlightResults(string reason)
         {
+            ParsekLog.Verbose("Scenario", $"DiscardPendingTree abandon path: {reason}");
             RecordingStore.DiscardPendingTree();
-            Patches.FlightResultsPatch.ClearPending(reason);
         }
 
         /// <summary>
@@ -761,12 +763,19 @@ namespace Parsek
                     bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
                         && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                         && !activeTreeRestoredFromSave;
-                    bool isRevert = !isVesselSwitch
-                                    && (savedEpoch < MilestoneStore.CurrentEpoch
-                                        || totalSavedRecCount < recordings.Count
-                                        || (isFlightToFlight && hasOrphanedLimboTree));
+                    // #434: event-based revert detection. GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
+                    // fires synchronously inside FlightDriver.RevertToLaunch / RevertToPrelaunch,
+                    // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
+                    // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
+                    // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
+                    // The old epoch/count-regression heuristic false-positived on exactly this
+                    // post-revert-F9 case because CurrentEpoch++ on revert permanently made any
+                    // older saved epoch look like "regressed." Epoch/count values stay in the log
+                    // below as diagnostics but no longer drive classification.
+                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
+                    bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
                     ParsekLog.Verbose("Scenario",
-                        $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
+                        $"OnLoad: revert detection — revertKind={revertKind}, savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                         $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
@@ -970,6 +979,28 @@ namespace Parsek
                         MilestoneStore.CurrentEpoch++;
                         ParsekLog.Info("Scenario", $"Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
 
+                        // #434: Revert is a player declaration that "this mission never happened."
+                        // Soft-unstash the pending tree — clear the slot but preserve sidecar files
+                        // and event state so that a quicksave taken during the flight can still be
+                        // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
+                        // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
+                        // Events stay in-memory and on-disk; the bumped MilestoneStore.CurrentEpoch
+                        // above filters them out of the post-revert ledger walks.
+                        //
+                        // This runs BEFORE the limbo-dispatch block below — clearing the pending
+                        // slot short-circuits the finalize/restore paths because the tree is gone.
+                        if (RecordingStore.HasPendingTree)
+                        {
+                            RecordingStore.UnstashPendingTreeOnRevert();
+                            // ScreenMessages.PostScreenMessage calls into Unity's UI stack,
+                            // which isn't wired up in xUnit test hosts — typed catch so
+                            // real runtime errors still surface in logs.
+                            try { ParsekLog.ScreenMessage("Recording unstashed (revert)", 4f); }
+                            catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
+                            catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
+                            catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
+                        }
+
                         // Schedule committed resource deduction (singletons may not be ready yet)
                         ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
 
@@ -986,36 +1017,15 @@ namespace Parsek
                     // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo
                     // (Limbo) or pre-transitioned for a vessel switch in
                     // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
-                    // Based on revert detection + vessel-switch flag + state, we now route to
-                    // one of three dispositions: finalize (real revert), vessel-switch restore
-                    // (#266), or quickload-resume.
+                    // #434: on revert the block above already discarded the pending tree, so
+                    // HasPendingTree will be false here and the dispatch is skipped entirely.
                     if (RecordingStore.HasPendingTree
                         && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                             || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
                     {
                         ParsekLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
                         var pendState = RecordingStore.PendingTreeStateValue;
-                        if (isRevert)
-                        {
-                            // Real revert: finalize the Limbo tree by running the
-                            // same per-recording logic the live commit path uses
-                            // (FinalizeIndividualRecording → DetermineTerminalState
-                            // from the actual vessel.situation when the vessel is
-                            // still loaded in FlightGlobals, falling back to
-                            // Destroyed + PopulateTerminalOrbitFromLastSegment when
-                            // the vessel is gone). Same path for both Limbo and
-                            // LimboVesselSwitch — a revert wipes the in-progress
-                            // mission regardless of how the tree was stashed.
-                            //
-                            // Bug #278: the previous code blanket-stamped every leaf
-                            // as Destroyed unconditionally, killing canPersist for
-                            // surviving leaves (e.g. an EVA kerbal walking on the
-                            // surface at the moment of the revert who was still
-                            // loaded as a separate vessel). The new flow preserves
-                            // those leaves' real Landed/Splashed/Orbiting state.
-                            FinalizePendingLimboTreeForRevert();
-                        }
-                        else if (pendState == PendingTreeState.LimboVesselSwitch)
+                        if (pendState == PendingTreeState.LimboVesselSwitch)
                         {
                             // Bug #266: tree was pre-transitioned at stash time. Just defer
                             // to OnFlightReady for the vessel-switch restore coroutine, which
@@ -1629,6 +1639,8 @@ namespace Parsek
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
             GameEvents.onVesselSwitching.Add(OnVesselSwitching);
+            // #434: subscribe idempotently so revert detection is armed from first OnLoad.
+            RevertDetector.Subscribe();
         }
 
         /// <summary>
@@ -3140,6 +3152,10 @@ namespace Parsek
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            // #434: RevertDetector subscriptions are idempotent and persist for the
+            // lifetime of the game session; tearing them down here so a scenario-module
+            // shutdown doesn't leak dangling delegates if the session ends mid-flight.
+            RevertDetector.Unsubscribe();
         }
     }
 }

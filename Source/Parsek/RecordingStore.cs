@@ -1009,6 +1009,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #434: "soft" unstash for the revert path. Clears the pending-tree slot WITHOUT
+        /// deleting sidecar files or purging tagged events. Rationale: KSP's revert preserves
+        /// persistent.sfs and sidecar files on both revert-to-launch (cache-driven, never
+        /// touches disk) and revert-to-VAB/SPH (persistent.sfs rewritten with prelaunch state,
+        /// but sidecars untouched). A player who F5'd during the flight and later F9s that
+        /// quicksave must find the Parsek recording files still there; the ACTIVE_TREE node
+        /// in that quicksave's persistent.sfs references sidecar files by recording id, which
+        /// would dangle if we deleted them.
+        ///
+        /// Event-store staleness after revert is handled by the existing
+        /// <see cref="MilestoneStore.CurrentEpoch"/> filter (bumped on revert elsewhere in
+        /// the <c>isRevert</c> branch). <see cref="CleanOrphanFiles"/> at the next cold-start
+        /// reclaims sidecars no quicksave still references.
+        ///
+        /// Contrast with <see cref="DiscardPendingTree"/>, which runs the full #431 purge +
+        /// file deletion for the merge-dialog Discard button's explicit "throw it away" choice.
+        /// </summary>
+        public static void UnstashPendingTreeOnRevert()
+        {
+            if (pendingTree == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "UnstashPendingTreeOnRevert called with no pending tree");
+                // P2 fix: clear science subjects even when there's no pending tree — the
+                // in-flight recorder may have captured subjects that were never stashed.
+                int strayBefore = GameStateRecorder.PendingScienceSubjects.Count;
+                if (strayBefore > 0)
+                {
+                    GameStateRecorder.PendingScienceSubjects.Clear();
+                    ParsekLog.Info("RecordingStore",
+                        $"UnstashPendingTreeOnRevert: cleared {strayBefore} in-flight science subject(s) even with no pending tree");
+                }
+                return;
+            }
+
+            string treeName = pendingTree.TreeName;
+            var prevState = pendingTreeState;
+            int recCount = pendingTree.Recordings.Count;
+
+            // P2 fix: GameStateRecorder.PendingScienceSubjects is a static in-memory list
+            // that is neither epoch-tagged nor serialized. If we don't clear it here, the
+            // next committed recording's NotifyLedgerTreeCommitted will flush these stale
+            // subjects onto an unrelated mission. F9-from-flight-quicksave semantics don't
+            // lose anything — the list wasn't in the quicksave anyway, so no regression vs.
+            // the pre-#434 discard path (which cleared this list unconditionally).
+            int subjectsCleared = GameStateRecorder.PendingScienceSubjects.Count;
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
+            pendingTree = null;
+            pendingTreeState = PendingTreeState.Finalized;
+            Log($"[Parsek] Unstashed pending tree '{treeName}' on revert " +
+                $"(was state={prevState}, {recCount} recording(s), {subjectsCleared} pending science subject(s) cleared): " +
+                "sidecar files preserved for F9-from-flight-quicksave; " +
+                "events stay in-memory and on-disk, filtered by bumped epoch");
+        }
+
+        /// <summary>
         /// #431: true when <paramref name="recordingId"/> belongs to a currently-committed recording.
         /// Used by the legacy epoch-filter cohabitation log in <see cref="MilestoneStore.CreateMilestone"/>
         /// to surface drift between the two filter mechanisms.

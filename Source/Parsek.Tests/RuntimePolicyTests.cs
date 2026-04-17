@@ -833,7 +833,7 @@ namespace Parsek.Tests
                 onlyDebrisBlockersRemain: false,
                 pendingCrashResolution: false);
 
-            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.AbortAndKeepRecording, result);
         }
 
         [Fact]
@@ -845,7 +845,7 @@ namespace Parsek.Tests
                 onlyDebrisBlockersRemain: true,
                 pendingCrashResolution: false);
 
-            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.AbortAndKeepRecording, result);
         }
 
         #endregion
