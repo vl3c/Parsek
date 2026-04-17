@@ -94,6 +94,10 @@ All notable changes to Parsek are documented here.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 - Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestone rewards or other events that occurred after the rewind point. Contract deadlines that expired between the last pre-cutoff action and the rewind target also now correctly fail their contracts and apply the penalty. Tech-research affordability checks are scoped to the current universal time, so unlocking a node after a rewind no longer reads future science from the persisted ledger.
 
+### Known Limitations
+
+- KSP career strategies (Leadership Initiative, Open-Source Tech Program, etc.) are not yet captured by the ledger. Activating a strategy that diverts or grants resources can produce `PatchFunds: suspicious drawdown` WARN lines in `KSP.log` and small balance corrections after scene transitions until strategy lifecycle capture lands (tracked as `#439`). Fresh careers that do not activate strategies are unaffected.
+
 ### Maintenance
 
 - `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation`.
