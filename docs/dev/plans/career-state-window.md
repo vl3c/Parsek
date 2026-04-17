@@ -339,8 +339,8 @@ Tag `"UI"` unless stated.
 | Cache invalidated | Verbose | `"CareerStateWindow: cache invalidated"` |
 | VM rebuilt | Verbose | `"CareerStateWindow: rebuilt VM liveUT={liveUT} terminalUT={termUT} divergence={bool} mode={mode} contracts={curC}/{projC} strategies={curS}/{projS} facilities={fRows} milestones={curM}/{projM}"` (Verbose: fires on every ledger invalidation; would spam Info on busy timelines) |
 | Walk filter: action skipped | Verbose | `"CareerStateWindow: action skipped actionType={type} ut={ut} reason={Ineffective|UT>liveUT|Unknown}"` (rate-limited via `ParsekLog.VerboseRateLimited` with key `"CareerStateWindow.skip.{actionType}.{reason}"` so repeat walks don't spam) |
-| Contract title fallback | Verbose | `"CareerStateWindow: contract title fallback id={contractId} (no live Contract instance)"` |
-| Strategy title fallback | Verbose | `"CareerStateWindow: strategy title fallback id={strategyId}"` |
+| Contract title fallback | Verbose | `"CareerStateWindow: contract title fallback id={contractId}"` (rate-limited per id via `VerboseRateLimited`) |
+| Strategy title fallback | Verbose | `"CareerStateWindow: strategy title fallback id={strategyId}"` (rate-limited per id; live lookup uses `Strategies.StrategySystem.Instance.Strategies`) |
 | Tab switched | Verbose | `"CareerStateWindow: tab switched {old}→{new}"` |
 | Sandbox-mode render | Verbose | `"CareerStateWindow: rendered sandbox-empty state"` |
 | Science-mode render | Verbose | `"CareerStateWindow: rendered science-mode (contracts/strategies hidden)"` |

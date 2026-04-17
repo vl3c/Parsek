@@ -270,7 +270,6 @@ namespace Parsek
         {
             public int Level;
             public bool Destroyed;
-            public bool Touched; // true once any action has been observed for this facility
         }
 
         // ================================================================
@@ -303,9 +302,6 @@ namespace Parsek
                     "CareerStateWindow: Build called with null module or actions; returning empty VM");
                 return EmptyVM(liveUT, mode);
             }
-
-            // Per-walk skip-log dedup set (design doc §7 walk-skip logging).
-            var loggedSkipKeys = new HashSet<string>(StringComparer.Ordinal);
 
             // Terminal-state accumulators, walked forward through the action list.
             var activeContractsTerm = new Dictionary<string, ContractAcc>(StringComparer.Ordinal);
@@ -347,7 +343,7 @@ namespace Parsek
                     case GameActionType.ContractAccept:
                         if (!a.Effective)
                         {
-                            LogSkip(loggedSkipKeys, "ContractAccept", "Ineffective", a);
+                            LogSkip("ContractAccept", "Ineffective", a);
                             break;
                         }
                         string cid = a.ContractId ?? "";
@@ -366,7 +362,7 @@ namespace Parsek
                     case GameActionType.ContractCancel:
                         if (!a.Effective)
                         {
-                            LogSkip(loggedSkipKeys, a.Type.ToString(), "Ineffective", a);
+                            LogSkip(a.Type.ToString(), "Ineffective", a);
                             break;
                         }
                         activeContractsTerm.Remove(a.ContractId ?? "");
@@ -375,7 +371,7 @@ namespace Parsek
                     case GameActionType.StrategyActivate:
                         if (!a.Effective)
                         {
-                            LogSkip(loggedSkipKeys, "StrategyActivate", "Ineffective", a);
+                            LogSkip("StrategyActivate", "Ineffective", a);
                             break;
                         }
                         string sid = a.StrategyId ?? "";
@@ -393,7 +389,7 @@ namespace Parsek
                     case GameActionType.StrategyDeactivate:
                         if (!a.Effective)
                         {
-                            LogSkip(loggedSkipKeys, "StrategyDeactivate", "Ineffective", a);
+                            LogSkip("StrategyDeactivate", "Ineffective", a);
                             break;
                         }
                         activeStrategiesTerm.Remove(a.StrategyId ?? "");
@@ -403,7 +399,7 @@ namespace Parsek
                         {
                             if (!a.Effective)
                             {
-                                LogSkip(loggedSkipKeys, "FacilityUpgrade", "Ineffective", a);
+                                LogSkip("FacilityUpgrade", "Ineffective", a);
                                 break;
                             }
                             string fid = a.FacilityId ?? "";
@@ -411,7 +407,6 @@ namespace Parsek
                             if (!facilityStateTerm.TryGetValue(fid, out f))
                                 f = new FacilityAcc { Level = 1, Destroyed = false };
                             f.Level = a.ToLevel;
-                            f.Touched = true;
                             facilityStateTerm[fid] = f;
                         }
                         break;
@@ -420,7 +415,7 @@ namespace Parsek
                         {
                             if (!a.Effective)
                             {
-                                LogSkip(loggedSkipKeys, "FacilityDestruction", "Ineffective", a);
+                                LogSkip("FacilityDestruction", "Ineffective", a);
                                 break;
                             }
                             string fid = a.FacilityId ?? "";
@@ -428,7 +423,6 @@ namespace Parsek
                             if (!facilityStateTerm.TryGetValue(fid, out f))
                                 f = new FacilityAcc { Level = 1, Destroyed = false };
                             f.Destroyed = true;
-                            f.Touched = true;
                             facilityStateTerm[fid] = f;
                         }
                         break;
@@ -437,7 +431,7 @@ namespace Parsek
                         {
                             if (!a.Effective)
                             {
-                                LogSkip(loggedSkipKeys, "FacilityRepair", "Ineffective", a);
+                                LogSkip("FacilityRepair", "Ineffective", a);
                                 break;
                             }
                             string fid = a.FacilityId ?? "";
@@ -445,7 +439,6 @@ namespace Parsek
                             if (!facilityStateTerm.TryGetValue(fid, out f))
                                 f = new FacilityAcc { Level = 1, Destroyed = false };
                             f.Destroyed = false;
-                            f.Touched = true;
                             facilityStateTerm[fid] = f;
                         }
                         break;
@@ -456,7 +449,7 @@ namespace Parsek
                             if (!a.Effective)
                             {
                                 // Mirrors MilestonesModule: ineffective duplicates are skipped.
-                                LogSkip(loggedSkipKeys, "MilestoneAchievement", "Ineffective", a);
+                                LogSkip("MilestoneAchievement", "Ineffective", a);
                                 break;
                             }
                             if (creditedMilestonesTerm.Contains(mid))
@@ -464,7 +457,7 @@ namespace Parsek
                                 // Defensive: Effective=true but already credited (should not happen
                                 // given MilestonesModule.ProcessAction semantics, but we don't want
                                 // to duplicate rows if an upstream bug slips through).
-                                LogSkip(loggedSkipKeys, "MilestoneAchievement", "AlreadyCredited", a);
+                                LogSkip("MilestoneAchievement", "AlreadyCredited", a);
                                 break;
                             }
                             creditedMilestonesTerm.Add(mid);
@@ -758,8 +751,7 @@ namespace Parsek
                 dst[kvp.Key] = new FacilityAcc
                 {
                     Level = kvp.Value.Level,
-                    Destroyed = kvp.Value.Destroyed,
-                    Touched = kvp.Value.Touched
+                    Destroyed = kvp.Value.Destroyed
                 };
             }
             return dst;
@@ -793,14 +785,14 @@ namespace Parsek
             return StringComparer.Ordinal.Compare(a.MilestoneId, b.MilestoneId);
         }
 
-        private static void LogSkip(
-            HashSet<string> loggedSkipKeys, string actionType, string reason, GameAction a)
+        private static void LogSkip(string actionType, string reason, GameAction a)
         {
-            string key = "CareerStateWindow.skip." + actionType + "." + reason;
-            if (loggedSkipKeys.Contains(key)) return;
-            loggedSkipKeys.Add(key);
+            // Rate-limited across Build() calls via ParsekLog.VerboseRateLimited
+            // (design doc §7). Keyed on type+reason so each skip category throttles
+            // independently; repeated walks of the same ledger do not spam the log.
             var ic = CultureInfo.InvariantCulture;
-            ParsekLog.Verbose("UI",
+            string key = "CareerStateWindow.skip." + actionType + "." + reason;
+            ParsekLog.VerboseRateLimited("UI", key,
                 $"CareerStateWindow: action skipped actionType={actionType} " +
                 $"ut={a.UT.ToString("F0", ic)} reason={reason}");
         }
@@ -823,13 +815,16 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                ParsekLog.Verbose("UI",
+                ParsekLog.VerboseRateLimited("UI",
+                    "CareerStateWindow.contractTitleThrew." + contractId,
                     $"CareerStateWindow: contract title lookup threw id={contractId} ex={ex.GetType().Name}");
                 // Fall through to raw-id fallback.
             }
 
-            // Preference 3: raw id fallback.
-            ParsekLog.Verbose("UI",
+            // Preference 3: raw id fallback — rate-limited per id so mod-generated or
+            // cancelled contracts do not re-log on every ledger invalidation.
+            ParsekLog.VerboseRateLimited("UI",
+                "CareerStateWindow.contractTitleFallback." + contractId,
                 $"CareerStateWindow: contract title fallback id={contractId}");
             return contractId;
         }
@@ -857,24 +852,42 @@ namespace Parsek
         {
             try
             {
-                var lookup = StrategyTitleLookupForTesting;
-                if (lookup != null)
-                {
-                    string viaStub = lookup(strategyId);
-                    if (!string.IsNullOrEmpty(viaStub)) return viaStub;
-                }
-                // Production path would query Strategies.StrategySystem.Instance.Strategies here.
-                // Not wired in Phase 1 — Phase 2 adds the live lookup.
+                string fromLive = LookupStrategyTitleLive(strategyId);
+                if (!string.IsNullOrEmpty(fromLive)) return fromLive;
             }
             catch (Exception ex)
             {
-                ParsekLog.Verbose("UI",
+                ParsekLog.VerboseRateLimited("UI",
+                    "CareerStateWindow.strategyTitleThrew." + strategyId,
                     $"CareerStateWindow: strategy title lookup threw id={strategyId} ex={ex.GetType().Name}");
             }
 
-            ParsekLog.Verbose("UI",
+            // Rate-limited per id so a career with a mod-generated or retired strategy
+            // does not re-log the fallback on every ledger invalidation.
+            ParsekLog.VerboseRateLimited("UI",
+                "CareerStateWindow.strategyTitleFallback." + strategyId,
                 $"CareerStateWindow: strategy title fallback id={strategyId}");
             return strategyId;
+        }
+
+        private static string LookupStrategyTitleLive(string strategyId)
+        {
+            var lookup = StrategyTitleLookupForTesting;
+            if (lookup != null) return lookup(strategyId);
+
+            // Production path: read live StrategySystem. Guarded with null-checks
+            // because pre-scene-load (or Sandbox) Instance will be null.
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null) return null;
+            var list = system.Strategies;
+            if (list == null) return null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null || s.Config == null) continue;
+                if (s.Config.Name == strategyId) return s.Config.Title;
+            }
+            return null;
         }
 
         // ================================================================
