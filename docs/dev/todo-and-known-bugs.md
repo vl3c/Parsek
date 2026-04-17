@@ -1722,6 +1722,48 @@ Sort/stability rules mirror the Kerbals window (ordinal by name, then by UT with
 
 ---
 
+## ~~416-1. New career starts with zero funds — GameStateRecorder treats starting roster as paid hires~~
+
+**Source:** c2 career-mode playtest `2026-04-17` (logs `logs/2026-04-17_1301_c2-funds-bug/`). Player started a new career with `StartingFunds = 25000`; `Funding` scenario ended at `funds = 0` within 26 seconds of career creation. `KspStatePatcher` drew funds down to zero via seven back-to-back `KerbalHire` events charging `62113` per kerbal against procedurally-named applicants (`Tomton Kerman`, `Aldard Kerman`, `Helbert Kerman`, `Jedbree Kerman`, `Clauald Kerman`, `Zelfry Kerman`, `Tizer Kerman`). KspStatePatcher's own guard logged `"PatchFunds: suspicious drawdown delta=-25000.0 … earning channel may be missing"` but did not block the write.
+
+**Root cause:** `GameStateRecorder.Subscribe` (Source/Parsek/GameStateRecorder.cs:88) listened to `GameEvents.onKerbalAdded`. Per KSP decompilation (`KerbalRoster.AddCrewMember` → `GameEvents.onKerbalAdded.Fire`), that event fires for **every** `AddCrewMember` call — including the four starter kerbals instantiated in `GenerateInitialCrewRoster` and every procedurally generated applicant added by the pool-refresh helper `AddApplicant`. The real "player paid to hire" signal is `GameEvents.OnCrewmemberHired`, fired only from `KerbalRoster.HireApplicant` (KSP `Assembly-CSharp` line `2603`, just before the `Applicant → Crew` type flip). `MissionParamsExtras.astronautHiresAreFree` (present in the save at `True`) turned out to be a red herring — that flag is scoped to `GameParameters.GameMode.MISSION` only, not CAREER.
+
+**Fix:** swapped the subscription in `Subscribe` and `Unsubscribe` to `GameEvents.OnCrewmemberHired`; renamed the handler to `OnCrewmemberHired(ProtoCrewMember crew, int activeCrewCount)` and used the pre-hire crew count KSP passes in, avoiding a race with the imminent type flip. Extracted `ComputeHireCost(int activeCrewCount)` as an `internal static` null-safe helper (returns 0f when `GameVariables.Instance == null` or `HighLogic.CurrentGame == null`) for testability.
+
+**Tests:** three new regression tests in `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs` — `OnKscSpending_CrewHired_AddsKerbalHireActionWithCost` (full flow with cost), `OnKscSpending_CrewHired_ZeroCost_LandsAsZeroCostAction` (defensive — zero cost still lands as a KerbalHire with zero fund impact), `ComputeHireCost_NullGameVariables_ReturnsZero` (null-safety).
+
+**Files touched:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
+
+**Status:** ~~Fixed~~. Size: S. Retest c3 career `2026-04-17` (logs `logs/2026-04-17_1629_c2-postfix-retest/`): `funds = 60562` after play, zero `Game state: CrewHired` events, zero `KerbalHire` ledger actions.
+
+---
+
+## ~~416-2. Crashed-vessel recordings lose their R (rewind) button — rewind save filename orphaned on disk~~
+
+**Source:** c3 career playtest `2026-04-17` (logs `logs/2026-04-17_1629_c2-postfix-retest/`). Three of six committed recordings had `rewindSave = (none)` in the save file even though the `parsek_rw_*.sfs` files existed on disk under `saves/c3/Parsek/Saves/`. All three were `terminalState = Destroyed` (crashes): `2bf9ed747a...` (Sounder 0 first launch), `9f358dcda0...` (Sounder 0 second launch), `3eb5c3c0b4...` (Sounder 1 second launch). Result: `RecordingStore.GetRewindSaveFileName` returned `null`, `TimelineWindowUI.cs:699` never rendered the R button.
+
+**Root cause:** the crash path routes through `FallbackCommitSplitRecorder` → `TryAppendCapturedToTree` (ParsekFlight.cs:2367) and returns early from the fallback method when the append succeeds, skipping the `rec.RewindSaveFileName = captured.RewindSaveFileName` copy at `ParsekFlight.cs:2392` (that line only runs on the standalone fallback below the early return). `TryAppendCapturedToTree` itself (line 1862) only copies trajectory points + a couple of flags; it did not forward `RewindSaveFileName`, `PreLaunchFunds/Science/Reputation`, or `RewindReservedFunds/Science/Rep` to the tree root. Later, `FinalizeTreeRecordings` ran with `this.recorder == null` — the joint break had moved the main recorder into `pendingSplitRecorder` (see the comment at `ParsekFlight.cs:1152`), so its own `CopyRewindSaveToRoot(tree, recorder, ...)` call at line `6506` silently no-oped under the `if (recorder != null)` guard. Net: the captured rewind save name lived only on the now-discarded recorder state; nothing bridged it to the committed tree root.
+
+**Fix:** `TryAppendCapturedToTree` now calls `CopyRewindSaveToRoot(tree, captured, logTag: "TryAppendCapturedToTree")` after the append, reusing the existing helper (`ParsekFlight.cs:1673`) with its first-wins semantics so legitimate pre-existing root data on multi-branch paths is preserved. The helper lifts `RewindSaveFileName` plus the pre-launch and reserved-budget trios onto `tree.Recordings[tree.RootRecordingId]`.
+
+**Tests:** two new regression tests in `Source/Parsek.Tests/TryAppendCapturedToTreeTests.cs` — `TreeMode_LiftsCapturedRewindSaveOntoRoot` (empty root picks up all six fields + "copied rewind save" log line), `TreeMode_DoesNotOverwriteRootRewindSave_FirstWins` (populated root is preserved, bridge call no-ops).
+
+**Files touched:** `Source/Parsek/ParsekFlight.cs` (TryAppendCapturedToTree), `Source/Parsek.Tests/TryAppendCapturedToTreeTests.cs`.
+
+**Status:** ~~Fixed~~. Size: S. Retest pending — user was mid-playtest when the fix landed; next KSP restart will pick up the Release DLL (KSP held the old DLL during the build so the auto-copy couldn't overwrite).
+
+---
+
+## ~~(no number). `InjectAllRecordings` test fixture leaks orphan sidecar files between runs~~
+
+**Source:** v0.8.2 playtest feedback "showcases disappeared". `dotnet test --filter InjectAllRecordings` writes synthetic recordings to `saves/<test-save>/Parsek/Recordings/` but did not clear previous-run output. When a later run injected a different set of recordings (or the same recordings with different IDs after generator changes), the stale `.prec` / `_ghost.craft` files from the prior run remained. KSP's load-time orphan sweep then deleted them, producing a visible "my showcases vanished" regression for users who re-ran the injector.
+
+**Fix:** the fixture setup now purges stale recording sidecars before writing fresh ones. Subsequent `InjectAllRecordings` runs produce a clean directory layout that KSP's orphan sweep leaves alone.
+
+**Status:** ~~Fixed~~. Size: XS. No bug number assigned — test-infrastructure improvement surfaced during 0.8.2 injector work.
+
+---
+
 ## ~~384. Copy the Learstar A1 mission from the S16 career into the test-career injector fixture as a far-away / map-view smoke test~~
 
 **Source:** maintenance request `2026-04-14`. The injected test career has lots of near-KSC content (Pad Walk, KSC Hopper, Flea Flight, etc.) and a handful of reentry recordings, but no representative mission with significant map-view / far-away state. The S16 campaign has a Learstar A1 flight that is a natural smoke test for this category.
