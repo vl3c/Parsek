@@ -1201,8 +1201,11 @@ namespace Parsek
                     break;
                 }
                 case DestructionMode.TreeAllLeavesCheck:
-                    Patches.FlightResultsPatch.ArmForDeferredMerge(
-                        "active vessel destroyed in tree mode");
+                    // #434: do NOT arm FlightResultsPatch here. The stock KSP flight-results dialog
+                    // (which offers Revert / Space Center) must surface first so the player can
+                    // revert without Parsek pre-committing their mission. The tree gets finalized
+                    // + stashed below and either auto-discards on revert (ParsekScenario isRevert
+                    // branch) or surfaces the deferred merge dialog in the destination scene.
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());
@@ -1259,8 +1262,6 @@ namespace Parsek
                 }
                 else
                 {
-                    Patches.FlightResultsPatch.CancelDeferredMerge(
-                        "tree destruction dialog aborted: activeTree null");
                     ParsekLog.Verbose("Flight",
                         "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
                 }
@@ -1278,8 +1279,6 @@ namespace Parsek
             // Guard: active vessel still alive
             if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
             {
-                Patches.FlightResultsPatch.CancelDeferredMerge(
-                    "tree destruction dialog aborted: active vessel survived");
                 ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
                 treeDestructionDialogPending = false;
                 yield break;
@@ -1337,8 +1336,6 @@ namespace Parsek
                             }
                             else
                             {
-                                Patches.FlightResultsPatch.CancelDeferredMerge(
-                                    "tree destruction dialog aborted: activeTree null");
                                 ParsekLog.Verbose("Flight",
                                     "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
                             }
@@ -1355,8 +1352,6 @@ namespace Parsek
 
                         if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
                         {
-                            Patches.FlightResultsPatch.CancelDeferredMerge(
-                                "tree destruction dialog aborted: active vessel survived");
                             ParsekLog.Verbose("Flight",
                                 "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
                             treeDestructionDialogPending = false;
@@ -1366,8 +1361,6 @@ namespace Parsek
                         continue;
 
                     case PostDestructionMergeResolution.CancelDeferredMerge:
-                        Patches.FlightResultsPatch.CancelDeferredMerge(
-                            "tree destruction dialog aborted: not all leaves terminal");
                         ParsekLog.Info("Flight",
                             "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
                         treeDestructionDialogPending = false;
@@ -1411,8 +1404,6 @@ namespace Parsek
                     $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
                 ScreenMessage($"Recording discarded - {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
-                Patches.FlightResultsPatch.CancelDeferredMerge(
-                    $"tree destruction auto-discarded ({reason})");
                 // Clean up flight state
                 recorder = null;
                 if (backgroundRecorder != null)
@@ -1437,20 +1428,15 @@ namespace Parsek
             activeTree = null;
             treeDestructionDialogPending = false;
 
-            // Show dialog or auto-merge
-            if (ParsekScenario.IsAutoMerge)
-            {
-                ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
-                var treeToCommit = RecordingStore.PendingTree;
-                RecordingStore.CommitPendingTree();
-                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                MergeDialog.ResolveDeferredFlightResults();
-            }
-            else
-            {
-                ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: showing tree merge dialog");
-                MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
-            }
+            // #434: do NOT show the in-flight merge dialog or commit via auto-merge here.
+            // The tree is stashed; the stock KSP crash report shows first (with Revert /
+            // Space Center). If the player reverts, ParsekScenario.OnLoad's isRevert branch
+            // auto-discards the pending tree via RecordingStore.DiscardPendingTree (see #431
+            // for the purge semantics). Otherwise the scene-exit path surfaces the merge
+            // dialog (autoMerge off) or auto-commits (autoMerge on) in the destination scene
+            // via ParsekScenario.ShowDeferredMergeDialog / the OnLoad auto-commit branch.
+            ParsekLog.Info("Flight",
+                "ShowPostDestructionTreeMergeDialog: pending tree stashed — deferring to post-report scene transition");
         }
 
         /// <summary>
@@ -4405,14 +4391,6 @@ namespace Parsek
                     "restore coroutine in progress (#293)");
             }
 
-            // Safety net: if FlightResultsPatch has a pending message that was never replayed
-            // (e.g., tree destruction path didn't fire), replay it now.
-            if (Patches.FlightResultsPatch.HasPendingResults())
-            {
-                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
-                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
-            }
-
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
@@ -4457,20 +4435,6 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
-
-            // Clear any suppressed flight results — don't carry stale crash reports across scenes.
-            if (Patches.FlightResultsPatch.HasPendingResults())
-            {
-                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
-                Patches.FlightResultsPatch.ClearPending("scene change with no merge owner");
-            }
-            else if (Patches.FlightResultsPatch.DeferredMergeArmed)
-            {
-                ParsekLog.Info("Flight",
-                    "Clearing armed FlightResults suppression on scene change before any stock dialog was intercepted");
-                Patches.FlightResultsPatch.ClearPending(
-                    "scene change before stock FlightResults were intercepted");
-            }
 
             // Clear split event detection state
             lastBranchUT = -1;

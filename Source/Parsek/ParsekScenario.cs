@@ -141,13 +141,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Discards a pending tree from an abandoned future / stale context and clears any
-        /// deferred stock flight-results state tied to that tree owner.
+        /// Discards a pending tree from an abandoned future / stale context.
+        /// #434: previously also cleared FlightResultsPatch deferred-results state; that patch
+        /// is gone now. Kept as a single entry point so callers have a named reason-string slot
+        /// for logging.
         /// </summary>
         internal static void DiscardPendingTreeAndAbandonDeferredFlightResults(string reason)
         {
+            ParsekLog.Verbose("Scenario", $"DiscardPendingTree abandon path: {reason}");
             RecordingStore.DiscardPendingTree();
-            Patches.FlightResultsPatch.ClearPending(reason);
         }
 
         /// <summary>
@@ -970,6 +972,23 @@ namespace Parsek
                         MilestoneStore.CurrentEpoch++;
                         ParsekLog.Info("Scenario", $"Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
 
+                        // #434: Revert is a player declaration that "this mission never happened."
+                        // Soft-unstash the pending tree — clear the slot but preserve sidecar files
+                        // and event state so that a quicksave taken during the flight can still be
+                        // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
+                        // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
+                        // Events stay in-memory and on-disk; the bumped MilestoneStore.CurrentEpoch
+                        // above filters them out of the post-revert ledger walks.
+                        //
+                        // This runs BEFORE the limbo-dispatch block below — clearing the pending
+                        // slot short-circuits the finalize/restore paths because the tree is gone.
+                        if (RecordingStore.HasPendingTree)
+                        {
+                            RecordingStore.UnstashPendingTreeOnRevert();
+                            try { ParsekLog.ScreenMessage("Recording unstashed (revert)", 4f); }
+                            catch { /* ScreenMessages unavailable outside KSP runtime (unit tests) */ }
+                        }
+
                         // Schedule committed resource deduction (singletons may not be ready yet)
                         ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
 
@@ -986,36 +1005,15 @@ namespace Parsek
                     // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo
                     // (Limbo) or pre-transitioned for a vessel switch in
                     // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
-                    // Based on revert detection + vessel-switch flag + state, we now route to
-                    // one of three dispositions: finalize (real revert), vessel-switch restore
-                    // (#266), or quickload-resume.
+                    // #434: on revert the block above already discarded the pending tree, so
+                    // HasPendingTree will be false here and the dispatch is skipped entirely.
                     if (RecordingStore.HasPendingTree
                         && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                             || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
                     {
                         ParsekLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
                         var pendState = RecordingStore.PendingTreeStateValue;
-                        if (isRevert)
-                        {
-                            // Real revert: finalize the Limbo tree by running the
-                            // same per-recording logic the live commit path uses
-                            // (FinalizeIndividualRecording → DetermineTerminalState
-                            // from the actual vessel.situation when the vessel is
-                            // still loaded in FlightGlobals, falling back to
-                            // Destroyed + PopulateTerminalOrbitFromLastSegment when
-                            // the vessel is gone). Same path for both Limbo and
-                            // LimboVesselSwitch — a revert wipes the in-progress
-                            // mission regardless of how the tree was stashed.
-                            //
-                            // Bug #278: the previous code blanket-stamped every leaf
-                            // as Destroyed unconditionally, killing canPersist for
-                            // surviving leaves (e.g. an EVA kerbal walking on the
-                            // surface at the moment of the revert who was still
-                            // loaded as a separate vessel). The new flow preserves
-                            // those leaves' real Landed/Splashed/Orbiting state.
-                            FinalizePendingLimboTreeForRevert();
-                        }
-                        else if (pendState == PendingTreeState.LimboVesselSwitch)
+                        if (pendState == PendingTreeState.LimboVesselSwitch)
                         {
                             // Bug #266: tree was pre-transitioned at stash time. Just defer
                             // to OnFlightReady for the vessel-switch restore coroutine, which
