@@ -403,28 +403,33 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
             }
 
+            // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
+            if (hasRange)
+            {
+                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(70));
+                if (newShowCustom != showCustomRange)
+                {
+                    showCustomRange = newShowCustom;
+                    ParsekLog.Verbose("UI",
+                        $"Time-range filter: custom sliders {(showCustomRange ? "shown" : "hidden")}");
+                }
+            }
+
             GUILayout.EndHorizontal();
 
             if (!hasRange) return;
 
-            // Disclosure header
-            GUILayout.BeginHorizontal();
-            string arrow = showCustomRange ? "\u25bc" : "\u25b6";
-            string headerLabel = arrow + " Custom range";
-            if (filter.IsActive && filter.ActivePresetName == null)
-            {
-                headerLabel += "  " + TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
-                    + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
-            }
-            if (GUILayout.Button(headerLabel, GUI.skin.label))
-            {
-                showCustomRange = !showCustomRange;
-            }
-            GUILayout.EndHorizontal();
-
-            // Custom range sliders
+            // Custom range sliders (visible only when the "Custom" toggle is on).
             if (showCustomRange)
             {
+                // Active-range readout (only meaningful when the filter is set to a custom range, not a preset).
+                if (filter.IsActive && filter.ActivePresetName == null)
+                {
+                    string rangeLabel = TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
+                        + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
+                    GUILayout.Label(rangeLabel, timelineDimStyle);
+                }
+
                 // From slider
                 GUILayout.BeginHorizontal();
                 string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
