@@ -16,9 +16,9 @@ The TODO entry at `docs/dev/todo-and-known-bugs.md:106` captures the intent accu
 
 - `Recording.cs:116` — field declaration with a misleading one-liner. `public bool PlaybackEnabled = true;  // false = skip ghost during playback`. **KEEP field, UPDATE comment.**
 - `ParsekFlight.cs:8755` (TODO said 8763) — `skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed` inside `ComputePlaybackFlags`. **KEEP** — the flag is the primary visual gate and its sole legitimate career-side effect (spawn suppression) gets rerouted (see next bullet).
-- `GhostPlaybackEngine.cs:291-299` (TODO said 276-285) — `if (f.skipGhost) { destroy + continue; }` early-return inside the main per-ghost loop. **MODIFY** — keep the destroy+skip for the "not past-end" case; for past-end recordings, still call `HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false, hasPointData)` before `continue` so the `OnPlaybackCompleted` event fires. `HandlePastEndGhost` at `GhostPlaybackEngine.cs:730` already guards the visual bits (`if (ghostActive)` at :735), so the event path works with an inactive ghost.
+- `GhostPlaybackEngine.cs:291-299` (TODO said 276-285) — `if (f.skipGhost) { destroy + continue; }` early-return inside the main per-ghost loop. **MODIFY** — keep the destroy+skip for every cause; add a narrow past-end completion detour gated on `traj.PlaybackEnabled == false` (the *sole* career-neutral skip reason). The other skipGhost causes (`!hasData`, `externalVesselSuppressed`) must keep today's silent-skip — they describe recordings with no spawnable trajectory. `HandlePastEndGhost` at `GhostPlaybackEngine.cs:730` already guards the visual bits (`if (ghostActive)` at :735), so the event path works with `state: null, ghostActive: false`. See Vessel-spawn gate §1 below for the narrowed code shape.
 - `ParsekKSC.cs:495` — `ShouldShowInKSC` returns false for `!rec.PlaybackEnabled`. **KEEP as-is** — legitimate tracking-station visual gate.
-- `ParsekKSC.cs:158` — caller-side iteration of `ShouldShowInKSC` in `Update()`. **MODIFY** — when the gate fires, today's code does `DestroyKscGhost; continue;` which skips the past-end spawn path at `:305/:317`. Keep the destroy, but before `continue`, call `TrySpawnAtRecordingEnd(i, rec)` when `currentUT > rec.EndUT` so the vessel still materializes at tracking station even with rendering disabled.
+- `ParsekKSC.cs:158` — caller-side iteration of `ShouldShowInKSC` in `Update()`. **MODIFY carefully** — `ShouldShowInKSC` folds three causes (`!PlaybackEnabled`, non-Kerbin, `Points.Count < 2`) and only the first is a career-neutral visibility choice. Factor `ShouldShowInKSC` into a structural predicate (`IsKscStructurallyEligible`) + a visibility check and branch on each cause separately: structural-reject keeps today's cleanup-only behaviour; `PlaybackEnabled=false` gets the new past-end spawn detour. See Vessel-spawn gate §3 below.
 - `ParsekScenario.cs:2698-2699` and `RecordingTree.cs:433-434, 774` — ConfigNode serialization of the flag. **KEEP** — persistence is neutral.
 - `Recording.cs:529` (`Clone` copies the flag), `Recording.cs:777` (`IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled`) — **KEEP** — plumbing for the visual read path.
 
@@ -39,16 +39,10 @@ The TODO entry at `docs/dev/todo-and-known-bugs.md:106` captures the intent accu
 
 - `RecordingOptimizer.cs:55` — `if (!a.PlaybackEnabled || !b.PlaybackEnabled) return false;` inside `CanAutoMerge`. **KEEP.** Auto-merge bails when two consecutive segments differ in any user-set flag, because the merged recording can only carry one value and silently picking one discards the user's setting. Same principle as the adjacent `Hidden`, `LoopPlayback`, and `LoopAnchorVesselId` blockers. This is workflow hygiene, not a career-state gate — merging a disabled segment away would lose the user's visual choice without the fix being able to prevent it.
 
-### Ambiguous — explicitly flag for user decision
+### Resolved decisions
 
-- `RecordingStore.cs:1372` — inside `IsChainLooping`: `if (rec.ChainId == chainId && rec.ChainBranch == 0 && rec.PlaybackEnabled && rec.LoopPlayback) return true;`. The TODO's edge-case note at `todo-and-known-bugs.md:145` explicitly says **KEEP** here ("Loop is a visual concept (the ghost replays). Keep the visual gate here; no change"). But `IsChainLooping` is consumed by `ShouldSpawnAtRecordingEnd` via the `isChainLooping` parameter — a looping chain suppresses the chain-tip vessel spawn. So keeping the `PlaybackEnabled` check here means: disabling the sole looping segment in a chain silently changes `IsChainLooping` to false → vessel spawns at chain tip → career state changes via a visual toggle. That is exactly the invariant violation this bug is fixing.
-  - **Option A (recommended, consistent with invariant):** DROP the `rec.PlaybackEnabled &&` clause. `IsChainLooping` returns true iff any branch-0 segment has `LoopPlayback=true`, regardless of visibility. Disabling the loop segment hides the ghost but the chain is still logically looping → no spawn at tip.
-  - **Option B (match TODO edge-case note verbatim):** KEEP the clause. Accept that disabling a solo looping segment flips the chain from "loop, no spawn" to "spawn at tip". Treat this as a documented side-effect.
-  - **User decision needed** before implementation. Everything else downstream of `IsChainLooping` is independent of this choice.
-- `RecordingStore.cs:1381-1395` — `IsChainFullyDisabled` function body. The function itself stays pure and internal. After removing the three career-state callers (`ParsekFlight.cs:8731`, `:11203`, `GhostPlaybackLogic.cs:3138`) and the one `KerbalsModule.cs:128` reader, the only remaining reference is the ChainTests assertion at `Source/Parsek.Tests/ChainTests.cs:1346, 1374, 1379`.
-  - **Option A (recommended):** KEEP the function and its unit tests. The "is this chain fully hidden visually?" query is legitimately useful and might be wanted later for UI (e.g., greying out a disabled chain in the Recordings window). No code outside tests calls it.
-  - **Option B:** DELETE the function and its tests entirely since post-fix no production code uses it.
-  - **User decision needed.** Default to Option A unless the user prefers dead-code cleanup.
+- `RecordingStore.cs:1372` — inside `IsChainLooping`: `rec.ChainId == chainId && rec.ChainBranch == 0 && rec.PlaybackEnabled && rec.LoopPlayback`. **DROP** the `rec.PlaybackEnabled &&` clause. `IsChainLooping` feeds `ShouldSpawnAtRecordingEnd` in both Flight (`ParsekFlight.cs:8731, :11203`) and KSC (`GhostPlaybackLogic.cs:3138`); keeping the clause preserves the exact invariant violation the fix removes (disabling a solo loop segment would flip the chain from "loop, no spawn" to "spawn at tip" — career state changing via a visual toggle). Post-fix: a chain is looping iff any branch-0 segment has `LoopPlayback=true`, independent of visibility. If a visual-only "is any loop segment actually rendering" query is wanted later, add it as a separately-named helper.
+- `RecordingStore.cs:1381-1395` — `IsChainFullyDisabled`. After the four career-state callers (`ParsekFlight.cs:8731`, `:11203`, `GhostPlaybackLogic.cs:3138`, `KerbalsModule.cs:128`) are gone, the function has no production callers. **DELETE** the function and the three `ChainTests.cs` tests at `:1346, :1374, :1379` that only exercise it. If a legitimate UI caller appears later, reintroduce it under an explicitly-visual name (e.g. `IsChainVisuallyHidden`) rather than resurrecting the career-gate identifier.
 
 ## Vessel-spawn gate — where and what shape
 
@@ -60,9 +54,11 @@ The TODO entry at `docs/dev/todo-and-known-bugs.md:106` captures the intent accu
 
 3. **KSC scene:** `ShouldShowInKSC` at `ParsekKSC.cs:495` returns false → `ParsekKSC.cs:158-171` skips the iteration → `TrySpawnAtRecordingEnd` at `:305/:317` is never reached. Shape: *side-effect of visibility iteration.*
 
-**Fix shape per path:**
+**Fix shape per path — narrow to the `PlaybackEnabled=false` cause only; do NOT broaden to every skip reason.**
 
-1. **Flight, standalone:** At `GhostPlaybackEngine.cs:291`, split the skipGhost branch. When past-end, call `HandlePastEndGhost` with `ghostActive: false` so the completion event fires and the policy's spawn branch runs. When not past-end, keep today's destroy+continue. Approximate shape:
+Today's `skipGhost` lumps three causes (`!hasData`, `!rec.PlaybackEnabled`, `externalVesselSuppressed`) and today's `!ShouldShowInKSC` lumps three (`!rec.PlaybackEnabled`, non-Kerbin body, `Points.Count < 2`). Only the `PlaybackEnabled=false` cause gets a past-end spawn detour; the structural causes (`!hasData`, non-Kerbin, too-short) must continue to skip silently — they describe recordings with no valid trajectory / no KSC render path, not visibility choices.
+
+1. **Flight, standalone, disabled:** At `GhostPlaybackEngine.cs:291`, split the skipGhost branch. Only the `PlaybackEnabled=false` sub-case fires the past-end completion. The engine already sees the trajectory via `IPlaybackTrajectory.PlaybackEnabled` (`IPlaybackTrajectory.cs:55`); read it directly:
    ```csharp
    if (f.skipGhost)
    {
@@ -71,39 +67,67 @@ The TODO entry at `docs/dev/todo-and-known-bugs.md:106` captures the intent accu
            DestroyAllOverlapGhosts(i);
            DestroyGhost(i, traj, f, reason: "disabled/suppressed");
        }
+       // Only the PlaybackEnabled=false cause is career-neutral → still fire completion
+       // so the policy can run spawn. !hasData and externalVesselSuppressed are
+       // structural and must keep their silent-skip behaviour.
        bool pastEnd = ctx.currentUT >= traj.EndUT;
        bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
-       if ((pastEnd || pastEffectiveEnd)
+       bool hiddenByPlaybackToggle = !traj.PlaybackEnabled;
+       bool hasPointData = traj.Points != null && traj.Points.Count > 0;
+       if (hiddenByPlaybackToggle
+           && hasPointData
+           && (pastEnd || pastEffectiveEnd)
            && !completedEventFired.Contains(i)
            && !earlyDestroyedDebrisCompleted.Contains(i))
        {
-           HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false,
-               hasPointData: traj.Points != null && traj.Points.Count > 0);
+           HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false, hasPointData);
        }
        continue;
    }
    ```
-   The `HandlePastEndGhost` path adds the event to `deferredCompletedEvents` at `:747`, which fires through `OnPlaybackCompleted` at `:489` later in the same frame. `ParsekPlaybackPolicy.HandlePlaybackCompleted` at `:247` reads `evt.Flags.needsSpawn` — which will be true after fix (2) removes the chain-disabled suppressor — and spawns the vessel via `host.SpawnVesselOrChainTipFromPolicy` at `:286`. No changes needed in the policy itself.
+   The `hasPointData` guard preserves behaviour for a trajectory that is *both* disabled and has no points — still a no-op. `HandlePastEndGhost` adds the event to `deferredCompletedEvents` at `:747`, which fires through `OnPlaybackCompleted` at `:489` later in the same frame. `ParsekPlaybackPolicy.HandlePlaybackCompleted` at `:247` reads `evt.Flags.needsSpawn` — true after fix (2) removes the chain-disabled suppressor — and spawns the vessel via `host.SpawnVesselOrChainTipFromPolicy` at `:286`. No changes needed in the policy. The policy only dereferences `evt.State` on ghost-active paths, so `state: null` is safe.
 
-2. **Flight, chain-disabled:** Drop `|| RecordingStore.IsChainFullyDisabled(rec.ChainId)` at `ParsekFlight.cs:8731` and `ParsekFlight.cs:11203`, and drop the KSC mirror at `GhostPlaybackLogic.cs:3138`. Rename the downstream `isChainLoopingOrDisabled` parameter to `isChainLooping` in `ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:2971, :2983`) and the `TrajectoryPlaybackFlags` field at `GhostPlaybackEvents.cs:28`. Update the suppression reason string at `:3024-3027` to `"chain looping"` and the doc-comment at `:2967`. Test seed sites (`RewindTimelineTests.cs`, `SpawnSafetyNetTests.cs`, `ChainSpawnSuppressionTests.cs`, `CommittedRecordingImmutabilityTests.cs`, `RewindTimelineTests.cs`, `GhostOnlyRecordingTests.cs`, `PlaybackTrajectoryTests.cs`, `MergeDialog.cs:177`) must rename the named argument; this is mechanical.
+   **Alternative considered and rejected:** adding a dedicated `flags.hiddenByPlaybackToggle` field in `ComputePlaybackFlags`. Cleaner in principle, but widens the TrajectoryPlaybackFlags surface and test-seed count. The `traj.PlaybackEnabled` read in the engine is a single-line, locally-scoped branch and stays within the IPlaybackTrajectory contract. Revisit only if a second consumer needs the distinction.
 
-3. **KSC:** At `ParsekKSC.cs:158-172`, insert the spawn call before `continue`:
+2. **Flight, chain-disabled:** Drop `|| RecordingStore.IsChainFullyDisabled(rec.ChainId)` at `ParsekFlight.cs:8731` and `ParsekFlight.cs:11203`, and drop the KSC mirror at `GhostPlaybackLogic.cs:3138`. Rename the downstream `isChainLoopingOrDisabled` parameter to `isChainLooping` in `ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:2971, :2983`) and the `TrajectoryPlaybackFlags` field at `GhostPlaybackEvents.cs:28`. Update the suppression reason string at `:3024-3027` to `"chain looping"` and the doc-comment at `:2967`. Test seed sites (`RewindTimelineTests.cs`, `SpawnSafetyNetTests.cs`, `ChainSpawnSuppressionTests.cs`, `CommittedRecordingImmutabilityTests.cs`, `GhostOnlyRecordingTests.cs`, `PlaybackTrajectoryTests.cs`, `MergeDialog.cs:177`) must rename the named argument; this is mechanical.
+
+3. **KSC, disabled:** `ShouldShowInKSC` at `ParsekKSC.cs:493-500` folds three causes together (`!rec.PlaybackEnabled` at `:495`, non-Kerbin at `:498`, `Points.Count < 2` at `:496`). Only the first is a career-neutral visibility choice; the other two describe recordings with no KSC render path at all and have never had a KSC spawn side-effect. The fix must NOT call `TrySpawnAtRecordingEnd` for the non-Kerbin or too-short cases — `ShouldSpawnAtKscEnd` at `GhostPlaybackLogic.cs:3122` never re-checks those conditions, so unguarded insertion would start spawning vessels for recordings that were hidden for structural reasons.
+
+   Factor `ShouldShowInKSC` into a two-predicate shape:
    ```csharp
-   if (!ShouldShowInKSC(rec))
+   internal static bool IsKscStructurallyEligible(Recording rec)
    {
-       if (kscGhosts.ContainsKey(i))
-       {
-           DestroyKscGhost(kscGhosts[i], i);
-           kscGhosts.Remove(i);
-           loggedGhostSpawn.Remove(i);
-       }
+       if (rec.Points == null || rec.Points.Count < 2) return false;
+       if (rec.Points[0].bodyName != "Kerbin") return false;
+       return true;
+   }
+   internal static bool ShouldShowInKSC(Recording rec)
+       => IsKscStructurallyEligible(rec) && rec.PlaybackEnabled;
+   ```
+   Then at `ParsekKSC.cs:158-172`, handle the three outcomes explicitly:
+   ```csharp
+   if (!IsKscStructurallyEligible(rec))
+   {
+       // Non-Kerbin or insufficient data — not renderable, no KSC spawn path.
+       // Today's cleanup-only behaviour.
+       if (kscGhosts.ContainsKey(i)) { DestroyKscGhost(kscGhosts[i], i); kscGhosts.Remove(i); loggedGhostSpawn.Remove(i); }
+       DestroyAllKscOverlapGhosts(i);
+       continue;
+   }
+   if (!rec.PlaybackEnabled)
+   {
+       // Hidden visually only — career effect still applies. Clean up and,
+       // if past-end, fire the same spawn path the visible branch would.
+       if (kscGhosts.ContainsKey(i)) { DestroyKscGhost(kscGhosts[i], i); kscGhosts.Remove(i); loggedGhostSpawn.Remove(i); }
        DestroyAllKscOverlapGhosts(i);
        if (currentUT > rec.EndUT)
            TrySpawnAtRecordingEnd(i, rec);
        continue;
    }
    ```
-   `TrySpawnAtRecordingEnd` at `:802` already dedups per `RecordingId` via `kscSpawnAttempted.Add` at `:814`, and `ShouldSpawnAtKscEnd` at `GhostPlaybackLogic.cs:3122` returns `needsSpawn=false` if `currentUT < rec.EndUT`, so the additional guard is belt-and-braces.
+   `TrySpawnAtRecordingEnd` at `:802` already dedups per `RecordingId` via `kscSpawnAttempted.Add` at `:814`, and `ShouldSpawnAtKscEnd` at `GhostPlaybackLogic.cs:3122` returns `needsSpawn=false` if `currentUT < rec.EndUT`, so the `currentUT > rec.EndUT` guard is belt-and-braces.
+
+   **External callers of `ShouldShowInKSC`**: the existing callers at `ParsekKSC.cs:88` (ctor ghost count log) and the test at `KscSpawnTests.cs:338-344` keep the combined predicate semantics — they want "is this recording eligible AND enabled?", which is exactly what `ShouldShowInKSC` still returns post-factoring.
 
 ## `KerbalsModule.cs:176-177` — why the early return is there and why it goes
 
@@ -137,6 +161,8 @@ Partial-disable chains (some segments enabled, some disabled) are already handle
 New file: `Source/Parsek.Tests/PlaybackEnabledScopeTests.cs`, `[Collection("Sequential")]`, `IDisposable` for `ParsekLog.TestSinkForTesting` + `RecordingStore.ResetForTesting` + `MilestoneStore.ResetForTesting()` in dispose. One test per dropped gate + regression guards per existing-correct gate. Log-line assertions use the repo's standard pattern (see `RewindLoggingTests.cs`).
 
 1. `DisabledStandalone_PastEnd_FiresPlaybackCompletedWithNeedsSpawn` — seed a single disabled recording with a valid snapshot, advance engine past `rec.EndUT`, assert `OnPlaybackCompleted` event fires, `evt.Flags.needsSpawn=true`, `evt.GhostWasActive=false`. Log-assert: `[Engine]` line about firing completion with `ghostActive=false`.
+1a. `NoRenderableData_PastEnd_DoesNotFirePlaybackCompleted` — regression guard for the narrowed skipGhost branch: `traj.PlaybackEnabled=true` but `!HasRenderableGhostData(traj)`, advance past end, assert no `OnPlaybackCompleted` fires and no spawn attempt.
+1b. `ExternalVesselSuppressed_PastEnd_DoesNotFirePlaybackCompleted` — same shape, `externalVesselSuppressed=true` in flags, assert the silent-skip behaviour is preserved.
 2. `DisabledStandalone_PolicyHandlesCompletion_SpawnCalled` — wire the policy to the engine (existing test helper), past-end a disabled recording, assert `host.SpawnVesselOrChainTipFromPolicy` was called via a test double.
 3. `DisabledChain_AllOff_ShouldSpawnAtRecordingEnd_ReturnsTrue` — replaces today's `KscSpawnTests.ShouldSpawnAtKscEnd_ChainFullyDisabled_ReturnsFalse`. With `isChainLooping=false` (fully-disabled is no longer a special case), assert `ShouldSpawnAtRecordingEnd` returns `needsSpawn=true` for the chain tip.
 4. `DisabledChain_CrewReservationsStillApply` — invert `KerbalReservationTests.Recalculate_SkipsDisabledChains` (`:194-207`). After fix, `IsKerbalAvailable("Jeb")` returns **false** (crew is reserved). Log-assert: `[KerbalsModule]` reservation line for the disabled-chain recording.
@@ -145,13 +171,15 @@ New file: `Source/Parsek.Tests/PlaybackEnabledScopeTests.cs`, `[Collection("Sequ
 7. `DisabledRecording_ResourceBudgetStillSubtracts` — exists in shape at `ResourceBudgetTests.cs:813-824`; add a log-assert for the cost aggregation line to pin the invariant.
 8. `DisabledChain_ResourceBudgetStillSubtracts` — exists at `ResourceBudgetTests.cs:826-845`; add log-assert.
 9. `KscScene_DisabledRecording_ShouldShowInKSC_False` — regression, existing.
-10. `KscScene_DisabledRecording_PastEnd_TrySpawnAtRecordingEndReached` — new. Simulate KSC `Update()` with a past-end disabled recording; assert the spawn path fires (observable via `kscSpawnAttempted` set membership + log line).
+9a. `KscScene_ShouldShowInKSC_FactoringEquivalence` — for every combination of `(PlaybackEnabled, Points.Count>=2, bodyName=="Kerbin")`, assert `ShouldShowInKSC(r) == IsKscStructurallyEligible(r) && r.PlaybackEnabled`.
+10. `KscScene_DisabledRecording_PastEnd_TrySpawnAtRecordingEndReached` — new. Simulate KSC `Update()` with a past-end disabled but structurally-eligible recording; assert the spawn path fires (observable via `kscSpawnAttempted` set membership + log line).
+10a. `KscScene_NonKerbinRecording_PastEnd_DoesNotSpawn` — regression guard for the narrowed KSC branch: past-end, `PlaybackEnabled=true`, body="Mun"; assert `TrySpawnAtRecordingEnd` is NOT reached (no `kscSpawnAttempted` entry, no spawn log).
+10b. `KscScene_TooFewPointsRecording_PastEnd_DoesNotSpawn` — same shape, `Points.Count=1`; assert no spawn.
 11. `FlightScene_DisabledRecording_SkipGhostStillDestroysVisual` — regression. Past-end + pre-end cases, `ghostStates` for the disabled index is empty after the frame.
 12. `TimelineBuilder_DisabledRecording_StillEmitsVesselSpawnEntry` — build a `committedRecordings` list containing a disabled recording with a spawnable terminal state, run the Recording Collector, assert `TimelineEntryType.VesselSpawn` appears for the recording at `rec.EndUT`.
-13. `IsChainLooping_DisabledLoopSegment` — **depends on ambiguity decision**:
-    - Option A: assert `IsChainLooping` returns true when the sole loop segment has `PlaybackEnabled=false`.
-    - Option B: assert it returns false (today's behaviour), and add a paired test that the chain-tip vessel does NOT silently re-spawn when the player disables the loop.
+13. `IsChainLooping_DisabledLoopSegment_ReturnsTrue` — invariant test. Chain with a single branch-0 segment, `LoopPlayback=true`, `PlaybackEnabled=false`; assert `IsChainLooping` returns true. Paired negative: `ShouldSpawnAtRecordingEnd` for that chain's tip returns `(false, "chain looping")` — no silent career flip when the player disables the loop visual.
 14. `RecordingOptimizer_CanAutoMerge_DisabledSegment_ReturnsFalse` — regression guard that the `PlaybackEnabled` blocker in `CanAutoMerge` is still enforced post-refactor.
+15. `IsChainFullyDisabled_Deleted` — sanity: production code compiles without the symbol. Ancillary to the deletion; handled by the build + targeted grep at commit time (no dedicated test needed; the three `ChainTests.cs` tests at `:1346, :1374, :1379` are removed in the same commit).
 
 ## Docs to update in the implementation commits
 
@@ -181,9 +209,10 @@ New file: `Source/Parsek.Tests/PlaybackEnabledScopeTests.cs`, `[Collection("Sequ
 ## Risks
 
 - **Renaming `isChainLoopingOrDisabled` → `isChainLooping` touches ~15 call sites across production and tests.** Mechanical but wide; a `dotnet build` must pass before commit. No API breakage (all `internal`).
-- **Splitting the skipGhost branch in `GhostPlaybackEngine.cs`** is the one behavioral code change. Keep the change small and tested — the existing test `PlaybackTrajectoryTests.cs:348-352` (`Recording_PlaybackEnabled_Disabled`) and new tests 1, 2, 11 cover it.
-- **`HandlePastEndGhost` with `state: null`** — the function at `GhostPlaybackEngine.cs:730` writes into `deferredCompletedEvents` using the passed `state`. The event's `State` field may be consumed elsewhere (e.g. the policy at `ParsekPlaybackPolicy.cs:244` through camera handoff). Verify: scan `PlaybackCompletedEvent.State` consumers; if any dereference without null-guard, add the guard as part of the same commit. Quick grep to run before implementing: `Grep "evt\.State\." Source/Parsek/ParsekPlaybackPolicy.cs`.
-- **KSC spawn timing** — inserting `TrySpawnAtRecordingEnd` inside the `!ShouldShowInKSC` branch means the spawn happens before the loop rate-limit check (`kscSpawnAttempted.Add` dedup already handles per-session duplication). Runtime cost: O(1) set lookup per disabled recording per frame; negligible.
+- **Narrowing the skipGhost and `!ShouldShowInKSC` branches to the `PlaybackEnabled=false` cause only** is the core behavioral work. The temptation when removing the bug is to fire spawn for every skipped recording — resist it. The other causes (`!hasData`, `externalVesselSuppressed`, non-Kerbin at KSC, `Points.Count < 2`) describe recordings with no valid trajectory / no KSC render path and must not acquire a spawn side-effect.
+- **`HandlePastEndGhost` with `state: null`** — confirmed safe: the policy only dereferences `evt.State` on ghost-active paths and guards otherwise. No additional null-checking needed.
+- **KSC spawn timing** — `TrySpawnAtRecordingEnd` already dedups via `kscSpawnAttempted` at `:814`; the per-frame cost of hitting the new spawn detour for a disabled recording is O(1).
+- **`ShouldShowInKSC` factoring** — the extracted `IsKscStructurallyEligible` is new public-to-file surface. Keep it `internal static` to match `ShouldShowInKSC` and add a unit test verifying the decomposition (`ShouldShowInKSC(r) == IsKscStructurallyEligible(r) && r.PlaybackEnabled` holds for all truth-table inputs).
 
 ## Commits
 
