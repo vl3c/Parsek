@@ -134,6 +134,28 @@ Injection decisions per tree:
 
 ---
 
+## ~~437. KSC-side ledger writes bypass the commit-time earnings reconciliation hook (Phase B of ledger/lump-sum fix)~~
+
+**Source:** plan `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` (Phase B). `LedgerOrchestrator.OnKscSpending` writes a single `GameAction` to the ledger for every KSC-side spending event (part purchase, tech unlock, facility upgrade, crew hire, contract accept/complete/fail/cancel, milestone). Unlike `OnRecordingCommitted`, which runs `ReconcileEarningsWindow` to compare dropped `FundsChanged`/`ScienceChanged`/`ReputationChanged` deltas against emitted action deltas, `OnKscSpending` had no such check. A KSC-window-only earning channel that is not yet captured (strategy payouts are the canonical case — see Phase E1.5) could silently enter the store but never the ledger, and the mismatch would only surface downstream as a `PatchFunds: suspicious drawdown` WARN — the same symptom Phase A (#436) repairs on legacy saves.
+
+**Fix (post-review v3 — key-match scoped to untransformed types, aggregation window tightened to the coalesce threshold):** `LedgerOrchestrator.ReconcileKscAction(IReadOnlyList<GameStateEvent> events, IReadOnlyList<GameAction> ledgerActions, GameAction action, double ut)` is called from `OnKscSpending` right after `Ledger.AddAction`. Matching is by KSP `TransactionReasons` key (written as `GameStateEvent.key = reason.ToString()` by `GameStateRecorder.OnFundsChanged`/`OnScienceChanged`/`OnReputationChanged`) plus a `KscReconcileEpsilonSeconds = 0.1` UT window — NOT by symmetric window aggregation, which would cross-attribute coalesced deltas. Action-type classification lives in `ClassifyAction` (pure, testable):
+
+- **Untransformed (WARN on missing or mismatched event):** `FundsSpending` (source=Other, key=`RnDPartPurchase`), `ScienceSpending` (key=`RnDTechResearch`), `FacilityUpgrade` (key=`StructureConstruction`), `FacilityRepair` (key=`StructureRepair`), `KerbalHire` (key=`CrewRecruited`), `ContractAccept` advance (key=`ContractAdvance`).
+- **Transformed (skip with VERBOSE, no WARN):** `ContractComplete` (strategy-transformed + rep curve), `ContractFail`/`Cancel` (rep curve on penalty), `MilestoneAchievement` (mod strategy risk), `ReputationEarning`/`Penalty` (curve), direct `FundsEarning`/`ScienceEarning` on KSC path. `StrategyActivate`/`FundsSpending(source=Strategy)` skipped until Phase E1.5 lifecycle capture lands.
+- **No-op:** `KerbalAssignment`/`Rescue`/`StandIn`, `FacilityDestruction`, `StrategyDeactivate`, `*Initial` — silent.
+
+Aggregation is scoped to the `GameStateStore.AddEvent` coalesce threshold (`ResourceCoalesceEpsilon = 0.1 s`, `GameStateStore.cs:21`). Within this window the store has already merged same-key resource events into one slot, so summing both sides is safe by construction. Beyond 0.1 s same-key events stay separate — widening the aggregation window (round-2 used 0.5 s) would let opposing per-action errors cancel out silently and hide real mismatches (round-3 regression). Tolerances match `ReconcileEarningsWindow` (1.0 funds, 0.1 sci/rep).
+
+**Scope intentionally excluded:** the Phase-A legacy-save migration (`MigrateLegacyTreeResources`) shipped under #436 above. A post-walk reconciliation hook for transformed-reward types (contract complete, milestone, reputation curve) is Phase D territory and not in this PR.
+
+**Tests:** 26 cases in `Source/Parsek.Tests/EarningsReconciliationTests.cs` — key-match positive (part purchase, facility upgrade, facility repair, tech unlock, kerbal hire, contract advance), key-match negative (type-correct but wrong key; correct key but wrong delta), transformed-type skip (ContractComplete, MilestoneAchievement, ReputationEarning, ContractCancel), coalescing regression (two part purchases coalesced into one event from both actions' perspective), **non-coalesced adjacency regression (two same-key events 0.3 s apart: each action reconciles only against its own event; opposing per-action errors that would have cancelled under a 0.5 s window now both WARN)**, inside-/outside-boundary pins at ±0.09 s and ±0.11 s, null-events / null-ledger defensive, KerbalAssignment short-circuit, and four `ClassifyAction` pure-function assertions.
+
+**Files touched:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
+
+**Status:** ~~Fixed~~ (Phase B, three review iterations). Phase A (#436, PR #338, merged) and the deeper structural work (Phases C-F) still to come per the plan doc.
+
+---
+
 ## ~~434. Revert to Launch should auto-discard, not open the merge dialog~~
 
 **Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.
