@@ -29,7 +29,7 @@ Recent baseline improvements (already landed):
 - Warp-stop spam near playback start is fixed with one-shot guard per recording (`cbed2ec`).
 - Synthetic recording tooling is now robust and standardized (`01132e5`, `32909d2`), with UT auto-read and injection workflow supporting both `persistent.sfs` and target save.
 
-Roadmap alignment (`docs/parsek-architecture.md`):
+Roadmap alignment (`docs/dev/done/parsek-architecture-v0.4.3.md`):
 - Open: `Ghost as actual vessel model (replace sphere)`.
 - Open: `Take control of playback vessel`.
 - Deferred but relevant: `IgnoreGForces(240)` when/if ghost becomes a real vessel.

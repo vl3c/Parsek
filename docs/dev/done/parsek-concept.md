@@ -205,7 +205,7 @@ Parsek transforms KSP from a **mission simulator** into a **space program simula
 
 - Original forum discussion: KSP2 Prelaunch Suggestions (February 2023)
 - Mod research document: `parallel-sequential-mod-research.md`
-- Architecture document: `parsek-architecture.md`
+- Architecture document: `parsek-architecture-v0.4.3.md` (historical); current index at `docs/parsek-architecture.md`
 
 ---
 
