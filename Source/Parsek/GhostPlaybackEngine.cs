@@ -899,9 +899,15 @@ namespace Parsek
 
             if (state == null)
             {
-                // Bug #414: throttle loop primary first spawn (not the cycle-rebuild path —
-                // that branch in UpdateOverlapPlayback near line 999 bypasses this gate because
-                // the overlap-move side effect at its call site is not reversible).
+                // Bug #414: two paths reach here — (a) very first loop-ghost spawn for this
+                // trajectory, and (b) the single-ghost cycle-rebuild branch above that
+                // destroys the prior ghost and nulls state. Both are safe to throttle: (a)
+                // is a brand-new appearance, and (b) has already fired the ExplosionHoldEnd
+                // camera anchor at line 868 so a 1-frame deferral only delays RetargetToNewGhost
+                // by one frame — the camera does not snap to active vessel in the meantime.
+                // The OVERLAP-loop cycle change (UpdateOverlapPlayback near line 1038) is
+                // what's actually exempt, because there the old primary is moved to the
+                // overlap list unconditionally before the spawn call.
                 if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
                     return;
                 SpawnGhost(index, traj, loopUT);
@@ -2091,6 +2097,23 @@ namespace Parsek
                 return false;
             }
             return true;
+        }
+
+        // Bug #414 test hooks. The throttle gate and counters are private so UpdatePlayback
+        // remains the only production path that touches them; tests need a narrow seam to
+        // exercise the decision directly without constructing a full FrameContext.
+        internal bool TryReserveSpawnSlotForTesting(int index, string site)
+            => TryReserveSpawnSlot(index, site);
+        internal void IncrementFrameSpawnCountForTesting()
+            => frameSpawnCount++;
+        internal int FrameSpawnCountForTesting => frameSpawnCount;
+        internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
+        internal void ResetPerFrameCountersForTesting()
+        {
+            frameSpawnCount = 0;
+            frameDestroyCount = 0;
+            frameSpawnDeferred = 0;
+            frameMaxSpawnTicks = 0;
         }
 
         private bool TryPopulateGhostVisuals(

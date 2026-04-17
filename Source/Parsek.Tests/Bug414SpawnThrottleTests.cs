@@ -103,5 +103,58 @@ namespace Parsek.Tests
             Assert.Contains("throttled=0", breakdown);
             Assert.Contains("max=0.00ms", breakdown);
         }
+
+        [Fact]
+        public void EngineThrottle_BlocksThirdReservation_AndEmitsLog()
+        {
+            // Engine-level regression: drives TryReserveSpawnSlot directly so a gate
+            // accidentally moved or removed surfaces as a test failure, not just a
+            // code-review miss.
+            var engine = new GhostPlaybackEngine(null);
+            engine.ResetPerFrameCountersForTesting();
+
+            Assert.True(engine.TryReserveSpawnSlotForTesting(0, "first-spawn"));
+            engine.IncrementFrameSpawnCountForTesting();
+            Assert.True(engine.TryReserveSpawnSlotForTesting(1, "first-spawn"));
+            engine.IncrementFrameSpawnCountForTesting();
+            // Cap hit (MaxSpawnsPerFrame=2): next call must defer.
+            Assert.False(engine.TryReserveSpawnSlotForTesting(2, "first-spawn"));
+            Assert.False(engine.TryReserveSpawnSlotForTesting(3, "distance-tier-rehydrate"));
+
+            Assert.Equal(2, engine.FrameSpawnCountForTesting);
+            Assert.Equal(2, engine.FrameSpawnDeferredForTesting);
+            // Only the first throttle log lands — the rate-limiter (key "spawn-throttle",
+            // 1.0s window) correctly suppresses the burst that follows within the same
+            // second. That's the production contract; both calls still incremented the
+            // deferred counter above.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]") &&
+                l.Contains("Spawn throttled") &&
+                l.Contains("(first-spawn)") &&
+                l.Contains("#2"));
+        }
+
+        [Fact]
+        public void EngineThrottle_ResetPerFrameCounters_ReArmsBudget()
+        {
+            // After a frame boundary resets the counters, the next frame gets a fresh cap.
+            // Mirrors the production reset inside UpdatePlayback.
+            var engine = new GhostPlaybackEngine(null);
+            engine.ResetPerFrameCountersForTesting();
+
+            Assert.True(engine.TryReserveSpawnSlotForTesting(0, "first-spawn"));
+            engine.IncrementFrameSpawnCountForTesting();
+            Assert.True(engine.TryReserveSpawnSlotForTesting(1, "first-spawn"));
+            engine.IncrementFrameSpawnCountForTesting();
+            Assert.False(engine.TryReserveSpawnSlotForTesting(2, "first-spawn"));
+
+            // Frame boundary.
+            engine.ResetPerFrameCountersForTesting();
+
+            Assert.Equal(0, engine.FrameSpawnCountForTesting);
+            Assert.Equal(0, engine.FrameSpawnDeferredForTesting);
+            Assert.True(engine.TryReserveSpawnSlotForTesting(2, "first-spawn"));
+            Assert.True(engine.TryReserveSpawnSlotForTesting(3, "first-spawn"));
+        }
     }
 }

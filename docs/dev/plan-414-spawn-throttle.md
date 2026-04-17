@@ -90,8 +90,12 @@ A small gate method:
 ```csharp
 // Callers that intend to spawn MUST call this first and skip on false.
 // Exempt call sites (watch-mode, loop-cycle-change) do NOT call this —
-// their spawns count toward frameSpawnCount via the existing increment
-// in BuildGhostVisualsWithMetrics but do not consume the cap budget.
+// their spawns still bump frameSpawnCount via the existing increment inside
+// BuildGhostVisualsWithMetrics, so they DO consume the cap budget for any
+// throttle-eligible sites that run later in the same frame. That is the
+// correct semantics: the cap is a total-work-per-frame guard, not a
+// throttle-eligible-only guard, so one watch-mode spawn legitimately reduces
+// the slots left for elective spawns in the same tick.
 private bool TryReserveSpawnSlot(int index, string site)
 {
     if (frameSpawnCount >= MaxSpawnsPerFrame)
