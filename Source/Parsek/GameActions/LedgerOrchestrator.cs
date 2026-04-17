@@ -670,7 +670,18 @@ namespace Parsek
         /// Full recalculation from ledger to engine to KSP state patch.
         /// Called on: commit, rewind, warp exit, KSP load.
         /// </summary>
-        internal static void RecalculateAndPatch()
+        /// <param name="utCutoff">
+        /// Optional UT cutoff forwarded to <see cref="RecalculationEngine.Recalculate"/>.
+        /// When non-null, actions with <c>UT &gt; utCutoff</c> are excluded from the walk
+        /// (seed actions always survive). Callers that are not rewind-driven pass no
+        /// argument and get <c>null</c> — the default walk-everything behavior. The
+        /// rewind paths (<c>HandleRewindOnLoad</c> + <c>ApplyRewindResourceAdjustment</c>)
+        /// pass the adjusted rewind UT explicitly; <c>RecalculateAndPatch</c> never
+        /// consults <see cref="RewindContext"/> itself, so callers must supply the
+        /// cutoff at the call site before <see cref="RewindContext.EndRewind"/> clears
+        /// the global.
+        /// </param>
+        internal static void RecalculateAndPatch(double? utCutoff = null)
         {
             Initialize();
 
@@ -722,7 +733,30 @@ namespace Parsek
             PurgeGhostOnlyActionsFromLedger();
 
             var actions = new List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actions);
+
+            // Count how many actions survive the cutoff filter for the log summary.
+            // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
+            int actionsAfterCutoff = actions.Count;
+            if (utCutoff.HasValue)
+            {
+                double cutoff = utCutoff.Value;
+                actionsAfterCutoff = 0;
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null) continue;
+                    if (RecalculationEngine.IsSeedType(a.Type) || a.UT <= cutoff)
+                        actionsAfterCutoff++;
+                }
+            }
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
+                : "null";
+            ParsekLog.Info(Tag,
+                $"RecalculateAndPatch: actionsTotal={actions.Count}, " +
+                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}");
+
+            RecalculationEngine.Recalculate(actions, utCutoff);
 
             // KSP state mutations (PostWalk already called by engine)
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
@@ -2311,24 +2345,58 @@ namespace Parsek
         internal const double KscReconcileEpsilonSeconds = 0.1;
 
         /// <summary>
+        /// Test-only seam for the "now UT" used by <see cref="CanAffordScienceSpending"/>
+        /// and <see cref="CanAffordFundsSpending"/>. In production this stays null and the
+        /// helpers call <see cref="Planetarium.GetUniversalTime"/> directly. Unit tests can
+        /// install a delegate to supply a deterministic UT because Planetarium throws NRE
+        /// in the Unity-static-free xUnit harness (see comments in
+        /// <c>FastForwardTests.CanFastForward_NoSaveFile_PassesPreRuntimeGuards</c>). Cleared
+        /// by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static System.Func<double> NowUtProviderForTesting;
+
+        /// <summary>
+        /// Returns the current universal time for affordability-helper UT cutoffs. Production
+        /// path reads <see cref="Planetarium.GetUniversalTime"/>; the test seam
+        /// <see cref="NowUtProviderForTesting"/> overrides when set.
+        /// </summary>
+        private static double GetNowUT()
+        {
+            var provider = NowUtProviderForTesting;
+            if (provider != null)
+                return provider();
+            return Planetarium.GetUniversalTime();
+        }
+
+        /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
         /// current ledger reservation. Returns true if available science >= cost.
         /// Used by TechResearchPatch to block unfunded tech unlocks.
         /// </summary>
+        /// <remarks>
+        /// The recalculation walk is scoped to <c>Planetarium.GetUniversalTime()</c> as
+        /// its UT cutoff so post-rewind future actions on the persisted ledger don't leak
+        /// into affordability ("what's the state right now?" → right now = Planetarium's
+        /// current UT, not the ledger's last action).
+        /// </remarks>
         internal static bool CanAffordScienceSpending(float cost)
         {
             Initialize();
             if (scienceModule == null) return true;
 
-            // Run a recalculation to get current state (may already be current)
+            // Run a recalculation to get current state (may already be current).
+            // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
+            // leak into affordability.
             var actions = new System.Collections.Generic.List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actions);
+            double nowUT = GetNowUT();
+            RecalculationEngine.Recalculate(actions, nowUT);
 
             double available = scienceModule.GetAvailableScience();
             bool affordable = available >= (double)cost;
 
             ParsekLog.Verbose(Tag,
-                $"CanAffordScienceSpending: cost={cost:F1}, available={available:F1}, affordable={affordable}");
+                $"CanAffordScienceSpending: cost={cost:F1}, available={available:F1}, " +
+                $"affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
         }
@@ -2338,19 +2406,28 @@ namespace Parsek
         /// current ledger reservation. Returns true if available funds >= cost.
         /// Not yet wired to FacilityUpgradePatch — scaffolding for future use.
         /// </summary>
+        /// <remarks>
+        /// Same UT-cutoff rule as <see cref="CanAffordScienceSpending"/>: the walk is
+        /// scoped to <c>Planetarium.GetUniversalTime()</c> so post-rewind future actions
+        /// never fabricate or withhold present-day affordability.
+        /// </remarks>
         internal static bool CanAffordFundsSpending(float cost)
         {
             Initialize();
             if (fundsModule == null) return true;
 
+            // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
+            // leak into affordability.
             var actions = new System.Collections.Generic.List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actions);
+            double nowUT = GetNowUT();
+            RecalculationEngine.Recalculate(actions, nowUT);
 
             double available = fundsModule.GetAvailableFunds();
             bool affordable = available >= (double)cost;
 
             ParsekLog.Verbose(Tag,
-                $"CanAffordFundsSpending: cost={cost:F1}, available={available:F1}, affordable={affordable}");
+                $"CanAffordFundsSpending: cost={cost:F1}, available={available:F1}, " +
+                $"affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
         }
@@ -2374,6 +2451,7 @@ namespace Parsek
             RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
             OnTimelineDataChanged = null;
+            NowUtProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

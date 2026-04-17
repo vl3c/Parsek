@@ -21,7 +21,19 @@ namespace Parsek
         /// for the reservation system) compute it here. Called after Reset and
         /// before the first ProcessAction dispatch.
         /// </summary>
-        void PrePass(List<GameAction> actions);
+        /// <param name="actions">The action list (already UT-cutoff-filtered by the engine).</param>
+        /// <param name="walkNowUT">
+        /// The effective "now" of the walk used for deadline-style comparisons.
+        /// When the engine was called with a UT cutoff (rewind path), this is the
+        /// cutoff value — "now" is the rewind target, not the last surviving action's UT.
+        /// When there is no cutoff, this is <c>null</c> and modules that care about
+        /// "now" fall back to their existing heuristic (typically the last action's UT).
+        /// Added in Phase D round 2 (#436) so <see cref="ContractsModule.PrePass"/> can
+        /// correctly detect deadlines that expired between the last pre-cutoff action
+        /// and the cutoff UT itself — otherwise deadline-expired contracts would leak
+        /// past a rewind without firing their synthetic <c>ContractFail</c>.
+        /// </param>
+        void PrePass(List<GameAction> actions, double? walkNowUT = null);
 
         /// <summary>
         /// Processes a single game action during the recalculation walk.
