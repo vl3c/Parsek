@@ -2917,6 +2917,31 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Bug #433: decide whether a skipped-ghost trajectory should still fire
+        /// PlaybackCompleted at past-end. Only the PlaybackEnabled=false cause is
+        /// career-neutral (visibility toggle) and must drive the policy's spawn
+        /// branch; !hasData / externalVesselSuppressed are structural and must
+        /// silently skip as before.
+        /// Pure predicate — accepts pre-collected set-membership booleans so the
+        /// engine can pass `HashSet.Contains` results without exposing the set.
+        /// </summary>
+        internal static bool ShouldFireHiddenPastEndCompletion(
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags,
+            double currentUT,
+            bool completionAlreadyFired,
+            bool earlyDebrisCompletion)
+        {
+            if (traj == null) return false;
+            if (completionAlreadyFired || earlyDebrisCompletion) return false;
+            if (traj.PlaybackEnabled) return false; // only the visibility-hidden cause
+            if (traj.Points == null || traj.Points.Count == 0) return false;
+            bool pastEnd = currentUT >= traj.EndUT;
+            bool pastEffectiveEnd = currentUT > flags.chainEndUT;
+            return pastEnd || pastEffectiveEnd;
+        }
+
         #region Spawn-at-Recording-End Decision
 
         /// <summary>
