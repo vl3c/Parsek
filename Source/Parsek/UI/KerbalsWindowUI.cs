@@ -490,11 +490,14 @@ namespace Parsek
                     for (int k = i; k < j; k++)
                     {
                         var e = endStates[k];
-                        // Subitem indent: 10px to the right of the parent row's cell origin
-                        // so the first character of the colored subitem text aligns
-                        // with the parent header's NAME start (after the ▼ triangle).
+                        // Subitem indent: match the parent header's "▼ " prefix width exactly,
+                        // so subitem text lines up under the parent's kerbal-name start.
+                        // Measured via CalcSize instead of a magic number so it stays
+                        // correct across font sizes and skin overrides.
+                        float arrowPrefixW = GUI.skin.label.CalcSize(
+                            new GUIContent(UnfoldedArrow + " ")).x;
                         GUILayout.BeginHorizontal();
-                        GUILayout.Space(10f);
+                        GUILayout.Space(arrowPrefixW);
                         if (GUILayout.Button(FormatEndStateRow(e), StyleForEndState(e.EndState)))
                         {
                             // Mirrors the Timeline.GoTo → RecordingsTableUI.ScrollToRecording
