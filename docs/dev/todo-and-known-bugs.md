@@ -9,12 +9,12 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 These four TODOs are the top of the work queue. They're load-bearing correctness fixes that enforce the "every career effect flows from the committed ledger, nothing survives the recording it was born in" invariant. Ship in this order; #431 should land first since #433 / #434 depend on its purge semantics.
 
-1. **#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).
-2. **#432** — Gloops ghost-only recordings must not capture or apply any game events.
+1. ~~**#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).~~
+2. ~~**#432** — Gloops ghost-only recordings must not capture or apply any game events.~~
 3. **#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).
-4. **#434** — Revert to Launch should auto-discard, not open the merge dialog.
+4. ~~**#434** — Revert to Launch should auto-discard, not open the merge dialog.~~
 
-Once this cluster lands, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
+Only #433 remains open. Once it ships, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
 
 ---
 
@@ -216,7 +216,7 @@ This TODO's correctness depends on #431 (event-purge-on-discard) landing first (
 
 ---
 
-## 432. Gloops ghost-only recordings must not capture or apply any game events
+## ~~432. Gloops ghost-only recordings must not capture or apply any game events~~
 
 **Source:** world-model conversation follow-up to #431, refined 2026-04-17. Gloops recordings (the "Gloops - Ghosts Only" group) are manual captures made for pure visual / airshow replays — they're flagged `IsGhostOnly`, auto-loop by default, and never spawn a real vessel at ghost-end. Their intent is **visual-only**: a Gloops recording is the ghost-visual slice from T0 to T1, a decorative parallel ghost that has nothing to do with career events. Events that fire during a Gloops window belong to the parallel normal recording (if any) or to between-mission career state (if none) — they don't belong to Gloops at all.
 
@@ -249,7 +249,7 @@ Concretely: today `CommitGloopsRecording` (`RecordingStore.cs:394`) bypasses `No
 
 **Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
-**Status:** TODO. Size: S. Purely apply-side now; no capture-side guards. Independent of #434 (they share a naming convention only). Pairs loosely with #431 on the "events share intent" theme.
+**Status:** ~~DONE~~. Purely apply-side fix: `CreateKerbalAssignmentActions` and `CreateVesselCostActions` in `LedgerOrchestrator` early-return on `rec.IsGhostOnly` with a Verbose log; `LedgerOrchestrator.FilterOutGhostOnlyActions` runs as a pre-pass in `RecalculateAndPatch` (`LedgerOrchestrator.cs:666-676`) as belt-and-braces against stale ledger rows. Self-heal: pre-fix saves with `KerbalAssignment` rows tagged to a Gloops recording get rewritten to an empty set on next `OnKspLoad` → `MigrateKerbalAssignments` pass. No capture-side guards — Gloops never owns events per #431's tagging; events during a Gloops window flow to the parallel normal recording (if any) or to between-mission career state (if none). Tests in `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` cover both action-creation paths, the filter helper, the resolver invariant, the purge mechanism with a forced Gloops-tagged event, the `RecalculateAndPatch` log signal, and the `OnKspLoad` self-heal.
 
 ---
 

@@ -406,6 +406,14 @@ namespace Parsek
                 return result;
             }
 
+            // #432: ghost-only recordings (Gloops) have zero career footprint on the ledger.
+            if (rec.IsGhostOnly)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: recording '{recordingId}' is ghost-only — skipping");
+                return result;
+            }
+
             if (rec.Points.Count == 0)
             {
                 ParsekLog.Verbose(Tag,
@@ -475,6 +483,16 @@ namespace Parsek
 
             var rec = FindRecordingById(recordingId);
             if (rec == null) return result;
+
+            // #432: ghost-only recordings (Gloops) have zero career footprint on the ledger.
+            // Closes the MigrateKerbalAssignments leak where a crewed Gloops recording would
+            // reserve its kerbals for the loop duration.
+            if (rec.IsGhostOnly)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateKerbalAssignmentActions: recording '{recordingId}' is ghost-only — skipping");
+                return result;
+            }
 
             if (NeedsCrewEndStatePopulation(rec))
                 KerbalsModule.PopulateCrewEndStates(rec);
@@ -587,6 +605,43 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #432: filters out any action whose <see cref="GameAction.RecordingId"/> belongs to a
+        /// ghost-only (Gloops) recording. Pure belt-and-braces defense — today's action-creation
+        /// paths already skip ghost-only recordings, but this catches future regressions and any
+        /// stale ledger rows left by pre-fix builds. Empty-RecordingId actions (InitialFunds /
+        /// InitialScience / InitialReputation seeds at <c>:625,631,637</c>, KSC-forwarded rows at
+        /// <c>:1350</c>) are preserved.
+        /// </summary>
+        internal static List<GameAction> FilterOutGhostOnlyActions(List<GameAction> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return actions ?? new List<GameAction>();
+
+            var ghostOnlyIds = new HashSet<string>(StringComparer.Ordinal);
+            var recs = RecordingStore.CommittedRecordings;
+            if (recs != null)
+            {
+                for (int i = 0; i < recs.Count; i++)
+                {
+                    var r = recs[i];
+                    if (r != null && r.IsGhostOnly && !string.IsNullOrEmpty(r.RecordingId))
+                        ghostOnlyIds.Add(r.RecordingId);
+                }
+            }
+
+            if (ghostOnlyIds.Count == 0) return actions;
+
+            var kept = new List<GameAction>(actions.Count);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (string.IsNullOrEmpty(a.RecordingId) || !ghostOnlyIds.Contains(a.RecordingId))
+                    kept.Add(a);
+            }
+            return kept;
+        }
+
+        /// <summary>
         /// Finds a committed recording by its ID. Returns null if not found.
         /// </summary>
         internal static Recording FindRecordingById(string recordingId)
@@ -651,6 +706,19 @@ namespace Parsek
             PopulateUnpopulatedCrewEndStates();
 
             var actions = new List<GameAction>(Ledger.Actions);
+
+            // #432: belt-and-braces filter — no action tagged with a ghost-only recording
+            // reaches the walk. CreateKerbalAssignmentActions and CreateVesselCostActions
+            // already skip ghost-only recordings; this catches future regressions and
+            // pre-fix saves where a stale action might still sit in Ledger.Actions
+            // (self-heals on next MigrateKerbalAssignments pass).
+            int beforeFilter = actions.Count;
+            actions = FilterOutGhostOnlyActions(actions);
+            int filtered = beforeFilter - actions.Count;
+            if (filtered > 0)
+                ParsekLog.Info(Tag,
+                    $"RecalculateAndPatch: filtered {filtered} action(s) tagged with ghost-only recordings");
+
             RecalculationEngine.Recalculate(actions);
 
             // KSP state mutations (PostWalk already called by engine)
