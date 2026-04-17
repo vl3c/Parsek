@@ -26,7 +26,9 @@ Events captured outside a live recording (at KSC, Tracking Station, or during th
 - `Source/Parsek/RecordingStore.cs:981` — `DiscardPendingTree` today does `DeleteRecordingFiles` + `PendingScienceSubjects.Clear()`. Add the event-purge pass here before the files-delete.
 - `Source/Parsek/MergeDialog.cs:107-121` — Discard button in the merge dialog calls `RecordingStore.DiscardPendingTree`; no change needed once the store-level purge is in place.
 - `Source/Parsek/ParsekScenario.cs:970` — `MilestoneStore.CurrentEpoch++` on revert. Stays as the legacy epoch filter for now; retired in a later cleanup pass per the TODO.
-- `Source/Parsek/ParsekFlight.cs:157` — `private RecordingTree activeTree`. Mutation sites for `activeTree.ActiveRecordingId`: `:1522, 1547, 1734, 1750, 2167, 2340, 5139, 5917, 6342` + `activeTree = new RecordingTree` at `:5395`. Each mutation is a transition point where the "currently live recording id" changes.
+- `Source/Parsek/ParsekFlight.cs:157` — `private RecordingTree activeTree`. Mutation sites for `activeTree.ActiveRecordingId`: `:1522, 1547, 1734, 1750, 2167, 2340, 5139, 5917, 6342` + the `new RecordingTree { ... ActiveRecordingId = rootRecId }` initializer at `:5401`. Each mutation is a transition point where the "currently live recording id" changes.
+- `Source/Parsek/Milestone.cs:12` — `Milestone` already carries `RecordingId`. Milestones are only produced on commit (never on pending/discarded trees), so discard purge never needs to touch `MilestoneStore` — events that never became milestones just disappear when the store row is removed. The TODO's "milestones achieved" scope item is covered by the existing commit-gated milestone flow, not by this PR.
+- `Source/Parsek/GameStateRecorder.cs:226` — `OnKscSpending` is the only ledger-write bypass around the event funnel, and it is gated by `!IsFlightScene()` (`:492`). During flight — the only path #431 needs to cover — every event goes through the `AddEvent` → purge-able store; no irreversible ledger write sneaks past.
 - `Source/Parsek/ParsekScenario.cs:764` — revert detection. After revert + auto-discard (#434), the purge runs through the same `DiscardPendingTree` path.
 
 ### Why per-recording, not per-tree
@@ -74,45 +76,78 @@ public struct GameStateEvent
 
 Existing saves deserialize cleanly with empty recordingId (pre-#431 events are treated as untagged career events — they have already committed, so this is the correct default).
 
-### Step 2 — Live-recording context channel
+### Step 2 — Central `Emit` funnel with explicit tag resolution (decision: reliability + observability)
 
-Add a static context pair on `RecordingStore` so the static `GameStateStore.AddEvent` funnel can read it without a `ParsekFlight` reference:
+Rejected the "static context channel that `AddEvent` reads implicitly" approach after review — hidden coupling, easy to leak in tests, drift-prone. Instead route every event through a single lit funnel in `GameStateRecorder` that resolves the tag at emit time, logs the stamp, and warns on drift.
 
 ```csharp
-// In RecordingStore.cs
-internal static string CurrentRecordingIdForTagging;  // null when no live recording
-
-internal static void SetCurrentRecordingForTagging(string recordingId, string context)
+// GameStateRecorder.cs — new central funnel
+internal static void Emit(GameStateEvent evt, string source = null)
 {
-    if (CurrentRecordingIdForTagging == recordingId) return;
-    var prev = CurrentRecordingIdForTagging;
-    CurrentRecordingIdForTagging = recordingId;
-    ParsekLog.Verbose("RecordingStore",
-        $"Tagging context: '{prev ?? "<none>"}' -> '{recordingId ?? "<none>"}' ({context})");
+    string tag = ResolveCurrentRecordingTag();
+    if (string.IsNullOrEmpty(evt.recordingId))
+        evt.recordingId = tag ?? "";
+
+    ParsekLog.Verbose("GameStateRecorder",
+        $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
+
+    bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+    bool mid_switch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+    if (!inFlight && !mid_switch && !string.IsNullOrEmpty(tag))
+        ParsekLog.Warn("GameStateRecorder",
+            $"Emit drift: event '{evt.eventType}' tagged '{tag}' outside flight and outside LimboVesselSwitch — stale tag?");
+    if (inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder())
+        ParsekLog.Warn("GameStateRecorder",
+            $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
+
+    GameStateStore.AddEvent(evt);
+}
+
+// Test hook: tests substitute a fixed-id resolver so they don't need ParsekFlight alive.
+internal static Func<string> TagResolverForTesting;
+
+internal static string ResolveCurrentRecordingTag()
+{
+    if (TagResolverForTesting != null)
+        return TagResolverForTesting() ?? "";
+
+    // Primary: live active tree in flight.
+    var live = ParsekFlight.GetActiveRecordingIdForTagging();
+    if (!string.IsNullOrEmpty(live)) return live;
+
+    // Secondary: pending tree mid-vessel-switch — events captured between stash and
+    // restore belong to the outgoing recording's mission. See LimboVesselSwitch design note below.
+    if (RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
+    {
+        var pend = RecordingStore.PendingTree?.ActiveRecordingId;
+        if (!string.IsNullOrEmpty(pend)) return pend;
+    }
+    return "";
 }
 ```
 
-`ParsekFlight` calls `RecordingStore.SetCurrentRecordingForTagging(activeTree.ActiveRecordingId, reason)` at every `activeTree.ActiveRecordingId =` assignment site (listed above). One helper in `ParsekFlight` wrapping the assign + set keeps the call sites tidy.
+`ParsekFlight` exposes `GetActiveRecordingIdForTagging()` as a static that reads `Instance?.activeTree?.ActiveRecordingId`. Add a `ParsekFlight.Instance` static field set in `OnEnable` and cleared in `OnDisable` / `OnDestroy` — small change; flight-scene singleton is how other code accesses this MonoBehaviour already.
 
-Clear the context on:
-- `activeTree = null` (tree disposed after commit/discard).
-- Scene change out of flight (before `StashActiveTreeAsPendingLimbo` runs — stashing pauses tagging).
-- `RecordingStore.DiscardPendingTree` / `CommitPendingTree` (defensive — activeTree should be null by then, but make sure).
+Call-site rewrite: every `GameStateStore.AddEvent(...)` inside `GameStateRecorder.cs` (17 sites at lines 204, 251, 277, 302, 315, 365, 396, 446, 477, 568, 584, 629, 660, 691, 787, 1038, 1071) switches to `Emit(...)`. `GameStateStore.AddEvent` stays — it's still the single in-process storage funnel — but only `Emit` feeds it during normal operation. Tests that want to insert raw events can still call `AddEvent` directly.
 
-### Step 3 — Stamp on AddEvent
+**LimboVesselSwitch window** — events captured during a vessel-switch stash belong to the outgoing recording (same mission, same commit/discard fate). The fallback in `ResolveCurrentRecordingTag` returns `RecordingStore.PendingTree.ActiveRecordingId` while in that state. On discard of the tree, those events are purged because their tag is one of the tree's recording ids. On commit (vessel-switch complete → normal flight), they survive.
+
+**Clear hooks for `ParsekFlight.Instance` + logging of tag transitions** — log every `activeTree.ActiveRecordingId` assignment at Verbose with the previous and new value; clear `Instance` in `OnDisable` / `OnDestroy`. The clear is a belt-and-braces move — the resolver already handles a null Instance by returning the pending-tree fallback or "".
+
+### Step 3 — `GameStateStore.AddEvent` stamps epoch only
 
 ```csharp
-// In GameStateStore.cs
+// GameStateStore.cs
 internal static void AddEvent(GameStateEvent e)
 {
     e.epoch = MilestoneStore.CurrentEpoch;
-    if (string.IsNullOrEmpty(e.recordingId))
-        e.recordingId = RecordingStore.CurrentRecordingIdForTagging ?? "";
+    // recordingId was set by Emit (production) or the caller (tests).
+    // No auto-stamp here — keeps the hidden-global anti-pattern out.
     ...
 }
 ```
 
-Only auto-stamp when the caller left `recordingId` empty — preserves the ability to deliberately tag an event (e.g. test fixtures).
+The event's `recordingId` is **always** set at `Emit` time. `AddEvent` does not touch it. Direct-test callers pass an explicit `recordingId` or leave it empty.
 
 ### Step 4 — Purge on discard
 
@@ -159,20 +194,52 @@ public static void DiscardPendingTree()
 }
 ```
 
-Contract snapshots: `GameStateStore.contractSnapshots` is keyed by contract GUID. Walk the snapshots and remove any whose GUID matches a purged event's `key` (the accept/complete event's key is the contract GUID). Self-contained helper next to `PurgeEventsForRecordings`.
+Contract snapshots (corrected after review): `AddContractSnapshot` is only called from `OnContractAccepted` (`GameStateRecorder.cs:211`). A snapshot belongs to its accept event. Deleting snapshots by "any purged event key" would break the case where a contract was accepted pre-flight (untagged event + untagged snapshot, both retained) and then completed/failed during the discarded recording — the completion event purges, the accept event survives, but the snapshot would wrongly go with it.
+
+Correct rule: walk the **purged event list**, find only `ContractAccepted` events inside it, collect their GUIDs, and delete snapshots for exactly those GUIDs. Snapshots belonging to retained `ContractAccepted` events are untouched.
+
+```csharp
+internal static int PurgeOrphanedContractSnapshots(List<GameStateEvent> purgedEvents)
+{
+    if (purgedEvents == null || purgedEvents.Count == 0) return 0;
+    var guidsToRemove = new HashSet<string>();
+    for (int i = 0; i < purgedEvents.Count; i++)
+        if (purgedEvents[i].eventType == GameStateEventType.ContractAccepted &&
+            !string.IsNullOrEmpty(purgedEvents[i].key))
+            guidsToRemove.Add(purgedEvents[i].key);
+
+    int removed = 0;
+    for (int i = contractSnapshots.Count - 1; i >= 0; i--)
+        if (guidsToRemove.Contains(contractSnapshots[i].contractGuid))
+        {
+            contractSnapshots.RemoveAt(i);
+            removed++;
+        }
+    return removed;
+}
+```
+
+`PurgeEventsForRecordings` captures the list of events it removes, then calls this helper with that list.
+
+### Epoch filter cohabitation (decision: instrument, don't retire yet)
+
+Add a cohabitation log so the overlap between the legacy `MilestoneStore.CurrentEpoch` filter and the new recordingId purge is visible. In the milestone/ledger walker that today filters `e.epoch != currentEpoch`, when a filtered event's `recordingId` still matches a live committed recording, log at `Warn` — that would signal drift between the two mechanisms. The epoch filter itself stays in this PR; retiring it is a deliberate follow-up once #432 (Gloops-never-captures) lands and the combined correctness has been playtested. The goal of the log is that if both mechanisms ever disagree, we see it before a user does.
 
 ### Step 5 — Tests
 
-`Source/Parsek.Tests/DiscardFateTests.cs` (new, `[Collection("Sequential")]`):
+`Source/Parsek.Tests/DiscardFateTests.cs` (new, `[Collection("Sequential")]`). All tests swap the tag resolver via `GameStateRecorder.TagResolverForTesting = () => "rec-A"` (or whatever) so they don't need `ParsekFlight` alive. Tests use `ParsekLog.TestSinkForTesting` to assert the `PurgeEventsForRecordings` / `Emit` log lines fire as expected.
 
-1. Captured event → committed tree → event survives. Synthetic: seed `CurrentRecordingIdForTagging = "rec-A"`, AddEvent contract-accepted, stash pending tree containing rec-A, CommitPendingTree, assert event still present.
-2. Captured event → discarded tree → event purged. Same seeding, DiscardPendingTree, assert event gone, contract snapshot gone.
-3. KSC event (no live recording) → tree discarded → event survives. Seed `CurrentRecordingIdForTagging = ""`, AddEvent, pending tree has different rec ids, DiscardPendingTree, assert event still present.
-4. EVA-split tree (two recordings, two events one per rec) → whole-tree discard → both events purged.
-5. Pre-#431 saved event (empty recordingId) → present on load → discard any pending tree → event survives.
-6. Round-trip through Save/Load: captured event with recordingId round-trips through `GameStateEvent.SerializeInto` / `DeserializeFrom`, survives `GameStateStore.SaveEventFile` / `LoadEventFile`.
-
-All tests use `ParsekLog.TestSinkForTesting` to assert the `[GameStateStore] PurgeEventsForRecordings` log line fires (or doesn't).
+1. Captured event → committed tree → event survives. Seed resolver = "rec-A", `Emit` a ContractAccepted, stash pending tree containing rec-A, `CommitPendingTree`, assert event still present AND event's `recordingId` is still "rec-A" (tag survives commit — invariant test for the TODO's "commit → event stays" promise).
+2. Captured event → discarded tree → event purged. Same seeding, `DiscardPendingTree`, assert event gone, contract snapshot gone.
+3. KSC event (no live recording) → tree discarded → event survives. Resolver returns "", `Emit` a ContractAccepted, pending tree has different recording ids, `DiscardPendingTree`, assert event still present.
+4. EVA-split tree (two recordings, two tagged events, one per recording id) → whole-tree discard → both events purged.
+5. Pre-#431 saved event (empty `recordingId` on load) → `DiscardPendingTree` for a tree whose recording ids are all non-empty → pre-existing empty-tagged event survives (guard against over-purge of untagged career events).
+6. Round-trip through Save/Load: a `recordingId`-tagged event round-trips through `GameStateEvent.SerializeInto` / `DeserializeFrom` and survives `GameStateStore.SaveEventFile` / `LoadEventFile`.
+7. **Contract snapshot heuristic coverage** — accept contract at KSC (untagged), complete it during discarded mission (tagged), discard. Assert the accept event survives, the completion event is purged, **and the snapshot stays** (snapshot belongs to the retained accept event). Mirror test: accept + complete both in the discarded mission → both events and snapshot purged.
+8. **LimboVesselSwitch tagging** — pending tree in LimboVesselSwitch state with `ActiveRecordingId = "rec-A"`, flight scene false but switch in flight, `Emit` event → assert tagged with "rec-A"; no drift-warn log line fires.
+9. **Drift warnings** — in flight with no active recording + no pending switch, `Emit` with a manually-set tag → warn log fires. Outside flight with no switch + empty tag → no warn.
+10. **`UpdateEventDetail` preserves `recordingId`** — seed tagged event, call `UpdateEventDetail` to rewrite the detail, assert `recordingId` unchanged.
+11. **Reset hygiene** — `ResetForTesting` hooks in `GameStateStore`, `RecordingStore`, and `ParsekFlight.TagResolverForTesting`-null clear work independently so test isolation holds.
 
 ### Step 6 — Docs
 
@@ -184,9 +251,23 @@ All tests use `ParsekLog.TestSinkForTesting` to assert the `[GameStateStore] Pur
 
 `dotnet build` + `dotnet test` from the worktree. Verify the deployed DLL contains a new distinctive UTF-16 string (e.g. `PurgeEventsForRecordings` or the user-facing discard message). Manual playtest recipe: accept a contract in flight, discard the recording via merge dialog, assert the contract is back to Available and funds/rep unchanged.
 
+## Scope in light of the deterministic-timeline principle
+
+The user's framing: on revert/discard, everything that happened **during the mission and directly caused by it** goes back with the mission — recordings, sub-trees (debris / dock / decouple children), science gathered, milestones achieved, crew EVAs or deaths. Career actions unrelated to any recording (e.g. unlocking a tech node at KSC) stay.
+
+How #431 + #434 deliver that, without bloating scope:
+
+- **Recording files + sub-trees** — `RecordingStore.DiscardPendingTree` already iterates `pendingTree.Recordings.Values` and calls `DeleteRecordingFiles(rec)` per leaf. Covered.
+- **Science subjects + contract snapshots + every career event** — #431 adds the `recordingId` tag + `PurgeEventsForRecordings` + snapshot-by-accept heuristic. Covered.
+- **Milestones** — `Milestone` already carries `RecordingId` (`Milestone.cs:12`), but milestones are only produced at commit. A discarded pending tree never generated one, so there is nothing to purge. Covered by construction.
+- **Kerbal roster / funds / science / reputation state** — these live in KSP's save, not ours. On revert KSP restores them from the launch quicksave; on merge-dialog Discard KSP's state never changed (Parsek's ledger replay applies only committed recordings). Covered by KSP + the commit gate, no Parsek purge needed.
+- **Ledger** — `LedgerOrchestrator.RecalculateAndPatch` runs on every scene load off the committed recordings; since the discarded tree never commits, it never entered the ledger. Covered by construction.
+
+Everything above the dotted line the user listed is therefore either already handled today (recordings, sub-trees, science) or handled by the commit gate + KSP revert (milestones, kerbals, resources). The new work is just the event store + snapshot purge.
+
 ## Out of scope
 
-- **Retiring the epoch filter.** TODO says ship as a cleanup pass after #431 + #432 prove out. Leave `MilestoneStore.CurrentEpoch++` on revert for now.
+- **Retiring the epoch filter.** Instrument the cohabitation via the drift-log (above) in this PR, but leave `MilestoneStore.CurrentEpoch++` on revert in place. Retirement ships as a deliberate follow-up once #432 lands and the combined behaviour has been playtested — removing it here would widen blast radius without a correctness win the instrumentation can't already surface.
 - **Retroactive purge of saves with pre-fix leaked events.** Document in CHANGELOG that only new discards are cleaned; already-committed stray events stay on the ledger.
 - **Deleting an already-committed recording from the Recordings Manager.** The commit was the decision point. Those events are already bundled into milestones.
 - **Per-leaf Discard in the merge dialog.** The data shape supports it, but the UI stays tree-level in this PR.
@@ -194,10 +275,9 @@ All tests use `ParsekLog.TestSinkForTesting` to assert the `[GameStateStore] Pur
 
 ## Risks
 
-- **A `GameStateEvent` with empty `recordingId` loaded from an older save looks identical to a new untagged KSC event.** That is actually correct — those events have already committed to the career's ledger and should not be purged. Document this explicitly in the step-1 change.
-- **Context channel staleness.** If `ParsekFlight` sets the context and then crashes / exits flight without clearing it, a later KSC event could be mis-tagged. Mitigation: clear in `OnDestroy` / scene change guards, and add a log assertion in tests that the context is null outside flight.
-- **Contract snapshot purge heuristic.** Matching snapshot GUIDs to purged event keys is correct for contract accept/complete events but doesn't handle the edge case of a snapshot captured outside a recording and later referenced by one. In practice `AddContractSnapshot` is called from inside `OnContractAccepted` which fires during flight — same flight lifecycle as the event. Low risk but worth a test.
-- **Performance.** Purging is O(events × recordings-in-tree). With N events / tree ~5-50 and typical event counts in the hundreds, this is negligible. Not worth an index.
+- **A `GameStateEvent` with empty `recordingId` loaded from an older save looks identical to a new untagged KSC event.** That is actually correct — those events have already committed to the career's ledger and should not be purged. Documented in step 1.
+- **`Emit` → `ParsekFlight.GetActiveRecordingIdForTagging` requires the singleton.** `ParsekFlight.Instance` is null outside flight scenes. The resolver's fallback chain (live → LimboVesselSwitch pending → "") handles that cleanly; drift-warn logs surface any case where the fallback is wrong.
+- **Performance.** Purging is O(events × recordings-in-tree). With events in the hundreds and trees usually under 10 recordings, negligible. Not worth an index.
 
 ## Sequencing with #434
 
