@@ -48,6 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Every non-revert tree-commit path (post-revert merge dialog, scene-exit auto-merge, Esc > Abort Mission auto-commit, and the OnSave safety-net auto-commit) now disarms the legacy lump-sum replay path on the just-committed tree, matching the in-flight Commit Flight behavior so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
 - Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.
 - KSC-side ledger writes (part purchases, tech unlocks, facility upgrades/repairs, crew hires, contract advances) now key-match against their paired `FundsChanged`/`ScienceChanged` event in the game-state store and log a WARN when the event is missing or the delta disagrees, surfacing missing earning channels at the point they occur instead of accumulating silently. Transformed reward types (contract rewards, milestone rewards, reputation earnings) are skipped with a VERBOSE line until a post-walk reconciliation hook lands.
 - Removed the legacy tree lump-sum and per-recording resource replay paths; committed recordings are now the single source of truth for funds, science, and reputation.
