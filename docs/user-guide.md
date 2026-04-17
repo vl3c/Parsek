@@ -108,7 +108,7 @@ Click the "Recordings" button in the main Parsek window to open the Recordings M
 
 Columns:
 
-- **Playback enable** - per-row checkbox; when unchecked, the ghost is skipped entirely. The header checkbox toggles all rows at once.
+- **Playback enable** - per-row checkbox; when unchecked, the ghost is hidden during playback. Visual-only: the recording's career effects (resources, contracts, crew, and the final vessel spawn) still apply regardless. To fully exclude a recording from the career, Delete (post-commit) or Discard (pre-commit) it. The header checkbox toggles all rows at once.
 - **#** - row index.
 - **Name** - vessel name; double-click to rename.
 - **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`).

@@ -163,7 +163,7 @@ This TODO's correctness depends on #431 (event-purge-on-discard) landing first (
 
 ---
 
-## 433. `PlaybackEnabled` toggle should be visual-only — stop gating vessel spawn and crew reservations
+## ~~433. `PlaybackEnabled` toggle should be visual-only — stop gating vessel spawn and crew reservations~~
 
 **Source:** investigation triggered by the "timeline is deterministic" principle. The Recordings window's leftmost checkbox (`Recording.PlaybackEnabled`, defined at `Recording.cs:116` with the comment `"false = skip ghost during playback"`) claims to be a rendering hint. In practice, the flag also silently suppresses career-state effects in two places, which violates the deterministic-timeline principle (the recording is on the committed ledger regardless of whether its ghost is visible).
 
@@ -212,7 +212,7 @@ This TODO's correctness depends on #431 (event-purge-on-discard) landing first (
 
 **Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
-**Status:** TODO. Size: S-M. **Correctness bug under the deterministic-timeline principle.** Pairs conceptually with #431 (which also enforces "career state flows from the committed ledger, not from UI state"). Ship before any rework that depends on the toggle's semantics being visual-only.
+**Status:** ~~DONE~~. `ShouldSpawnAtRecordingEnd` no longer takes a "chain fully disabled" suppressor — the parameter is now `isChainLooping` only and fully-disabled chains spawn their vessel at tip. `KerbalsModule` dropped the `IsDisabledChain` early-return so crew reservations follow the committed ledger on every recording. `GhostPlaybackEngine.UpdatePlayback` still short-circuits the ghost visual on `skipGhost` but now calls `HandlePastEndGhost` once past-end when the cause is `!traj.PlaybackEnabled` — driving `OnPlaybackCompleted` and the policy's spawn branch with `ghostActive=false`. `ParsekKSC.ShouldShowInKSC` factored into `IsKscStructurallyEligible` + the visibility toggle; the Update loop split the `!ShouldShowInKSC` case so a past-end visibility-hidden recording routes through `TrySpawnAtRecordingEnd`, while non-Kerbin / too-short recordings keep their silent cleanup path. `RecordingStore.IsChainLooping` dropped the `rec.PlaybackEnabled &&` clause so disabling a loop segment cannot flip a chain from "loop, no spawn" to "spawn at tip". `IsChainFullyDisabled` deleted (no production callers). `TimelineBuilder` still shows `VesselSpawn` for disabled recordings. User-facing behavior: the enable checkbox is purely visual now — resources, contracts, crew, and the final vessel all stay on the committed mission.
 
 ---
 
