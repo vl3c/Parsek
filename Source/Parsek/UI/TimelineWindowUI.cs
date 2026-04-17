@@ -92,13 +92,13 @@ namespace Parsek
 
             // Position to the left of main window on first open. Default width must
             // accommodate 6 minimum-width buttons + inter-button margin budget
-            // (6*93 + 14 + chrome ≈ 594), with a little breathing room.
+            // (6*93 + 28 + chrome ≈ 608), with some breathing room.
             if (timelineWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 630;
+                float x = mainWindowRect.x - 650;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
                 float height = Math.Max(600f, mainWindowRect.height);
-                timelineWindowRect = new Rect(x, mainWindowRect.y, 620, height);
+                timelineWindowRect = new Rect(x, mainWindowRect.y, 640, height);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
@@ -201,12 +201,11 @@ namespace Parsek
 
             // Toggle button: "on" state reuses the button's own rounded-corner texture
             // but tints it darker via the on-state background color trick. Explicit
-            // 2px horizontal margin gives adjacent buttons a small visible gap; the
-            // GetResponsiveButtonWidth math below accounts for this exact margin
-            // budget so the 5-button filter row still column-aligns with the
-            // 6-button preset row.
+            // 4px horizontal margin gives adjacent buttons a visible gap (inter-button
+            // gap = 4px after IMGUI's max-collapse); the GetResponsiveButtonWidth math
+            // below accounts for this exact margin budget.
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
-            toggleButtonStyle.margin = new RectOffset(2, 2, 0, 0);
+            toggleButtonStyle.margin = new RectOffset(4, 4, 0, 0);
             toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
@@ -227,8 +226,8 @@ namespace Parsek
         private float GetResponsiveButtonWidth()
         {
             const float horizontalChromePx = 22f;      // approx left+right window padding
-            // margin=(2,2,0,0): outer left (2) + 5 inter-button gaps (2 each) + outer right (2) = 14
-            const float marginBudget = 14f;
+            // margin=(4,4,0,0): outer left (4) + 5 inter-button gaps (4 each) + outer right (4) = 28
+            const float marginBudget = 28f;
             float avail = timelineWindowRect.width - horizontalChromePx - marginBudget;
             return Mathf.Max(FilterButtonWidth, avail / 6f);
         }
@@ -320,17 +319,17 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // All top-filter buttons (5 total) use the same responsive width as the
-            // preset row's 6 buttons, so row 1 and row 2 column-align. The tier group
-            // (Overview/Details) anchors left, the source group (Recordings/Actions/
-            // Events) anchors right, and FlexibleSpace between them absorbs exactly
-            // one button-width's worth of gap (5*btnW + 1*btnW_gap == 6*btnW). Buttons
-            // grow with the window and floor at FilterButtonWidth.
+            // Top-filter buttons sit at fixed column positions matching the preset
+            // row below: Overview=col1, Details=col2, (empty col3), Recordings=col4,
+            // Actions=col5, Events=col6. The empty column 3 is an explicit
+            // GUILayout.Space(btnW) so the source-group buttons are placed at
+            // sequential positions, not right-anchored — this keeps their columns
+            // locked to the preset row regardless of any future layout quirks.
             float btnW = GetResponsiveButtonWidth();
 
             GUILayout.BeginHorizontal();
 
-            // Tier selector (left-aligned group).
+            // Tier selector (columns 1-2).
             bool overviewActive = !showDetail;
             bool detailActive = showDetail;
 
@@ -347,9 +346,10 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
 
-            GUILayout.FlexibleSpace();
+            // Empty column 3 — keeps source-group buttons at col 4/5/6.
+            GUILayout.Space(btnW);
 
-            // Source toggles (right-aligned group).
+            // Source toggles (columns 4-6).
             bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
