@@ -1031,16 +1031,35 @@ namespace Parsek
             if (pendingTree == null)
             {
                 ParsekLog.Verbose("RecordingStore", "UnstashPendingTreeOnRevert called with no pending tree");
+                // P2 fix: clear science subjects even when there's no pending tree — the
+                // in-flight recorder may have captured subjects that were never stashed.
+                int strayBefore = GameStateRecorder.PendingScienceSubjects.Count;
+                if (strayBefore > 0)
+                {
+                    GameStateRecorder.PendingScienceSubjects.Clear();
+                    ParsekLog.Info("RecordingStore",
+                        $"UnstashPendingTreeOnRevert: cleared {strayBefore} in-flight science subject(s) even with no pending tree");
+                }
                 return;
             }
 
             string treeName = pendingTree.TreeName;
             var prevState = pendingTreeState;
             int recCount = pendingTree.Recordings.Count;
+
+            // P2 fix: GameStateRecorder.PendingScienceSubjects is a static in-memory list
+            // that is neither epoch-tagged nor serialized. If we don't clear it here, the
+            // next committed recording's NotifyLedgerTreeCommitted will flush these stale
+            // subjects onto an unrelated mission. F9-from-flight-quicksave semantics don't
+            // lose anything — the list wasn't in the quicksave anyway, so no regression vs.
+            // the pre-#434 discard path (which cleared this list unconditionally).
+            int subjectsCleared = GameStateRecorder.PendingScienceSubjects.Count;
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             Log($"[Parsek] Unstashed pending tree '{treeName}' on revert " +
-                $"(was state={prevState}, {recCount} recording(s)): " +
+                $"(was state={prevState}, {recCount} recording(s), {subjectsCleared} pending science subject(s) cleared): " +
                 "sidecar files preserved for F9-from-flight-quicksave; " +
                 "events stay in-memory and on-disk, filtered by bumped epoch");
         }

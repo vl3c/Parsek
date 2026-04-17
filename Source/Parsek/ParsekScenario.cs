@@ -763,12 +763,19 @@ namespace Parsek
                     bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
                         && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                         && !activeTreeRestoredFromSave;
-                    bool isRevert = !isVesselSwitch
-                                    && (savedEpoch < MilestoneStore.CurrentEpoch
-                                        || totalSavedRecCount < recordings.Count
-                                        || (isFlightToFlight && hasOrphanedLimboTree));
+                    // #434: event-based revert detection. GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
+                    // fires synchronously inside FlightDriver.RevertToLaunch / RevertToPrelaunch,
+                    // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
+                    // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
+                    // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
+                    // The old epoch/count-regression heuristic false-positived on exactly this
+                    // post-revert-F9 case because CurrentEpoch++ on revert permanently made any
+                    // older saved epoch look like "regressed." Epoch/count values stay in the log
+                    // below as diagnostics but no longer drive classification.
+                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
+                    bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
                     ParsekLog.Verbose("Scenario",
-                        $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
+                        $"OnLoad: revert detection — revertKind={revertKind}, savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                         $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
@@ -1632,6 +1639,8 @@ namespace Parsek
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
             GameEvents.onVesselSwitching.Add(OnVesselSwitching);
+            // #434: subscribe idempotently so revert detection is armed from first OnLoad.
+            RevertDetector.Subscribe();
         }
 
         /// <summary>
@@ -3143,6 +3152,10 @@ namespace Parsek
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            // #434: RevertDetector subscriptions are idempotent and persist for the
+            // lifetime of the game session; tearing them down here so a scenario-module
+            // shutdown doesn't leak dangling delegates if the session ends mid-flight.
+            RevertDetector.Unsubscribe();
         }
     }
 }

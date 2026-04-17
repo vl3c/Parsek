@@ -25,10 +25,12 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            RevertDetector.ResetForTesting();
         }
 
         public void Dispose()
         {
+            RevertDetector.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
@@ -122,6 +124,82 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") && l.Contains("UnstashPendingTreeOnRevert called with no pending tree"));
+        }
+
+        // --- P2 fix: PendingScienceSubjects clears on revert so they don't leak forward ---
+
+        [Fact]
+        public void UnstashPendingTreeOnRevert_ClearsPendingScienceSubjects()
+        {
+            var tree = MakeTreeWithOneRec("Mun sci", "rec-sci");
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "crewReport@MunSrfLandedMidlands",
+                science = 15.0f,
+                subjectMaxValue = 30.0f,
+            });
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "evaReport@MunSrfLandedMidlands",
+                science = 12.0f,
+                subjectMaxValue = 30.0f,
+            });
+            Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
+
+            RecordingStore.UnstashPendingTreeOnRevert();
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Contains(logLines, l =>
+                l.Contains("Unstashed pending tree") && l.Contains("2 pending science subject(s) cleared"));
+        }
+
+        [Fact]
+        public void UnstashPendingTreeOnRevert_NoPendingTree_StillClearsStraySubjects()
+        {
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "stray",
+                science = 1.0f,
+            });
+
+            RecordingStore.UnstashPendingTreeOnRevert();
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Contains(logLines, l =>
+                l.Contains("cleared 1 in-flight science subject(s) even with no pending tree"));
+        }
+
+        // --- P1 fix: event-based revert detection (replaces epoch-regression heuristic) ---
+
+        [Fact]
+        public void RevertDetector_Consume_ReturnsNoneWhenUnarmed()
+        {
+            Assert.Equal(RevertKind.None, RevertDetector.Consume("test-cold"));
+        }
+
+        [Fact]
+        public void RevertDetector_ArmAndConsume_OneShot()
+        {
+            RevertDetector.SetPendingForTesting(RevertKind.Launch);
+            Assert.Equal(RevertKind.Launch, RevertDetector.PendingKind);
+
+            var first = RevertDetector.Consume("test-first");
+            Assert.Equal(RevertKind.Launch, first);
+
+            // Simulates the F9-to-pre-revert-quicksave case: after the revert's OnLoad
+            // consumed the flag, the subsequent F9 OnLoad sees None and classifies as
+            // a regular quickload, not a second revert.
+            var second = RevertDetector.Consume("test-second-F9");
+            Assert.Equal(RevertKind.None, second);
+        }
+
+        [Fact]
+        public void RevertDetector_PrelaunchKind_ConsumesCorrectly()
+        {
+            RevertDetector.SetPendingForTesting(RevertKind.Prelaunch);
+            Assert.Equal(RevertKind.Prelaunch, RevertDetector.Consume("test-vab"));
+            Assert.Equal(RevertKind.None, RevertDetector.PendingKind);
         }
 
         [Fact]
