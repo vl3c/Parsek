@@ -349,8 +349,12 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
 
-            // Empty column 3 — keeps source-group buttons at col 4/5/6.
-            GUILayout.Space(btnW);
+            // Empty column 3 — keeps source-group buttons at col 4/5/6. Must be a
+            // Label (not Space) so its margins participate in IMGUI's max-collapse
+            // rule the same way the preset row's Last 30d button does at col 3;
+            // GUILayout.Space doesn't carry a margin, so Space(btnW) would leave
+            // Recordings 8px left of This Year due to the missing margin gap.
+            GUILayout.Label("", GUILayout.Width(btnW));
 
             // Source toggles (columns 4-6).
             bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
