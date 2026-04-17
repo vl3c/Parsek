@@ -1894,6 +1894,16 @@ namespace Parsek
 
             targetRec.EndBiome = captured.EndBiome;
 
+            // #416 R-button: bridge the captured rewind save / pre-launch budget / reserved
+            // budget onto the tree root. FinalizeTreeRecordings' own CopyRewindSaveToRoot is
+            // gated on this.recorder != null, but when a joint break on crash moves the
+            // recorder into pendingSplitRecorder the main recorder is null by the time
+            // FinalizeTreeRecordings runs — so without this call, crashed-vessel recordings
+            // keep the on-disk parsek_rw_*.sfs but no recording ever references it and the
+            // R button disappears. First-wins semantics inside CopyRewindSaveToRoot preserve
+            // any legitimate pre-existing root data.
+            CopyRewindSaveToRoot(tree, captured, logTag: "TryAppendCapturedToTree");
+
             ParsekLog.Info("Flight",
                 $"TryAppendCapturedToTree: appended {captured.Points.Count} points to " +
                 $"tree recording '{targetId}' (destroyed={captured.VesselDestroyed})");
