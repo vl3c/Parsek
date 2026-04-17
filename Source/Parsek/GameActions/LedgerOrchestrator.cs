@@ -828,6 +828,17 @@ namespace Parsek
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
 
+            // Phase A migration: pre-existing committed trees that persisted
+            // `DeltaFunds`/`DeltaScience`/`DeltaReputation` but were never converted
+            // into ledger actions (because the income flowed through a channel
+            // `GameStateEventConverter` dropped — milestone rewards, contract advances,
+            // strategy payouts — before that channel was captured) get their residual
+            // injected as a synthetic earning tagged with the tree's RootRecordingId.
+            // This runs AFTER Reconcile (which doesn't know about tree.Delta* fields)
+            // and BEFORE RecalculateAndPatch so the synthesized action enters the same
+            // walk that patches KSP state.
+            MigrateLegacyTreeResources();
+
             RecalculateAndPatch();
             KerbalLoadRepairDiagnostics.EmitAndReset();
         }
@@ -942,6 +953,485 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows})");
+        }
+
+        // ================================================================
+        // Phase A: legacy tree-resource residual migration (zero-coverage scope)
+        // ================================================================
+
+        /// <summary>
+        /// Tolerance (absolute value) below which a persisted legacy-tree delta is
+        /// treated as zero and NOT synthesized. Matches field precision of the
+        /// persisted `deltaFunds` / `deltaScience` / `deltaReputation` values with
+        /// some slack for floating-point drift across save/load.
+        /// </summary>
+        private const double LegacyMigrationFundsTolerance = 1.0;
+        private const double LegacyMigrationScienceTolerance = 0.1;
+        private const double LegacyMigrationReputationTolerance = 0.1;
+
+        /// <summary>
+        /// Phase A of the ledger / lump-sum resource reconciliation fix
+        /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>). Walks the
+        /// committed trees and, for each tree with <c>ResourcesApplied=false</c> and
+        /// any persisted <c>DeltaFunds</c>/<c>DeltaScience</c>/<c>DeltaReputation</c>
+        /// outside tolerance, decides — per the reviewer's zero-coverage scope — either:
+        /// <list type="bullet">
+        ///   <item><description>
+        ///   <b>Zero ledger coverage</b> (no ledger action tagged to any of the tree's
+        ///   recordings falls inside the tree's UT window): inject the FULL persisted
+        ///   delta as <see cref="FundsEarningSource.LegacyMigration"/> earnings tagged
+        ///   with the tree's <see cref="RecordingTree.RootRecordingId"/>. This is the
+        ///   stress-test repro path (prior-epoch events were skipped by
+        ///   <see cref="TryRecoverBrokenLedgerOnLoad"/>'s epoch gate, so the ledger
+        ///   has nothing for those trees).
+        ///   </description></item>
+        ///   <item><description>
+        ///   <b>Any ledger coverage</b> (partial — at least one tagged action in window):
+        ///   do NOT inject. Comparing the pre-walk raw field sums to post-walk,
+        ///   post-transform, post-curve-and-cap persisted tree deltas is structurally
+        ///   wrong (ScienceModule's subject cap, ReputationModule's non-linear curve,
+        ///   StrategiesModule's reward transform, and Effective=false duplicate
+        ///   suppression all run between the two sides). Log WARN and rely on
+        ///   the existing ledger coverage as best-effort; Phase F's format-version
+        ///   gate catches anything that slips through to deletion.
+        ///   </description></item>
+        /// </list>
+        ///
+        /// <para>Degraded tree (<see cref="RecordingTree.ComputeEndUT"/> returns 0 —
+        /// trajectory data missing): mark applied, log INFO, no injection. Mirrors
+        /// <see cref="ParsekFlight"/> <c>ApplyTreeResourceDeltas</c>.</para>
+        ///
+        /// <para>Empty <c>RootRecordingId</c>: mark applied (disarms the lump sum),
+        /// log WARN. No synthetic — no correct recording id to tag with. Data loss
+        /// for the rare empty-root case is preferable to continued drawdown on every
+        /// FLIGHT entry.</para>
+        ///
+        /// <para>Regardless of branch, the tree is marked <c>ResourcesApplied=true</c>
+        /// so <c>ApplyTreeLumpSum</c> on the next FLIGHT scene entry is disarmed.
+        /// Idempotent: repeat runs are no-ops because the flag persists.</para>
+        /// </summary>
+        internal static void MigrateLegacyTreeResources()
+        {
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null || trees.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "MigrateLegacyTreeResources: no committed trees, nothing to migrate");
+                return;
+            }
+
+            int treesConsidered = 0;
+            int treesAlreadyApplied = 0;
+            int treesSkippedNoDelta = 0;
+            int treesSkippedEmptyRoot = 0;
+            int treesSkippedDegraded = 0;
+            int treesSkippedPartialCoverage = 0;
+            int treesSkippedNegativeSci = 0;
+            int treesSkippedNegativeRep = 0;
+            int treesMigrated = 0;
+            int fundsInjected = 0;
+            int scienceInjected = 0;
+            int repInjected = 0;
+
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null) continue;
+                treesConsidered++;
+
+                if (tree.ResourcesApplied)
+                {
+                    treesAlreadyApplied++;
+                    continue;
+                }
+
+                // Degraded-tree guard mirrors ParsekFlight.ApplyTreeResourceDeltas —
+                // a tree whose recordings all have 0 trajectory points carries stale
+                // delta values from metadata but no actual playback to apply against.
+                if (tree.ComputeEndUT() == 0)
+                {
+                    treesSkippedDegraded++;
+                    ParsekLog.Info(Tag,
+                        $"MigrateLegacyTreeResources: skipping degraded tree id='{tree.Id}' " +
+                        $"name='{tree.TreeName}' — ComputeEndUT()==0 (no trajectory data), " +
+                        $"marking applied without synthetic injection " +
+                        $"(stale deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                    RecordingStore.MarkTreeAsApplied(tree);
+                    continue;
+                }
+
+                bool fundsNonZero = Math.Abs(tree.DeltaFunds) > LegacyMigrationFundsTolerance;
+                bool scienceNonZero = Math.Abs(tree.DeltaScience) > LegacyMigrationScienceTolerance;
+                bool repNonZero = Math.Abs((double)tree.DeltaReputation) > LegacyMigrationReputationTolerance;
+
+                if (!fundsNonZero && !scienceNonZero && !repNonZero)
+                {
+                    treesSkippedNoDelta++;
+                    ParsekLog.Verbose(Tag,
+                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                        $"all deltas within tolerance (funds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"science={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"rep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
+                        $"marking applied without synthetic injection");
+                    RecordingStore.MarkTreeAsApplied(tree);
+                    continue;
+                }
+
+                // Empty RootRecordingId: we have nothing correct to tag synthetics with
+                // (ActiveRecordingId is nullable, null-RecordingId earnings are kept
+                // forever by Ledger.Reconcile, defeating the per-tree purge invariant).
+                // Mark applied anyway so the broken ApplyTreeLumpSum path is disarmed —
+                // data loss for this edge case beats perpetual drawdown WARNs. WARN
+                // is loud enough to surface the rare case if it ever happens in the wild.
+                if (string.IsNullOrEmpty(tree.RootRecordingId))
+                {
+                    treesSkippedEmptyRoot++;
+                    ParsekLog.Warn(Tag,
+                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                        $"has empty RootRecordingId — cannot tag synthetic ledger actions; " +
+                        $"marking applied to disarm ApplyTreeLumpSum (persisted residuals LOST: " +
+                        $"deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                    RecordingStore.MarkTreeAsApplied(tree);
+                    continue;
+                }
+
+                // Zero-coverage probe: does the ledger have ANY action tagged to one of
+                // this tree's recordings inside the tree's UT window? If yes, we skip —
+                // the partial-coverage residual math would compare pre-walk raw fields
+                // against post-walk (post-cap, post-curve, post-transform, post-Effective)
+                // persisted deltas, which is structurally wrong for any tree with real
+                // ledger coverage. Log WARN so the rare partial case is visible.
+                double startUT = ComputeTreeStartUT(tree);
+                double endUT = tree.ComputeEndUT();
+                if (HasAnyLedgerCoverage(tree, startUT, endUT))
+                {
+                    treesSkippedPartialCoverage++;
+                    ParsekLog.Warn(Tag,
+                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                        $"has partial ledger coverage in UT window [{startUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"{endUT.ToString("R", CultureInfo.InvariantCulture)}]; skipping synthetic injection " +
+                        $"(persisted deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
+                        $"marking applied to disarm ApplyTreeLumpSum — Phase F format-version gate will catch this tree if it slips to deletion");
+                    RecordingStore.MarkTreeAsApplied(tree);
+                    continue;
+                }
+
+                // Zero ledger coverage confirmed: inject the FULL persisted delta as one
+                // synthetic per resource. Synthetics are tagged with RootRecordingId so
+                // Ledger.Reconcile prunes them with the tree on deletion.
+                //
+                // Negative science and negative reputation residuals are NOT injected:
+                // - Negative ScienceEarning is clamped to 0 by ScienceModule.ProcessEarning,
+                //   and negative ScienceSpending would need pruning-by-RecordingId support
+                //   that Ledger.Reconcile does not yet have (only UT-prunes spendings).
+                // - Same for negative ReputationPenalty.
+                // Trees whose flight NET-LOST science/rep are extremely rare; mark applied,
+                // log WARN, defer to a follow-up if this ever surfaces.
+
+                if (TryInjectLegacyFundsEarning(tree, endUT))
+                    fundsInjected++;
+
+                bool scienceSkippedNegative = false;
+                if (scienceNonZero)
+                {
+                    if (tree.DeltaScience > 0)
+                    {
+                        InjectLegacyScienceEarning(tree, tree.DeltaScience, endUT);
+                        scienceInjected++;
+                    }
+                    else
+                    {
+                        scienceSkippedNegative = true;
+                        treesSkippedNegativeSci++;
+                        ParsekLog.Warn(Tag,
+                            $"MigrateLegacyTreeResources: tree id='{tree.Id}' " +
+                            $"has negative persisted deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} — " +
+                            $"skipping science synthetic (ScienceModule clamps negative earnings to zero, " +
+                            $"and Ledger.Reconcile does not yet prune spendings by RecordingId). " +
+                            $"Science residual LOST; follow-up needed if this surfaces.");
+                    }
+                }
+
+                bool repSkippedNegative = false;
+                if (repNonZero)
+                {
+                    if (tree.DeltaReputation > 0)
+                    {
+                        InjectLegacyReputationEarning(tree, (double)tree.DeltaReputation, endUT);
+                        repInjected++;
+                    }
+                    else
+                    {
+                        repSkippedNegative = true;
+                        treesSkippedNegativeRep++;
+                        ParsekLog.Warn(Tag,
+                            $"MigrateLegacyTreeResources: tree id='{tree.Id}' " +
+                            $"has negative persisted deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} — " +
+                            $"skipping reputation synthetic (ReputationPenalty emission would require " +
+                            $"spending-by-RecordingId prune support in Ledger.Reconcile). " +
+                            $"Rep residual LOST; follow-up needed if this surfaces.");
+                    }
+                }
+
+                ParsekLog.Info(Tag,
+                    $"MigrateLegacyTreeResources: migrated tree id='{tree.Id}' name='{tree.TreeName}' " +
+                    $"rootRec='{tree.RootRecordingId}' " +
+                    $"startUT={startUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"coverage=zero " +
+                    $"deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(injected={fundsNonZero}), " +
+                    $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(injected={scienceNonZero && !scienceSkippedNegative}), " +
+                    $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(injected={repNonZero && !repSkippedNegative})");
+
+                RecordingStore.MarkTreeAsApplied(tree);
+                treesMigrated++;
+            }
+
+            ParsekLog.Info(Tag,
+                $"MigrateLegacyTreeResources complete: considered={treesConsidered}, " +
+                $"alreadyApplied={treesAlreadyApplied}, degraded={treesSkippedDegraded}, " +
+                $"noDelta={treesSkippedNoDelta}, emptyRoot={treesSkippedEmptyRoot}, " +
+                $"partialCoverage={treesSkippedPartialCoverage}, " +
+                $"negativeScience={treesSkippedNegativeSci}, negativeRep={treesSkippedNegativeRep}, " +
+                $"migrated={treesMigrated}, fundsInjected={fundsInjected}, " +
+                $"scienceInjected={scienceInjected}, repInjected={repInjected}");
+        }
+
+        /// <summary>
+        /// Funds-emission helper: injects a <see cref="FundsEarningSource.LegacyMigration"/>
+        /// FundsEarning with the raw (signed) persisted <see cref="RecordingTree.DeltaFunds"/>.
+        /// Returns true if a non-zero funds synthetic was emitted.
+        ///
+        /// <para>Sign note: <see cref="FundsModule.ProcessFundsEarning"/> adds the raw
+        /// FundsAwarded to both <c>runningBalance</c> and <c>totalEarnings</c> with no clamp,
+        /// so a negative FundsEarning correctly reduces both. The reviewer flagged an earlier
+        /// concern about "poisoning totalEarnings" as wrong — a tree that net-lost funds
+        /// really did reduce the player's income capacity, so a negative totalEarnings
+        /// contribution is the right shape. Earning-type actions are pruned by RecordingId
+        /// in <see cref="Ledger.Reconcile"/>, so the synthetic is cleaned up with the tree.</para>
+        /// </summary>
+        private static bool TryInjectLegacyFundsEarning(RecordingTree tree, double endUT)
+        {
+            if (Math.Abs(tree.DeltaFunds) <= LegacyMigrationFundsTolerance)
+                return false;
+
+            var action = new GameAction
+            {
+                UT = endUT,
+                Type = GameActionType.FundsEarning,
+                RecordingId = tree.RootRecordingId,
+                FundsAwarded = (float)tree.DeltaFunds,
+                FundsSource = FundsEarningSource.LegacyMigration
+            };
+            Ledger.AddAction(action);
+            return true;
+        }
+
+        /// <summary>
+        /// Science-emission helper: injects a <see cref="GameActionType.ScienceEarning"/>
+        /// with <c>SubjectId="LegacyMigration:{treeId}"</c> (no source enum exists).
+        /// Only called for positive residuals — negative science is skipped with a WARN
+        /// upstream. A generous <see cref="GameAction.SubjectMaxValue"/> is set so the
+        /// per-subject hard cap never clips the migrated science on the walk.
+        ///
+        /// <para>Note on ContractComplete / strategy transforms (per reviewer NIT):
+        /// the ContractComplete reward field used by partial-coverage residual math would
+        /// need to be <c>TransformedScienceReward</c> once Phase E1.5 lands strategy
+        /// capture — <c>ScienceReward</c> and <c>TransformedScienceReward</c> will diverge
+        /// then. The zero-coverage scope sidesteps that problem entirely: we do not read
+        /// ContractComplete fields at all, we only probe for presence.</para>
+        /// </summary>
+        private static void InjectLegacyScienceEarning(RecordingTree tree, double scienceDelta, double endUT)
+        {
+            float residualF = (float)scienceDelta;
+            var action = new GameAction
+            {
+                UT = endUT,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = tree.RootRecordingId,
+                SubjectId = "LegacyMigration:" + tree.Id,
+                ScienceAwarded = residualF,
+                SubjectMaxValue = residualF + 10f
+            };
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
+        /// Reputation-emission helper: injects a <see cref="GameActionType.ReputationEarning"/>
+        /// with <see cref="ReputationSource.Other"/>. Only called for positive residuals —
+        /// negative rep is skipped with a WARN upstream.
+        /// </summary>
+        private static void InjectLegacyReputationEarning(RecordingTree tree, double repDelta, double endUT)
+        {
+            var action = new GameAction
+            {
+                UT = endUT,
+                Type = GameActionType.ReputationEarning,
+                RecordingId = tree.RootRecordingId,
+                NominalRep = (float)repDelta,
+                RepSource = ReputationSource.Other
+            };
+            Ledger.AddAction(action);
+        }
+
+        /// <summary>
+        /// Returns the earliest non-zero StartUT across the tree's recordings, or 0 if
+        /// no recording has points. Needed as a conservative lower bound when matching
+        /// ledger actions back to a tree's UT window; <see cref="RecordingTree"/> does
+        /// not carry a stored StartUT field.
+        /// </summary>
+        private static double ComputeTreeStartUT(RecordingTree tree)
+        {
+            double startUT = double.MaxValue;
+            bool any = false;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                double recStart = rec.StartUT;
+                if (recStart <= 0) continue;
+                if (recStart < startUT)
+                {
+                    startUT = recStart;
+                    any = true;
+                }
+            }
+            return any ? startUT : 0.0;
+        }
+
+        /// <summary>
+        /// Pure classifier: returns true when the given action type actually moves the
+        /// funds/science/reputation pools (so its presence inside a tree's UT window counts
+        /// as ledger coverage for that tree). Non-resource action types — roster changes
+        /// (<see cref="GameActionType.KerbalAssignment"/>, <see cref="GameActionType.KerbalRescue"/>,
+        /// <see cref="GameActionType.KerbalStandIn"/>), <see cref="GameActionType.FacilityDestruction"/>
+        /// (stateful only, no cost), <see cref="GameActionType.StrategyDeactivate"/> (stateful only,
+        /// no cost), and the three <c>*Initial</c> seed types — return false.
+        ///
+        /// <para>This classification exists specifically so the
+        /// <see cref="HasAnyLedgerCoverage"/> probe is not tripped by
+        /// <see cref="MigrateKerbalAssignments"/>'s backfilled <c>KerbalAssignment</c> rows,
+        /// which run earlier in <see cref="OnKspLoad"/> and would otherwise flag every
+        /// crewed legacy tree as partially covered, permanently dropping the residual.</para>
+        ///
+        /// <para>When adding a new <see cref="GameActionType"/>, this switch must be updated
+        /// and the <c>IsResourceImpactingAction_Theory</c> test in
+        /// <c>LegacyTreeMigrationTests.cs</c> will fail until an entry is added — which is
+        /// the intended forcing function for a code review.</para>
+        /// </summary>
+        internal static bool IsResourceImpactingAction(GameActionType t)
+        {
+            switch (t)
+            {
+                // Earnings/spendings that directly move a pool.
+                case GameActionType.FundsEarning:
+                case GameActionType.FundsSpending:
+                case GameActionType.ScienceEarning:
+                case GameActionType.ScienceSpending:
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    return true;
+
+                // Composite rewards/penalties consumed by first-tier + second-tier modules.
+                case GameActionType.MilestoneAchievement:  // MilestoneFunds/Sci/RepAwarded
+                case GameActionType.ContractAccept:        // AdvanceFunds
+                case GameActionType.ContractComplete:      // FundsReward/ScienceReward/RepReward
+                case GameActionType.ContractFail:          // FundsPenalty/RepPenalty
+                case GameActionType.ContractCancel:        // FundsPenalty/RepPenalty
+                    return true;
+
+                // Infrastructure/strategy costs consumed by FundsModule / StrategiesModule.
+                case GameActionType.FacilityUpgrade:       // FacilityCost
+                case GameActionType.FacilityRepair:        // FacilityCost
+                case GameActionType.KerbalHire:            // HireCost
+                case GameActionType.StrategyActivate:      // SetupCost
+                    return true;
+
+                // Non-resource action types: roster changes, stateful facility/strategy flips,
+                // and the immutable seed rows. These are intentionally ignored by the
+                // coverage probe — see class summary for the false-positive this guards.
+                case GameActionType.KerbalAssignment:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.StrategyDeactivate:
+                case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
+                    return false;
+
+                default:
+                    // Conservative: an unrecognized new action type is treated as non-
+                    // resource so it cannot poison the zero-coverage probe. The
+                    // IsResourceImpactingAction_Theory test will flag any new enum value
+                    // that reaches this branch.
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Zero-coverage probe: returns true if <see cref="Ledger.Actions"/> contains at
+        /// least one <see cref="IsResourceImpactingAction"/>-passing action whose UT falls
+        /// inside <paramref name="startUT"/>..<paramref name="endUT"/> AND whose
+        /// <see cref="GameAction.RecordingId"/> is either a key in
+        /// <see cref="RecordingTree.Recordings"/> OR null (null-tagged actions are KSC-scope
+        /// or <see cref="MigrateOldSaveEvents"/> output; both legitimately count as coverage
+        /// because the ledger already carries the reward those events represent).
+        ///
+        /// <para>Two round-2 P1s this shape fixes:</para>
+        /// <list type="number">
+        ///   <item><description><see cref="MigrateKerbalAssignments"/>'s
+        ///   <see cref="GameActionType.KerbalAssignment"/> rows (tagged with recording id,
+        ///   added before this migration runs) are excluded by the type filter — without
+        ///   this, every crewed legacy tree would be falsely flagged as partially covered
+        ///   and its residual silently dropped.</description></item>
+        ///   <item><description><see cref="MigrateOldSaveEvents"/>'s null-tagged reward
+        ///   synthetics (ContractComplete / MilestoneAchievement / ContractAccept from
+        ///   GameStateStore on first load of a pre-ledger save) now DO register as
+        ///   coverage — without this, an uncrewed legacy tree on first load would get
+        ///   its full residual injected on top of the already-migrated rewards,
+        ///   double-crediting.</description></item>
+        /// </list>
+        ///
+        /// <para>Replaces the v1 residual-math approach: persisted tree deltas were captured
+        /// from LIVE KSP state post-commit (post-cap, post-curve, post-strategy-transform,
+        /// post-Effective-suppression), so subtracting pre-walk raw field sums was
+        /// structurally wrong for any tree with partial coverage.</para>
+        ///
+        /// <para>Pure; does not mutate state. Early-returns on first match.</para>
+        /// </summary>
+        private static bool HasAnyLedgerCoverage(RecordingTree tree, double startUT, double endUT)
+        {
+            var recordings = tree.Recordings;
+            if (recordings == null || recordings.Count == 0)
+                return false;
+
+            var ledgerActions = Ledger.Actions;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action == null) continue;
+                if (!IsResourceImpactingAction(action.Type)) continue;
+                if (action.UT < startUT || action.UT > endUT) continue;
+
+                string recId = action.RecordingId;
+                bool nullTagged = string.IsNullOrEmpty(recId);
+                bool treeTagged = !nullTagged && recordings.ContainsKey(recId);
+                if (!nullTagged && !treeTagged) continue;
+
+                // UT window bound was already checked above. Both tree-tagged and
+                // null-tagged in-window actions count as coverage.
+                return true;
+            }
+            return false;
         }
 
         private struct KerbalAssignmentRepairRename
@@ -1458,8 +1948,401 @@ namespace Parsek
                 $"KSC spending recorded: type={action.Type}, UT={evt.ut:F1}, " +
                 $"key={evt.key ?? "(none)"}");
 
+            // Phase B (plan: fix-ledger-lump-sum-reconciliation.md): KSC-side ledger writes
+            // were bypassing the commit-time reconciliation hook used by recording commits.
+            // Key-match this action against the nearest FundsChanged/ScienceChanged/
+            // ReputationChanged event in GameStateStore (paired by KSP TransactionReasons,
+            // scoped to untransformed action types only) and log WARN on missing event or
+            // delta mismatch. Surfaces missing earning channels (strategy, world first, etc.)
+            // as they happen without triggering false positives on curve-/strategy-
+            // transformed rewards.
+            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
+
             RecalculateAndPatch();
         }
+
+        /// <summary>
+        /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
+        /// KSC-write path: <see cref="Untransformed"/> types have raw action fields that
+        /// equal the post-walk contribution (WARN on missing/mismatched event);
+        /// <see cref="Transformed"/> types are subject to strategy diversion or reputation
+        /// curve (skip with VERBOSE until a post-walk reconciliation phase lands);
+        /// <see cref="NoResourceImpact"/> types short-circuit silently.
+        /// </summary>
+        internal enum KscReconcileClass
+        {
+            NoResourceImpact,
+            Untransformed,
+            Transformed
+        }
+
+        /// <summary>
+        /// Compact description of what an untransformed action expects to see in
+        /// GameStateStore: the event type, the KSP <c>TransactionReasons</c> key the
+        /// emitter writes on it, and the signed delta the action's raw field should
+        /// represent. Returned by <see cref="ClassifyAction"/>.
+        /// </summary>
+        internal struct KscActionExpectation
+        {
+            public KscReconcileClass Class;
+            public GameStateEventType EventType; // meaningful only when Class == Untransformed
+            public string ExpectedReasonKey;      // matches GameStateEvent.key (TransactionReasons.ToString())
+            public double ExpectedDelta;         // signed
+            public string SkipReason;            // meaningful only when Class == Transformed
+        }
+
+        /// <summary>
+        /// Pure classifier: maps a KSC-path <see cref="GameAction"/> to its reconciliation
+        /// class + expected paired resource event. Used by <see cref="ReconcileKscAction"/>.
+        /// <para>
+        /// Event keys are <c>TransactionReasons.ToString()</c> as written by
+        /// <see cref="GameStateRecorder"/>'s <c>OnFundsChanged</c> / <c>OnScienceChanged</c> /
+        /// <c>OnReputationChanged</c> handlers (see their <c>key = reason.ToString()</c>
+        /// lines).
+        /// </para>
+        /// </summary>
+        internal static KscActionExpectation ClassifyAction(GameAction action)
+        {
+            if (action == null)
+                return new KscActionExpectation { Class = KscReconcileClass.NoResourceImpact };
+
+            switch (action.Type)
+            {
+                // ---- Untransformed: raw field equals post-walk contribution. ----
+
+                case GameActionType.FundsSpending:
+                    // The KSC path uses FundsSpending only for part purchases (via
+                    // ConvertPartPurchased → source=Other); vessel build comes from the
+                    // flight path, facility/hire/strategy use their own action types.
+                    // Strategy input (source=Strategy) is not yet captured on KSC (Phase
+                    // E1.5) — skip if we ever see it.
+                    if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
+                    {
+                        return new KscActionExpectation
+                        {
+                            Class = KscReconcileClass.Transformed,
+                            SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
+                        };
+                    }
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "RnDPartPurchase",
+                        ExpectedDelta = -action.FundsSpent
+                    };
+
+                case GameActionType.ScienceSpending:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.ScienceChanged,
+                        ExpectedReasonKey = "RnDTechResearch",
+                        ExpectedDelta = -action.Cost
+                    };
+
+                case GameActionType.FacilityUpgrade:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "StructureConstruction",
+                        ExpectedDelta = -action.FacilityCost
+                    };
+
+                case GameActionType.FacilityRepair:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "StructureRepair",
+                        ExpectedDelta = -action.FacilityCost
+                    };
+
+                case GameActionType.KerbalHire:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "CrewRecruited",
+                        ExpectedDelta = -action.HireCost
+                    };
+
+                case GameActionType.ContractAccept:
+                    // Advance funds are unconditional (FundsModule.ProcessContractAccept
+                    // does not strategy-transform the advance). Zero-advance contracts
+                    // produce no FundsChanged event and are silent.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "ContractAdvance",
+                        ExpectedDelta = action.AdvanceFunds
+                    };
+
+                case GameActionType.StrategyActivate:
+                    // StrategyActivate has a SetupCost in the plan, but StrategyLifecyclePatch
+                    // is Phase E1.5 work — no capture yet. Skip for now.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "strategy activate setup cost not yet KSC-captured (Phase E1.5)"
+                    };
+
+                // ---- Transformed: raw fields do not equal post-walk contribution. ----
+
+                case GameActionType.ContractComplete:
+                    // FundsReward/RepReward/ScienceReward subject to StrategiesModule's
+                    // TransformedFundsReward/Rep/Science during the walk; RepReward also
+                    // passes through ApplyReputationCurve. Post-walk reconciliation hook
+                    // will live in Phase D's RecalculationEngine changes.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "contract rewards transformed by strategy + rep curve"
+                    };
+
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    // FundsPenalty is raw, but RepPenalty passes through the reputation
+                    // curve. Partial coverage would be awkward; skip until the walk-aware
+                    // hook exists.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "contract penalty rep curve not yet post-walk-aware"
+                    };
+
+                case GameActionType.MilestoneAchievement:
+                    // Current modules do not strategy-transform milestone rewards, but
+                    // some stock/stock-alike mods divert. Skip for safety until the
+                    // post-walk hook lands.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "milestone rewards may be mod-transformed"
+                    };
+
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "reputation curve not yet post-walk-aware"
+                    };
+
+                case GameActionType.FundsEarning:
+                case GameActionType.ScienceEarning:
+                    // Earning actions on the KSC path would be direct deposits (not seen
+                    // today — recovery/contract/milestone flow through their own action
+                    // types). Skip to be safe; strategy payout income will land here once
+                    // Phase E1.5 captures it.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "direct earning may be strategy-transformed"
+                    };
+
+                // ---- No resource impact: short-circuit silently. ----
+
+                case GameActionType.KerbalAssignment:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.StrategyDeactivate:
+                case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
+                default:
+                    return new KscActionExpectation { Class = KscReconcileClass.NoResourceImpact };
+            }
+        }
+
+        /// <summary>
+        /// Per-action reconciliation for KSC-side ledger writes. Called from
+        /// <see cref="OnKscSpending"/>. Compares the action's expected paired resource
+        /// event — matched by <see cref="GameStateEventType"/> + KSP <c>TransactionReasons</c>
+        /// key within <see cref="KscReconcileEpsilonSeconds"/> — against the delta the
+        /// action's raw field represents, and logs WARN on missing or mismatched event.
+        /// Log-only: the action has already been written to the ledger by the caller.
+        /// <para>
+        /// Scope: <b>untransformed action types only</b> (part purchase, tech unlock,
+        /// facility upgrade/repair, kerbal hire, contract advance). Transformed types
+        /// (contract rewards, milestones, reputation earnings) skip with a rate-limited
+        /// VERBOSE line — their raw fields are subject to strategy diversion and the
+        /// reputation curve, so a post-walk hook (Phase D territory) is required for
+        /// those. See <see cref="ClassifyAction"/> for the full type map.
+        /// </para>
+        /// <para>
+        /// Coalescing safety: <see cref="GameStateStore.AddEvent"/> merges
+        /// same-type/same-tag resource events within a 0.1 s window into a single slot.
+        /// Two back-to-back KSC actions of the same kind (e.g. two part purchases) share
+        /// one coalesced event with the summed delta. This reconciler handles that by
+        /// summing both sides across a UT window: expected from ledger actions with the
+        /// same expectation classification within <see cref="KscReconcileEpsilonSeconds"/>
+        /// of <paramref name="ut"/>, observed from events with the matching key in the
+        /// same window. The current action is already in <paramref name="ledgerActions"/>
+        /// (the caller adds it before calling).
+        /// </para>
+        /// <para>
+        /// Internal static + parameterized on <paramref name="events"/> and
+        /// <paramref name="ledgerActions"/> for testability — production calls pass
+        /// <see cref="GameStateStore.Events"/> and <see cref="Ledger.Actions"/>.
+        /// </para>
+        /// </summary>
+        internal static void ReconcileKscAction(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            GameAction action,
+            double ut)
+        {
+            if (action == null) return;
+
+            var expectation = ClassifyAction(action);
+
+            switch (expectation.Class)
+            {
+                case KscReconcileClass.NoResourceImpact:
+                    return;
+
+                case KscReconcileClass.Transformed:
+                    // Rate-limited VERBOSE so a long session with many contract completions
+                    // doesn't drown the log, but one line always lands on the first call
+                    // per type so the skip is observable during debugging.
+                    ParsekLog.VerboseRateLimited(Tag,
+                        $"ksc-reconcile-skip:{action.Type}",
+                        $"KSC reconciliation: {action.Type} skipped " +
+                        $"(transformation not yet post-walk-aware: {expectation.SkipReason}) ut={ut:F1}");
+                    return;
+
+                case KscReconcileClass.Untransformed:
+                    break;
+            }
+
+            // Zero-expected-delta actions (e.g. a ContractAccept with no advance) have no
+            // paired event — silent.
+            const double fundsTol = 1.0;
+            const double repTol = 0.1;
+            const double sciTol = 0.1;
+
+            double tol;
+            switch (expectation.EventType)
+            {
+                case GameStateEventType.FundsChanged: tol = fundsTol; break;
+                case GameStateEventType.ReputationChanged: tol = repTol; break;
+                case GameStateEventType.ScienceChanged: tol = sciTol; break;
+                default:
+                    ParsekLog.Warn(Tag,
+                        $"KSC reconciliation: unexpected EventType {expectation.EventType} " +
+                        $"for action {action.Type} — classifier bug");
+                    return;
+            }
+
+            if (Math.Abs(expectation.ExpectedDelta) <= tol)
+                return;
+
+            // Sum expected across all ledger actions that classify to the same
+            // (EventType, ExpectedReasonKey) pair within the UT epsilon. Handles the
+            // coalescing case where back-to-back same-kind actions share one event.
+            double summedExpected = 0;
+            int expectedCount = 0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var other = ledgerActions[i];
+                    if (other == null) continue;
+                    if (Math.Abs(other.UT - ut) > KscReconcileEpsilonSeconds) continue;
+                    var otherExp = ClassifyAction(other);
+                    if (otherExp.Class != KscReconcileClass.Untransformed) continue;
+                    if (otherExp.EventType != expectation.EventType) continue;
+                    if (otherExp.ExpectedReasonKey != expectation.ExpectedReasonKey) continue;
+                    if (Math.Abs(otherExp.ExpectedDelta) <= tol) continue;
+                    summedExpected += otherExp.ExpectedDelta;
+                    expectedCount++;
+                }
+            }
+            // Defensive: if the caller didn't include `action` in ledgerActions (e.g.
+            // called from a non-production path), count it ourselves.
+            if (expectedCount == 0)
+            {
+                summedExpected = expectation.ExpectedDelta;
+                expectedCount = 1;
+            }
+
+            // Sum observed across all matching events in the same UT epsilon. Coalescing
+            // typically collapses this to a single event, but summing is correct either way.
+            double summedObserved = 0;
+            int observedCount = 0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.eventType != expectation.EventType) continue;
+                    if (Math.Abs(e.ut - ut) > KscReconcileEpsilonSeconds) continue;
+                    string eventKey = e.key ?? "";
+                    if (!string.Equals(eventKey, expectation.ExpectedReasonKey, StringComparison.Ordinal))
+                        continue;
+                    summedObserved += (e.valueAfter - e.valueBefore);
+                    observedCount++;
+                }
+            }
+
+            string channelTag = ResourceChannelTag(expectation.EventType);
+
+            if (observedCount == 0)
+            {
+                // No paired event whatsoever — the real "missing earning channel" signal.
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={expectation.ExpectedDelta:F1} " +
+                    $"(reason='{expectation.ExpectedReasonKey}') but no matching {expectation.EventType} event within " +
+                    $"{KscReconcileEpsilonSeconds:F1}s of ut={ut:F1} — missing earning channel or stale event?");
+                return;
+            }
+
+            if (Math.Abs(summedExpected - summedObserved) > tol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={expectation.ExpectedDelta:F1}, " +
+                    $"aggregate expected={summedExpected:F1} across {expectedCount} ledger action(s) vs " +
+                    $"observed={summedObserved:F1} across {observedCount} event(s) keyed '{expectation.ExpectedReasonKey}' " +
+                    $"— delta mismatch at ut={ut:F1}");
+            }
+        }
+
+        /// <summary>Pure: short channel tag used in the reconciliation log lines.</summary>
+        internal static string ResourceChannelTag(GameStateEventType t)
+        {
+            switch (t)
+            {
+                case GameStateEventType.FundsChanged: return "funds";
+                case GameStateEventType.ReputationChanged: return "rep";
+                case GameStateEventType.ScienceChanged: return "sci";
+                default: return t.ToString();
+            }
+        }
+
+        /// <summary>
+        /// UT window (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
+        /// action with its resource-changed event and to aggregate both sides across
+        /// coalesced same-key entries. Must match <c>GameStateStore.ResourceCoalesceEpsilon</c>
+        /// (private, 0.1 s — see <c>GameStateStore.cs:21</c> and <c>AddEvent</c> at line 42).
+        /// <para>
+        /// Rationale: within this window, <see cref="GameStateStore.AddEvent"/> has
+        /// already merged same-type/same-tag resource deltas into a single slot, so
+        /// summing ledger actions and events across the window is safe by construction
+        /// — the summed observed delta is one coalesced entry that equals the sum of
+        /// the individual raw deltas. Beyond this window same-key events stay separate
+        /// in the store, so aggregating them would cross-attribute deltas and opposing
+        /// per-action errors could cancel out (review round 3, PR #340).
+        /// </para>
+        /// <para>
+        /// If <c>GameStateStore.ResourceCoalesceEpsilon</c> ever changes, update this
+        /// value in lockstep. The two constants encode the same physical invariant.
+        /// </para>
+        /// </summary>
+        internal const double KscReconcileEpsilonSeconds = 0.1;
 
         /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
