@@ -1695,7 +1695,22 @@ namespace Parsek
                     tree.AddOrReplaceRecording(target);
 
                 if (tree.RootRecordingId == absorbed.RecordingId && target != null)
+                {
+                    // Remap ledger actions tagged with the absorbed root id — otherwise
+                    // Phase A LegacyMigration synthetics (and any other actions still
+                    // tagged with the absorbed recording id) are orphaned on the next
+                    // Ledger.Reconcile because the absorbed recording is about to be
+                    // removed from the committed-recordings set. Handles round-2 P2
+                    // from PR #347 external review.
+                    int remapped = Ledger.RetagActionsForRecordingRewrite(
+                        absorbed.RecordingId, target.RecordingId);
+                    if (remapped > 0)
+                        ParsekLog.Info("RecordingStore",
+                            $"Optimization merge: retagged {remapped} ledger action(s) from " +
+                            $"absorbed root '{absorbed.RecordingId}' to new root '{target.RecordingId}' " +
+                            $"(tree id='{tree.Id}')");
                     tree.RootRecordingId = target.RecordingId;
+                }
                 if (tree.ActiveRecordingId == absorbed.RecordingId && target != null)
                     tree.ActiveRecordingId = target.RecordingId;
 

@@ -18,11 +18,13 @@ namespace Parsek.Tests
     /// post-walk persisted deltas (after ScienceModule cap, ReputationModule curve,
     /// StrategiesModule transform, Effective=false suppression) is structurally wrong.</para>
     ///
-    /// <para>Negative science and reputation residuals are skipped with WARN in the
-    /// zero-coverage branch too: ScienceModule clamps negative earnings to zero, and
-    /// Ledger.Reconcile doesn't yet prune spendings by RecordingId. Negative funds
-    /// work because FundsModule.ProcessFundsEarning handles negatives correctly and
-    /// earnings ARE pruned by RecordingId.</para>
+    /// <para>Negative residuals inject a spending-side synthetic: negative science
+    /// emits a ScienceSpending with Cost=-residual, negative rep emits a
+    /// ReputationPenalty with NominalPenalty=-residual. Negative funds keep the
+    /// existing negative-FundsEarning shape (FundsModule.ProcessFundsEarning handles
+    /// negatives correctly). All three are purged by Ledger.Reconcile on tree
+    /// deletion — spendings are now pruned by RecordingId symmetrically with
+    /// earnings since #441.</para>
     ///
     /// <para>All synthetics carry <c>RecordingId=tree.RootRecordingId</c> so
     /// <see cref="Ledger.Reconcile"/> prunes them with the tree on deletion. Trees
@@ -391,49 +393,221 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // Negative science: skipped with WARN, mark applied
+        // Negative science: inject ScienceSpending synthetic tagged with root recording
         // ================================================================
 
         [Fact]
-        public void NegativeScience_SkipsWithWarn_MarksApplied()
+        public void NegativeScience_InjectsScienceSpendingSynthetic()
         {
             var tree = MakeTree("tree-neg-sci", "rec-neg-sci", 100.0, 200.0,
-                deltaScience: -25.0);
+                deltaScience: -7.7);
             RegisterTree(tree);
 
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.ScienceSpending
+                && a.NodeId == "LegacyMigration:tree-neg-sci");
+            Assert.NotNull(synth);
+            Assert.Equal(7.7f, synth.Cost, precision: 3);
+            Assert.Equal("rec-neg-sci", synth.RecordingId);
+            Assert.Equal(200.0, synth.UT);
+            // No ScienceEarning synthesized (positive-residual path is not taken).
             Assert.DoesNotContain(Ledger.Actions, a =>
-                a.Type == GameActionType.ScienceEarning
-                || a.Type == GameActionType.ScienceSpending);
+                a.Type == GameActionType.ScienceEarning);
             Assert.True(tree.ResourcesApplied);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("negative persisted deltaScience")
-                && l.Contains("tree-neg-sci"));
+                && l.Contains("MigrateLegacyTreeResources: migrated tree")
+                && l.Contains("tree-neg-sci")
+                && l.Contains("deltaScience=-7.7"));
+        }
+
+        [Fact]
+        public void NegativeScience_SyntheticPurgedByReconcile()
+        {
+            // #441 contract: Ledger.Reconcile now prunes spendings by RecordingId, so the
+            // negative-science synthetic is cleaned up when the tree's recordings are
+            // discarded. Without #441's change this test would fail (spending survives).
+            var tree = MakeTree("tree-neg-sci-purge", "rec-neg-sci-purge", 100.0, 200.0,
+                deltaScience: -12.5);
+            RegisterTree(tree);
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+            Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceSpending
+                && a.NodeId == "LegacyMigration:tree-neg-sci-purge");
+
+            Ledger.Reconcile(new HashSet<string>(), maxUT: 10_000.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceSpending);
         }
 
         // ================================================================
-        // Negative reputation: skipped with WARN, mark applied
+        // Negative reputation: inject ReputationPenalty synthetic tagged with root recording
         // ================================================================
 
         [Fact]
-        public void NegativeReputation_SkipsWithWarn_MarksApplied()
+        public void NegativeReputation_InjectsReputationPenaltySynthetic()
         {
             var tree = MakeTree("tree-neg-rep", "rec-neg-rep", 100.0, 200.0,
-                deltaRep: -8f);
+                deltaRep: -5f);
             RegisterTree(tree);
 
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.ReputationPenalty
+                && a.RecordingId == "rec-neg-rep");
+            Assert.NotNull(synth);
+            Assert.Equal(5f, synth.NominalPenalty, precision: 2);
+            Assert.Equal(ReputationPenaltySource.Other, synth.RepPenaltySource);
+            Assert.Equal(200.0, synth.UT);
+            // No ReputationEarning synthesized.
             Assert.DoesNotContain(Ledger.Actions, a =>
-                a.Type == GameActionType.ReputationEarning
-                || a.Type == GameActionType.ReputationPenalty);
+                a.Type == GameActionType.ReputationEarning);
             Assert.True(tree.ResourcesApplied);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
-                && l.Contains("negative persisted deltaRep")
-                && l.Contains("tree-neg-rep"));
+                && l.Contains("MigrateLegacyTreeResources: migrated tree")
+                && l.Contains("tree-neg-rep")
+                && l.Contains("deltaRep=-5"));
+        }
+
+        [Fact]
+        public void NegativeReputation_SyntheticPurgedByReconcile()
+        {
+            // #441 contract: Ledger.Reconcile now prunes spendings by RecordingId, so the
+            // negative-rep ReputationPenalty synthetic is cleaned up when the tree's
+            // recordings are discarded.
+            var tree = MakeTree("tree-neg-rep-purge", "rec-neg-rep-purge", 100.0, 200.0,
+                deltaRep: -3f);
+            RegisterTree(tree);
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+            Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationPenalty
+                && a.RecordingId == "rec-neg-rep-purge");
+
+            Ledger.Reconcile(new HashSet<string>(), maxUT: 10_000.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ReputationPenalty);
+        }
+
+        // ================================================================
+        // Root-recording rewrite (#441 round 2 P2): optimizer merge that absorbs the
+        // tree's root must retag LegacyMigration synthetics to the successor so the
+        // next Ledger.Reconcile doesn't orphan them.
+        // ================================================================
+
+        /// <summary>
+        /// Round-2 P2 (PR #347 external review): when the optimizer merges the root
+        /// recording into a successor, <see cref="RecordingStore"/>'s
+        /// <c>UpdateTreeStateAfterOptimizationMerge</c> rewrites
+        /// <see cref="RecordingTree.RootRecordingId"/> from the absorbed id to the new
+        /// root. Without the retag hook, LegacyMigration synthetics still carry the
+        /// old id and get pruned as orphans on the next
+        /// <see cref="Ledger.Reconcile"/>. This test exercises the full path:
+        /// inject a synthetic, run <see cref="RecordingStore.RunOptimizationPass"/>
+        /// on a configured tree whose root is the absorbed segment, then Reconcile
+        /// and assert the synthetic survives.
+        /// </summary>
+        [Fact]
+        public void RootRewrite_OptimizationMerge_RetagsLegacyMigrationSyntheticAndSurvivesReconcile()
+        {
+            // Build two chain-adjacent atmospheric segments that CanAutoMerge accepts.
+            // ChainIndex 0 becomes the target; ChainIndex 1 becomes absorbed.
+            // We set tree.RootRecordingId to the absorbed id so the retag hook fires.
+            var target = new Recording
+            {
+                RecordingId = "rec_target",
+                VesselName = "V",
+                TreeId = "tree_rootrewrite",
+                ChainId = "chain_rr",
+                ChainIndex = 0,
+                ChainBranch = 0,
+                SegmentPhase = "exo",
+                SegmentBodyName = "Mun",
+                LoopPlayback = false,
+                PlaybackEnabled = true,
+                Hidden = false,
+                LoopIntervalSeconds = 10.0
+            };
+            target.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 50000 });
+            target.Points.Add(new TrajectoryPoint { ut = 150.0, altitude = 50000 });
+
+            var absorbed = new Recording
+            {
+                RecordingId = "rec_absorbed_root",
+                VesselName = "V",
+                TreeId = "tree_rootrewrite",
+                ChainId = "chain_rr",
+                ChainIndex = 1,
+                ChainBranch = 0,
+                SegmentPhase = "exo",
+                SegmentBodyName = "Mun",
+                LoopPlayback = false,
+                PlaybackEnabled = true,
+                Hidden = false,
+                LoopIntervalSeconds = 10.0
+            };
+            absorbed.Points.Add(new TrajectoryPoint { ut = 150.0, altitude = 50000 });
+            absorbed.Points.Add(new TrajectoryPoint { ut = 200.0, altitude = 50000 });
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_rootrewrite",
+                TreeName = "RootRewriteTree",
+                // Configure root to point at the segment that the optimizer will absorb
+                // — this is the P2 scenario the retag hook protects.
+                RootRecordingId = absorbed.RecordingId,
+                ActiveRecordingId = absorbed.RecordingId
+            };
+            tree.Recordings[target.RecordingId] = target;
+            tree.Recordings[absorbed.RecordingId] = absorbed;
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(target);
+            RecordingStore.AddRecordingWithTreeForTesting(absorbed);
+
+            // Inject the LegacyMigration synthetic that P2 is protecting.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = absorbed.RecordingId,
+                FundsAwarded = 34400f,
+                FundsSource = FundsEarningSource.LegacyMigration
+            });
+
+            RecordingStore.RunOptimizationPass();
+
+            // Post-merge: absorbed is gone, target is the new root, synthetic retagged.
+            Assert.Equal(target.RecordingId, tree.RootRecordingId);
+            Assert.DoesNotContain(absorbed.RecordingId, tree.Recordings.Keys);
+
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.NotNull(synth);
+            Assert.Equal(target.RecordingId, synth.RecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("Optimization merge: retagged")
+                && l.Contains("absorbed root '" + absorbed.RecordingId + "'")
+                && l.Contains("new root '" + target.RecordingId + "'"));
+
+            // Reconcile with the NEW root id only — synthetic must survive.
+            var valid = new HashSet<string> { target.RecordingId };
+            Ledger.Reconcile(valid, maxUT: 10_000.0);
+
+            Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration
+                && a.RecordingId == target.RecordingId);
         }
 
         // ================================================================
@@ -748,11 +922,12 @@ namespace Parsek.Tests
         /// <see cref="LedgerOrchestrator.MigrateOldSaveEvents"/> tags its synthesized
         /// actions with <c>RecordingId = null</c> ("can't reliably map old events to
         /// specific recordings"). When the null-tagged action's UT falls inside a
-        /// tree's window, that row represents a reward the ledger already carries —
-        /// the coverage probe must register it as coverage to prevent double-crediting.
+        /// tree's window AND <c>migrateOldSaveEventsRanThisLoad=true</c> (i.e., those
+        /// synthetics were produced on this very load), the coverage probe must
+        /// register them as coverage to prevent double-crediting.
         /// </summary>
         [Fact]
-        public void CoverageProbe_NullTaggedInWindow_CountsAsCoverage()
+        public void CoverageProbe_NullTaggedInWindow_CountsAsCoverage_WhenMigrateOldSaveEventsRanThisLoad()
         {
             var tree = MakeTree("tree-null-cov", "rec-null-cov", 100.0, 200.0, deltaFunds: 34400.0);
             RegisterTree(tree);
@@ -768,6 +943,10 @@ namespace Parsek.Tests
                 FundsReward = 10000f
             });
 
+            // Precondition for the null-tag coverage branch — signals that this load
+            // just synthesized the null-tagged actions via MigrateOldSaveEvents.
+            LedgerOrchestrator.SetMigrateOldSaveEventsRanThisLoadForTesting(true);
+
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
             Assert.DoesNotContain(Ledger.Actions, a =>
@@ -778,6 +957,100 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("partial ledger coverage")
                 && l.Contains("tree-null-cov"));
+        }
+
+        /// <summary>
+        /// Round-2 P1 (PR #347 external review): a null-tagged in-window action that
+        /// came from <see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/> on a
+        /// PRIOR load (persisted in the ledger file) must NOT count as coverage on the
+        /// next load. Otherwise a multi-day mission whose window overlaps normal KSC
+        /// activity (contract accept, part purchase, etc.) would have its legacy
+        /// residual silently dropped.
+        /// </summary>
+        [Fact]
+        public void CoverageProbe_NullTaggedInWindow_DoesNotCountAsCoverage_WhenMigrateOldSaveEventsDidNotRun()
+        {
+            var tree = MakeTree("tree-null-noflag", "rec-null-noflag", 100.0, 200.0, deltaFunds: 34400.0);
+            RegisterTree(tree);
+
+            // Shape that TryRecoverBrokenLedgerOnLoad emits on a prior load and that
+            // now sits in the ledger file: a null-tagged ContractAccept inside the
+            // tree's window. This is UNRELATED KSC activity — the player accepted a
+            // contract during the mission's real-time span — and must not prevent
+            // the legacy residual from being migrated.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = null,
+                ContractId = "c-ksc-midmission",
+                AdvanceFunds = 500f
+            });
+
+            // Flag stays false — this load did NOT run MigrateOldSaveEvents.
+            Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            // Legacy funds synthetic injected (null-tag rule correctly skipped).
+            var synth = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration);
+            Assert.NotNull(synth);
+            Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
+            Assert.Equal("rec-null-noflag", synth.RecordingId);
+            Assert.True(tree.ResourcesApplied);
+            // No "partial ledger coverage" WARN — this is the zero-coverage path.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("partial ledger coverage")
+                && l.Contains("tree-null-noflag"));
+        }
+
+        /// <summary>
+        /// Round-2 P1 (PR #347 external review): the flag is reset when a new load
+        /// begins. <see cref="LedgerOrchestrator.ResetForTesting"/> models the same
+        /// "fresh load" transition tests use between runs — a prior load that set the
+        /// flag must not leak state into the next load's coverage probe.
+        /// </summary>
+        [Fact]
+        public void CoverageProbe_MigrateOldSaveEventsFlag_ResetsBetweenLoads()
+        {
+            // Simulate the state that would exist after a prior load that ran
+            // MigrateOldSaveEvents.
+            LedgerOrchestrator.SetMigrateOldSaveEventsRanThisLoadForTesting(true);
+            Assert.True(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+
+            // The fresh-load transition (ResetForTesting is the xUnit-safe equivalent
+            // of a new KSP session; in production the same reset happens at the top of
+            // OnKspLoad before any migration code runs).
+            LedgerOrchestrator.ResetForTesting();
+
+            Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting(),
+                "migrateOldSaveEventsRanThisLoad must reset between loads");
+
+            // Also directly exercise HasAnyLedgerCoverage via a null-tagged in-window
+            // action: with the flag cleared, the probe must return false (zero coverage).
+            var tree = MakeTree("tree-reset", "rec-reset", 100.0, 200.0, deltaFunds: 1000.0);
+            RegisterTree(tree);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = null,
+                ContractId = "c-ksc-after-reset",
+                AdvanceFunds = 100f
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            // Zero coverage path: synthetic injected despite the null-tagged in-window
+            // action, because the flag was cleared.
+            Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration
+                && a.RecordingId == "rec-reset");
         }
 
         /// <summary>

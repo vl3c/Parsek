@@ -131,6 +131,50 @@ namespace Parsek
             return removed;
         }
 
+        /// <summary>
+        /// Remaps every action tagged with <paramref name="oldRecordingId"/> to
+        /// <paramref name="newRecordingId"/>. Called by the recording optimizer when a
+        /// root segment is absorbed into a successor (chain coalescing) and the tree's
+        /// <see cref="RecordingTree.RootRecordingId"/> is rewritten — without this hook,
+        /// synthetic ledger actions tagged with the old root id (notably Phase A's
+        /// <c>LegacyMigration</c> <see cref="GameActionType.FundsEarning"/>/<see cref="GameActionType.ScienceEarning"/>/<see cref="GameActionType.ReputationEarning"/>/<see cref="GameActionType.ScienceSpending"/>/<see cref="GameActionType.ReputationPenalty"/>
+        /// rows) would be orphaned on the next <see cref="Reconcile"/> after the
+        /// absorbed recording is removed from the valid-recording set.
+        ///
+        /// <para>Remaps every matching action regardless of type or source, not just
+        /// LegacyMigration synthetics — any action tagged with the old id has, by
+        /// definition, a claim on the same career effect as the absorbed recording;
+        /// rewriting the tag to the successor is the correct behaviour for all of
+        /// them. Returns the number of actions remapped. Null/empty inputs are a
+        /// no-op.</para>
+        /// </summary>
+        internal static int RetagActionsForRecordingRewrite(string oldRecordingId, string newRecordingId)
+        {
+            if (string.IsNullOrEmpty(oldRecordingId) || string.IsNullOrEmpty(newRecordingId))
+                return 0;
+            if (string.Equals(oldRecordingId, newRecordingId, StringComparison.Ordinal))
+                return 0;
+
+            int remapped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (!string.Equals(action.RecordingId, oldRecordingId, StringComparison.Ordinal))
+                    continue;
+
+                action.RecordingId = newRecordingId;
+                remapped++;
+            }
+
+            if (remapped > 0)
+                ParsekLog.Verbose("Ledger",
+                    $"RetagActionsForRecordingRewrite: oldRecordingId='{oldRecordingId}', " +
+                    $"newRecordingId='{newRecordingId}', remapped={remapped}, total={actions.Count}");
+
+            return remapped;
+        }
+
         /// <summary>Clears all actions from the in-memory ledger.</summary>
         internal static void Clear()
         {
@@ -263,8 +307,12 @@ namespace Parsek
 
         /// <summary>
         /// Prunes the in-memory ledger against the current save state:
-        /// - Earning actions whose recordingId is NOT in validRecordingIds are removed.
-        /// - Spending actions whose UT is strictly after maxUT are removed.
+        /// - Earning and spending actions tagged with a RecordingId NOT in validRecordingIds
+        ///   are removed (null-tagged earnings/spendings are career-level and survive the
+        ///   recording-set check — e.g. milestones achieved at recovery or KSC-side
+        ///   purchases).
+        /// - Spending actions whose UT is strictly after maxUT are removed regardless of
+        ///   their RecordingId.
         /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
         /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
@@ -280,6 +328,7 @@ namespace Parsek
             int before = actions.Count;
             int prunedEarnings = 0;
             int prunedSpendings = 0;
+            int prunedSpendingsByRecordingId = 0;
             int prunedOther = 0;
             int kept = 0;
 
@@ -320,7 +369,11 @@ namespace Parsek
                     continue;
                 }
 
-                // Spending actions: classified by type, pruned by UT
+                // Spending actions: classified by type, pruned by UT and by recordingId.
+                // Null recordingId is valid for KSC-scope career spendings (part purchases,
+                // tech unlocks, facility upgrades, kerbal hires, contract accept/fail/cancel)
+                // and always survives the recordingId check — they're KSC-scope career
+                // spendings that outlive any individual recording.
                 if (RecalculationEngine.IsSpendingType(action.Type))
                 {
                     if (action.UT > maxUT)
@@ -331,6 +384,14 @@ namespace Parsek
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
                             $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"recordingId='{action.RecordingId ?? "(null)"}'");
+                    }
+                    else if (action.RecordingId != null && !validRecordingIds.Contains(action.RecordingId))
+                    {
+                        prunedSpendingsByRecordingId++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned spending: type={action.Type}, " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                     else
                     {
@@ -380,6 +441,7 @@ namespace Parsek
             ParsekLog.Info("Ledger",
                 $"Reconcile complete: before={before}, kept={kept}, " +
                 $"prunedEarnings={prunedEarnings}, prunedSpendings={prunedSpendings}, " +
+                $"prunedSpendingsByRecordingId={prunedSpendingsByRecordingId}, " +
                 $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"validRecordingIds={validRecordingIds.Count}");
