@@ -253,6 +253,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardStashedOnQuickload_RefusesWhenRevertDetectorArmed()
+        {
+            // Defense-in-depth for #434: even if a future refactor removes the
+            // ShouldRunQuickloadDiscard gate from OnLoad's dispatch (or inlines the condition
+            // without the !isRevert clause), DiscardStashedOnQuickload itself refuses to
+            // proceed when RevertDetector is armed. Without this check, a buggy caller
+            // would delete sidecar files tied to the reverted flight and break
+            // F9-from-flight-quicksave.
+            var tree = MakeTreeWithOneRec("Armed-revert tree", "rec-armed");
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            RecordingStore.PendingStashedThisTransition = true;
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 600.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "contract-armed",
+                recordingId = "rec-armed",
+            });
+            RevertDetector.SetPendingForTesting(RevertKind.Launch);
+
+            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 708.0, currentUT: 552.0);
+
+            // Tree and event must survive — the guard refused.
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Single(GameStateStore.Events);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("refusing to run with armed RevertDetector"));
+        }
+
+        [Fact]
+        public void RevertPath_WithoutPendingTree_ClearsStalePendingScienceSubjects()
+        {
+            // Regression for 2026-04-17 review P2: UnstashPendingTreeOnRevert has a no-pending-tree
+            // branch that clears stale PendingScienceSubjects accumulated during the reverted
+            // flight. ParsekScenario.OnLoad previously gated the call behind HasPendingTree, so
+            // that cleanup was unreachable — a revert that captured science subjects but never
+            // stashed a tree would leak the subjects onto the next unrelated commit. The fix
+            // calls UnstashPendingTreeOnRevert unconditionally on the revert path; this test
+            // pins the no-tree cleanup contract the new dispatch relies on.
+            Assert.False(RecordingStore.HasPendingTree);
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                science = 1.5f,
+            });
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "temperatureScan@KerbinFlyingLow",
+                science = 2.8f,
+            });
+            Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
+
+            RecordingStore.UnstashPendingTreeOnRevert();
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Contains(logLines, l =>
+                l.Contains("cleared 2 in-flight science subject(s) even with no pending tree"));
+        }
+
+        [Fact]
         public void UnstashPendingTreeOnRevert_AfterRevertToLaunch_PreservesSidecarState()
         {
             // Complements ShouldRunQuickloadDiscard_TruthTable by asserting the OTHER half
