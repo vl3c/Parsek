@@ -490,15 +490,12 @@ namespace Parsek
                     for (int k = i; k < j; k++)
                     {
                         var e = endStates[k];
-                        // Subitem indent: match the parent header's "▼ " prefix width exactly,
-                        // so subitem text lines up under the parent's kerbal-name start.
-                        // Measured via CalcSize instead of a magic number so it stays
-                        // correct across font sizes and skin overrides.
-                        float arrowPrefixW = GUI.skin.label.CalcSize(
-                            new GUIContent(UnfoldedArrow + " ")).x;
-                        GUILayout.BeginHorizontal();
-                        GUILayout.Space(arrowPrefixW);
-                        if (GUILayout.Button(FormatEndStateRow(e), StyleForEndState(e.EndState)))
+                        // Subitem indent: leading spaces in the text string, matching
+                        // the Roster State tab's chain-member format ("    └─ name ..."
+                        // — see DrawTopologySection). Four spaces puts the first
+                        // character of the colored row roughly under the parent
+                        // kerbal name's first character (after the "▼ " arrow).
+                        if (GUILayout.Button("    " + FormatEndStateRow(e), StyleForEndState(e.EndState)))
                         {
                             // Mirrors the Timeline.GoTo → RecordingsTableUI.ScrollToRecording
                             // cross-link pattern (TimelineWindowUI.cs:665). GetTimelineUI()
@@ -511,7 +508,6 @@ namespace Parsek
                                 : (Action<string>)null;
                             OnFatesRowClicked(scrollCallback, e.RecordingId);
                         }
-                        GUILayout.EndHorizontal();
                     }
                 }
                 i = j;
