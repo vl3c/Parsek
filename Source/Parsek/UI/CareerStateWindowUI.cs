@@ -1119,9 +1119,7 @@ namespace Parsek
                 line = $"Career mode - UT {vm.LiveUT.ToString("F0", ic)}";
                 if (vm.HasDivergence)
                 {
-                    double ahead = vm.TerminalUT - vm.LiveUT;
-                    if (ahead < 0) ahead = 0;
-                    line += $"  (projection ahead: {ahead.ToString("F0", ic)})";
+                    line += $"  (timeline ends at UT {vm.TerminalUT.ToString("F0", ic)})";
                 }
             }
             else if (vm.Mode == Game.Modes.SCIENCE_SANDBOX)
@@ -1155,7 +1153,7 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             GUILayout.Label(
-                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
+                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} at timeline end",
                 sectionHeaderStyle);
 
             bool sameAsProjected = RowsEqual(tab.CurrentRows, tab.ProjectedRows);
@@ -1249,7 +1247,7 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             GUILayout.Label(
-                $"Administration L{tab.AdminLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} projected",
+                $"Administration L{tab.AdminLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} at timeline end",
                 sectionHeaderStyle);
 
             bool sameAsProjected = StrategyRowsEqual(tab.CurrentRows, tab.ProjectedRows);
@@ -1382,7 +1380,7 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             GUILayout.Label(
-                $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} projected)",
+                $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} at timeline end)",
                 sectionHeaderStyle);
             DrawMilestonesColumnHeader();
             GUILayout.BeginVertical(GUI.skin.box);

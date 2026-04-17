@@ -185,12 +185,12 @@ The window is draggable and resizable. Fold/expand state is transient (resets wh
 
 Click the "Career State" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
 
-- **Contracts** — active contracts with accept UT and deadline, plus Mission Control slot usage (`1/2 now, 2/2 projected`). When the timeline holds a committed recording that hasn't been played yet, its future `ContractAccept` actions appear under a collapsible **Pending in timeline** sub-section separate from **Active now**.
-- **Strategies** — active Administration strategies with source/target resource, commitment percentage, activation UT, and Administration slot usage. Same current-vs-projected split as Contracts when future activations are committed.
+- **Contracts** — active contracts with accept UT and deadline, plus Mission Control slot usage (`1/2 now, 2/2 at timeline end`). When the timeline holds a committed recording that hasn't been played yet, its future `ContractAccept` actions appear under a collapsible **Pending in timeline** sub-section separate from **Active now**.
+- **Strategies** — active Administration strategies with source/target resource, commitment percentage, activation UT, and Administration slot usage. Same "current vs. at-timeline-end" split as Contracts when future activations are committed.
 - **Facilities** — level (1-3) and destroyed/repair state for all nine KSC buildings (VAB, SPH, LaunchPad, Runway, Administration, Mission Control, Tracking Station, R&D, Astronaut Complex). Upcoming level changes show as `L2 -> L3 (upcoming)`; destroyed buildings with a pending repair show `(destroyed, repair pending)`.
 - **Milestones** — full chronological list of credited milestones with UT and any funds/rep/science reward. Pending milestones (from committed-but-unplayed recordings) are interleaved and flagged.
 
-The mode banner at the top shows `Career mode - UT {liveUT}` and, when the timeline extends past the live moment, appends `(projection ahead: {delta})` so the current vs. projected split is always visible. The window is hidden-but-clickable in Science and Sandbox modes: Contracts and Strategies tabs show "unavailable in Science mode" / "not tracked in Sandbox mode" messages, Facilities and Milestones still render in Science.
+The mode banner at the top shows `Career mode - UT {liveUT}` and, when the timeline extends past the live moment, appends `(timeline ends at UT {terminalUT})` so you can see at a glance whether the career has committed-but-unplayed actions reaching into the future. The window is hidden-but-clickable in Science and Sandbox modes: Contracts and Strategies tabs show "unavailable in Science mode" / "not tracked in Sandbox mode" messages, Facilities and Milestones still render in Science.
 
 The window is draggable, resizable, and the tab bar uses the same styling as the rest of Parsek. Tab selection resets on close.
 
