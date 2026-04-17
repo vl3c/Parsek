@@ -36,7 +36,7 @@ namespace Parsek
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 65f;
+        private const float ColW_Rewind = 85f;
         private const float ColW_Hide = 50f;
         private const float ColW_Site = 90f;
         private const float ColW_Group = 50f;
@@ -158,6 +158,7 @@ namespace Parsek
         // background without shifting rows inward (so column left edges align with
         // the fixed header above the scroll view).
         private GUIStyle tableBodyBoxStyle;
+        private GUIStyle boldHeaderInnerLabel;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -371,6 +372,16 @@ namespace Parsek
             {
                 padding = new RectOffset(0, 0, 2, 2),
                 margin = new RectOffset(0, 0, 0, 0)
+            };
+
+            // Bold label for header cells that share their box with a toggle (Loop /
+            // Hide) — the outer BeginHorizontal(colHdr) provides the box background,
+            // but the inner label needs its own bold style (colHdr would double-box).
+            boldHeaderInnerLabel = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
         }
 
@@ -632,7 +643,7 @@ namespace Parsek
             bool allLoop = loopCount == committed.Count;
             GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Loop));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Loop\nGhost");
+            GUILayout.Label("Loop", boldHeaderInnerLabel);
             bool newAllLoop = GUILayout.Toggle(allLoop, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -649,12 +660,12 @@ namespace Parsek
 
             if (parentUI.InFlightMode)
                 GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch));
-            GUILayout.Label("Rewind\nF.Forward", colHdr, GUILayout.Width(ColW_Rewind));
+            GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind));
 
             // Hide column header + toggle
             GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Hide");
+            GUILayout.Label("Hide", boldHeaderInnerLabel);
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
