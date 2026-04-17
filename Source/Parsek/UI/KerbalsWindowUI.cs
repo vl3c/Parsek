@@ -490,10 +490,9 @@ namespace Parsek
                     for (int k = i; k < j; k++)
                     {
                         var e = endStates[k];
-                        // Subitem indent: 10px to the right of the parent header,
-                        // matching the Recordings chain-subitem convention (one indent
-                        // applied via explicit Space; text then starts at a precise
-                        // per-row X that's identical across all subitems in the list).
+                        // Subitem indent: 10px to the right of the parent row's cell origin
+                        // so the first character of the colored subitem text aligns
+                        // with the parent header's NAME start (after the ▼ triangle).
                         GUILayout.BeginHorizontal();
                         GUILayout.Space(10f);
                         if (GUILayout.Button(FormatEndStateRow(e), StyleForEndState(e.EndState)))
