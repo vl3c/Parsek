@@ -203,9 +203,12 @@ namespace Parsek
             // but tints it darker via the on-state background color trick. Explicit
             // 4px horizontal margin gives adjacent buttons a visible gap (inter-button
             // gap = 4px after IMGUI's max-collapse); the GetResponsiveButtonWidth math
-            // below accounts for this exact margin budget.
+            // below accounts for this exact margin budget. Vertical margin inherits
+            // from GUI.skin.button so the L toggle vertically aligns with the R /
+            // FF / GoTo buttons (which use plain GUI.skin.button) in entry rows.
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
-            toggleButtonStyle.margin = new RectOffset(4, 4, 0, 0);
+            toggleButtonStyle.margin = new RectOffset(4, 4,
+                GUI.skin.button.margin.top, GUI.skin.button.margin.bottom);
             toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
