@@ -290,29 +290,40 @@ namespace Parsek
         private void DrawFilterBar()
         {
             GUILayout.Space(5);
+
+            // Uniform-width filter toggles filling the row. Tier group (Overview /
+            // Details) anchors to the left edge; source group (Recordings / Actions /
+            // Events) anchors to the right edge, with a FlexibleSpace gap between them.
+            // Button width is computed from the current window width so all five
+            // toggles stay the same size regardless of window resize.
+            const float GapWidth = 16f;
+            float rowWidth = timelineWindowRect.width - 20f;   // minus window chrome padding
+            if (rowWidth < 300f) rowWidth = 300f;
+            float btnW = Mathf.Max(60f, (rowWidth - GapWidth) / 5f);
+
             GUILayout.BeginHorizontal();
 
-            // Tier selector
+            // Tier selector (left-aligned group).
             bool overviewActive = !showDetail;
             bool detailActive = showDetail;
 
-            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(80)) && !overviewActive)
+            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
                 showDetail = false;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
-            if (GUILayout.Toggle(detailActive, "Detail", toggleButtonStyle, GUILayout.Width(70)) && !detailActive)
+            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
                 showDetail = true;
                 filterDirty = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Detail");
+                ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
 
-            GUILayout.Space(10);
+            GUILayout.FlexibleSpace();
 
-            // Source toggles
-            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(90));
+            // Source toggles (right-aligned group).
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
@@ -320,7 +331,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
-            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(70));
+            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
@@ -328,7 +339,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
-            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(65));
+            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
@@ -609,6 +620,10 @@ namespace Parsek
             try { time = KSPUtil.PrintDateCompact(entry.UT, true); }
             catch { time = entry.UT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
             GUILayout.Label(time, style, GUILayout.Width(90));
+
+            // Visual spacer between UT and description — matches the breathing room
+            // that appears before the R / FF / L / GoTo buttons on the far right.
+            GUILayout.Space(14f);
 
             // Description text
             GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));

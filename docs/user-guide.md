@@ -88,7 +88,7 @@ Click the "Timeline" button in the main Parsek window to open a read-only chrono
 Top of the window:
 
 - **Resources** block - same as the Resource Budget section below, shown when any resource has a committed cost.
-- **Tier toggles** - **Overview** shows the headline entries; **Detail** adds lower-significance events (resource changes, individual career-event rows, etc.).
+- **Tier toggles** - **Overview** shows the headline entries; **Details** adds lower-significance events (resource changes, individual career-event rows, etc.).
 - **Source toggles** - **Recordings**, **Actions**, **Events** each toggle that kind of row in and out.
 - **Time-Range Filter** - preset buttons (Last Day / Last 7d / Last 30d / This Year / All) and a **Custom range** disclosure with From/To sliders. The filter is shared with the Recordings Manager.
 
