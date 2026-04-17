@@ -85,7 +85,11 @@ namespace Parsek
             GameEvents.OnPartPurchased.Add(OnPartPurchased);
 
             // Crew
-            GameEvents.onKerbalAdded.Add(OnKerbalAdded);
+            // #416: OnCrewmemberHired (fired from KerbalRoster.HireApplicant) — NOT
+            // onKerbalAdded, which also fires for applicant pool generation and the
+            // four starter kerbals at new-career creation, triggering spurious
+            // KerbalHire debits that wiped starting funds.
+            GameEvents.OnCrewmemberHired.Add(OnCrewmemberHired);
             GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Add(OnKerbalStatusChange);
             GameEvents.onKerbalTypeChange.Add(OnKerbalTypeChange);
@@ -128,7 +132,7 @@ namespace Parsek
             GameEvents.OnPartPurchased.Remove(OnPartPurchased);
 
             // Crew
-            GameEvents.onKerbalAdded.Remove(OnKerbalAdded);
+            GameEvents.OnCrewmemberHired.Remove(OnCrewmemberHired);
             GameEvents.onKerbalRemoved.Remove(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusChange);
             GameEvents.onKerbalTypeChange.Remove(OnKerbalTypeChange);
@@ -402,7 +406,13 @@ namespace Parsek
 
         #region Crew Handlers
 
-        private void OnKerbalAdded(ProtoCrewMember crew)
+        /// <summary>
+        /// Fires from KerbalRoster.HireApplicant when the player pays to recruit an
+        /// applicant from the Astronaut Complex. <paramref name="activeCrewCount"/> is
+        /// KSP's pre-hire crew count — the same value GetRecruitHireCost takes to pick
+        /// the cost curve tier.
+        /// </summary>
+        private void OnCrewmemberHired(ProtoCrewMember crew, int activeCrewCount)
         {
             if (IsReplayingActions)
             {
@@ -411,20 +421,17 @@ namespace Parsek
             }
             if (SuppressCrewEvents)
             {
-                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-added",
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-hired",
                     "Suppressed CrewHired event while Parsek mutates crew state", 5.0);
                 return;
             }
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            // Capture hire cost from GameVariables if available (career mode)
-            float hireCost = 0f;
-            if (GameVariables.Instance != null && HighLogic.CurrentGame != null)
-            {
-                hireCost = (float)GameVariables.Instance.GetRecruitHireCost(
-                    HighLogic.CurrentGame.CrewRoster.GetActiveCrewCount());
-            }
+            // Hire cost from KSP's career curve. activeCrewCount is passed in by
+            // KerbalRoster; prefer it over re-reading the roster to avoid a race with
+            // the upcoming type flip (Applicant -> Crew) inside HireApplicant.
+            float hireCost = ComputeHireCost(activeCrewCount);
 
             // InvariantCulture-safe hire cost — GetRecruitHireCost is typically integer
             // but could return fractional on modded career curves.
@@ -437,10 +444,23 @@ namespace Parsek
                 detail = $"trait={crew.trait ?? ""};cost={hireCost.ToString("R", ic)}"
             };
             GameStateStore.AddEvent(evt);
-            ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
+                $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
 
             if (!IsFlightScene())
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Returns the KSP hire cost for the Nth recruit. Safe to call in tests or when
+        /// GameVariables is not yet initialized — returns 0f in that case.
+        /// </summary>
+        internal static float ComputeHireCost(int activeCrewCount)
+        {
+            if (GameVariables.Instance == null || HighLogic.CurrentGame == null)
+                return 0f;
+            return (float)GameVariables.Instance.GetRecruitHireCost(activeCrewCount);
         }
 
         private void OnKerbalRemoved(ProtoCrewMember crew)

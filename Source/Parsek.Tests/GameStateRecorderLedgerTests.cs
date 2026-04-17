@@ -181,6 +181,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnKscSpending_CrewHired_AddsKerbalHireActionWithCost()
+        {
+            // #416: CrewHired events must flow through as KerbalHire actions carrying
+            // the stored cost. Before the fix, GameStateRecorder subscribed to
+            // GameEvents.onKerbalAdded, which fired for every applicant pool generation
+            // and the four starter kerbals; each got recorded as a paid hire and the
+            // KerbalHire debits drained the starting funds on every new career.
+            var evt = new GameStateEvent
+            {
+                ut = 700.0,
+                eventType = GameStateEventType.CrewHired,
+                key = "Jebediah Kerman",
+                detail = "trait=Pilot;cost=62113"
+            };
+
+            LedgerOrchestrator.OnKscSpending(evt);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.KerbalHire && a.KerbalName == "Jebediah Kerman");
+            Assert.NotNull(match);
+            Assert.Equal(62113f, match.HireCost);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("KSC spending recorded") && l.Contains("KerbalHire"));
+        }
+
+        [Fact]
+        public void OnKscSpending_CrewHired_ZeroCost_LandsAsZeroCostAction()
+        {
+            // #416 defensive guard: if a CrewHired event arrives with cost=0 (e.g.
+            // ComputeHireCost returned 0 because GameVariables wasn't ready yet), it
+            // still lands as a KerbalHire, but with zero fund impact. This keeps the
+            // action timeline complete while ensuring starting funds aren't wiped.
+            var evt = new GameStateEvent
+            {
+                ut = 800.0,
+                eventType = GameStateEventType.CrewHired,
+                key = "Valentina Kerman",
+                detail = "trait=Pilot;cost=0"
+            };
+
+            LedgerOrchestrator.OnKscSpending(evt);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.KerbalHire && a.KerbalName == "Valentina Kerman");
+            Assert.NotNull(match);
+            Assert.Equal(0f, match.HireCost);
+        }
+
+        [Fact]
+        public void ComputeHireCost_NullGameVariables_ReturnsZero()
+        {
+            // #416: defensive path — ComputeHireCost must not NRE when called outside of
+            // a live KSP runtime (tests, early scene load before GameVariables.Instance
+            // is set). Returning 0 keeps the ledger action in place but produces no
+            // fund impact, which is safer than dropping the event.
+            Assert.Null(GameVariables.Instance);
+            float cost = GameStateRecorder.ComputeHireCost(activeCrewCount: 5);
+            Assert.Equal(0f, cost);
+        }
+
+        [Fact]
         public void OnKscSpending_DroppedEventType_LogsNoAction()
         {
             // FundsChanged is intentionally dropped by the converter (see §I reconciliation).
