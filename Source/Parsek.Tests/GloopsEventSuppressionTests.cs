@@ -171,6 +171,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FilterOutGhostOnlyActions_PreservesMigratedOldSaveActionsWithEmptyTag()
+        {
+            // MigrateOldSaveEvents (LedgerOrchestrator.cs:803) converts pre-ledger
+            // save events into GameActions with null/empty RecordingId — documented
+            // intentional tradeoff: we can't reliably map them to specific recordings.
+            // The filter must keep these alongside the legitimate seed-action empty tags.
+            var ghostOnly = new Recording { RecordingId = "gloops-old", IsGhostOnly = true };
+            RecordingStore.AddRecordingWithTreeForTesting(ghostOnly);
+
+            var actions = new List<GameAction>
+            {
+                // Simulated MigrateOldSaveEvents output: a FundsSpending with null tag.
+                new GameAction { RecordingId = null, Type = GameActionType.FundsSpending, FundsSpent = 1000f },
+                // Simulated InitialFunds seed.
+                new GameAction { RecordingId = "", Type = GameActionType.FundsInitial },
+                // The actually-ghost-only-tagged row that must be dropped.
+                new GameAction { RecordingId = "gloops-old", Type = GameActionType.KerbalAssignment },
+            };
+
+            var filtered = LedgerOrchestrator.FilterOutGhostOnlyActions(actions);
+
+            Assert.Equal(2, filtered.Count);
+            Assert.Contains(filtered, a => a.Type == GameActionType.FundsSpending && a.RecordingId == null);
+            Assert.Contains(filtered, a => a.Type == GameActionType.FundsInitial);
+            Assert.DoesNotContain(filtered, a => a.RecordingId == "gloops-old");
+        }
+
+        [Fact]
         public void FilterOutGhostOnlyActions_NoGhostOnlyRecordings_ReturnsInputUnchanged()
         {
             var normal = new Recording { RecordingId = "normal-only", IsGhostOnly = false };
@@ -194,9 +222,13 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void GetActiveRecordingIdForTagging_WithGloopsCommittedInStore_ReturnsEmpty()
+        public void GetActiveRecordingIdForTagging_WithGloopsAndNormalCommitted_NeverReturnsGloopsId()
         {
-            // Simulate a committed Gloops recording in the store.
+            // Seed BOTH a committed Gloops recording and a committed normal recording.
+            // The resolver must never return the Gloops id — proving that empty return
+            // is due to the resolver honoring the active tree (empty in tests, no
+            // ParsekFlight.Instance), not due to "the Gloops recording happened to be
+            // skipped because no recording was committed at all."
             var gloops = new Recording
             {
                 RecordingId = "gloops-B",
@@ -207,22 +239,28 @@ namespace Parsek.Tests
             gloops.Points.Add(new TrajectoryPoint { ut = 20.0 });
             RecordingStore.CommitGloopsRecording(gloops);
 
-            // No ParsekFlight.Instance in tests -> active tree is absent.
-            // Resolver must return "" (empty), never the Gloops id.
-            string tag = ParsekFlight.GetActiveRecordingIdForTagging();
+            var normal = new Recording { RecordingId = "normal-A", IsGhostOnly = false };
+            RecordingStore.AddRecordingWithTreeForTesting(normal);
 
-            Assert.NotEqual("gloops-B", tag);
-            Assert.True(string.IsNullOrEmpty(tag));
+            // Call the resolver many times to rule out any nondeterministic path.
+            for (int i = 0; i < 10; i++)
+            {
+                string tag = ParsekFlight.GetActiveRecordingIdForTagging();
+                Assert.NotEqual("gloops-B", tag);
+                // May return "" or "normal-A" depending on activeTree wiring; never the Gloops id.
+                Assert.True(tag == "" || tag == "normal-A",
+                    $"Unexpected tag '{tag}' — resolver must return the active tree's id or empty");
+            }
         }
 
         [Fact]
-        public void PurgeEventsForRecordings_RemovesForcedGloopsTaggedEvent()
+        public void PurgeEventsForRecordings_RemovesForcedGloopsTaggedEvent_LiveAndSnapshot()
         {
-            // This test pins the purge *mechanism* — forcing a Gloops-tagged event
-            // into the store via the test hook and asserting it can be purged.
-            // The default resolver never produces such events (previous test).
+            // This test pins the purge *mechanism* across all three stores touched by
+            // PurgeEventsForRecordings: live events, contract snapshots, and milestones.
             GameStateRecorder.TagResolverForTesting = () => "gloops-forced";
 
+            // Branch 1: live events list.
             var evt = new GameStateEvent
             {
                 ut = 100.0,
@@ -232,14 +270,25 @@ namespace Parsek.Tests
             };
             GameStateRecorder.Emit(evt, "test");
 
-            int beforeCount = GameStateStore.EventCount;
-            Assert.True(beforeCount >= 1);
+            // Branch 2: orphan contract snapshots (must be removed when the matching
+            // ContractAccepted event is purged — PurgeOrphanedContractSnapshots).
+            var contractNode = new ConfigNode("CONTRACT");
+            contractNode.AddValue("guid", "contract-1");
+            GameStateStore.AddContractSnapshot("contract-1", contractNode);
+
+            int eventCountBefore = GameStateStore.EventCount;
+            int snapshotCountBefore = GameStateStore.ContractSnapshots.Count;
+            Assert.True(eventCountBefore >= 1);
+            Assert.True(snapshotCountBefore >= 1);
 
             int removed = GameStateStore.PurgeEventsForRecordings(
                 new[] { "gloops-forced" }, "test");
 
             Assert.Equal(1, removed);
-            Assert.Equal(beforeCount - 1, GameStateStore.EventCount);
+            Assert.Equal(eventCountBefore - 1, GameStateStore.EventCount);
+            // Snapshot's matching ContractAccepted event was purged, so the orphan
+            // cleanup should have removed the snapshot too.
+            Assert.Equal(snapshotCountBefore - 1, GameStateStore.ContractSnapshots.Count);
         }
 
         // ================================================================
@@ -268,6 +317,17 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch();
 
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("filtered 1 action(s) tagged with ghost-only recordings"));
+
+            // Filter fires on every RecalculateAndPatch as long as the stale row sits in
+            // Ledger.Actions. The self-heal path (via MigrateKerbalAssignments in
+            // OnKspLoad) is what actually rewrites the stale row — the walk filter itself
+            // does not mutate Ledger.Actions. Verify this: a second call produces another
+            // filter line with the same count.
+            logLines.Clear();
+            LedgerOrchestrator.RecalculateAndPatch();
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("filtered 1 action(s) tagged with ghost-only recordings"));

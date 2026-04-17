@@ -81,7 +81,7 @@ are fixed in the same PR branch with additional commits:
 - Staging during a Gloops flight → debris gets its own ghost-only recording via the normal `BackgroundRecorder` split path, with `IsGhostOnly = true` inherited from the tree.
 - EVA during a Gloops flight → linked child ghost-only recording via the normal EVA split path.
 - Commit: the whole Gloops tree flushes as a nested group under `"Gloops - Ghosts Only"` — e.g. `"Gloops - Ghosts Only / Mk3 Airshow Flight"` with child debris / crew recordings under it. Every leaf is `IsGhostOnly`.
-- No vessel-spawn-at-end for any recording in a Gloops tree. `ParsekFlight`'s spawn decision already gates on `!rec.IsGhostOnly` (see `ParsekFlight.cs:9221`); the tree case reuses this.
+- No vessel-spawn-at-end for any recording in a Gloops tree. `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` already gates on `!rec.IsGhostOnly` (see `GhostPlaybackLogic.cs:3001`); the tree case reuses this.
 - Per-recording delete / regroup / rename in the Recordings Manager works the same as normal trees.
 - Apply-side: `#432`'s filter reads `rec.IsGhostOnly` per-recording, so every leaf in a Gloops tree is already excluded from the ledger with no extra work.
 

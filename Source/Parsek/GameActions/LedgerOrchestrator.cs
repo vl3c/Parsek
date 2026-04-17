@@ -486,7 +486,11 @@ namespace Parsek
 
             // #432: ghost-only recordings (Gloops) have zero career footprint on the ledger.
             // Closes the MigrateKerbalAssignments leak where a crewed Gloops recording would
-            // reserve its kerbals for the loop duration.
+            // reserve its kerbals for the loop duration. Note that end-state population still
+            // occurs via PopulateUnpopulatedCrewEndStates (the safety-net pass inside
+            // RecalculateAndPatch at :1108) for Gloops recordings that need CrewEndStates for
+            // the Kerbals-window per-recording-fates view; only the ledger-action emission is
+            // suppressed here.
             if (rec.IsGhostOnly)
             {
                 ParsekLog.Verbose(Tag,
