@@ -6,11 +6,11 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 
 | Key | Action |
 |-----|--------|
-| **F9** | Start / Stop recording |
-| **F10** | Preview playback (current recording) |
-| **F11** | Stop preview |
+| **[** or **]** | Exit watch mode (return to active vessel) |
+| **V** | Toggle watch camera between Free Orbit and Horizon-Locked (watch mode only) |
+| **Ctrl+Shift+T** | Open the in-game Test Runner (any scene) |
 
-The Parsek window is available from the toolbar button in Flight/Map view.
+The Parsek window is available from the toolbar button in Flight, Map, KSC, and Tracking Station views. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey. Manual ghost-only recordings are made from the Gloops Flight Recorder window (see below).
 
 ## How It Works
 
@@ -19,10 +19,10 @@ The Parsek window is available from the toolbar button in Flight/Map view.
 1. Launch any vessel (career mode recommended for resource tracking)
 2. Recording starts automatically when the vessel leaves the pad/runway
 3. Fly your mission normally
-4. Press **F9** to stop recording
+4. Recording stops when the active vessel changes (docking, switching with `[`/`]`, scene exit) or on revert
 5. Revert to Launch (Esc > Revert to Launch)
 
-You can also press **F9** manually at any time to start or stop recording. Going EVA from a vessel on the pad will also auto-start recording on the EVA kerbal.
+Going EVA from a vessel on the pad auto-starts recording on the EVA kerbal. Going EVA mid-flight stops the parent recording and starts a linked child recording on the EVA kerbal. Both behaviors can be disabled in Settings.
 
 ### EVA During Recording
 
@@ -33,9 +33,21 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 3. On revert, both ghosts play back - the vessel ghost and the EVA kerbal ghost
 4. When the parent vessel spawns, the EVA'd kerbal is excluded from its crew
 
+### Gloops Flight Recorder
+
+The Gloops window (opened from the "Gloops Flight Recorder" button in the main Parsek window, flight only) records a manual ghost-only loop alongside the normal auto-recorder. Typical uses are airshow replays, scenery decor, and captured maneuvers that don't need to spawn a real vessel at the end.
+
+- **Start Recording** - begins capture on the active vessel.
+- **Stop Recording** - commits the recording immediately with looping enabled by default. The recording is placed in the **Gloops - Ghosts Only** group in the Recordings Manager and is flagged ghost-only (no rewind save, no vessel spawn at loop end).
+- **Preview** / **Stop Preview** - plays the last saved Gloops recording back as a ghost from current UT without affecting the timeline.
+- **Discard** / **Discard Recording** - drops the in-progress or last saved recording.
+- **Start New Recording** - begins a fresh capture after a previous one is saved.
+
+Gloops recording auto-stops if the active vessel changes. Ghost-only recordings get an **X** button in the Recordings Manager's Group column for quick deletion.
+
 ### Merge Dialog
 
-After reverting, a dialog appears with context-aware options:
+After reverting (or aborting a mission to the Space Center with a recording pending), a dialog appears with context-aware options:
 
 | Situation | Options |
 |-----------|---------|
@@ -44,6 +56,8 @@ After reverting, a dialog appears with context-aware options:
 
 - **Merge to Timeline** - Recording is merged; if the vessel is intact, it will appear in the game world when the ghost finishes playing
 - **Discard** - Recording is thrown away
+
+If **Auto-merge recordings** is enabled in Settings, the merge happens silently without a dialog.
 
 ### Timeline Playback
 
@@ -67,31 +81,78 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 
 When you choose "Merge to Timeline", the recorded crew (e.g. Jeb) are reserved for the deferred vessel spawn. A replacement kerbal with the same trait is hired automatically so your available crew pool stays the same size. When the vessel spawns at EndUT, the original crew board it and the replacement is removed.
 
-### Preview Playback
+### Timeline Window
 
-You can preview a recording without reverting:
+Click the "Timeline" button in the main Parsek window to open a read-only chronological view of every committed recording, player action, and game event, anchored by a `— UT (now) —` divider between past and future.
 
-1. Stop recording with **F9**
-2. Press **F10** - a ghost replays your flight in real time
-3. Press **F11** to stop the preview
+Top of the window:
+
+- **Resources** block - same as the Resource Budget section below, shown when any resource has a committed cost.
+- **Tier toggles** - **Overview** shows the headline entries; **Detail** adds lower-significance events (resource changes, individual career-event rows, etc.).
+- **Source toggles** - **Recordings**, **Actions**, **Events** each toggle that kind of row in and out.
+- **Time-Range Filter** - preset buttons (Last Day / Last 7d / Last 30d / This Year / All) and a **Custom range** disclosure with From/To sliders. The filter is shared with the Recordings Manager.
+
+Each entry row shows UT, a description, and (for `RecordingStart` entries) the following buttons:
+
+- **R** / **FF** - same rewind / fast-forward buttons as the Recordings Manager.
+- **L** - loop toggle. Only shown for past or active recordings that Parsek considers logically loopable (launches, atmospheric descents, surface departures, docking segments), or for any recording that is already looping. Active loops display in green text.
+- **GoTo** - jumps to the same recording in the Recordings Manager (opening it and un-hiding the recording if necessary).
+
+The footer shows `N Recordings, M Actions, K Events` for whatever is currently visible after filtering.
 
 ### Recordings Manager
 
-Click the "Recordings" button in the main Parsek window to open the Recordings Manager. This secondary window shows all committed recordings in a sortable table:
+Click the "Recordings" button in the main Parsek window to open the Recordings Manager. This secondary window shows all committed recordings in a sortable table. Recordings that belong to the same mission tree or user group collapse into expandable parent rows.
 
-- **Name** - vessel name
-- **Launch Time** - KSP calendar format
-- **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m")
-- **Status** - `future` (grey), `active` (green), or `past` (dim) based on current UT
-- **Loop / Ghost** - per-recording loop toggle (ghost replays continuously with a pause between cycles)
-- **Rewind / F.Forward** - "R" (rewind) / "FF" (fast-forward) buttons for recordings with rewind saves
-- **Hide** - per-recording hide toggle (hidden recordings still play as ghosts normally)
+Columns:
 
-Click any column header to sort by that column. Click again to reverse the sort order. The window is draggable and resizable.
+- **Playback enable** - per-row checkbox; when unchecked, the ghost is skipped entirely. The header checkbox toggles all rows at once.
+- **#** - row index.
+- **Name** - vessel name; double-click to rename.
+- **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`).
+- **Site** - launch site name.
+- **Launch** - KSP calendar format.
+- **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m").
+- **Info columns** (shown when the **Info** toggle at the bottom of the window is expanded) - Max altitude, max speed, distance travelled, point count, start/end positions.
+- **Status** - `future` / `active` / countdown `T-Xd Xh Xm Xs` for unspawned recordings, `past` or a terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Recovered`, `Destroyed`) for finished ones. Color-coded. Hovering shows chain status when flying alongside an active ghost.
+- **Group** - "G" button opens a group picker; custom (user-created) groups add an "X" button to disband the group; ghost-only recordings add an "X" button to delete the recording.
+- **Loop Ghost** - per-row loop toggle. Header checkbox toggles all rows. See Loop Playback below.
+- **Period** - launch-to-launch loop period with a unit button that cycles `sec -> min -> hr -> auto`. "auto" inherits the default from Settings -> Looping.
+- **Watch** (flight only) - "W" / "W*" button. See Watch Mode below.
+- **Rewind / F.Forward** - "R" (rewind) for past/active recordings with a rewind save; "FF" (fast-forward) for future recordings. The button is disabled if the operation is currently not safe; hover for the reason.
+- **Hide** - per-row hide toggle. The header checkbox controls whether hidden recordings are filtered out (checked, default) or shown in the table (unchecked). Hidden recordings still play as ghosts normally.
 
-The select-all checkbox in the Loop column header toggles looping for all recordings at once. The Hide checkbox in the column header controls whether hidden recordings are shown — when checked (default), hidden recordings are filtered out; uncheck it to see and manage hidden recordings.
+Click any sortable column header (#, Name, Phase, Site, Launch, Duration, Status) to sort by that column. Click again to reverse. The window is draggable and resizable.
 
-The **Countdown** column shows how long until each recording's vessel spawns, formatted as `T-Xd Xh Xm Xs`. It updates live during playback and shows `-` for recordings already past their spawn time.
+Bottom bar: **Info** toggles the expanded-stats columns; **New Group** creates a user-defined group you can drag recordings into via the "G" picker.
+
+### Time-Range Filter
+
+A shared filter at the top of the Timeline window narrows both the Timeline and the Recordings table to a slice of the career:
+
+- Quick presets: **Last Day**, **Last 7d**, **Last 30d**, **This Year**, **All** (clears the filter).
+- **Custom range**: a collapsible disclosure with **From** / **To** sliders over the full data range.
+
+When a filter is active, the Recordings table shows a `Filtered: ...` line with a **Clear** button so the filter stays visible even with the Timeline closed.
+
+### Loop Playback
+
+A recording with **Loop** checked replays on a fixed launch-to-launch period: the ghost relaunches every N seconds/minutes/hours regardless of how long the recording itself is. When the period is shorter than the recording duration, successive cycles overlap and multiple ghosts coexist. Edit the period inline in the Period column, or leave it on `auto` to inherit the default from Settings.
+
+### Watch Mode
+
+Click **W** on a recording (or on a group header) to enter watch mode — the KSP camera follows the ghost vessel instead of the active vessel. A watched row shows **W\*** and any group containing the watched recording also shows **W\***. Press `[`, `]`, or click W again to exit. Press **V** while watching to toggle the camera between Free Orbit (stock behavior) and Horizon-Locked (ground stays at the bottom of the screen; picked automatically near planetary surfaces, free in orbit).
+
+Clicking **W** on a group header cycles through the group's watchable vessels: each press advances to the next member with an active same-body in-range ghost.
+
+Watch mode auto-exits when the ghost passes the camera-cutoff distance (Settings -> Ghosts -> Camera cutoff), when the watched ghost despawns at the end of its playback, or when it leaves the current SOI.
+
+### Rewind / Fast-Forward
+
+- **R** reloads the quicksave captured at the recording's launch, undoing everything that happened since. All committed recordings (including the one you rewound to) replay as ghosts from that point; you can launch new missions alongside them. Resources, research progress, and facility upgrades are reset to their pre-launch state and will be re-applied as the ghost timeline replays.
+- **FF** instantly advances the game clock to a future recording's launch UT. The current scene stays (KSC stays KSC, flight stays on the current vessel). If a ghost is being watched, watch transfers to the fast-forwarded recording.
+
+Both buttons show a confirmation dialog naming the recording before acting. Disabled buttons hover-tip their blocker ("recording in progress", "no rewind save", etc.).
 
 ### Real Spawn Control
 
@@ -136,12 +197,49 @@ The window is draggable, resizable, and the tab bar uses the same styling as the
 
 Click the "Settings" button in the main Parsek window to open the Settings panel. Settings are saved per-save and can also be accessed from KSP's Difficulty Settings screen (Esc > Settings > Parsek).
 
+Recording:
+
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Auto-record on launch | On | Start recording when a vessel leaves the pad/runway |
+| Auto-record on launch | On | Start recording when a vessel leaves the pad or runway |
 | Auto-record on EVA | On | Start recording when a kerbal goes EVA from the pad |
-| Auto-stop time warp | On | Stop time warp when a ghost playback is about to begin |
-| Recorder sample density | Medium | Trajectory sampling precision: Low (smaller files), Medium (balanced), High (cinematic) |
+| Auto-merge recordings | Off | When on, recordings commit to the timeline silently on revert; when off, the merge dialog appears |
+
+Looping:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Auto-launch every | 10s | Default launch-to-launch period used by recordings whose Period column is set to `auto`. Cycle the unit button to switch between sec / min / hr |
+
+Ghosts:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Ghost audio | 70% | Volume multiplier for ghost engines, RCS, decouplers, and explosions. Set to 0% to mute |
+| Camera cutoff | 50 km | Distance at which watch mode auto-exits when the ghost drifts too far from the active vessel |
+| Show ghosts in Tracking Station | On | When off, Parsek ghosts and atmospheric ghost markers are hidden from the tracking station vessel list and map |
+
+Diagnostics:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Verbose logging | On | Write detailed diagnostics to `KSP.log` |
+| Write readable sidecar mirrors | On | Also write human-readable `.txt` mirrors alongside binary recording sidecars |
+| In-Game Test Runner | - | Opens the runtime-test window (same as Ctrl+Shift+T) |
+| Run Diagnostics Report | - | Dumps a full diagnostics snapshot to `KSP.log` |
+
+Recorder Sample Density: three preset buttons plus a live summary line showing the resulting sampling thresholds.
+
+| Preset | Description |
+|--------|-------------|
+| Low | Fewer samples, smaller files; trajectories may look angular during sharp maneuvers |
+| Medium (default) | Balanced sampling for most flights |
+| High | Dense sampling for cinematic recordings; larger files |
+
+Data Management:
+
+- **Wipe All Recordings (N)** - clears all committed recordings. Also frees reserved crew and removes replacement kerbals. Milestones are preserved.
+- **Wipe All Game Actions (N)** - clears all recorded milestones and career actions.
 
 The "Defaults" button resets all settings to their original values.
 
@@ -173,31 +271,6 @@ Milestones are created:
 
 Hiding a recording does not affect its milestone or ghost playback - hidden recordings still play as ghosts normally.
 
-### Rewind (Going Back in Time)
-
-Rewind lets you go back to any earlier point in your timeline and launch new missions. Existing recordings continue to play as ghosts alongside your new flights.
-
-**How to rewind:**
-1. Open the Recordings Manager (click "Recordings" in the Parsek window)
-2. Click the "R" (rewind) / "FF" (fast-forward) button next to any recording that has a rewind save
-3. A confirmation dialog shows the vessel name, launch date, and how many future recordings exist
-4. On confirm, the game loads back to that recording's launch point in the Space Center
-
-**What happens on rewind:**
-- Game time rewinds to the recording's launch UT
-- Funds, science, and reputation are reset to their pre-launch values
-- Committed game actions (tech research, part purchases, facility upgrades, crew hires) are re-applied automatically
-- All committed recordings replay as ghosts from the rewound point, re-applying their resource deltas at the correct times
-- The player can launch new missions with the remaining available resources
-
-**Resource safety:**
-- Resources are reset to the baseline snapshot captured at recording start. Ghost playback re-applies each recording's resource deltas at the correct UT, so the timeline replays naturally.
-- The resource budget display shows committed costs from unreplayed recordings, so the player always sees what's actually available.
-
-### Wipe Recordings
-
-Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals. Milestones are preserved.
-
 ## Automatic Behaviors
 
 Parsek handles several edge cases automatically. These are logged to `KSP.log` (search for `[Parsek]` or `[Parsek Scenario]`).
@@ -214,9 +287,12 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 ### Ghost Playback
 
-- **Time warp protection** - Time warp is stopped once when UT is about to enter a recording's time range, but only if the recording has an unspawned vessel. Time warp during active ghost playback is allowed. Can be disabled in Settings.
+- **Time warp protection** - Time warp is stopped once when UT is about to enter a recording's time range, but only if the recording has an unspawned vessel. Time warp during active ghost playback is allowed.
+- **Rewind / Fast-Forward jumps** - Both R and FF stop any active time warp before jumping so the clock lands cleanly on the target UT.
 - **Orbital attitude** - Ghost vessels in orbital segments preserve their recorded orientation. A vessel holding retrograde, normal, or any other SAS mode will hold that attitude throughout the orbit, not snap to prograde. If the PersistentRotation mod is installed, spinning vessels are also reproduced — the ghost spins at the same rate the player saw during time warp.
 - **SOI changes** - Recordings that cross SOI boundaries (e.g. Kerbin to Mun) play back correctly. Each trajectory point references its own celestial body.
+- **Ghost distance tiers** - As a ghost moves away from the camera it drops to a reduced visual tier around 2.3 km, and its mesh unloads entirely beyond 50 km (still logically playing, just not drawn). Watching a ghost overrides the cutoff until the Camera cutoff setting is reached.
+- **Map and Tracking Station icons** - Ghost vessels use the stock icon matching their vessel type (Ship, Plane, Probe, Station, etc.). Icon labels are hidden by default, appear on hover, and pin on click. The **Show ghosts in Tracking Station** setting hides ghost icons entirely from the tracking station when off.
 
 ### Vessel Spawning
 
