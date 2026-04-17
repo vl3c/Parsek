@@ -90,13 +90,14 @@ namespace Parsek
                 return;
             }
 
-            // Position to the left of main window on first open
+            // Position to the left of main window on first open. Default width must
+            // accommodate 6 minimum-width buttons in the preset row (6 * 93 + chrome).
             if (timelineWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 538;
+                float x = mainWindowRect.x - 610;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
                 float height = Math.Max(600f, mainWindowRect.height);
-                timelineWindowRect = new Rect(x, mainWindowRect.y, 528, height);
+                timelineWindowRect = new Rect(x, mainWindowRect.y, 600, height);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
@@ -198,15 +199,29 @@ namespace Parsek
             timelineBlueStyle.normal.textColor = new Color(0.5f, 0.7f, 1f);
 
             // Toggle button: "on" state reuses the button's own rounded-corner texture
-            // but tints it darker via the on-state background color trick
+            // but tints it darker via the on-state background color trick. margin zeroed
+            // so buttons pack tightly when laid out at computed widths (the computation
+            // assumes zero inter-cell gap so rows 1 and 2 column-align exactly).
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
-            // Copy the normal (off) background to the on states so we keep rounded corners
+            toggleButtonStyle.margin = new RectOffset(0, 0, 0, 0);
             toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
+        }
 
-            // Loop active button: green-tinted text so active loops stand out in the timeline
+        /// <summary>
+        /// Shared button width used by every button in the top filter row (5 buttons)
+        /// and the time-range preset row (6 buttons). Computed each frame from the
+        /// current window width divided by 6 (the preset row's cell count) so both
+        /// rows scale uniformly and their columns column-align. Floored at
+        /// FilterButtonWidth so buttons never shrink below the minimum.
+        /// </summary>
+        private float GetResponsiveButtonWidth()
+        {
+            const float horizontalChromePx = 22f;  // approx left+right window padding
+            float avail = timelineWindowRect.width - horizontalChromePx;
+            return Mathf.Max(FilterButtonWidth, avail / 6f);
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -296,24 +311,27 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // All five top-filter buttons use a fixed width (FilterButtonWidth) shared
-            // with the time-range preset row. Tier group anchors left, source group
-            // anchors right, and the FlexibleSpace in between absorbs whatever spare
-            // horizontal room the window has — it grows/shrinks on resize while the
-            // button widths stay constant.
+            // All top-filter buttons (5 total) use the same responsive width as the
+            // preset row's 6 buttons, so row 1 and row 2 column-align. The tier group
+            // (Overview/Details) anchors left, the source group (Recordings/Actions/
+            // Events) anchors right, and FlexibleSpace between them absorbs exactly
+            // one button-width's worth of gap (5*btnW + 1*btnW_gap == 6*btnW). Buttons
+            // grow with the window and floor at FilterButtonWidth.
+            float btnW = GetResponsiveButtonWidth();
+
             GUILayout.BeginHorizontal();
 
             // Tier selector (left-aligned group).
             bool overviewActive = !showDetail;
             bool detailActive = showDetail;
 
-            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(FilterButtonWidth)) && !overviewActive)
+            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
                 showDetail = false;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
-            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(FilterButtonWidth)) && !detailActive)
+            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
                 showDetail = true;
                 filterDirty = true;
@@ -323,7 +341,7 @@ namespace Parsek
             GUILayout.FlexibleSpace();
 
             // Source toggles (right-aligned group).
-            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
@@ -331,7 +349,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
-            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
+            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
@@ -339,7 +357,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
-            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
+            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
@@ -383,26 +401,27 @@ namespace Parsek
 
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
-            // Every preset button (including All and Custom) uses the shared
-            // FilterButtonWidth so the preset row and the filter row line up.
+            // Every preset button (including All and Custom) uses the same responsive
+            // width as the top filter row so both rows column-align and scale together.
+            float btnW = GetResponsiveButtonWidth();
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
 
             int secsPerDay = ParsekTimeFormat.SecsPerDay;
             int secsPerYear = ParsekTimeFormat.SecsPerYear;
 
-            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, FilterButtonWidth);
-            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, FilterButtonWidth);
-            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, FilterButtonWidth);
+            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, btnW);
 
             // "This Year" = current Kerbin/Earth calendar year boundaries
             double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
             double yearEnd = yearStart + secsPerYear;
-            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, FilterButtonWidth);
+            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, btnW);
 
             // "All" = clear filter
             bool allActive = !filter.IsActive;
-            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(FilterButtonWidth)) && !allActive)
+            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(btnW)) && !allActive)
             {
                 filter.Clear();
                 sliderMin = sliderBoundMin;
@@ -414,7 +433,7 @@ namespace Parsek
             // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
             if (hasRange)
             {
-                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
+                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(btnW));
                 if (newShowCustom != showCustomRange)
                 {
                     showCustomRange = newShowCustom;
