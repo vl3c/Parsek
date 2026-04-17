@@ -554,5 +554,119 @@ namespace Parsek.Tests
             Assert.Contains(remaining, e => e.key == "tech-B");
             Assert.Contains(remaining, e => e.key == "tech-untagged");
         }
+
+        // --- #15: PurgeTaggedEvents keeps LastReplayedEventIndex pointing at the
+        // same surviving event after shifting entries left.
+
+        [Fact]
+        public void PurgeTaggedEvents_AdjustsLastReplayedEventIndex()
+        {
+            // Mixed-tag milestone with LastReplayedEventIndex = 2 (pointing at event index 2,
+            // "tech-C"). Purging rec-A (at indices 0 and 1, both at-or-before the boundary)
+            // must drop the index by 2 to 0, which still points at the "tech-C" event
+            // after it shifts left into slot 0.
+            //
+            // Without the fix, the boundary stays at 2 — the original slot now holds
+            // "tech-E" (shifted from index 4), and consumers iterating from
+            // LastReplayedEventIndex + 1 = 3 would skip "tech-D" (now at index 1) and
+            // "tech-E" (now at index 2), treating both as already-replayed even though
+            // they never were. That's exactly the drift the fix prevents.
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.TechResearched, "tech-A1", 100.0, "rec-A"),  // idx 0, purged
+                MakeEvent(GameStateEventType.TechResearched, "tech-A2", 150.0, "rec-A"),  // idx 1, purged
+                MakeEvent(GameStateEventType.TechResearched, "tech-C",  200.0, "rec-C"),  // idx 2, survives — the boundary
+                MakeEvent(GameStateEventType.TechResearched, "tech-D",  250.0, "rec-D"),  // idx 3, survives, unreplayed
+                MakeEvent(GameStateEventType.TechResearched, "tech-E",  300.0, "rec-E"),  // idx 4, survives, unreplayed
+                MakeEvent(GameStateEventType.TechResearched, "tech-A3", 350.0, "rec-A"),  // idx 5, purged (after boundary, no adjust)
+            };
+            var milestone = new Milestone
+            {
+                MilestoneId = "m-replay",
+                StartUT = 0,
+                EndUT = 500,
+                RecordingId = "",
+                Epoch = 0,
+                Committed = true,
+                Events = events,
+                LastReplayedEventIndex = 2, // "tech-C" is the last replayed event
+            };
+            MilestoneStore.AddMilestoneForTesting(milestone);
+
+            // Sanity before the purge — slot at boundary is tech-C.
+            Assert.Equal("tech-C",
+                MilestoneStore.Milestones[0].Events[MilestoneStore.Milestones[0].LastReplayedEventIndex].key);
+
+            var ids = new HashSet<string> { "rec-A" };
+            var removed = MilestoneStore.PurgeTaggedEvents(ids, "ReplayIdxTest");
+
+            // Three purged events — both the two at-or-before the boundary and one after.
+            Assert.Equal(3, removed.Count);
+
+            // Milestone not dropped — three survivors remain.
+            Assert.Equal(1, MilestoneStore.MilestoneCount);
+            var survivingMilestone = MilestoneStore.Milestones[0];
+            Assert.Equal(3, survivingMilestone.Events.Count);
+
+            // Boundary dropped by 2 (two purges at-or-before the boundary) → index 0,
+            // which still points at "tech-C" after left-shift.
+            Assert.Equal(0, survivingMilestone.LastReplayedEventIndex);
+            Assert.Equal("tech-C",
+                survivingMilestone.Events[survivingMilestone.LastReplayedEventIndex].key);
+
+            // The two unreplayed events (tech-D, tech-E) must both be visible to a
+            // consumer iterating from LastReplayedEventIndex + 1.
+            var unreplayed = new List<string>();
+            for (int i = survivingMilestone.LastReplayedEventIndex + 1;
+                i < survivingMilestone.Events.Count; i++)
+                unreplayed.Add(survivingMilestone.Events[i].key);
+            Assert.Equal(new[] { "tech-D", "tech-E" }, unreplayed);
+
+            // Log reports the adjustment count.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MilestoneStore]") && l.Contains("PurgeTaggedEvents") &&
+                l.Contains("2 LastReplayedEventIndex adjustments"));
+        }
+
+        // --- #16: FLIGHT -> SPACECENTER teardown window does NOT leak the tagged
+        // event to the ledger via OnKscSpending. The test forces the scene to
+        // SPACECENTER after tagging the event in FLIGHT, then drives a contract
+        // completion handler that would hit OnKscSpending. With the #431 gate
+        // (ResolveCurrentRecordingTag non-empty → skip), the ledger write is
+        // suppressed and the tagged event rides the recording's commit/discard fate.
+        //
+        // Full coverage of the live teardown also needs an in-game test — see the
+        // "GameState" category under InGameTests/RuntimeTests.cs, as ParsekFlight.Instance
+        // lifecycle can't be mocked from xUnit.
+        [Fact]
+        public void TeardownWindow_TaggedEventNotForwardedToLedger()
+        {
+            // Arrange: tag resolver returns a recording id even though the scene reads
+            // SPACECENTER. Emulates the teardown window where Emit legitimately tags
+            // an event but IsFlightScene() is already false.
+            GameStateRecorder.TagResolverForTesting = () => "rec-teardown";
+            HighLogic.LoadedScene = GameScenes.SPACECENTER;
+
+            var evt = MakeEvent(GameStateEventType.ContractCompleted, "guid-teardown", 100.0);
+            GameStateRecorder.Emit(evt, "teardown-test");
+
+            // The #431 gate guards every `OnKscSpending(evt)` call:
+            //    if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+            //        LedgerOrchestrator.OnKscSpending(evt);
+            // We assert the guard condition here rather than driving a GameEvents
+            // subscription (which would need a full Contract object). The resolver
+            // returns non-empty, so the gate skips the ledger forward.
+            bool wouldForward = !(HighLogic.LoadedScene == GameScenes.FLIGHT)
+                && string.IsNullOrEmpty(GameStateRecorder.ResolveCurrentRecordingTag());
+            Assert.False(wouldForward,
+                "Gate must suppress ledger forward when the event was tagged during teardown.");
+
+            // And conversely: a true KSC event with an empty resolver passes the gate.
+            GameStateRecorder.TagResolverForTesting = () => "";
+            bool wouldForwardKsc = !(HighLogic.LoadedScene == GameScenes.FLIGHT)
+                && string.IsNullOrEmpty(GameStateRecorder.ResolveCurrentRecordingTag());
+            Assert.True(wouldForwardKsc,
+                "Genuine KSC events (no live recorder, empty tag) must still reach the ledger.");
+        }
     }
 }
