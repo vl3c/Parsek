@@ -1800,13 +1800,25 @@ namespace Parsek
         }
 
         /// <summary>
-        /// UT epsilon (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
-        /// action with the resource-changed event(s) emitted by the same KSP callback.
-        /// KSC callbacks fire in the same frame as the resource change; 0.5 s leaves
-        /// room for capture-order jitter without matching unrelated events. Also
-        /// bounds the summation window for coalesced-event reconciliation.
+        /// UT window (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
+        /// action with its resource-changed event and to aggregate both sides across
+        /// coalesced same-key entries. Must match <c>GameStateStore.ResourceCoalesceEpsilon</c>
+        /// (private, 0.1 s — see <c>GameStateStore.cs:21</c> and <c>AddEvent</c> at line 42).
+        /// <para>
+        /// Rationale: within this window, <see cref="GameStateStore.AddEvent"/> has
+        /// already merged same-type/same-tag resource deltas into a single slot, so
+        /// summing ledger actions and events across the window is safe by construction
+        /// — the summed observed delta is one coalesced entry that equals the sum of
+        /// the individual raw deltas. Beyond this window same-key events stay separate
+        /// in the store, so aggregating them would cross-attribute deltas and opposing
+        /// per-action errors could cancel out (review round 3, PR #340).
+        /// </para>
+        /// <para>
+        /// If <c>GameStateStore.ResourceCoalesceEpsilon</c> ever changes, update this
+        /// value in lockstep. The two constants encode the same physical invariant.
+        /// </para>
         /// </summary>
-        internal const double KscReconcileEpsilonSeconds = 0.5;
+        internal const double KscReconcileEpsilonSeconds = 0.1;
 
         /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the

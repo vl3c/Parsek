@@ -651,13 +651,18 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
         }
 
-        // ---------- Windowing + no-resource-impact + defensive ----------
+        // ---------- Windowing: aggregation scoped to coalesce window ----------
+        //
+        // Round-3 review: the aggregation window must match GameStateStore.AddEvent's
+        // coalesce threshold (0.1 s). Two same-key events 0.1-0.5 s apart remain as
+        // SEPARATE entries in the store; summing them across a wider window would
+        // let opposing per-action errors cancel out silently.
 
         [Fact]
         public void ReconcileKsc_EventOutsideEpsilon_LogsMissingEventWarn()
         {
-            // A correctly-keyed FundsChanged 1.0 s before the action is outside the 0.5 s
-            // matcher window. Action's expected -600 finds nothing → missing-event WARN.
+            // A correctly-keyed FundsChanged 1.0 s before the action is far outside the
+            // 0.1 s matcher window. Action's expected -600 finds nothing → missing-event WARN.
             var events = new List<GameStateEvent>
             {
                 MakeKeyedFundsChanged(1000 - 1.0, 50000, 49400, "RnDPartPurchase")
@@ -678,6 +683,145 @@ namespace Parsek.Tests
                 l.Contains("KSC reconciliation (funds)") &&
                 l.Contains("no matching"));
         }
+
+        [Fact]
+        public void ReconcileKsc_TwoSameKeyEvents_0p3sApart_NotAggregated()
+        {
+            // Two RnDPartPurchase events 0.3 s apart stay as SEPARATE entries in the store
+            // (GameStateStore coalesces only within 0.1 s). Each action must pair with its
+            // own event, not see the sum. This pins the round-3 P2 fix: the aggregation
+            // window must equal the coalesce window.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1000.0, 50000, 49400, "RnDPartPurchase"),   // -600
+                MakeKeyedFundsChanged(1000.3, 49400, 49000, "RnDPartPurchase")    // -400
+            };
+            var action1 = new GameAction
+            {
+                UT = 1000.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,
+                DedupKey = "solidBooster.v2"
+            };
+            var action2 = new GameAction
+            {
+                UT = 1000.3,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 400f,
+                DedupKey = "fuelTankSmallFlat"
+            };
+            var ledger = new List<GameAction> { action1, action2 };
+
+            // Action1's 0.1 s window [999.9, 1000.1] includes only event1 and action1 —
+            // event2 at 1000.3 and action2 at 1000.3 are outside.
+            ReconcileKsc(events, ledger, action1, 1000.0);
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+
+            // Action2's 0.1 s window [1000.2, 1000.4] includes only event2 and action2.
+            ReconcileKsc(events, ledger, action2, 1000.3);
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_TwoSameKeyEvents_0p3sApart_OpposingErrors_BothWarn()
+        {
+            // The round-3 regression case. Action1 expected=-600 but observed=-500
+            // (mismatch +100); Action2 expected=-400 but observed=-500 (mismatch -100).
+            // Under the old 0.5 s aggregation the two errors cancelled and the matcher
+            // stayed silent. With the tightened 0.1 s window each action reconciles
+            // against its own event and both mismatches fire.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1000.0, 50000, 49500, "RnDPartPurchase"),   // -500
+                MakeKeyedFundsChanged(1000.3, 49500, 49000, "RnDPartPurchase")    // -500
+            };
+            var action1 = new GameAction
+            {
+                UT = 1000.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,      // expected -600 vs observed -500
+                DedupKey = "a"
+            };
+            var action2 = new GameAction
+            {
+                UT = 1000.3,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 400f,      // expected -400 vs observed -500
+                DedupKey = "b"
+            };
+            var ledger = new List<GameAction> { action1, action2 };
+
+            ReconcileKsc(events, ledger, action1, 1000.0);
+            Assert.Contains(logLines, l =>
+                l.Contains("KSC reconciliation (funds)") &&
+                l.Contains("delta mismatch"));
+
+            logLines.Clear();
+            ReconcileKsc(events, ledger, action2, 1000.3);
+            Assert.Contains(logLines, l =>
+                l.Contains("KSC reconciliation (funds)") &&
+                l.Contains("delta mismatch"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_EventJustInsideWindow_NoWarn()
+        {
+            // Pins the inclusive-boundary behaviour: an event well under 0.1 s from the
+            // action's UT pairs silently. The matcher rejects via `Math.Abs(diff) > 0.1`,
+            // mirroring GameStateStore.AddEvent's `<= ResourceCoalesceEpsilon` gate. Use
+            // 0.09 s rather than exactly 0.1 s to avoid double-precision round-off drama
+            // (1000.1 - 1000.0 is actually 0.10000000000002274, not 0.1).
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1000.09, 50000, 49400, "RnDPartPurchase")  // +0.09 s
+            };
+            var action = new GameAction
+            {
+                UT = 1000.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,
+                DedupKey = "solidBooster.v2"
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1000.0);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_EventJustOutsideBoundary_WarnsMissing()
+        {
+            // Companion to the inside test: 0.11 s is comfortably past the 0.1 s window.
+            // If the code ever widens the window back to 0.5 s (the round-3 regression),
+            // this test stops flagging the expected miss.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1000.0 + 0.11, 50000, 49400, "RnDPartPurchase")
+            };
+            var action = new GameAction
+            {
+                UT = 1000.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 600f,
+                DedupKey = "solidBooster.v2"
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1000.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("KSC reconciliation (funds)") &&
+                l.Contains("no matching"));
+        }
+
+        // ---------- No-resource-impact + defensive ----------
 
         [Fact]
         public void ReconcileKsc_KerbalAssignment_NoReconciliation()
