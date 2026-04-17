@@ -154,6 +154,11 @@ namespace Parsek
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
 
+        // Zero-horizontal-padding body-box style: preserves the dark list-area
+        // background without shifting rows inward (so column left edges align with
+        // the fixed header above the scroll view).
+        private GUIStyle tableBodyBoxStyle;
+
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
 
@@ -359,6 +364,14 @@ namespace Parsek
 
             phaseStyleSurface = new GUIStyle(GUI.skin.label);
             phaseStyleSurface.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
+
+            // Body box: dark background only, zero horizontal padding. Keeps the
+            // Career-State-style list surface without pushing row columns inward.
+            tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(0, 0, 2, 2),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
         }
 
         /// <summary>
@@ -610,13 +623,14 @@ namespace Parsek
             // Group column header
             GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group));
 
-            // Select-all loop header + checkbox
+            // Select-all loop header + checkbox. colHdr supplies the dark boxed
+            // background so the whole cell reads as a header (not just the label).
             int loopCount = 0;
             for (int i = 0; i < committed.Count; i++)
                 if (committed[i].LoopPlayback) loopCount++;
 
             bool allLoop = loopCount == committed.Count;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Loop));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop\nGhost");
             bool newAllLoop = GUILayout.Toggle(allLoop, "");
@@ -629,19 +643,16 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
             }
 
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
-            GUILayout.FlexibleSpace();
             GUILayout.Label(new GUIContent("Period",
-                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."),
+                colHdr, GUILayout.Width(ColW_Period));
 
             if (parentUI.InFlightMode)
-                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-            GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
+                GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch));
+            GUILayout.Label("Rewind\nF.Forward", colHdr, GUILayout.Width(ColW_Rewind));
 
             // Hide column header + toggle
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Hide");
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
@@ -652,6 +663,15 @@ namespace Parsek
                 GroupHierarchyStore.HideActive = newHideActive;
                 ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
             }
+
+            // Reserve the vertical-scrollbar column so the fixed header's right edge
+            // aligns with the row cells' right edges (the scroll view always shows a
+            // vertical scrollbar, which claims a fixed-width strip on the right).
+            float scrollbarWidth = GUI.skin.verticalScrollbar != null
+                ? GUI.skin.verticalScrollbar.fixedWidth
+                : 16f;
+            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
+            GUILayout.Space(scrollbarWidth);
 
             GUILayout.EndHorizontal();
         }
@@ -776,16 +796,19 @@ namespace Parsek
             }
             else
             {
-                // Scrollable table body (header inside scroll view for guaranteed alignment)
+                // Fixed header row (outside the scroll view) — stays pinned to the top
+                // while the body scrolls. A trailing spacer inside the header matches the
+                // vertical scrollbar's reserved width so column right-edges line up with
+                // the row cells exactly.
+                DrawRecordingsTableHeader(committed);
+
                 renderedRowCounter = 0;
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
-                DrawRecordingsTableHeader(committed);
-
-                // Wrap the row block in a dark box so the list area matches the rest
-                // of the mod (Career State / Kerbals / Spawn Control body look).
-                GUILayout.BeginVertical(GUI.skin.box);
+                // Dark list-area background (matches Career State) without horizontal
+                // padding so row columns align with the header above.
+                GUILayout.BeginVertical(tableBodyBoxStyle);
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
