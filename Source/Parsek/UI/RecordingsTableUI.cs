@@ -1290,6 +1290,11 @@ namespace Parsek
         private void DrawRecordingNameCell(int ri, Recording rec,
             IReadOnlyList<Recording> committed, float indentPx)
         {
+            // Uniform 2px nudge so rows (which have a "#" number in col 1) line up
+            // their Name text with the group/chain header Name text above. Group/
+            // chain headers render the arrow at the cell's raw origin; rows'
+            // Name button gets shifted right by this 2px to match visually.
+            GUILayout.Space(2f);
             // Indent inside Name column for grouped/chained subitems.
             if (indentPx > 0f) GUILayout.Space(indentPx);
             string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
