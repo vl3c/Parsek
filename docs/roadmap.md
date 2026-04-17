@@ -249,7 +249,7 @@ follow-up is validation/tuning work against larger corpora rather than another p
 
 ---
 
-## Rewind to Staging (v0.9, in design)
+## Phase 12: Rewind to Staging (v0.9, in design)
 
 Go back to a past multi-controllable split event and fly the sibling vessel you did not originally fly. The motivating case is booster recovery: launch an AB stack, stage, take B to orbit and commit - then rewind to the separation moment and fly A back down as a self-landing booster. The same mechanism covers any split that produces two or more controllable entities: stage decouples, undocks, and EVA.
 
@@ -263,11 +263,11 @@ Go back to a past multi-controllable split event and fly the sibling vessel you 
 - **Effective-state model** - a single `Effective Recording Set` plus `Effective Ledger Set` abstraction gives every subsystem one rule for "what counts right now." A narrow session-suppressed subtree carve-out applies during an active re-fly only to physical-visibility subsystems (ghost walker, claim tracker, map/tracking-station/CommNet). Career state keeps reading through directly.
 - **Journaled staged merge** - irreversible file operations (deleting reap-eligible Rewind Point quicksaves) happen only after a durable save, so crashes mid-merge are recoverable on the next load.
 
-This slots between the shipped v0.8.x work and Phase 12. Phase 12 (logistics routes) does not depend on it, and it does not depend on Phase 12 - both use the resource/inventory/crew manifests shipped in Phase 11.
+This slots between the shipped v0.8.x work and Phase 13. Phase 13 (logistics routes) does not depend on it, and it does not depend on Phase 13 - both use the resource/inventory/crew manifests shipped in Phase 11.
 
 ---
 
-## Phase 12: Looped Transport Logistics
+## Phase 13: Looped Transport Logistics
 
 Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
 
@@ -282,15 +282,15 @@ Every supply ship is a replay of a real mission the player flew — more immersi
 
 ---
 
-## Phase 13: Cooperative Async Multiplayer
+## Phase 14: Cooperative Async Multiplayer
 
 Multiple players contribute recordings to a shared timeline. The Kerbal system feels populated with vessels flying and bases being built. All players share one game actions timeline — science, funds, reputation, contracts, and kerbals are pooled.
 
-### Gloops Extraction (Phase 13 Prerequisite)
+### Gloops Extraction (Phase 14 Prerequisite)
 
 Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within the same repository. This provides build-time boundary enforcement and defines the `.gloop` file format needed for recording export/import. See `docs/dev/gloops-recorder-design.md` for the full design.
 
-**Extraction timing rationale:** The engine boundary already exists (IPlaybackTrajectory, IGhostPositioner, GhostPlaybackEngine with zero Recording references). Extracting earlier than Phase 13 adds overhead without user benefit — new features through Phase 12 still touch engine code, and doing that across assemblies adds friction. Phase 13 is the natural trigger because recording export/import requires a standalone file format (`.gloop`), which is exactly what the extraction produces.
+**Extraction timing rationale:** The engine boundary already exists (IPlaybackTrajectory, IGhostPositioner, GhostPlaybackEngine with zero Recording references). Extracting earlier than Phase 14 adds overhead without user benefit — new features through Phase 13 still touch engine code, and doing that across assemblies adds friction. Phase 14 is the natural trigger because recording export/import requires a standalone file format (`.gloop`), which is exactly what the extraction produces.
 
 **Extraction scope:**
 - Separate .csproj in the same repo (not a submodule yet)
@@ -298,7 +298,7 @@ Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within
 - Pre-extraction refactors: split `GhostPlaybackLogic.cs` (engine vs. policy), extract recorder from `FlightRecorder.cs`, `ParsekLog` abstraction
 - Parsek becomes a consumer of the Gloops API
 
-**Standalone Gloops mod (post Phase 13, if demand exists):**
+**Standalone Gloops mod (post Phase 14, if demand exists):**
 - Split into separate repository / submodule
 - Content pack system for ambient world activity (KSC traffic, scenery)
 - Standalone UI (loop manager, pack toggles, settings)
@@ -320,7 +320,7 @@ Players never need to be online simultaneously. Fly missions, export recordings.
 
 ---
 
-## Phase 14: Competitive Play & Space Race
+## Phase 15: Competitive Play & Space Race
 
 Player boundaries that enable competitive multiplayer. Each player has their own game actions timeline (separate science, funds, reputation, contracts, kerbals). Only things with visible effect on the common game world are shared — vessel recordings play as ghosts in everyone's game, but each player's economy is independent.
 
@@ -369,28 +369,29 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     │  Observability + ghost LOD + trajectory/snapshot shrink shipped;
     │  remaining follow-up is synthetic stress benchmarking/tuning
     │
-    ├──▶ Rewind to Staging (v0.9, in design)
-    │      Rewind Points at multi-controllable splits, Unfinished Flights
-    │      group, append-only supersede, narrow v1 scope. Independent of
-    │      Phase 12 — both consume Phase 11 resource/inventory/crew manifests.
+    ▼
+Phase 12: Rewind to Staging (v0.9, in design)
+    │  Rewind Points at multi-controllable splits, Unfinished Flights
+    │  group, append-only supersede, narrow v1 scope. Independent of
+    │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.
     │
     ▼
-Phase 12: Looped Transport Logistics
+Phase 13: Looped Transport Logistics
     │  Routes = looped recordings with resource delivery
     │
     ▼
 Gloops Extraction ─── Extract ghost engine to separate assembly,
     │                   define .gloop file format
     ▼
-Phase 13: Cooperative Async Multiplayer
+Phase 14: Cooperative Async Multiplayer
     │  .gloop export/import, shared folder, player identity
     │
     ▼
-Phase 14: Competitive Play + Space Race
+Phase 15: Competitive Play + Space Race
     │  Per-player game actions, milestone racing, opponent packs
     │
     ▼
-Phase 15: Mod Compatibility
+Phase 16: Mod Compatibility
     │  Kerbal Konstructs, KSC Switcher, Extraplanetary Launchpads,
     │  off-world construction, modded launch sites via reflection
     │
@@ -401,7 +402,7 @@ Standalone Gloops Mod (if demand exists)
 
 ---
 
-## Phase 15: Mod Compatibility
+## Phase 16: Mod Compatibility
 
 All prior phases target stock KSP (including Making History DLC). This phase adds support for popular mods via reflection-based detection and API integration. Only attempted after the stock experience is stable and fun.
 
