@@ -947,6 +947,147 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Affordability helpers scope to Planetarium UT cutoff
+        // (Phase D round 3 — #436 follow-up)
+        //
+        // CanAfford{Science,Funds}Spending must walk the ledger with
+        // cutoff = Planetarium.GetUniversalTime() so post-rewind future earnings
+        // and spendings that still live on the persisted ledger don't leak into
+        // "right now" affordability decisions (TechResearchPatch call site).
+        //
+        // Planetarium throws NRE in xUnit's Unity-static-free harness, so these
+        // tests drive LedgerOrchestrator.NowUtProviderForTesting instead.
+        // ================================================================
+
+        [Fact]
+        public void CanAffordScienceSpending_PostRewindFutureEarningFiltered()
+        {
+            // Seed = 100 sci at UT=0. Future earning at UT=500 adds +50.
+            // Simulated "now" = UT=200. Cutoff should drop the UT=500 earning,
+            // so 100 sci is available; cost=120 is NOT affordable.
+            AddAll(
+                ScienceSeed(100f),
+                ScienceEarning(500.0, 50f, "rec-future"));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(120f);
+
+            Assert.False(affordable);
+
+            // Log assertion pins both the affordability result and the cutoff source.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("CanAffordScienceSpending")
+                && l.Contains("affordable=False")
+                && l.Contains("cutoffUT=200"));
+        }
+
+        [Fact]
+        public void CanAffordScienceSpending_PastEarningStillCounts()
+        {
+            // Same seed + earning, but "now" = UT=600 (earning is in the past).
+            // Walk at cutoff=600 includes the +50, giving 150 sci; cost=120 IS affordable.
+            AddAll(
+                ScienceSeed(100f),
+                ScienceEarning(500.0, 50f, "rec-past"));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 600.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(120f);
+
+            Assert.True(affordable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("CanAffordScienceSpending")
+                && l.Contains("affordable=True")
+                && l.Contains("cutoffUT=600"));
+        }
+
+        [Fact]
+        public void CanAffordFundsSpending_PostRewindFutureEarningFiltered()
+        {
+            // Seed = 1000 funds at UT=0. Future earning at UT=500 adds +500.
+            // Simulated "now" = UT=200 — cutoff drops the future earning, so
+            // 1000 funds is available; cost=1200 is NOT affordable.
+            AddAll(
+                FundsSeed(1000f),
+                FundsEarning(500.0, 500f, "rec-future-funds"));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(1200f);
+
+            Assert.False(affordable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("CanAffordFundsSpending")
+                && l.Contains("affordable=False")
+                && l.Contains("cutoffUT=200"));
+        }
+
+        [Fact]
+        public void CanAffordFundsSpending_PastEarningStillCounts()
+        {
+            AddAll(
+                FundsSeed(1000f),
+                FundsEarning(500.0, 500f, "rec-past-funds"));
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 600.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(1200f);
+
+            Assert.True(affordable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("CanAffordFundsSpending")
+                && l.Contains("affordable=True")
+                && l.Contains("cutoffUT=600"));
+        }
+
+        [Fact]
+        public void CanAffordScienceSpending_FutureSpendingDoesNotPreBlockPresent()
+        {
+            // Seed = 100 sci at UT=0. Future spending at UT=500 consumes 80.
+            // "Now" = UT=200. Without cutoff the pre-pass's ComputeTotalSpendings
+            // would count the 80, leaving availableScience = 100 - 80 = 20 and
+            // blocking a cost=50 unlock. With cutoff the future spending is
+            // excluded, so 100 sci is available and cost=50 is affordable.
+            AddAll(
+                ScienceSeed(100f),
+                new GameAction
+                {
+                    UT = 500.0,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = "future-node",
+                    Cost = 80f,
+                    RecordingId = "rec-future-spend"
+                });
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
+
+            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(50f);
+
+            Assert.True(affordable);
+        }
+
+        [Fact]
+        public void CanAffordScienceSpending_NullSeam_FallsBackToPlanetarium()
+        {
+            // When no test seam is installed the helper calls Planetarium directly.
+            // In the xUnit harness that throws NRE (Unity statics uninitialized).
+            // Pin this contract so a future change that silently swallows the NRE
+            // (try/catch around the Planetarium call) is caught — the spec forbids
+            // wrapping Planetarium access in defensive error handling.
+            AddAll(ScienceSeed(100f));
+
+            LedgerOrchestrator.NowUtProviderForTesting = null;
+
+            Assert.Throws<System.NullReferenceException>(() =>
+                LedgerOrchestrator.CanAffordScienceSpending(50f));
+        }
+
+        // ================================================================
         // Test support
         // ================================================================
 
