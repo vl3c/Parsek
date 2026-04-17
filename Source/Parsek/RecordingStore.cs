@@ -977,6 +977,10 @@ namespace Parsek
 
         /// <summary>
         /// Discards the pending tree and cleans up its recording files.
+        /// #431: also purges every <see cref="GameStateEvent"/> tagged with one of the tree's
+        /// recording ids — both from the live store and from any milestone the flush-on-save
+        /// path may have already moved them into. Contract snapshots orphaned by the purge
+        /// (i.e. whose accept event was among the purged set) are removed too.
         /// </summary>
         public static void DiscardPendingTree()
         {
@@ -986,12 +990,36 @@ namespace Parsek
                 return;
             }
 
+            // #431: collect every recording id in the tree and purge tagged events first.
+            // Runs before file deletion so a later failure in DeleteRecordingFiles still
+            // leaves the event store in the correct post-discard shape.
+            var idsToPurge = new HashSet<string>();
+            foreach (var rec in pendingTree.Recordings.Values)
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    idsToPurge.Add(rec.RecordingId);
+            if (idsToPurge.Count > 0)
+                GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
+
             foreach (var rec in pendingTree.Recordings.Values)
                 DeleteRecordingFiles(rec);
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}' (state={pendingTreeState})");
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+        }
+
+        /// <summary>
+        /// #431: true when <paramref name="recordingId"/> belongs to a currently-committed recording.
+        /// Used by the legacy epoch-filter cohabitation log in <see cref="MilestoneStore.CreateMilestone"/>
+        /// to surface drift between the two filter mechanisms.
+        /// </summary>
+        internal static bool IsCommittedRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+                if (committedRecordings[i].RecordingId == recordingId)
+                    return true;
+            return false;
         }
 
         /// <summary>

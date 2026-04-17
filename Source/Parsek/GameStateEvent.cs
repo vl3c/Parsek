@@ -36,6 +36,7 @@ namespace Parsek
         public double valueBefore;
         public double valueAfter;
         public uint epoch;       // branch epoch — incremented on revert, filters abandoned branches
+        public string recordingId; // #431: id of the flight recording that captured this event; empty for career-level events
 
         public void SerializeInto(ConfigNode node)
         {
@@ -51,6 +52,8 @@ namespace Parsek
                 node.AddValue("valAfter", valueAfter.ToString("R", CultureInfo.InvariantCulture));
             if (epoch != 0)
                 node.AddValue("epoch", epoch.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(recordingId))
+                node.AddValue("recordingId", recordingId);
         }
 
         public static GameStateEvent DeserializeFrom(ConfigNode node)
@@ -105,6 +108,9 @@ namespace Parsek
             string epochStr = node.GetValue("epoch");
             if (epochStr != null)
                 uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out e.epoch);
+
+            // Pre-#431 saves have no recordingId; treat as untagged career events.
+            e.recordingId = node.GetValue("recordingId") ?? "";
 
             return e;
         }

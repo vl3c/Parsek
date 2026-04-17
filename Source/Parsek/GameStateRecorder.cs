@@ -40,6 +40,81 @@ namespace Parsek
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
+        /// <summary>
+        /// #431: test hook. When non-null, <see cref="ResolveCurrentRecordingTag"/> returns its result
+        /// instead of probing <see cref="ParsekFlight"/> / <see cref="RecordingStore"/>. Unit tests
+        /// set this to simulate a live recording without spinning up the MonoBehaviour.
+        /// Production code never touches it.
+        /// </summary>
+        internal static System.Func<string> TagResolverForTesting;
+
+        /// <summary>
+        /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
+        /// Resolves the current recording tag, stamps it on the event, logs the emission, and warns
+        /// on drift (tagged event outside flight without a pending vessel-switch, or in-flight event
+        /// with an active recorder but no tag). All 17 <c>GameStateStore.AddEvent</c> call sites in
+        /// this class route through <c>Emit</c>.
+        /// </summary>
+        internal static void Emit(GameStateEvent evt, string source)
+        {
+            string tag = ResolveCurrentRecordingTag();
+            if (string.IsNullOrEmpty(evt.recordingId))
+                evt.recordingId = tag ?? "";
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
+
+            bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+            bool midSwitch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+            if (!inFlight && !midSwitch && !string.IsNullOrEmpty(tag))
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Emit drift: event '{evt.eventType}' tagged '{tag}' outside flight and outside LimboVesselSwitch — stale tag?");
+            if (inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder())
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
+
+            GameStateStore.AddEvent(evt);
+        }
+
+        /// <summary>
+        /// #431: resolves the current recording id for event tagging.
+        /// Primary source is <see cref="ParsekFlight.GetActiveRecordingIdForTagging"/>; the fallback
+        /// reads <see cref="RecordingStore.PendingTree"/>.ActiveRecordingId while the pending tree is in
+        /// <see cref="PendingTreeState.LimboVesselSwitch"/> — events captured during a vessel-switch stash
+        /// belong to the outgoing recording.
+        /// </summary>
+        internal static string ResolveCurrentRecordingTag()
+        {
+            if (TagResolverForTesting != null)
+                return TagResolverForTesting() ?? "";
+
+            var live = ParsekFlight.GetActiveRecordingIdForTagging();
+            if (!string.IsNullOrEmpty(live)) return live;
+
+            if (RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
+            {
+                var pend = RecordingStore.PendingTree?.ActiveRecordingId;
+                if (!string.IsNullOrEmpty(pend)) return pend;
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// #431: true when a flight recorder is currently live on the active tree. Used by
+        /// <see cref="Emit"/>'s drift-warn branch to flag "in-flight, should have a tag, doesn't."
+        /// </summary>
+        internal static bool HasLiveRecorder() => ParsekFlight.HasLiveRecorderForTagging();
+
+        internal static void ResetForTesting()
+        {
+            TagResolverForTesting = null;
+            PendingScienceSubjects.Clear();
+            SuppressCrewEvents = false;
+            SuppressResourceEvents = false;
+            IsReplayingActions = false;
+        }
+
         private bool subscribed = false;
 
         // Cached facility/building state for polling on scene change
@@ -201,7 +276,7 @@ namespace Parsek
                 key = guid,
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractAccepted");
 
             // Store full contract snapshot for reversal
             try
@@ -248,7 +323,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractCompleted");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
 
@@ -274,7 +349,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractFailed");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
@@ -299,7 +374,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "ContractCancelled");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
@@ -312,13 +387,13 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractDeclined,
                 key = contract.ContractGuid.ToString(),
                 detail = title
-            });
+            }, "ContractDeclined");
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
         }
 
@@ -362,7 +437,7 @@ namespace Parsek
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "TechResearched");
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
 
             // Write directly to ledger when at KSC (not during flight recording)
@@ -393,7 +468,7 @@ namespace Parsek
                 valueBefore = Funding.Instance != null ? Funding.Instance.Funds + cost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "PartPurchased");
             ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={cost})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
@@ -443,7 +518,7 @@ namespace Parsek
                 key = name,
                 detail = $"trait={crew.trait ?? ""};cost={hireCost.ToString("R", ic)}"
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "CrewHired");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
                 $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
@@ -474,13 +549,13 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewRemoved,
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
-            });
+            }, "KerbalRemoved");
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
         }
 
@@ -565,7 +640,7 @@ namespace Parsek
                 key = name,
                 detail = $"from={oldStatus};to={newStatus}"
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "KerbalStatusChange");
             pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
         }
@@ -581,13 +656,13 @@ namespace Parsek
             string name = pcm?.name ?? "";
             string trait = pcm?.experienceTrait?.TypeName ?? "Pilot";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.KerbalRescued,
                 key = name,
                 detail = $"trait={trait}"
-            });
+            }, "KerbalRescued");
 
             ParsekLog.Info("GameStateRecorder", $"Game state: KerbalRescued '{name}' (trait={trait})");
         }
@@ -626,14 +701,14 @@ namespace Parsek
                 return;
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
-            });
+            }, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
         }
 
@@ -657,14 +732,14 @@ namespace Parsek
                 return;
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ScienceChanged,
                 key = reason.ToString(),
                 valueBefore = oldScience,
                 valueAfter = newScience
-            });
+            }, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
         }
 
@@ -688,14 +763,14 @@ namespace Parsek
                 return;
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            Emit(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ReputationChanged,
                 key = reason.ToString(),
                 valueBefore = oldReputation,
                 valueAfter = newReputation
-            });
+            }, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
         }
 
@@ -784,7 +859,7 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(0.0, 0f, 0.0)
             };
-            GameStateStore.AddEvent(evt);
+            Emit(evt, "MilestoneAchieved");
 
             // Tag the node -> event association so the AwardProgress postfix can find
             // and enrich the right entry. The key is the ProgressNode instance reference,
@@ -1035,7 +1110,7 @@ namespace Parsek
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
                             };
-                            GameStateStore.AddEvent(evt);
+                            Emit(evt, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
 
@@ -1068,12 +1143,12 @@ namespace Parsek
                                 ? GameStateEventType.BuildingRepaired
                                 : GameStateEventType.BuildingDestroyed;
 
-                            GameStateStore.AddEvent(new GameStateEvent
+                            Emit(new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = db.id
-                            });
+                            }, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{db.id}'");
                         }

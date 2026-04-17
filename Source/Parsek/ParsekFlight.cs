@@ -25,6 +25,24 @@ namespace Parsek
 
         internal static ParsekFlight Instance { get; private set; }
 
+        /// <summary>
+        /// #431: returns the id of the currently-live recording for GameStateEvent tagging.
+        /// Empty string when there is no active flight, no active tree, or the tree has no active leaf.
+        /// The secondary fallback to <see cref="RecordingStore.PendingTree"/> while
+        /// <see cref="PendingTreeState.LimboVesselSwitch"/> is owned by the Emit resolver —
+        /// this accessor only exposes the live flight-scene value.
+        /// </summary>
+        internal static string GetActiveRecordingIdForTagging()
+            => Instance?.activeTree?.ActiveRecordingId ?? "";
+
+        /// <summary>
+        /// #431: true when the flight scene has a live tree with a recorder attached.
+        /// Used by <see cref="GameStateRecorder.Emit"/> to decide whether an in-flight
+        /// untagged event is a drift signal worth a warn log.
+        /// </summary>
+        internal static bool HasLiveRecorderForTagging()
+            => Instance != null && Instance.activeTree != null && Instance.recorder != null && Instance.recorder.IsRecording;
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 

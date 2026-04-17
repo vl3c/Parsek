@@ -59,7 +59,20 @@ namespace Parsek
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.epoch != epoch) { skippedEpoch++; continue; }
+                if (e.epoch != epoch)
+                {
+                    // #431 cohab log: the legacy epoch filter is about to hide an event whose
+                    // recordingId still matches a live committed recording. That signals drift
+                    // between the legacy filter and the new tag-based purge. Warn so the
+                    // disagreement is visible before it surprises a user.
+                    if (!string.IsNullOrEmpty(e.recordingId) && RecordingStore.IsCommittedRecordingId(e.recordingId))
+                        ParsekLog.Warn("MilestoneStore",
+                            $"Epoch-filter cohabitation drift: event '{e.eventType}' key='{e.key}' " +
+                            $"filtered by epoch ({e.epoch} != {epoch}) but tagged '{e.recordingId}' " +
+                            "still matches a committed recording");
+                    skippedEpoch++;
+                    continue;
+                }
                 if (e.ut <= startUT || e.ut > currentUT) { skippedWindow++; continue; }
                 if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) { skippedResource++; continue; }
                 filtered.Add(e);
@@ -115,6 +128,56 @@ namespace Parsek
         {
             ParsekLog.Verbose("MilestoneStore", $"FlushPendingEvents: currentUT={currentUT:F0}");
             return CreateMilestone(null, currentUT);
+        }
+
+        /// <summary>
+        /// #431: removes every tagged event whose <see cref="GameStateEvent.recordingId"/>
+        /// is in <paramref name="recordingIds"/> from the events list of every existing milestone.
+        /// Milestones that become empty are removed. Returns the purged events (callers use
+        /// this to locate orphaned contract snapshots). Untagged events are never touched.
+        /// Called by <see cref="GameStateStore.PurgeEventsForRecordings"/> — production code
+        /// should go through that funnel, not call this helper directly.
+        /// </summary>
+        internal static List<GameStateEvent> PurgeTaggedEvents(HashSet<string> recordingIds, string reason)
+        {
+            var removed = new List<GameStateEvent>();
+            if (recordingIds == null || recordingIds.Count == 0)
+                return removed;
+
+            int emptiedMilestones = 0;
+            for (int i = milestones.Count - 1; i >= 0; i--)
+            {
+                var m = milestones[i];
+                for (int j = m.Events.Count - 1; j >= 0; j--)
+                {
+                    var e = m.Events[j];
+                    if (!string.IsNullOrEmpty(e.recordingId) && recordingIds.Contains(e.recordingId))
+                    {
+                        removed.Add(e);
+                        m.Events.RemoveAt(j);
+                    }
+                }
+                if (m.Events.Count == 0)
+                {
+                    milestones.RemoveAt(i);
+                    emptiedMilestones++;
+                }
+            }
+
+            if (removed.Count > 0 || emptiedMilestones > 0)
+            {
+                ParsekLog.Info("MilestoneStore",
+                    $"PurgeTaggedEvents ({reason}): {removed.Count} events removed, " +
+                    $"{emptiedMilestones} milestones dropped, ids={recordingIds.Count}");
+                ResourceBudget.Invalidate();
+            }
+            else
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"PurgeTaggedEvents ({reason}): no matches, {milestones.Count} milestones untouched, ids={recordingIds.Count}");
+            }
+
+            return removed;
         }
 
         #region File I/O
