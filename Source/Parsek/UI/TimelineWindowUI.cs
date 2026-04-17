@@ -50,7 +50,6 @@ namespace Parsek
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
-        private GUIStyle loopActiveButtonStyle;
 
         // Cached stats text — refreshed on cache rebuild or filter change
         private string cachedStatsText;
@@ -203,9 +202,6 @@ namespace Parsek
             toggleButtonStyle.onHover.textColor = Color.white;
 
             // Loop active button: green-tinted text so active loops stand out in the timeline
-            loopActiveButtonStyle = new GUIStyle(GUI.skin.button);
-            loopActiveButtonStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
-            loopActiveButtonStyle.hover.textColor = new Color(0.5f, 1f, 0.5f);
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -655,13 +651,16 @@ namespace Parsek
 
                     // L (loop toggle) — show for past/active recordings that are loopable,
                     // or any recording already looping so the timeline can still disable it.
+                    // Uses the shared toggleButtonStyle so the "on" state looks pressed in
+                    // (same idiom as the filter/tab toggles); text color stays default.
                     if (ShouldShowLoopToggle(rec, isFuture))
                     {
-                        GUIStyle lStyle = rec.LoopPlayback ? loopActiveButtonStyle : GUI.skin.button;
                         string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
-                        if (GUILayout.Button(new GUIContent("L", lTooltip), lStyle, GUILayout.Width(25)))
+                        bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
+                            toggleButtonStyle, GUILayout.Width(25));
+                        if (newLoop != rec.LoopPlayback)
                         {
-                            rec.LoopPlayback = !rec.LoopPlayback;
+                            rec.LoopPlayback = newLoop;
                             RecordingsTableUI.ApplyAutoLoopRange(rec, rec.LoopPlayback);
                             if (!rec.LoopPlayback)
                                 tableUI?.ClearLoopPeriodFocus();

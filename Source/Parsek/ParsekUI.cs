@@ -575,9 +575,13 @@ namespace Parsek
         {
             string arrow = EqualityComparer<TCol>.Default.Equals(currentCol, col)
                 ? (ascending ? " \u25b2" : " \u25bc") : "";
+            // Reuse the shared column-header style so clickable sort headers match the
+            // static column headers in the same row — otherwise the header row looks
+            // half bold-boxed and half plain.
+            GUIStyle headerStyle = GetColumnHeaderStyle();
             bool clicked = expand
-                ? GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true))
-                : GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width));
+                ? GUILayout.Button(label + arrow, headerStyle, GUILayout.ExpandWidth(true))
+                : GUILayout.Button(label + arrow, headerStyle, GUILayout.Width(width));
 
             if (clicked)
             {
