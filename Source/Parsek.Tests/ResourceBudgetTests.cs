@@ -915,101 +915,50 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Tree Resource Budget
+        #region Tree Resource Budget (Phase F: per-recording inside tree)
+
+        // Phase F: TreeCommittedFundsCost / Science / Reputation removed alongside
+        // the tree-level lump-sum delta. ComputeTotal now iterates the recordings
+        // inside each tree and sums CommittedFundsCost(rec) (etc.) directly. The
+        // pinned tests below replace the old delta-shape tests.
 
         [Fact]
-        public void TreeCommittedFundsCost_BasicCost()
+        public void ComputeTotal_FlatListSkipsTreeTaggedRecording()
         {
-            // DeltaFunds=-5000 (spent money), ResourcesApplied=false -> cost=5000
-            var tree = new RecordingTree
-            {
-                Id = "tree1",
-                DeltaFunds = -5000,
-                ResourcesApplied = false
-            };
-            Assert.Equal(5000, ResourceBudget.TreeCommittedFundsCost(tree));
-        }
+            // Phase F round 2: the flat-list loop skips any recording whose
+            // TreeId is non-null — those recordings are already counted via the
+            // `trees` parameter (production wiring:
+            // ComputeTotal(CommittedRecordings, Milestones, CommittedTrees) and
+            // FinalizeTreeCommit adds tree children into BOTH stores). Without
+            // the skip, the tree child would be double-counted.
+            //
+            // Only the true-standalone recording (TreeId==null) contributes here.
+            var standaloneRec = MakeRecording(50000, 35000); // cost = 15000
+            standaloneRec.RecordingId = "standalone-rec";    // TreeId stays null
+            var treeTaggedRec = MakeRecording(50000, 40000); // cost would be 10000
+            treeTaggedRec.RecordingId = "tree-tagged-rec";
+            treeTaggedRec.TreeId = "some_tree";
 
-        [Fact]
-        public void TreeCommittedFundsCost_Profit()
-        {
-            // DeltaFunds=+3000 (earned money), ResourcesApplied=false -> cost=-3000
-            var tree = new RecordingTree
-            {
-                Id = "tree2",
-                DeltaFunds = 3000,
-                ResourcesApplied = false
-            };
-            Assert.Equal(-3000, ResourceBudget.TreeCommittedFundsCost(tree));
-        }
-
-        [Fact]
-        public void TreeCommittedFundsCost_AlreadyApplied()
-        {
-            var tree = new RecordingTree
-            {
-                Id = "tree3",
-                DeltaFunds = -5000,
-                ResourcesApplied = true
-            };
-            Assert.Equal(0, ResourceBudget.TreeCommittedFundsCost(tree));
-        }
-
-        [Fact]
-        public void TreeCommittedFundsCost_NullTree()
-        {
-            Assert.Equal(0, ResourceBudget.TreeCommittedFundsCost(null));
-        }
-
-        [Fact]
-        public void TreeCommittedScienceCost_Works()
-        {
-            var tree = new RecordingTree
-            {
-                Id = "tree4",
-                DeltaScience = -25.5,
-                ResourcesApplied = false
-            };
-            Assert.Equal(25.5, ResourceBudget.TreeCommittedScienceCost(tree));
-        }
-
-        [Fact]
-        public void TreeCommittedReputationCost_Works()
-        {
-            var tree = new RecordingTree
-            {
-                Id = "tree5",
-                DeltaReputation = -10.25f,
-                ResourcesApplied = false
-            };
-            Assert.Equal(10.25, ResourceBudget.TreeCommittedReputationCost(tree), 0.001);
-        }
-
-        [Fact]
-        public void ComputeTotal_TreeRecordingsSkipped()
-        {
-            // Tree recordings (TreeId != null) are excluded from per-recording sum
-            var rec = MakeRecording(50000, 35000); // cost would be 15000
-            rec.TreeId = "some_tree";
-
-            var recordings = new List<Recording> { rec };
+            var recordings = new List<Recording> { standaloneRec, treeTaggedRec };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
-            Assert.Equal(0, budget.reservedFunds); // skipped because TreeId != null
+            Assert.Equal(15000, budget.reservedFunds);
         }
 
         [Fact]
-        public void ComputeTotal_TreeDeltaAdded()
+        public void ComputeTotal_SumsRecordingsInsideTree()
         {
-            // Tree-level delta added to budget
-            var tree = new RecordingTree
-            {
-                Id = "tree_budget",
-                DeltaFunds = -8000,
-                DeltaScience = -15,
-                DeltaReputation = -5f,
-                ResourcesApplied = false
-            };
+            // Phase F: ComputeTotal walks tree.Recordings.Values and sums
+            // CommittedFundsCost(rec). Per-tree delta no longer exists.
+            var tree = new RecordingTree { Id = "tree_per_rec" };
+            var recA = MakeRecording(50000, 47000); // cost = 3000
+            recA.RecordingId = "recA";
+            recA.TreeId = "tree_per_rec";
+            var recB = MakeRecording(40000, 35000); // cost = 5000
+            recB.RecordingId = "recB";
+            recB.TreeId = "tree_per_rec";
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
 
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(
@@ -1018,46 +967,35 @@ namespace Parsek.Tests
                 trees);
 
             Assert.Equal(8000, budget.reservedFunds);
-            Assert.Equal(15, budget.reservedScience);
-            Assert.Equal(5, budget.reservedReputation);
         }
 
         [Fact]
-        public void ComputeTotal_MixedTreeAndStandalone()
+        public void ComputeTotal_TreeFullyApplied_ZeroCost()
         {
-            // Standalone recording: cost 15000
-            var rec = MakeRecording(50000, 35000);
+            // Phase F equivalent of the old "ResourcesApplied=true, cost=0" test:
+            // a tree whose recording is fully applied (LastAppliedResourceIndex
+            // points to the last point) contributes zero.
+            var rec = MakeRecording(50000, 35000, lastAppliedResIdx: 1); // fully applied
+            rec.RecordingId = "rec_applied";
+            rec.TreeId = "tree_applied";
 
-            // Tree recording (should be skipped in per-recording sum)
-            var treeRec = MakeRecording(50000, 40000);
-            treeRec.TreeId = "tree_mixed";
+            var tree = new RecordingTree { Id = "tree_applied" };
+            tree.Recordings[rec.RecordingId] = rec;
 
-            // Tree delta: cost 3000
-            var tree = new RecordingTree
-            {
-                Id = "tree_mixed",
-                DeltaFunds = -3000,
-                ResourcesApplied = false
-            };
-
-            var recordings = new List<Recording> { rec, treeRec };
             var trees = new List<RecordingTree> { tree };
-            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), trees);
+            var budget = ResourceBudget.ComputeTotal(
+                new List<Recording>(),
+                new List<Milestone>(),
+                trees);
 
-            Assert.Equal(18000, budget.reservedFunds); // 15000 standalone + 3000 tree
+            Assert.Equal(0, budget.reservedFunds);
         }
 
         [Fact]
-        public void ComputeTotal_TreeApplied_ZeroCost()
+        public void ComputeTotal_NullTreeInList_Skipped()
         {
-            var tree = new RecordingTree
-            {
-                Id = "tree_applied",
-                DeltaFunds = -5000,
-                ResourcesApplied = true
-            };
-
-            var trees = new List<RecordingTree> { tree };
+            // Defensive: a null entry in the trees list must not throw.
+            var trees = new List<RecordingTree> { null };
             var budget = ResourceBudget.ComputeTotal(
                 new List<Recording>(),
                 new List<Milestone>(),
@@ -1079,6 +1017,166 @@ namespace Parsek.Tests
             Assert.Equal(15000, budget.reservedFunds);
         }
 
+        [Fact]
+        public void ComputeTotal_TreeSumEqualsSumOfPerRecordingCosts()
+        {
+            // Phase F parity test: ComputeTotal over a tree containing N recordings
+            // returns the same value as Sum_{rec in tree} CommittedFundsCost(rec).
+            // This is the post-Phase-F equivalent of the pre-Phase-F invariant
+            // "ComputeTotal returns -tree.DeltaFunds".
+            var tree = new RecordingTree { Id = "tree_parity" };
+            var recA = MakeRecording(50000, 47000); recA.RecordingId = "A"; recA.TreeId = "tree_parity";
+            var recB = MakeRecording(40000, 33000); recB.RecordingId = "B"; recB.TreeId = "tree_parity";
+            var recC = MakeRecording(30000, 32000); recC.RecordingId = "C"; recC.TreeId = "tree_parity"; // profit
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+            tree.Recordings[recC.RecordingId] = recC;
+
+            double expected = ResourceBudget.CommittedFundsCost(recA)
+                + ResourceBudget.CommittedFundsCost(recB)
+                + ResourceBudget.CommittedFundsCost(recC);
+
+            var trees = new List<RecordingTree> { tree };
+            ResourceBudget.Invalidate();
+            var budget = ResourceBudget.ComputeTotal(
+                new List<Recording>(),
+                new List<Milestone>(),
+                trees);
+
+            Assert.Equal(expected, budget.reservedFunds);
+        }
+
+        // --- Mixed-store double-count regression (Phase F round 2) ---
+
+        [Fact]
+        public void ComputeTotal_MixedStoreShape_TreeChildCountedOnce()
+        {
+            // PR #346 P2 regression: RecordingStore.FinalizeTreeCommit adds every
+            // tree child to BOTH committedRecordings (the flat list) AND the tree
+            // in committedTrees. The production call shape is
+            // ComputeTotal(CommittedRecordings, Milestones, CommittedTrees). If
+            // ComputeTotal summed the tree child in both the flat loop AND the
+            // per-tree loop, every tree child would be double-counted. The flat
+            // loop skips any recording with TreeId != null for that reason.
+            var standaloneRec = MakeRecording(50000, 45000); // cost = 5000
+            standaloneRec.RecordingId = "standalone";
+            // TreeId stays null -> counted by the flat loop.
+
+            var treeChildA = MakeRecording(40000, 37000); // cost = 3000
+            treeChildA.RecordingId = "tree_child_a";
+            treeChildA.TreeId = "tree_mixed";
+            var treeChildB = MakeRecording(30000, 28000); // cost = 2000
+            treeChildB.RecordingId = "tree_child_b";
+            treeChildB.TreeId = "tree_mixed";
+
+            var tree = new RecordingTree { Id = "tree_mixed" };
+            tree.Recordings[treeChildA.RecordingId] = treeChildA;
+            tree.Recordings[treeChildB.RecordingId] = treeChildB;
+
+            // Match production store shape: tree children live in BOTH lists.
+            var committedRecordings = new List<Recording>
+            {
+                standaloneRec, treeChildA, treeChildB
+            };
+            var committedTrees = new List<RecordingTree> { tree };
+
+            var budget = ResourceBudget.ComputeTotal(
+                committedRecordings,
+                new List<Milestone>(),
+                committedTrees);
+
+            // Expected: standalone (5000) + treeChildA (3000) + treeChildB (2000)
+            //         = 10000. Each tree child contributes exactly once via the
+            // per-tree loop; the flat-list skip prevents the second pass.
+            Assert.Equal(10000, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void ComputeTotalFullCost_MixedStoreShape_TreeChildCountedOnce()
+        {
+            // Same regression as ComputeTotal, mirrored for the full-cost path.
+            var standaloneRec = MakeRecording(50000, 45000); // full cost = 5000
+            standaloneRec.RecordingId = "standalone_full";
+
+            var treeChildA = MakeRecording(40000, 37000); // full cost = 3000
+            treeChildA.RecordingId = "tree_child_full_a";
+            treeChildA.TreeId = "tree_mixed_full";
+            var treeChildB = MakeRecording(30000, 28000); // full cost = 2000
+            treeChildB.RecordingId = "tree_child_full_b";
+            treeChildB.TreeId = "tree_mixed_full";
+
+            var tree = new RecordingTree { Id = "tree_mixed_full" };
+            tree.Recordings[treeChildA.RecordingId] = treeChildA;
+            tree.Recordings[treeChildB.RecordingId] = treeChildB;
+
+            var committedRecordings = new List<Recording>
+            {
+                standaloneRec, treeChildA, treeChildB
+            };
+            var committedTrees = new List<RecordingTree> { tree };
+
+            ResourceBudget.Invalidate();
+            var fullCost = ResourceBudget.ComputeTotalFullCost(
+                committedRecordings,
+                new List<Milestone>(),
+                committedTrees);
+
+            Assert.Equal(10000, fullCost.reservedFunds);
+        }
+
+        [Fact]
+        public void MixedStoreShape_Invariant_TreeChildAppearsInBothCollections()
+        {
+            // Store-shape regression pin: constructs a tree via the production-
+            // adjacent helper RecordingStore.AddRecordingWithTreeForTesting (which
+            // wraps a recording in a single-node RecordingTree and places it in
+            // BOTH committedRecordings and committedTrees, mirroring the real
+            // FinalizeTreeCommit shape). Asserts the double-presence invariant
+            // that ComputeTotal's TreeId-based skip depends on — so if a future
+            // refactor of FinalizeTreeCommit stops adding tree children to
+            // committedRecordings, this test fails loudly and the skip can be
+            // reconsidered.
+            var rec = MakeRecording(50000, 45000);
+            rec.RecordingId = "mixed_store_pin";
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec, treeName: "PinTree");
+
+            // Tree child present in the flat list.
+            Assert.Contains(rec, RecordingStore.CommittedRecordings);
+
+            // Tree child also reachable via the trees list.
+            bool inAnyTree = false;
+            foreach (var t in RecordingStore.CommittedTrees)
+            {
+                if (t.Recordings.ContainsKey(rec.RecordingId))
+                {
+                    inAnyTree = true;
+                    break;
+                }
+            }
+            Assert.True(inAnyTree,
+                "Tree child must be reachable via CommittedTrees as well as " +
+                "CommittedRecordings — this is the invariant ResourceBudget's " +
+                "flat-list skip relies on.");
+
+            // TreeId must be populated on every tree child — the hook
+            // ComputeTotal uses to decide whether to skip.
+            Assert.False(string.IsNullOrEmpty(rec.TreeId),
+                "Tree child must have TreeId set; ComputeTotal's flat-list skip " +
+                "uses TreeId!=null to avoid double-counting.");
+
+            // And the production-shape ComputeTotal call counts the recording once.
+            ResourceBudget.Invalidate();
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings as IList<Recording>
+                    ?? new List<Recording>(RecordingStore.CommittedRecordings),
+                new List<Milestone>(),
+                RecordingStore.CommittedTrees);
+
+            // Expected: only the single recording's CommittedFundsCost (5000).
+            Assert.Equal(5000, budget.reservedFunds);
+        }
+
         #endregion
 
         #region RecordingPaths
@@ -1092,92 +1190,14 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region B3: ComputeTotal — multiple trees, mixed ResourcesApplied
-
-        [Fact]
-        public void ComputeTotal_MultipleTrees_MixedResourcesApplied()
-        {
-            // Tree A: applied, DeltaFunds=-3000 (should NOT contribute)
-            var treeA = new RecordingTree
-            {
-                Id = "treeA",
-                TreeName = "Tree A",
-                DeltaFunds = -3000,
-                ResourcesApplied = true
-            };
-
-            // Tree B: not applied, DeltaFunds=-7000 (should contribute)
-            var treeB = new RecordingTree
-            {
-                Id = "treeB",
-                TreeName = "Tree B",
-                DeltaFunds = -7000,
-                ResourcesApplied = false
-            };
-
-            var trees = new List<RecordingTree> { treeA, treeB };
-            var budget = ResourceBudget.ComputeTotal(
-                new List<Recording>(),
-                new List<Milestone>(),
-                trees);
-
-            // Only Tree B's cost (7000) should be reserved
-            Assert.Equal(7000, budget.reservedFunds);
-        }
-
-        #endregion
-
-        #region D4: All-terminal leaves — budget delta still counts
-
-        [Fact]
-        public void ComputeTotal_AllTerminalLeaves_DeltaStillCounts()
-        {
-            // Tree with all leaves being Destroyed/Recovered — resource delta should still count
-            var tree = new RecordingTree
-            {
-                Id = "tree_terminal",
-                TreeName = "All Terminal",
-                DeltaFunds = -3000,
-                ResourcesApplied = false,
-                RootRecordingId = "root"
-            };
-
-            // All recordings have terminal states that make them non-spawnable
-            tree.Recordings["root"] = new Recording
-            {
-                RecordingId = "root",
-                VesselName = "Root",
-                ChildBranchPointId = "bp1"
-            };
-            tree.Recordings["leaf1"] = new Recording
-            {
-                RecordingId = "leaf1",
-                VesselName = "Destroyed",
-                TerminalStateValue = TerminalState.Destroyed,
-                ParentBranchPointId = "bp1"
-            };
-            tree.Recordings["leaf2"] = new Recording
-            {
-                RecordingId = "leaf2",
-                VesselName = "Recovered",
-                TerminalStateValue = TerminalState.Recovered,
-                ParentBranchPointId = "bp1"
-            };
-
-            // Verify no spawnable leaves
-            Assert.Empty(tree.GetSpawnableLeaves());
-
-            var trees = new List<RecordingTree> { tree };
-            var budget = ResourceBudget.ComputeTotal(
-                new List<Recording>(),
-                new List<Milestone>(),
-                trees);
-
-            // Tree's resource delta still counted even though no spawnable leaves
-            Assert.Equal(3000, budget.reservedFunds);
-        }
-
-        #endregion
+        // Phase F: deleted regions "B3: ComputeTotal — multiple trees, mixed
+        // ResourcesApplied" and "D4: All-terminal leaves — budget delta still
+        // counts". Both pinned the tree-level lump-sum delta behavior. The new
+        // per-recording sum is covered by the Phase F tests in the Tree Resource
+        // Budget region above. Terminal-leaf budgeting is naturally covered by
+        // the per-recording CommittedFundsCost tests in the Recording Cost
+        // Calculations region — leaves contribute their share regardless of the
+        // tree's leaf-spawnability state.
 
         #region ComputeTotalFullCost
 
@@ -1222,33 +1242,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeTotalFullCost_IgnoresTreeResourcesApplied()
+        public void ComputeTotalFullCost_IgnoresLastAppliedResourceIndexInsideTree()
         {
-            // Tree with ResourcesApplied=true.
-            // ComputeTotal returns 0 (already applied).
-            // ComputeTotalFullCost returns full cost.
-            var tree = new RecordingTree
-            {
-                Id = "tree_full",
-                TreeName = "Full Tree",
-                DeltaFunds = -5000,
-                DeltaScience = -10,
-                DeltaReputation = -3f,
-                ResourcesApplied = true
-            };
+            // Phase F: ComputeTotalFullCost iterates per-recording inside a tree
+            // and uses FullCommittedFundsCost (etc.), which ignores
+            // LastAppliedResourceIndex. ComputeTotal honors the index and returns 0
+            // when the recording is fully applied.
+            var rec = MakeRecording(50000, 45000, lastAppliedResIdx: 1); // fully applied
+            rec.RecordingId = "rec_full";
+            rec.TreeId = "tree_full";
+            var tree = new RecordingTree { Id = "tree_full", TreeName = "Full Tree" };
+            tree.Recordings[rec.RecordingId] = rec;
 
             var recordings = new List<Recording>();
             var milestones = new List<Milestone>();
             var trees = new List<RecordingTree> { tree };
 
             var total = ResourceBudget.ComputeTotal(recordings, milestones, trees);
-            Assert.Equal(0, total.reservedFunds); // already applied
+            Assert.Equal(0, total.reservedFunds); // fully applied -> 0
 
             ResourceBudget.Invalidate();
             var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones, trees);
-            Assert.Equal(5000, fullCost.reservedFunds);
-            Assert.Equal(10, fullCost.reservedScience);
-            Assert.Equal(3, fullCost.reservedReputation, 0.001);
+            Assert.Equal(5000, fullCost.reservedFunds); // ignores LARI -> full cost
         }
 
         [Fact]

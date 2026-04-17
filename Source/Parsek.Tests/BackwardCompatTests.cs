@@ -106,26 +106,30 @@ namespace Parsek.Tests
             chain2.ChainIndex = 1;
             Assert.Null(chain2.TreeId);
 
-            // Tree recording: has TreeId set, should be excluded from per-recording sum
-            // preLaunch=60000, end=50000 -> would be cost=10000, but skipped
+            // Phase F round 2: the tree-level lump-sum delta is gone; the tree's
+            // cost is the sum of its children's CommittedFundsCost, counted via
+            // the per-tree loop. The flat-list loop skips any recording with
+            // TreeId != null to prevent double-counting when the caller passes
+            // the same tree child in BOTH `recordings` and `trees` (the
+            // production shape — see RecordingStore.FinalizeTreeCommit which
+            // adds every tree child to both collections).
+            //
+            // Tree recording: preLaunch=60000, end=50000 -> per-recording cost=10000.
             var treeRec = MakeStandaloneRecording(60000, 50000);
             treeRec.TreeId = "tree-xyz";
+            treeRec.RecordingId = "tree-xyz-rec";
 
-            // Corresponding RecordingTree with negative DeltaFunds (spent 2000)
-            var tree = new RecordingTree
-            {
-                Id = "tree-xyz",
-                DeltaFunds = -2000,
-                ResourcesApplied = false
-            };
+            var tree = new RecordingTree { Id = "tree-xyz" };
+            tree.Recordings[treeRec.RecordingId] = treeRec;
 
+            // Match production store shape (tree child in BOTH lists).
             var recordings = new List<Recording> { chain1, chain2, treeRec };
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), trees);
 
-            // chain1 cost (5000) + chain2 cost (3000) + tree delta cost (2000) = 10000
-            // treeRec's per-recording cost (10000) is NOT included because TreeId != null
-            Assert.Equal(10000, budget.reservedFunds);
+            // Flat loop: chain1 (5000) + chain2 (3000); treeRec skipped (TreeId set).
+            // Per-tree loop: treeRec (10000). Total = 18000, treeRec counted once.
+            Assert.Equal(18000, budget.reservedFunds);
         }
 
         #endregion
