@@ -203,6 +203,150 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RevertDetector_Subscribe_DoesNotThrowOnKspGameEventsAdd()
+        {
+            // Regression: KSP's EventData<T>.EvtDelegate..ctor reads evt.Target.GetType().Name
+            // without a null check. A delegate bound to a static method has Target == null,
+            // so GameEvents.*.Add(staticMethod) NREs and aborts ParsekScenario.OnLoad — which
+            // in production (2026-04-17 playtest) silently skipped active-tree restore and the
+            // merge-dialog dispatch. Handlers must be instance-bound so Target is non-null.
+            try
+            {
+                RevertDetector.Subscribe();
+                RevertDetector.Subscribe(); // idempotent re-call must also not throw
+            }
+            finally
+            {
+                RevertDetector.Unsubscribe();
+            }
+        }
+
+        [Theory]
+        // Revert-to-Launch (FLIGHT→FLIGHT, UT regresses, isRevert=true): the revert branch
+        // owns pending-tree handling. Gate must return false so DiscardStashedOnQuickload
+        // doesn't run and delete sidecar files that F9-from-flight-quicksave still needs.
+        [InlineData(true,  true,  true,  false)]
+        // Revert-to-VAB (FLIGHT→EDITOR, isRevert=true, isFlightToFlight=false): same answer,
+        // different reason — not flight-to-flight so the quickload heuristic never matched.
+        [InlineData(true,  false, true,  false)]
+        // Pure F5/F9 quickload (no revert, UT regresses, flight-to-flight): hard-discard runs.
+        // This is the original Bug A case the quickload path was introduced to handle.
+        [InlineData(true,  true,  false, true)]
+        // Quickload-shaped but UT didn't regress (scene reload with forward or equal UT):
+        // nothing stashed this transition that would be stale.
+        [InlineData(false, true,  false, false)]
+        // Not flight-to-flight and not a revert: some non-FLIGHT-origin transition. Gate
+        // stays closed; other paths handle it.
+        [InlineData(true,  false, false, false)]
+        public void ShouldRunQuickloadDiscard_TruthTable(
+            bool utWentBackwards, bool isFlightToFlight, bool isRevert, bool expected)
+        {
+            // Regression for the 2026-04-17 stress test. Revert-to-Launch previously matched
+            // `utWentBackwards && isFlightToFlight` at ParsekScenario.cs:801 and ran
+            // DiscardStashedOnQuickload before the isRevert branch could soft-unstash,
+            // deleting sidecar files and purging tagged events tied to the reverted flight.
+            // Extracting the gate as a pure function pins the contract: revert ⇒ never run
+            // the hard-discard, even when UT regresses and the scene stays in FLIGHT.
+            Assert.Equal(
+                expected,
+                ParsekScenario.ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert));
+        }
+
+        [Fact]
+        public void DiscardStashedOnQuickload_RefusesWhenRevertDetectorArmed()
+        {
+            // Defense-in-depth for #434: even if a future refactor removes the
+            // ShouldRunQuickloadDiscard gate from OnLoad's dispatch (or inlines the condition
+            // without the !isRevert clause), DiscardStashedOnQuickload itself refuses to
+            // proceed when RevertDetector is armed. Without this check, a buggy caller
+            // would delete sidecar files tied to the reverted flight and break
+            // F9-from-flight-quicksave.
+            var tree = MakeTreeWithOneRec("Armed-revert tree", "rec-armed");
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            RecordingStore.PendingStashedThisTransition = true;
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 600.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "contract-armed",
+                recordingId = "rec-armed",
+            });
+            RevertDetector.SetPendingForTesting(RevertKind.Launch);
+
+            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 708.0, currentUT: 552.0);
+
+            // Tree and event must survive — the guard refused.
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Single(GameStateStore.Events);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("refusing to run with armed RevertDetector"));
+        }
+
+        [Fact]
+        public void RevertPath_WithoutPendingTree_ClearsStalePendingScienceSubjects()
+        {
+            // Regression for 2026-04-17 review P2: UnstashPendingTreeOnRevert has a no-pending-tree
+            // branch that clears stale PendingScienceSubjects accumulated during the reverted
+            // flight. ParsekScenario.OnLoad previously gated the call behind HasPendingTree, so
+            // that cleanup was unreachable — a revert that captured science subjects but never
+            // stashed a tree would leak the subjects onto the next unrelated commit. The fix
+            // calls UnstashPendingTreeOnRevert unconditionally on the revert path; this test
+            // pins the no-tree cleanup contract the new dispatch relies on.
+            Assert.False(RecordingStore.HasPendingTree);
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                science = 1.5f,
+            });
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "temperatureScan@KerbinFlyingLow",
+                science = 2.8f,
+            });
+            Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
+
+            RecordingStore.UnstashPendingTreeOnRevert();
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Contains(logLines, l =>
+                l.Contains("cleared 2 in-flight science subject(s) even with no pending tree"));
+        }
+
+        [Fact]
+        public void UnstashPendingTreeOnRevert_AfterRevertToLaunch_PreservesSidecarState()
+        {
+            // Complements ShouldRunQuickloadDiscard_TruthTable by asserting the OTHER half
+            // of the fix: when the gate correctly skips the hard-discard, the revert branch's
+            // soft-unstash preserves the tagged event (sidecar files aren't touched either —
+            // that invariant lives in RecordingStore and is already pinned by the existing
+            // UnstashPendingTreeOnRevert_ClearsSlot_PreservesFilesAndEvents test).
+            var tree = MakeTreeWithOneRec("Revert-to-Launch tree", "rec-r2l");
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            RecordingStore.PendingStashedThisTransition = true;
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 600.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "contract-r2l",
+                recordingId = "rec-r2l",
+            });
+
+            // Post-fix OnLoad dispatch: ShouldRunQuickloadDiscard returns false on the revert
+            // path (asserted in the truth-table test above), so DiscardStashedOnQuickload
+            // doesn't run and the flow reaches the isRevert branch here.
+            RecordingStore.UnstashPendingTreeOnRevert();
+
+            Assert.False(RecordingStore.HasPendingTree);
+            // The tagged event survives. MilestoneStore.CurrentEpoch bump (elsewhere in the
+            // isRevert branch) filters it from post-revert ledger walks while the sidecars
+            // stay available for F9-from-flight-quicksave.
+            Assert.Single(GameStateStore.Events);
+            Assert.Contains(logLines, l =>
+                l.Contains("Unstashed pending tree 'Revert-to-Launch tree'")
+                && l.Contains("sidecar files preserved"));
+        }
+
+        [Fact]
         public void UnstashPendingTreeOnRevert_DifferenceFromDiscardPendingTree()
         {
             // #434 vs #431 semantic contrast:

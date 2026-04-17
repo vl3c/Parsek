@@ -105,6 +105,32 @@ namespace Parsek
                 $"removed={removed}, inserted={replacements.Count}, total={actions.Count}");
         }
 
+        /// <summary>
+        /// Removes every action tagged with the given recording id (regardless of type).
+        /// Returns the number of actions removed. Null/empty recordingId is a no-op.
+        /// </summary>
+        internal static int RemoveActionsForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+
+            int removed = 0;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(actions[i].RecordingId, recordingId, StringComparison.Ordinal))
+                {
+                    actions.RemoveAt(i);
+                    removed++;
+                }
+            }
+
+            if (removed > 0)
+                ParsekLog.Verbose("Ledger",
+                    $"RemoveActionsForRecording: recordingId='{recordingId}', removed={removed}, total={actions.Count}");
+
+            return removed;
+        }
+
         /// <summary>Clears all actions from the in-memory ledger.</summary>
         internal static void Clear()
         {

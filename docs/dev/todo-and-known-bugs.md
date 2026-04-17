@@ -9,12 +9,12 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 These four TODOs are the top of the work queue. They're load-bearing correctness fixes that enforce the "every career effect flows from the committed ledger, nothing survives the recording it was born in" invariant. Ship in this order; #431 should land first since #433 / #434 depend on its purge semantics.
 
-1. **#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).
-2. **#432** — Gloops ghost-only recordings must not capture or apply any game events.
+1. ~~**#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).~~
+2. ~~**#432** — Gloops ghost-only recordings must not capture or apply any game events.~~
 3. **#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).
-4. **#434** — Revert to Launch should auto-discard, not open the merge dialog.
+4. ~~**#434** — Revert to Launch should auto-discard, not open the merge dialog.~~
 
-Once this cluster lands, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
+Only #433 remains open. Once it ships, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
 
 ---
 
@@ -58,6 +58,60 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 435. Multi-recording Gloops trees (main + debris + crew children, no vessel spawn)
+
+**Source:** world-model conversation on #432 (2026-04-17). The aspirational design for Gloops: when the player records a Gloops flight that stages or EVAs, the capture produces a **tree of ghost-only recordings** — main + debris children + crew children — all flagged `IsGhostOnly`, all grouped under a per-flight Gloops parent in the Recordings Manager, and none of them spawning a real vessel at ghost-end. Structurally the same as the normal Parsek recording tree (decouple → debris background recording, EVA → linked crew child), with the ghost-only flag applied uniformly and the vessel-spawn-at-end path skipped.
+
+**Guiding architectural principle:** per `docs/dev/gloops-recorder-design.md`, Gloops is on track to be extracted as a standalone mod on which Parsek will depend. Parsek's recorder and tree infrastructure will become the base that both Gloops and Parsek share — Gloops exposes the trajectory recorder + playback engine, Parsek layers the career-state / tree / DAG / world-presence envelope on top via the `IPlaybackTrajectory` boundary. Multi-recording Gloops must therefore **reuse Parsek's existing recorder, tree, and BackgroundRecorder infrastructure** rather than growing a parallel Gloops-flavored implementation. The ghost-only distinction is a per-recording flag on top of shared machinery, not a separate code path.
+
+**Current state (audited 2026-04-17):**
+
+- `gloopsRecorder` is a **parallel** `FlightRecorder` instance with no `ActiveTree` (`ParsekFlight.cs:7460`) — a temporary workaround that the extraction direction wants to retire.
+- `BackgroundRecorder` is never initialized in the Gloops path — only alongside `activeTree` for normal recordings. Staging during a Gloops flight does not produce a debris child.
+- `FlightRecorder.HandleVesselSwitchDuringRecording` auto-stops Gloops on any vessel switch (`FlightRecorder.cs:5143-5151`), so EVA does not produce a linked crew child either.
+- `RecordingStore.CommitGloopsRecording` accepts a single `Recording`, adds it to the flat `"Gloops - Ghosts Only"` group (`RecordingStore.cs:394-418`). No `CommitGloopsTree`, no nested group structure.
+- No conditional `IsGloopsMode` branch inside `RecordingTree`, no half-finished Gloops tree scaffolding.
+
+**Net: Gloops is strictly single-recording by design today**, implemented as a parallel workaround. Multi-recording Gloops is a separate, sizable feature that should also consolidate Gloops onto the shared Parsek recorder (retire the parallel `gloopsRecorder` path).
+
+**Desired behavior:**
+
+- Gloops uses Parsek's main `FlightRecorder` + `RecordingTree` + `BackgroundRecorder` path, with a tree-level `IsGhostOnly` flag propagated to every leaf at commit. No parallel `gloopsRecorder`.
+- Starting a Gloops recording creates a `RecordingTree` with the ghost-only flag; normal recording continues alongside on the same machinery if already active, or the tree operates solo if not. How the two modes interleave in the UI (explicit toggle, implicit based on UI state, etc.) is for the implementing PR to decide — possibly in coordination with a UI gate preventing concurrent career + Gloops capture.
+- Staging during a Gloops flight → debris gets its own ghost-only recording via the normal `BackgroundRecorder` split path, with `IsGhostOnly = true` inherited from the tree.
+- EVA during a Gloops flight → linked child ghost-only recording via the normal EVA split path.
+- Commit: the whole Gloops tree flushes as a nested group under `"Gloops - Ghosts Only"` — e.g. `"Gloops - Ghosts Only / Mk3 Airshow Flight"` with child debris / crew recordings under it. Every leaf is `IsGhostOnly`.
+- No vessel-spawn-at-end for any recording in a Gloops tree. `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` already gates on `!rec.IsGhostOnly` (see `GhostPlaybackLogic.cs:3001`); the tree case reuses this.
+- Per-recording delete / regroup / rename in the Recordings Manager works the same as normal trees.
+- Apply-side: `#432`'s filter reads `rec.IsGhostOnly` per-recording, so every leaf in a Gloops tree is already excluded from the ledger with no extra work.
+
+**Files likely to touch (sketch, not exhaustive):**
+
+- `Source/Parsek/ParsekFlight.cs` — retire `gloopsRecorder` in favor of the main `recorder`/`activeTree` path; the "Start Gloops" action creates a tree flagged ghost-only. `CheckGloopsAutoStoppedByVesselSwitch` goes away or is folded into normal tree commit.
+- `Source/Parsek/FlightRecorder.cs` — remove `IsGloopsMode` branches once the parallel recorder is retired; the recorder becomes agnostic to career semantics (aligning with the extraction boundary in `gloops-recorder-design.md`).
+- `Source/Parsek/BackgroundRecorder.cs` — carry a tree-level ghost-only flag so debris children inherit it.
+- `Source/Parsek/RecordingStore.cs` — collapse `CommitGloopsRecording` into the normal tree commit path; the ghost-only distinction is per-tree (or per-leaf, if partial-Gloops trees ever become a thing, which they shouldn't).
+- `Source/Parsek/UI/GloopsRecorderUI.cs` — controls now drive the main recorder with a ghost-only flag rather than spinning up a parallel instance.
+- `Source/Parsek.Tests/` — tree-structural tests for multi-recording Gloops capture and commit.
+
+**Dependencies / sequencing:**
+
+- Ships after #432 (which closes the existing single-recording leak and establishes the per-recording `IsGhostOnly` apply-side filter that multi-recording Gloops will rely on).
+- Coordinates loosely with the Gloops extraction work (`docs/dev/gloops-recorder-design.md` Section 11 — the extraction sequence); ideally this consolidation happens before extraction so the extraction moves a single unified recorder, not two.
+- Not tied to the deterministic-timeline correctness cluster — this is a feature extension, not a correctness bug.
+
+**Out of scope:**
+
+- Making Gloops spawn real vessels at ghost-end (explicitly not wanted — Gloops is visual-only).
+- Turning the existing single-recording Gloops path into a tree retroactively for existing saves (beta, restart the save if you want the new behavior).
+- Actually extracting Gloops into its own mod. That's covered by `docs/dev/gloops-recorder-design.md`'s extraction plan. #435 is a preparatory consolidation step on the Parsek side.
+
+**Priority:** Medium. Feature extension + architectural cleanup. Worth scoping after #432 lands.
+
+**Status:** TODO. Size: L. New feature — not a follow-up to anything shipped today.
+
+---
+
 ## ~~434. Revert to Launch should auto-discard, not open the merge dialog~~
 
 **Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.
@@ -72,7 +126,7 @@ are fixed in the same PR branch with additional commits:
 - The discard must purge events stamped with the reverted recording's id (see #431). If #431 hasn't shipped yet, the epoch-increment fallback at `ParsekScenario.cs:970` stays — but the long-term correct path is purge-on-discard, not filter-by-epoch.
 - A brief screen message confirms the outcome — e.g. `"Recording discarded (revert)"` — so the player isn't surprised that no dialog appeared.
 - Flight-scene revert: the in-progress recording is discarded even if it wasn't yet stashed as pending. The recorder flushes whatever it had, then routes through the same discard path.
-- Gloops recordings under revert: already auto-committed when stopped, but on revert they're treated like any other recording — discarded (and under #432 they have no events to purge anyway).
+- Gloops recordings under revert: already auto-committed when stopped, but on revert they're treated like any other recording — discarded. Events captured during the Gloops window were never tagged with a Gloops id (Gloops doesn't own events — see #432), so `PurgeEventsForRecordings` with a Gloops id is a no-op by construction.
 
 **Files likely to touch:**
 
@@ -99,7 +153,13 @@ This TODO's correctness depends on #431 (event-purge-on-discard) landing first (
 
 **Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
-**Status:** ~~DONE~~. Deleted `Patches/FlightResultsPatch.cs` and every caller (destruction arm, OnFlightReady safety net, ClearSceneChangeTransientState clear, MergeDialog.ResolveDeferredFlightResults, ParsekScenario.DiscardPendingTreeAndAbandonDeferredFlightResults ClearPending). `ShowPostDestructionTreeMergeDialog` now always stashes the pending tree and returns; the stock KSP crash report surfaces first, and the merge dialog / auto-commit fires in the destination scene via `ParsekScenario.OnLoad`'s deferred paths. Added `RecordingStore.UnstashPendingTreeOnRevert` — a soft clear that preserves sidecar files and captured events so a flight quicksave can still be F9'd back (per the KSP decompilation: revert-to-launch never touches disk, revert-to-VAB/SPH rewrites persistent.sfs but leaves sidecars). `ParsekScenario.OnLoad` isRevert branch calls it instead of `DiscardPendingTree`; the bumped `MilestoneStore.CurrentEpoch` filters the preserved events out of the current ledger. Deviation from the original plan: instead of the planned "hard discard on revert" (which would delete sidecar files and break F9-from-flight-quicksave), we went with soft unstash. Tests in `Source/Parsek.Tests/RevertDiscardTests.cs` cover the soft-clear across every `PendingTreeState`, the no-op path, and the `UnstashOnRevert` vs `DiscardPendingTree` contrast.
+**Status:** ~~DONE~~ (with three 2026-04-17 follow-up fixes — see end of entry). Deleted `Patches/FlightResultsPatch.cs` and every caller (destruction arm, OnFlightReady safety net, ClearSceneChangeTransientState clear, MergeDialog.ResolveDeferredFlightResults, ParsekScenario.DiscardPendingTreeAndAbandonDeferredFlightResults ClearPending). `ShowPostDestructionTreeMergeDialog` now always stashes the pending tree and returns; the stock KSP crash report surfaces first, and the merge dialog / auto-commit fires in the destination scene via `ParsekScenario.OnLoad`'s deferred paths. Added `RecordingStore.UnstashPendingTreeOnRevert` — a soft clear that preserves sidecar files and captured events so a flight quicksave can still be F9'd back (per the KSP decompilation: revert-to-launch never touches disk, revert-to-VAB/SPH rewrites persistent.sfs but leaves sidecars). `ParsekScenario.OnLoad` isRevert branch calls it instead of `DiscardPendingTree`; the bumped `MilestoneStore.CurrentEpoch` filters the preserved events out of the current ledger. Deviation from the original plan: instead of the planned "hard discard on revert" (which would delete sidecar files and break F9-from-flight-quicksave), we went with soft unstash. Tests in `Source/Parsek.Tests/RevertDiscardTests.cs` cover the soft-clear across every `PendingTreeState`, the no-op path, and the `UnstashOnRevert` vs `DiscardPendingTree` contrast.
+
+**Follow-up fix (2026-04-17):** `RevertDetector.Subscribe` bound static methods to `GameEvents.OnRevertToLaunchFlightState` / `OnRevertToPrelaunchFlightState`. KSP's `EventData<T>.EvtDelegate..ctor` dereferences `evt.Target.GetType().Name` without a null check, so the static-method delegates NRE'd inside `GameEvents.*.Add`. The exception aborted `ParsekScenario.OnLoad` right at `SubscribeVesselLifecycleEvents` (line 629) — before active-tree restore, revert detection, and merge-dialog dispatch — so ending a flight silently dropped straight through to the OnSave safety net and auto-committed the pending tree without ever showing the merge/discard dialog. Observed in `logs/2026-04-17_2139_no-merge-dialog`. Fix on `434-revert-static-nre`: route handlers through a singleton `Handlers` instance (`Target` non-null), plus `RevertDetector_Subscribe_DoesNotThrowOnKspGameEventsAdd` regression test that exercises the real KSP `GameEvents` add path.
+
+**Second follow-up fix (2026-04-17 stress test):** with the NRE fix in place, a revert-to-launch (FLIGHT→FLIGHT, UT regresses) matched `utWentBackwards && isFlightToFlight` at `ParsekScenario.cs:791` and ran `DiscardStashedOnQuickload` BEFORE the `isRevert` branch. That path calls `DiscardPendingTree` which deletes sidecar files (`.prec`, `_ghost.craft`) and purges tagged events, defeating the #434 soft-unstash invariant. Revert-to-VAB escaped because FLIGHT→EDITOR isn't flight-to-flight and the quickload branch never triggered. Observed in `logs/2026-04-17_2158_revert-stress-test` at 21:54:42 (recording `4f2a8438` files deleted). Fix on `434-revert-static-nre`: extract the dispatch decision to `ParsekScenario.ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert)` (returns false on revert) and call it at the OnLoad call site so the revert branch's soft `UnstashPendingTreeOnRevert` wins. `DiscardStashedOnQuickload` also gained defense-in-depth: if `RevertDetector.PendingKind != None` it refuses and warns, so even an accidental future removal of the OnLoad guard doesn't delete sidecar files. Regression tests: `ShouldRunQuickloadDiscard_TruthTable` (5-case Theory pinning the pure-function contract), `DiscardStashedOnQuickload_RefusesWhenRevertDetectorArmed` (pins the defense-in-depth), and `UnstashPendingTreeOnRevert_AfterRevertToLaunch_PreservesSidecarState` (soft-unstash outcome after the gate skips).
+
+**Third follow-up fix (2026-04-17 review):** `ParsekScenario.OnLoad` gated `UnstashPendingTreeOnRevert()` behind `RecordingStore.HasPendingTree`, so the helper's no-pending-tree cleanup branch — which clears stale `GameStateRecorder.PendingScienceSubjects` accumulated between the launch quicksave and the revert — was unreachable from production. A revert that captured science subjects without ever stashing a tree would leak those subjects onto the next unrelated commit. Fix: call `UnstashPendingTreeOnRevert()` unconditionally on the revert path; the screen-message toast stays gated on `hadPendingTree` so users don't see "Recording unstashed" when nothing was unstashed. Regression test `RevertPath_WithoutPendingTree_ClearsStalePendingScienceSubjects`.
 
 ---
 
@@ -156,38 +216,41 @@ This TODO's correctness depends on #431 (event-purge-on-discard) landing first (
 
 ---
 
-## 432. Gloops ghost-only recordings must not capture or apply any game events
+## ~~432. Gloops ghost-only recordings must not capture or apply any game events~~
 
-**Source:** world-model conversation follow-up to #431. Gloops recordings (the "Gloops - Ghosts Only" group) are manual captures made for pure visual / airshow replays — they're flagged `IsGhostOnly`, auto-loop by default, and never spawn a real vessel at ghost-end. Their intent is decorative: the player records a cinematic flight and wants to see it loop in the background forever. They should have zero career-state footprint: no contracts, no science, no funds deltas, no milestones, no reputation, no tech research, no part purchases — nothing that a Gloops recording does in-flight should leak into the committed career ledger.
+**Source:** world-model conversation follow-up to #431, refined 2026-04-17. Gloops recordings (the "Gloops - Ghosts Only" group) are manual captures made for pure visual / airshow replays — they're flagged `IsGhostOnly`, auto-loop by default, and never spawn a real vessel at ghost-end. Their intent is **visual-only**: a Gloops recording is the ghost-visual slice from T0 to T1, a decorative parallel ghost that has nothing to do with career events. Events that fire during a Gloops window belong to the parallel normal recording (if any) or to between-mission career state (if none) — they don't belong to Gloops at all.
 
-Currently `GameStateRecorder` runs regardless of recording type, so events captured during a Gloops flight window end up in `GameStateStore.Events` exactly like they would during a normal recording. Their eventual fate depends on whatever downstream plumbing happens; even if the Gloops recording itself produces zero actions, the raw events still get bundled into milestones and applied to the career ledger. That's wrong by design — a Gloops recording should be invisible to the career.
+Concretely: today `CommitGloopsRecording` (`RecordingStore.cs:394`) bypasses `NotifyLedgerTreeCommitted`, so a Gloops recording already contributes zero event-derived actions to the ledger. But two ledger-action sources that walk `RecordingStore.CommittedRecordings` unconditionally **do** fire for Gloops recordings — `CreateKerbalAssignmentActions` (via `MigrateKerbalAssignments` at `LedgerOrchestrator.cs:800`, reserving kerbals from the Gloops vessel snapshot for the loop duration) and `CreateVesselCostActions` at recording commit. This leak is what #432 closes.
 
 **The invariant that should hold:**
 
-> While a recording is active AND flagged `IsGhostOnly`, `GameStateRecorder` must not capture any new `GameStateEvent`s into `GameStateStore.Events`. On the apply side (ledger walk, `KspStatePatcher`, etc.), any recording flagged `IsGhostOnly` must contribute zero actions to the ledger regardless of what got captured.
+> A Gloops ghost-only recording has zero career-state footprint. No ledger action is produced from a committed `IsGhostOnly` recording. Events captured during a Gloops window flow through their existing #431 pipeline unchanged — tagged with the parallel normal recording's id (if any), otherwise empty-tagged as between-mission state. Gloops never owns events.
+
+**Design decision (from the 2026-04-17 refinement):** the fix is **purely apply-side**, not capture-side. No `GameStateRecorder.Emit` guard, no science-subject guard, no contract-snapshot guard. #431's tagging already routes events to the correct owner; Gloops simply isn't one.
 
 **Desired behavior:**
 
-- `GameStateRecorder` consults the active recording's `IsGhostOnly` flag at event-capture time. When true, the `AddEvent` / `OnContract*` / `OnTechResearched` / `OnPartPurchased` / etc. handlers short-circuit with a Verbose log (`"Gloops recording active — event X suppressed"`) and do not push to the store.
-- Defense-in-depth on the apply side: any `GameAction` tagged with a `RecordingId` belonging to an `IsGhostOnly` recording is skipped by the ledger walk (`Effective = false` with reason `GhostOnly`, or filtered at recording-iterate time).
-- Verify the science pipeline specifically: `GameStateRecorder.PendingScienceSubjects` should not accept subjects captured during a Gloops recording. Stop at the entry gate, same as other events.
-- The flight itself still records trajectory + part events (engine fire, decouples, parachutes, etc.) — Gloops's whole point is the visual replay. Only the career-event side is suppressed.
+- Apply-side: `CreateKerbalAssignmentActions` and `CreateVesselCostActions` in `LedgerOrchestrator` early-return when `rec.IsGhostOnly == true`, with a Verbose log. Closes the real `MigrateKerbalAssignments` leak.
+- Belt-and-braces: `LedgerOrchestrator.RecalculateAndPatch` pre-pass filter drops any `GameAction` whose `RecordingId` maps to an `IsGhostOnly` recording, so a future code path that emits a Gloops-tagged action still cannot reach the ledger walk.
+- The flight itself still records trajectory + part events — Gloops's whole point is the visual replay.
+- No accessor on `ParsekFlight` needed. Apply-side code has the `Recording` object in hand and reads `rec.IsGhostOnly` directly.
 
 **Files likely to touch:**
 
-- `Source/Parsek/GameStateRecorder.cs` — every `GameEvents.*` handler that currently writes to `GameStateStore` / `PendingScienceSubjects` gains an early-return guard: `if (ParsekFlight.Instance?.ActiveRecording?.IsGhostOnly == true) { log + return; }`. Pick a helper method or a property accessor to avoid duplicating the guard 20 times.
-- `Source/Parsek/GameActions/LedgerOrchestrator.cs` or `RecalculationEngine` — skip recordings with `IsGhostOnly = true` during the walk. Probably already happens implicitly (they have zero actions today), but codify it explicitly so #431's event-tagging work doesn't accidentally route events through a Gloops recording.
-- `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` (new) — record a synthetic Gloops recording that fires a contract-accept event mid-flight; assert the event never reaches `GameStateStore.Events` and the ledger walk produces no corresponding action.
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs` — `CreateKerbalAssignmentActions` (`:471`) and `CreateVesselCostActions` (`:397`) early-return on `rec.IsGhostOnly`; add `PurgeGhostOnlyActionsFromLedger` helper (mutates `Ledger.Actions` in place — filtering only the walk copy would leave Timeline and other raw-ledger consumers dirty) and call from `RecalculateAndPatch` (`:653`).
+- `Source/Parsek/GameActions/Ledger.cs` — add `RemoveActionsForRecording(string)` removing every action tagged with the given recording id regardless of type.
+- `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` (new) — assert ghost-only recordings produce zero actions from both creation paths, purge mutates `Ledger.Actions` and removes every type (not just `KerbalAssignment`).
 - `docs/user-guide.md` Gloops section — add a one-line note: "Gloops recordings have no effect on your career's contracts, science, funds, or milestones — they're purely visual."
 
 **Out of scope for v1 of this fix:**
 
-- Retroactive cleanup of existing saves that have leaked events from past Gloops recordings. Document the limitation; ship a forward-fix.
-- Allowing the player to opt into career capture for a Gloops recording. That would contradict the "decorative-only" design intent; if someone wants career effects they should use a normal recording.
+- Retroactive save-side cleanup — Parsek is in beta; pre-fix saves can be restarted if affected.
+- Allowing the player to opt into career capture for a Gloops recording. That would contradict the "visual-only" design intent; if someone wants career effects they should use a normal recording.
+- Multi-recording Gloops trees (main + debris + crew children in a nested Gloops group, matching normal Parsek's tree shape). **Today Gloops is strictly single-recording** (audited 2026-04-17: `gloopsRecorder` is one `FlightRecorder` with no `ActiveTree`, auto-stops on vessel switch, no `BackgroundRecorder` subscription, no debris fork, no EVA split). The apply-side filter reads `rec.IsGhostOnly` per-recording so when multi-recording Gloops lands (see #435) the filter handles trees automatically without re-touching #432.
 
 **Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
-**Status:** TODO. Size: S-M. Pairs naturally with #431 (both enforce "events must share the recording's intent"); ship together or back-to-back.
+**Status:** ~~DONE~~. Purely apply-side fix: `CreateKerbalAssignmentActions` and `CreateVesselCostActions` in `LedgerOrchestrator` early-return on `rec.IsGhostOnly` with a Verbose log. `LedgerOrchestrator.PurgeGhostOnlyActionsFromLedger` runs at the top of `RecalculateAndPatch` and **mutates `Ledger.Actions` in place** — so raw-ledger consumers (Timeline window, career-state views) see a clean list too, not just the walk. Built on a new `Ledger.RemoveActionsForRecording(string)` that removes every action for a given recording id regardless of type — covers `FundsSpending` / `FundsEarning` / `KerbalAssignment` etc. Pre-fix saves self-heal on the first `RecalculateAndPatch` after load (called from `OnKspLoad`). No capture-side guards — Gloops never owns events per #431's tagging; events during a Gloops window flow to the parallel normal recording (if any) or to between-mission career state (if none). Tests in `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` cover both action-creation guards, the purge mechanism across all types, empty-tag preservation (`InitialFunds` seeds and `MigrateOldSaveEvents` output), the purge-log idempotency (fires once, then ledger is clean and the second call is a no-op), the `PurgeEventsForRecordings` orphan-contract-snapshot path, and the `OnKspLoad` → `MigrateKerbalAssignments` self-heal.
 
 ---
 
@@ -219,7 +282,7 @@ The symmetric-case is fine: Revert already advances the epoch, so those events g
 
 - Deletion of an **already-committed** recording from the Recordings Manager: events from it have already been bundled into milestones and applied to the ledger. The commit was the decision point; deletion is metadata cleanup, not time travel. Leave those events alone.
 - EVA-split chains: if the parent recording commits but a child recording is discarded (or vice versa), only the discarded one's events are purged. Tagging per-recording (not per-tree) resolves this — verify against the tree-merge path in the plan.
-- Gloops ghost-only recordings (`Gloops - Ghosts Only` group) are covered by #432: they never capture events, so #431's purge logic is a no-op for them.
+- Gloops ghost-only recordings (`Gloops - Ghosts Only` group) are covered by #432: they never own events (events during a Gloops window belong to the parallel normal recording or to between-mission state), so #431's purge logic called with a Gloops id is a no-op by construction.
 
 **Files likely to touch:**
 

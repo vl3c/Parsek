@@ -26,6 +26,30 @@ namespace Parsek
         private static RevertKind pending = RevertKind.None;
         private static bool subscribed = false;
 
+        // KSP's EventData<T>.EvtDelegate..ctor reads evt.Target.GetType().Name without a
+        // null check. A delegate bound to a static method has Target == null, which NREs
+        // inside GameEvents.*.Add and aborts the caller (ParsekScenario.OnLoad). Route
+        // handlers through a singleton instance so Target is non-null; handler state
+        // still lives in the static `pending` field, not on the instance.
+        private sealed class Handlers
+        {
+            public void OnRevertToLaunch(FlightState _)
+            {
+                pending = RevertKind.Launch;
+                ParsekLog.Info("RevertDetector",
+                    "GameEvents.OnRevertToLaunchFlightState fired — armed RevertKind.Launch for next OnLoad");
+            }
+
+            public void OnRevertToPrelaunch(FlightState _)
+            {
+                pending = RevertKind.Prelaunch;
+                ParsekLog.Info("RevertDetector",
+                    "GameEvents.OnRevertToPrelaunchFlightState fired — armed RevertKind.Prelaunch for next OnLoad");
+            }
+        }
+
+        private static readonly Handlers handlers = new Handlers();
+
         internal static RevertKind PendingKind => pending;
 
         /// <summary>
@@ -37,8 +61,8 @@ namespace Parsek
         {
             if (subscribed) return;
             subscribed = true;
-            GameEvents.OnRevertToLaunchFlightState.Add(OnRevertToLaunch);
-            GameEvents.OnRevertToPrelaunchFlightState.Add(OnRevertToPrelaunch);
+            GameEvents.OnRevertToLaunchFlightState.Add(handlers.OnRevertToLaunch);
+            GameEvents.OnRevertToPrelaunchFlightState.Add(handlers.OnRevertToPrelaunch);
             ParsekLog.Info("RevertDetector", "Subscribed to GameEvents.OnRevertTo{Launch,Prelaunch}FlightState");
         }
 
@@ -46,23 +70,9 @@ namespace Parsek
         {
             if (!subscribed) return;
             subscribed = false;
-            GameEvents.OnRevertToLaunchFlightState.Remove(OnRevertToLaunch);
-            GameEvents.OnRevertToPrelaunchFlightState.Remove(OnRevertToPrelaunch);
+            GameEvents.OnRevertToLaunchFlightState.Remove(handlers.OnRevertToLaunch);
+            GameEvents.OnRevertToPrelaunchFlightState.Remove(handlers.OnRevertToPrelaunch);
             ParsekLog.Info("RevertDetector", "Unsubscribed from GameEvents.OnRevertTo*FlightState");
-        }
-
-        private static void OnRevertToLaunch(FlightState _)
-        {
-            pending = RevertKind.Launch;
-            ParsekLog.Info("RevertDetector",
-                "GameEvents.OnRevertToLaunchFlightState fired — armed RevertKind.Launch for next OnLoad");
-        }
-
-        private static void OnRevertToPrelaunch(FlightState _)
-        {
-            pending = RevertKind.Prelaunch;
-            ParsekLog.Info("RevertDetector",
-                "GameEvents.OnRevertToPrelaunchFlightState fired — armed RevertKind.Prelaunch for next OnLoad");
         }
 
         /// <summary>
