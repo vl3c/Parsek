@@ -46,6 +46,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#416` New career no longer starts with zero funds. `GameStateRecorder` now listens to `GameEvents.OnCrewmemberHired` (fired only from `KerbalRoster.HireApplicant`) instead of `GameEvents.onKerbalAdded`, which also fires for applicant-pool regeneration and the four starter kerbals, causing spurious KerbalHire debits that drained the 25000 seed on every new career.
 - `#419` Debris recordings spawned from a crash-breakup no longer violate monotonic-UT invariants at the parent-breakup boundary. `BackgroundRecorder.ApplyTrajectoryPointToRecording` now rejects appends whose UT is strictly less than the recording's current last-point UT and returns `bool` so state-advancing callers short-circuit the track-section append and `lastRecordedUT` bookkeeping on rejection, and a defense-in-depth monotonicity guard in `RecordingStore.AppendPointsFromTrackSections` skips non-monotonic frames at the flush stitch so the same corruption can't re-materialize through save-load.
 - `#383` Ghost engine flames now render at roughly stock full-thrust size via a one-shot 1.5x `startSizeMultiplier`/`startLifetimeMultiplier` boost applied when each engine FX instance is cloned; preserves prefab particle curve modes and adds zero per-frame cost.
 - `#366` Wrapped each step of the staged-sidecar rollback in its own try/catch so a rollback exception on one file (e.g. external process deleting a `.bak`) no longer aborts the remaining rollback — best-effort atomicity is preserved and each failure is warn-logged.
