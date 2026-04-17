@@ -17,9 +17,14 @@ namespace Parsek.Tests
     public class CareerStateWindowUITests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        // Save/restore the global SuppressLogging flag so this fixture doesn't leak
+        // state into later Sequential suites (TryAppendCapturedToTreeTests etc. do
+        // not set SuppressLogging and depend on whatever the prior test left behind).
+        private readonly bool savedSuppressLogging;
 
         public CareerStateWindowUITests()
         {
+            savedSuppressLogging = ParsekLog.SuppressLogging;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -32,7 +37,7 @@ namespace Parsek.Tests
             CareerStateWindowUI.ContractTitleLookupForTesting = null;
             CareerStateWindowUI.StrategyTitleLookupForTesting = null;
             ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = true;
+            ParsekLog.SuppressLogging = savedSuppressLogging;
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -229,6 +234,49 @@ namespace Parsek.Tests
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Contracts.ProjectedRows);
             Assert.True(vm.HasDivergence);
+        }
+
+        [Fact]
+        public void Build_Contracts_ClosingByTimelineEnd_FlaggedInCurrentRow()
+        {
+            // Regression: without IsClosingByTimelineEnd, a contract active now but
+            // completed before terminal UT would only disappear from ProjectedRows,
+            // leaving the user with no on-screen indication it will wind down.
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("ctr-closing", ut: 100.0, title: "Explore Mun"),
+                Complete("ctr-closing", ut: 300.0)
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Single(vm.Contracts.CurrentRows);
+            Assert.True(vm.Contracts.CurrentRows[0].IsClosingByTimelineEnd);
+            Assert.False(vm.Contracts.CurrentRows[0].IsPendingAccept);
+            Assert.Contains("(closing)",
+                CareerStateWindowUI.FormatContractRow_Pending(vm.Contracts.CurrentRows[0]));
+        }
+
+        [Fact]
+        public void Build_Strategies_ClosingByTimelineEnd_FlaggedInCurrentRow()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Activate("strat-closing", ut: 100.0),
+                Deactivate("strat-closing", ut: 300.0)
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Single(vm.Strategies.CurrentRows);
+            Assert.True(vm.Strategies.CurrentRows[0].IsClosingByTimelineEnd);
+            Assert.False(vm.Strategies.CurrentRows[0].IsPendingActivate);
+            Assert.Contains("(closing)",
+                CareerStateWindowUI.FormatStrategyRow_Pending(vm.Strategies.CurrentRows[0]));
         }
 
         [Fact]
