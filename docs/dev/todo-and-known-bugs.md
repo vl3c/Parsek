@@ -45,6 +45,47 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 426. In-window help popups explaining each Parsek system
+
+**Source:** follow-up conversation during the #416 UI polish pass. A player unfamiliar with the mod has to read `docs/user-guide.md` (out of the game) to understand what each window's sections and columns mean. The mechanics are specific enough (slots vs. stand-ins vs. reservations, per-recording fates, timeline tiers, resource budget semantics, etc.) that even tooltips-on-hover don't carry the full picture. An in-game help surface keeps the explanation next to the thing it explains.
+
+**Desired behavior:**
+
+- A small `?` icon button rendered in the title bar (or as the last button in the main toolbar row) of each Parsek window: Recordings, Timeline, Kerbals, Career State, Real Spawn Control, Gloops Flight Recorder, Settings.
+- Clicking the `?` opens a small modal-ish popup window titled `Parsek - {Window} Help` anchored next to the parent window.
+- The popup body is static help text tailored to that window. For tabbed windows (Kerbals, Career State), the help content should also cover each tab, either as one scrolling document or as a small tab-match sub-structure inside the popup. Keep each section brief (5-15 sentences) — the goal is orientation, not exhaustive docs.
+- A "Close" button and `GUI.DragWindow()` so the popup can be moved.
+- Help text can be hard-coded string constants in `Source/Parsek/UI/HelpContent/` (one file per window). No runtime load, no localization for v1.
+- Suggested starter content:
+  - **Recordings** — column-by-column walkthrough, L/R/FF/W/Hide button meanings, group vs chain vs ghost-only distinction.
+  - **Timeline** — Overview vs Details tiers, Recordings/Actions/Events source toggles, time-range filter, resource-budget footer, loop toggle semantics on entry rows, GoTo cross-link.
+  - **Kerbals** — slots vs stand-ins vs reservations (Kerbal Slots tab), chronological outcomes per kerbal (Per-Recording Fates tab), Fates-click-scrolls-Timeline.
+  - **Career State** — contracts / strategies / facilities / milestones tabs, current-vs-projected columns when the timeline holds pending recordings, Mission Control / Administration slot math.
+  - **Real Spawn Control** — what it does (warp-to-vessel-spawn), State column, 500m proximity trigger.
+  - **Gloops** — ghost-only manual recording, loop-by-default commit, X delete button in Recordings.
+  - **Settings** — group-by-group overview (Recording, Looping, Ghosts, Diagnostics, Recorder Sample Density, Data Management); call out Auto-merge, Auto-launch, Camera cutoff, Show-ghosts-in-Tracking-Station.
+
+**Out of scope for v1:**
+
+- Inline tooltips on every sub-control (hover-tooltips already exist for a few buttons; expanding them is a separate follow-up).
+- Localization / translation.
+- Interactive tutorials.
+- Search within help content.
+- External hyperlinks (no browser launch from KSP IMGUI reliably).
+
+**Files to touch:**
+
+- New: `Source/Parsek/UI/HelpWindowUI.cs` (shared small popup window; takes a `windowKey` + body-text source).
+- New: `Source/Parsek/UI/HelpContent/*.cs` (one static class per window, each exposes `public const string Body` or a `BuildBody()` method if dynamic content is needed later).
+- Each existing window UI file (RecordingsTableUI, TimelineWindowUI, KerbalsWindowUI, CareerStateWindowUI, SpawnControlUI, GloopsRecorderUI, SettingsWindowUI): add a small `?` button and an `IsHelpOpen` toggle that feeds HelpWindowUI.
+- `ParsekUI.cs`: add a single shared `HelpWindowUI` field + accessor so every window delegates to the same instance (only one popup open at a time).
+- `CHANGELOG.md` entry under Unreleased.
+- `docs/user-guide.md` can mention the new `?` buttons briefly but stays as the authoritative long-form reference.
+
+**Status:** TODO. Size: M. Style it the same way as the rest of the mod (shared section headers, dark list box for paragraph groups, pressed toggle idiom if any sub-tabs appear).
+
+---
+
 ## ~~425. Stock map icons can get stuck on the fallback diamond for an entire scene if the first draw predates MapView.UINodePrefab~~
 
 **Source:** PR #328 review finding (post-v0.8.1 review pass). `MapMarkerRenderer.InitVesselTypeIcons` latched `initAttempted = true` before any of the transient startup checks. If the first draw happened while `MapView.UINodePrefab` was still null or the prefab's `iconSprites` array was still empty (Unity hadn't finished initializing), the method early-returned and `initAttempted` stayed true for the rest of the scene, so every ghost marker rendered the fallback diamond instead of the stock vessel-type icon.
