@@ -96,17 +96,17 @@ The symmetric-case is fine: Revert already advances the epoch, so those events g
 
 **Desired behavior:**
 
-- When a recording starts (or when a tree is stashed as pending), stamp subsequent `GameStateEvent`s with a `recordingId` (or `treeName`) indicating which in-flight capture produced them. Events captured at KSC between recordings (no active recording) keep their existing epoch-tag only.
-- When `DiscardPendingTree` runs, walk `GameStateStore.Events` and remove (or permanently-filter) every event whose `recordingId` / `treeName` matches the discarded tree. `PendingScienceSubjects.Clear()` stays as today, but is now one specific case of a broader purge.
-- When a tree is committed via merge, NO filtering is applied — the events naturally flow into the next milestone bundle as today.
-- On Revert the existing epoch-advance still catches events regardless of recording ownership (the safety net for attempts that crashed and never got to the dialog).
+- When a recording starts (or when a tree is stashed as pending), stamp subsequent `GameStateEvent`s with a `recordingId` (or `treeName`) indicating which in-flight capture produced them. Events captured at KSC between recordings (no active recording) stay untagged and belong to the career's between-mission state.
+- When `DiscardPendingTree` runs, walk `GameStateStore.Events` and remove every event whose `recordingId` / `treeName` matches the discarded tree. `PendingScienceSubjects.Clear()` stays as today, but is now one specific case of a broader purge.
+- When Revert fires, the in-flight recording is implicitly discarded — apply the same purge to events stamped with that recording's id. Revert and merge-dialog Discard are two doors to the same outcome: "this recording never happened", and its events go with it.
+- When a tree is committed via merge, no filtering is applied — the events naturally flow into the next milestone bundle as today.
+- Retire the `MilestoneStore.CurrentEpoch` filter mechanism once this lands. Epoch counters were a filter-and-forget workaround for leaked events; deterministic purge removes the need for the filter. Ship as a clean-up pass after #431+#432 prove out.
 
 **Related edge cases to work through in the plan:**
 
-- Deletion of an **already-committed** recording from the Recordings Manager: should the events it contributed to past milestones be re-evaluated? Today those events have already been rolled into milestone bundles and baked into the ledger. Leaving them alone is probably correct (the recording existed on the committed timeline; deleting the recording metadata doesn't retroactively un-run the events that happened in the game world at the time). But the question should be answered explicitly.
-- EVA-split chains: if the parent recording commits but a child recording is discarded (or vice versa), only the discarded one's events should be purged. Tagging per-recording, not per-tree, likely resolves this — but needs verifying against the tree-merge path.
-- Revert path: keep the epoch-advance as the safety net. Event-purge-on-discard is a strictly stronger guarantee, but redundancy is fine here since revert doesn't hit the merge dialog.
-- Gloops ghost-only recordings (`Gloops - Ghosts Only` group) are covered by #432: they auto-commit on stop with no merge dialog, but the stronger rule there is that they never capture events at all. #431's purge-on-discard logic is a no-op for Gloops because there is nothing to purge.
+- Deletion of an **already-committed** recording from the Recordings Manager: events from it have already been bundled into milestones and applied to the ledger. The commit was the decision point; deletion is metadata cleanup, not time travel. Leave those events alone.
+- EVA-split chains: if the parent recording commits but a child recording is discarded (or vice versa), only the discarded one's events are purged. Tagging per-recording (not per-tree) resolves this — verify against the tree-merge path in the plan.
+- Gloops ghost-only recordings (`Gloops - Ghosts Only` group) are covered by #432: they never capture events, so #431's purge logic is a no-op for them.
 
 **Files likely to touch:**
 
@@ -158,57 +158,32 @@ The mental model of "you can't do this because the timeline already did" is coun
 
 ---
 
-## 429. Abandoned-epoch overlay in Timeline
+## ~~429. Abandoned-epoch overlay in Timeline~~
 
-**Source:** follow-up on the "paradox communication / visibility" thread. Parsek uses epochs to isolate actions from timelines the player abandoned via revert — `MilestoneStore.CurrentEpoch` advances on revert, and actions from old epochs are excluded from milestones so they don't contaminate the current branch. The mechanic is load-bearing but currently invisible: a player who reverts several times has no way to see what actions were discarded, which makes "why did my career end up here?" harder to answer than it should be.
-
-**Desired behavior:**
-
-- A **Show abandoned** toggle on the Timeline filter bar (next to Recordings / Actions / Events). Default OFF.
-- When ON, the Timeline additionally renders entries from `MilestoneStore.Milestones` whose `Epoch != CurrentEpoch`, styled with a strikethrough or heavily-dimmed color and an `(abandoned)` tag in the description.
-- The rows are not clickable for cross-link (abandoned recordings aren't in `RecordingStore.CommittedRecordings`), but hovering shows a tooltip with `epoch=N, abandoned on revert at UT {X}` if that metadata is available.
-- Footer count line extends to `N Recordings, M Actions, K Events, J Abandoned` when the toggle is on.
-
-**Why it matters:**
-
-Epochs silently do a lot of work — they're the reason revert doesn't corrupt the current career's ledger. Making them visible (on demand) teaches the player that reverting isn't "rewinding reality", it's "forking into a new branch and keeping the old one as dead weight". Also useful when debugging a career that feels wrong: players can look at abandoned entries and realize "oh right, I reverted away from that Mun mission twice".
-
-**Files to touch:**
-
-- `Source/Parsek/Timeline/TimelineBuilder.cs` — extend the milestone walk to optionally include non-current-epoch entries; tag them with a new `TimelineEntrySource.Abandoned` or an `IsAbandoned` bool on `TimelineEntry`.
-- `Source/Parsek/UI/TimelineWindowUI.cs` — add the `Show abandoned` toggle, route to a new `showAbandonedEntries` field, extend the style switch in `DrawEntryRow` to pick a new `timelineAbandonedStyle` (dim-strikethrough), extend the footer stats.
-- Test coverage in `Source/Parsek.Tests/TimelineBuilderTests.cs` for the new filter branch.
-
-**Out of scope for v1:**
-
-- Re-activating an abandoned branch ("undo the revert"). Pure read-only overlay.
-- Visual grouping of entries by epoch. Linear chronological render is fine.
-
-**Status:** TODO. Size: M. Nice-to-have visibility into a real-but-invisible part of the system.
+**Scrapped.** Framed on a flawed world model. The timeline is deterministic — there shouldn't be an "abandoned" bucket to visualize. What does exist today (epoch-filtered events from pre-revert / pre-rewind sessions) is an implementation artifact, not a feature. The right direction is #431 + #432 (purge-on-discard + Gloops-never-captures), after which the epoch filter becomes redundant book-keeping worth retiring.
 
 ---
 
 ## 428. Preview-rewind pane
 
-**Source:** follow-up on the "cost-of-rewind is hard to intuit" thread. Rewind is the most consequential single action in Parsek — it moves the player back to a chosen launch point and replays forward with existing ghosts. But right now the rewind confirmation dialog shows a single summary line ("Rewind to 'Mun Lander 3' at Y1 D23?") and a raw count of "how many future recordings exist". A player can't tell before confirming: which exact recordings will be preserved, which will be abandoned, which resources / contracts / milestones will be re-rolled, whether crew reservations will shift.
+**Source:** follow-up on the "cost-of-rewind is hard to intuit" thread. Rewind is the most consequential single action in Parsek — it moves the player back to a chosen launch point and replays forward with existing ghosts. But right now the rewind confirmation dialog shows a single summary line ("Rewind to 'Mun Lander 3' at Y1 D23?") and a raw count of "how many future recordings exist". A player can't tell before confirming: which exact recordings will be preserved, which will be replayed, which resources / contracts / milestones will be re-rolled, whether crew reservations will shift.
 
 **Desired behavior:**
 
 - Replace the existing one-line confirmation with a two-pane preview dialog anchored on the rewind button.
-- Left pane: **"Preserved"** — committed recordings whose `EndUT <= rewindTargetUT` (stay intact on the ledger); game-action milestones that already fired before the target; crew reservations that complete before the target.
-- Right pane: **"Re-rolled"** — committed recordings whose `StartUT > rewindTargetUT` (they'll still exist but their resource deltas + events re-apply from the target UT forward); milestones pending at UT > target (they'll re-fire); crew reservations spanning the target (standin chain resets).
-- Bottom pane: **"Abandoned"** — recordings strictly between the rewind point and live UT that were created on the branch being abandoned (only present if the player did work between some earlier launch and the rewind target).
+- Left pane: **"Before rewind point"** — committed recordings whose `EndUT <= rewindTargetUT` (stay intact on the ledger and their ledger effects remain applied); game-action milestones that already fired before the target; crew reservations that complete before the target.
+- Right pane: **"Re-rolled forward"** — committed recordings whose `StartUT > rewindTargetUT` (they stay committed; their resource deltas + events re-apply from the target UT forward as the player plays); milestones pending at UT > target (they'll re-fire); crew reservations spanning the target (stand-in chain resets).
 - Each pane shows a count + a preview list of the first ~5 items with `...and N more` if longer.
 - Confirm / Cancel buttons unchanged.
 
 **Why it matters:**
 
-Rewind currently feels like a commitment to the unknown — the player isn't sure what they'll lose. Making the consequences legible before the dialog closes reduces regret and teaches the three buckets (Preserved / Re-rolled / Abandoned), which are the clearest mental model for what rewind actually does.
+Rewind currently feels like a commitment to the unknown — the player isn't sure what they'll lose. Making the consequences legible before the dialog closes reduces regret and teaches the two buckets (before / re-rolled), which is the honest mental model: rewind is deterministic replay, nothing is thrown away.
 
 **Files to touch:**
 
 - `Source/Parsek/UI/RewindConfirmationUI.cs` (new or extension of the existing confirmation helper — current code is inlined in `RecordingsTableUI.ShowRewindConfirmation`).
-- A `RewindPreview.Build(recordings, ledgerActions, milestones, rewindTargetUT, liveUT)` pure helper that classifies each item into Preserved / Re-rolled / Abandoned. Lives next to `TimelineBuilder` since both walk similar data.
+- A `RewindPreview.Build(recordings, ledgerActions, milestones, rewindTargetUT, liveUT)` pure helper that classifies each item as "before rewind point" or "re-rolled forward". Lives next to `TimelineBuilder` since both walk similar data.
 - Tests: classification helper fully covered (happy path + each bucket's edge cases + an item spanning the target UT).
 
 **Out of scope for v1:**
