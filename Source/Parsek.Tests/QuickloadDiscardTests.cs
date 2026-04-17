@@ -203,24 +203,9 @@ namespace Parsek.Tests
                 l.Contains("Quickload discard complete") && l.Contains("tree=1"));
         }
 
-        [Fact]
-        public void DiscardStashedOnQuickload_WithDeferredFlightResults_ClearsDiscardedFutureState()
-        {
-            var tree = MakeTree("t_qd", "Quickload Victim", 2);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-            FlightResultsPatch.DeferredMergeArmed = true;
-            logLines.Clear();
-
-            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
-
-            Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(FlightResultsPatch.HasPendingResults());
-            Assert.False(FlightResultsPatch.DeferredMergeArmed);
-            Assert.Contains(logLines, l =>
-                l.Contains("Cleared pending results")
-                && l.Contains("pending tree discarded on quickload"));
-        }
+        // #434: removed DiscardStashedOnQuickload_WithDeferredFlightResults_ClearsDiscardedFutureState.
+        // FlightResultsPatch is gone — there's no deferred flight-results state to seed or assert on.
+        // The broader DiscardStashedOnQuickload behaviour is still exercised by the adjacent tests.
 
         [Fact]
         public void DiscardStashedOnQuickload_WithPendingTreeLimbo_Preserves()
@@ -245,19 +230,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiscardPendingTreeAndAbandonDeferredFlightResults_ClearsOwnerAndDeferredState()
+        public void DiscardPendingTreeAndAbandonDeferredFlightResults_DiscardsPendingTree()
         {
+            // #434: FlightResultsPatch is gone; this helper now just forwards to
+            // RecordingStore.DiscardPendingTree with a named reason for logging.
             var tree = MakeTree("t_cleanup", "Cleanup Carrier", 2);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
-            FlightResultsPatch.DeferredMergeArmed = true;
 
             ParsekScenario.DiscardPendingTreeAndAbandonDeferredFlightResults(
                 "unit test abandoned pending tree");
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(FlightResultsPatch.HasPendingResults());
-            Assert.False(FlightResultsPatch.DeferredMergeArmed);
         }
 
         [Fact]

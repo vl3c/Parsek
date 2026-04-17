@@ -317,4 +317,5 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 ### Scene Transitions
 
 - **Abort Mission** - If you leave Flight without reverting (e.g. Esc > Abort Mission to Space Center), any pending recording is automatically committed to the timeline. The vessel snapshot is discarded since the merge dialog isn't available outside Flight.
+- **Revert to Launch / VAB / SPH** - KSP's stock flight-results dialog (with its Revert buttons) shows first on a crash; Parsek no longer pre-empts it. Picking Revert unstashes the in-progress recording without deleting it — sidecar files and career events captured during the reverted flight stay on disk, so a quicksave you took during the flight can still be F9'd back into. The reverted events are hidden from the current career's ledger by an epoch bump. If you want the merge dialog instead, pick **Space Center** (or any non-revert exit).
 - **Missed EndUT** - If a recording's EndUT passes while you're in the Space Center or Tracking Station, reserved crew are automatically freed so they don't stay stuck as Assigned forever.

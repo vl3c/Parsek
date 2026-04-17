@@ -58,7 +58,7 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 434. Revert to Launch should auto-discard, not open the merge dialog
+## ~~434. Revert to Launch should auto-discard, not open the merge dialog~~
 
 **Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.
 
@@ -99,7 +99,7 @@ This TODO's correctness depends on #431 (event-purge-on-discard) landing first (
 
 **Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
-**Status:** TODO. Size: S-M. The merge-dialog-on-revert footgun is currently masked by the fact that most players discard anyway, but under the deterministic-timeline principle it's a latent correctness bug that should be gone before v0.9.
+**Status:** ~~DONE~~. Deleted `Patches/FlightResultsPatch.cs` and every caller (destruction arm, OnFlightReady safety net, ClearSceneChangeTransientState clear, MergeDialog.ResolveDeferredFlightResults, ParsekScenario.DiscardPendingTreeAndAbandonDeferredFlightResults ClearPending). `ShowPostDestructionTreeMergeDialog` now always stashes the pending tree and returns; the stock KSP crash report surfaces first, and the merge dialog / auto-commit fires in the destination scene via `ParsekScenario.OnLoad`'s deferred paths. Added `RecordingStore.UnstashPendingTreeOnRevert` — a soft clear that preserves sidecar files and captured events so a flight quicksave can still be F9'd back (per the KSP decompilation: revert-to-launch never touches disk, revert-to-VAB/SPH rewrites persistent.sfs but leaves sidecars). `ParsekScenario.OnLoad` isRevert branch calls it instead of `DiscardPendingTree`; the bumped `MilestoneStore.CurrentEpoch` filters the preserved events out of the current ledger. Deviation from the original plan: instead of the planned "hard discard on revert" (which would delete sidecar files and break F9-from-flight-quicksave), we went with soft unstash. Tests in `Source/Parsek.Tests/RevertDiscardTests.cs` cover the soft-clear across every `PendingTreeState`, the no-op path, and the `UnstashOnRevert` vs `DiscardPendingTree` contrast.
 
 ---
 

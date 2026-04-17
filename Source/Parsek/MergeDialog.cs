@@ -36,16 +36,6 @@ namespace Parsek
             ParsekLog.Verbose("MergeDialog", "Input lock set");
         }
 
-        /// <summary>
-        /// Called from button callbacks to resolve deferred stock flight results.
-        /// Replays the intercepted stock dialog if one was captured; otherwise
-        /// just clears any pre-capture suppression latch.
-        /// </summary>
-        internal static void ResolveDeferredFlightResults()
-        {
-            Patches.FlightResultsPatch.ReplayFlightResults();
-        }
-
         // ================================================================
         // Tree merge dialog
         // ================================================================
@@ -92,7 +82,6 @@ namespace Parsek
                     CrewReservationManager.SwapReservedCrewInFlight();
 
                     ClearPendingFlag();
-                    ResolveDeferredFlightResults();
                     OnTreeCommitted?.Invoke();
                     if (spawnCount > 0)
                         ParsekLog.ScreenMessage(
@@ -113,7 +102,6 @@ namespace Parsek
                     }
                     RecordingStore.DiscardPendingTree();
                     ClearPendingFlag();
-                    ResolveDeferredFlightResults();
                     ParsekLog.ScreenMessage("Recording discarded", 2f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Discard (tree='{tree.TreeName}', " +
