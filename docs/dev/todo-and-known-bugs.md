@@ -5,6 +5,19 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 ---
 
+## Priority queue — deterministic-timeline correctness
+
+These four TODOs are the top of the work queue. They're load-bearing correctness fixes that enforce the "every career effect flows from the committed ledger, nothing survives the recording it was born in" invariant. Ship in this order; #431 should land first since #433 / #434 depend on its purge semantics.
+
+1. **#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).
+2. **#432** — Gloops ghost-only recordings must not capture or apply any game events.
+3. **#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).
+4. **#434** — Revert to Launch should auto-discard, not open the merge dialog.
+
+Once this cluster lands, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
+
+---
+
 ## Post-review follow-ups on PR #307 (career-earnings-bundle)
 
 After the initial 11-bug bundle landed on `fix/career-earnings-bundle`, an independent
@@ -44,6 +57,340 @@ are fixed in the same PR branch with additional commits:
 ---
 
 # Known Bugs
+
+## 434. Revert to Launch should auto-discard, not open the merge dialog
+
+**Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.
+
+**The invariant that should hold:**
+
+> Revert is "this mission never happened". It is not a choice point — it's a declaration. The active recording (and its pending tree, if any) auto-discards with the same purge semantics as the merge-dialog Discard button, no player interaction required.
+
+**Desired behavior:**
+
+- On revert detection (`ParsekScenario` OnLoad with `isRevert = true`), skip the merge-dialog path entirely and route straight to `RecordingStore.DiscardPendingTree()`.
+- The discard must purge events stamped with the reverted recording's id (see #431). If #431 hasn't shipped yet, the epoch-increment fallback at `ParsekScenario.cs:970` stays — but the long-term correct path is purge-on-discard, not filter-by-epoch.
+- A brief screen message confirms the outcome — e.g. `"Recording discarded (revert)"` — so the player isn't surprised that no dialog appeared.
+- Flight-scene revert: the in-progress recording is discarded even if it wasn't yet stashed as pending. The recorder flushes whatever it had, then routes through the same discard path.
+- Gloops recordings under revert: already auto-committed when stopped, but on revert they're treated like any other recording — discarded (and under #432 they have no events to purge anyway).
+
+**Files likely to touch:**
+
+- `Source/Parsek/ParsekScenario.cs` — the `isRevert` branch around line 964-977. Currently it just increments epoch and schedules budget deduction; needs to also discard the pending tree and any active recorder state.
+- `Source/Parsek/ParsekFlight.cs` — the revert-detection path that currently leads into the merge dialog. Short-circuit to discard on `isRevert`.
+- `Source/Parsek/MergeDialog.cs` — unchanged, but verify it's not invoked at all on revert. The Discard button logic becomes the shared entry point used by both code paths.
+- `Source/Parsek/RecordingStore.cs` — `DiscardPendingTree` already purges per #431 once that lands; no new work unless the revert path needs an extra entry helper.
+- `Source/Parsek.Tests/RevertDiscardTests.cs` (new) — synthetic revert with a pending tree, assert the dialog never opens, the tree is discarded, linked events are purged (once #431 is in), and no `VesselSpawn` fires at ghost-end for the reverted recording.
+- `docs/user-guide.md` — add a one-liner under "Automatic Behaviors → Scene Transitions": "Revert to Launch auto-discards the in-progress recording. Use Abort Mission to Space Center if you want the merge dialog."
+
+**Interaction with existing "Abort Mission" path:**
+
+- `docs/user-guide.md` already documents that aborting to Space Center auto-commits any pending recording (with vessel snapshot discarded). That behavior stays — Abort is "keep what I recorded, no merge dialog"; Revert is "nothing happened, drop everything".
+- The two non-merge-dialog exits (Abort = auto-commit, Revert = auto-discard) are symmetric: the dialog is for the normal end-of-flight path only.
+
+**Out of scope for v1:**
+
+- An opt-in developer toggle to restore the dialog-on-revert behavior for debugging. If that's ever needed, it belongs behind a `ParsekSettings.showMergeDialogOnRevert` devmode flag, default off. Don't add it unless a concrete debugging need surfaces.
+- Prompting the player for confirmation before auto-discarding on revert. Revert itself is the confirmation; adding a second "are you sure?" dialog would be noise.
+
+**Dependency on #431:**
+
+This TODO's correctness depends on #431 (event-purge-on-discard) landing first (or together). Without #431, auto-discard-on-revert still prevents the vessel-spawn paradox (no merge ⇒ no committed recording ⇒ no spawn) but still leaks raw `GameStateEvent`s captured during the reverted flight via the store-and-epoch-filter path. That leak is what #431 fixes. Ship them as a pair or ship #431 first.
+
+**Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
+
+**Status:** TODO. Size: S-M. The merge-dialog-on-revert footgun is currently masked by the fact that most players discard anyway, but under the deterministic-timeline principle it's a latent correctness bug that should be gone before v0.9.
+
+---
+
+## 433. `PlaybackEnabled` toggle should be visual-only — stop gating vessel spawn and crew reservations
+
+**Source:** investigation triggered by the "timeline is deterministic" principle. The Recordings window's leftmost checkbox (`Recording.PlaybackEnabled`, defined at `Recording.cs:116` with the comment `"false = skip ghost during playback"`) claims to be a rendering hint. In practice, the flag also silently suppresses career-state effects in two places, which violates the deterministic-timeline principle (the recording is on the committed ledger regardless of whether its ghost is visible).
+
+**Current behavior (audited):**
+
+- Ghost rendering — *skipped* when disabled. `GhostPlaybackEngine.cs:276-285` destroys / skips the ghost under the `skipGhost` flag set from `!rec.PlaybackEnabled` at `ParsekFlight.cs:8763`. **Correct — visual-only.**
+- KSC tracking-station visibility — *hidden* via `ParsekKSC.cs:495 ShouldShowInKSC` early return. Correct, visual-only.
+- Ledger `Actions` — *still applied*. No check in `LedgerOrchestrator` / `RecalculationEngine`. Correct.
+- `ResourceBudget` funds/sci/rep — *still subtracted*. No filter in `ResourceBudget.ComputeTotal`. Correct.
+- **Vessel spawn at ghost-end** — *gated by `PlaybackEnabled`*. Per `design-timeline.md:102`: "Emits `VesselSpawn` at `rec.StartUT` if `rec.PlaybackEnabled`". **Bug.** If the mission's vessel was supposed to persist (station, rover, flagship), toggling playback off silently drops the spawn, leaving the career with the mission's resource / contract effects applied but the vessel missing.
+- **Crew reservations for fully-disabled chains** — *skipped*. `KerbalsModule.cs:176-177`: `if (meta.IsDisabledChain) return;` in `ProcessAction` short-circuits before the recording's crew names are added to `allRecordingCrew`. **Bug.** The stand-in chain can release crew that logically still belong to the mission.
+
+**The invariant that should hold:**
+
+> `PlaybackEnabled = false` means "don't render this recording's ghost". It does NOT mean "pretend this recording doesn't exist". Every career-state effect — ledger actions, resource deltas, crew reservations, vessel spawn at end — stays active regardless of the flag.
+
+**Desired behavior:**
+
+- `ParsekFlight.cs:8763` — keep `skipGhost` gated by `!rec.PlaybackEnabled` (visual-only; correct).
+- `ParsekFlight` vessel-spawn-at-ghost-end path — remove the `PlaybackEnabled` gate. Spawn runs unconditionally at `rec.StartUT + rec.Duration` (or wherever the spawn decision lives; verify against `design-timeline.md:102`).
+- `KerbalsModule.cs:176-177` — drop the `IsDisabledChain` early-return. Crew reservations follow ledger actions, not the visual toggle.
+- `RecordingStore.IsChainFullyDisabled` — audit all other call sites (`RecordingStore.cs:1288, 1307`, `RecordingOptimizer.cs:55`) and decide per-site whether they're genuine visual concerns (keep) or career-state concerns (drop the gate).
+- Update `Recording.cs:116` comment from `"false = skip ghost during playback"` to a clearer `"false = hide ghost during playback; does not affect ledger actions, vessel spawn, crew reservations, or resource budget"`.
+- Update `design-timeline.md:102` to remove the `if (rec.PlaybackEnabled)` qualifier on `VesselSpawn` emission.
+- User-guide note: "The enable checkbox hides the ghost visual — nothing else. Resources, contracts, crew, and the final vessel still follow the committed mission."
+
+**Files likely to touch:**
+
+- `Source/Parsek/ParsekFlight.cs` — vessel-spawn gate at the spawn site.
+- `Source/Parsek/KerbalsModule.cs` — drop lines 176-177 and any related `IsDisabledChain` branch upstream.
+- `Source/Parsek/Recording.cs` — comment update.
+- `Source/Parsek/RecordingStore.cs` / `Source/Parsek/RecordingOptimizer.cs` — audit remaining gate sites.
+- `Source/Parsek.Tests/PlaybackEnabledScopeTests.cs` (new) — per call-site test verifying that disabling a recording does NOT suppress its ledger actions, resource cost, crew reservation, or vessel spawn.
+- `docs/design-timeline.md` — doc correction.
+- `docs/user-guide.md` — Recordings Manager column description: clarify the checkbox is visual-only.
+
+**Related edge cases to work through in the plan:**
+
+- A disabled recording at a loop boundary — today `RecordingStore.cs:1288` checks `PlaybackEnabled && LoopPlayback`. Loop is a visual concept (the ghost replays). Keep the visual gate here; no change.
+- Chain that's PARTIALLY disabled (some recordings enabled, some disabled) — the fully-disabled-chain path at `KerbalsModule.cs:176-177` is specifically the all-off case. Partial chains already work correctly because each recording's crew is enumerated per-recording. The fix is to remove the all-off special case, making behavior uniform.
+
+**Out of scope for v1 of this fix:**
+
+- Adding a SEPARATE "skip career effects" toggle for players who explicitly want to exclude a recording from the ledger — this would contradict the deterministic-timeline principle; if a player wants to exclude a recording's effects, the answer is Delete (post-commit) or Discard (pre-commit), not a toggle.
+- Retroactively reconciling saves where a disabled recording's vessel "should have" spawned but didn't. The player can toggle the recording back on to trigger the spawn at the next ghost-end cycle, or re-rewind through it.
+
+**Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
+
+**Status:** TODO. Size: S-M. **Correctness bug under the deterministic-timeline principle.** Pairs conceptually with #431 (which also enforces "career state flows from the committed ledger, not from UI state"). Ship before any rework that depends on the toggle's semantics being visual-only.
+
+---
+
+## 432. Gloops ghost-only recordings must not capture or apply any game events
+
+**Source:** world-model conversation follow-up to #431. Gloops recordings (the "Gloops - Ghosts Only" group) are manual captures made for pure visual / airshow replays — they're flagged `IsGhostOnly`, auto-loop by default, and never spawn a real vessel at ghost-end. Their intent is decorative: the player records a cinematic flight and wants to see it loop in the background forever. They should have zero career-state footprint: no contracts, no science, no funds deltas, no milestones, no reputation, no tech research, no part purchases — nothing that a Gloops recording does in-flight should leak into the committed career ledger.
+
+Currently `GameStateRecorder` runs regardless of recording type, so events captured during a Gloops flight window end up in `GameStateStore.Events` exactly like they would during a normal recording. Their eventual fate depends on whatever downstream plumbing happens; even if the Gloops recording itself produces zero actions, the raw events still get bundled into milestones and applied to the career ledger. That's wrong by design — a Gloops recording should be invisible to the career.
+
+**The invariant that should hold:**
+
+> While a recording is active AND flagged `IsGhostOnly`, `GameStateRecorder` must not capture any new `GameStateEvent`s into `GameStateStore.Events`. On the apply side (ledger walk, `KspStatePatcher`, etc.), any recording flagged `IsGhostOnly` must contribute zero actions to the ledger regardless of what got captured.
+
+**Desired behavior:**
+
+- `GameStateRecorder` consults the active recording's `IsGhostOnly` flag at event-capture time. When true, the `AddEvent` / `OnContract*` / `OnTechResearched` / `OnPartPurchased` / etc. handlers short-circuit with a Verbose log (`"Gloops recording active — event X suppressed"`) and do not push to the store.
+- Defense-in-depth on the apply side: any `GameAction` tagged with a `RecordingId` belonging to an `IsGhostOnly` recording is skipped by the ledger walk (`Effective = false` with reason `GhostOnly`, or filtered at recording-iterate time).
+- Verify the science pipeline specifically: `GameStateRecorder.PendingScienceSubjects` should not accept subjects captured during a Gloops recording. Stop at the entry gate, same as other events.
+- The flight itself still records trajectory + part events (engine fire, decouples, parachutes, etc.) — Gloops's whole point is the visual replay. Only the career-event side is suppressed.
+
+**Files likely to touch:**
+
+- `Source/Parsek/GameStateRecorder.cs` — every `GameEvents.*` handler that currently writes to `GameStateStore` / `PendingScienceSubjects` gains an early-return guard: `if (ParsekFlight.Instance?.ActiveRecording?.IsGhostOnly == true) { log + return; }`. Pick a helper method or a property accessor to avoid duplicating the guard 20 times.
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs` or `RecalculationEngine` — skip recordings with `IsGhostOnly = true` during the walk. Probably already happens implicitly (they have zero actions today), but codify it explicitly so #431's event-tagging work doesn't accidentally route events through a Gloops recording.
+- `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` (new) — record a synthetic Gloops recording that fires a contract-accept event mid-flight; assert the event never reaches `GameStateStore.Events` and the ledger walk produces no corresponding action.
+- `docs/user-guide.md` Gloops section — add a one-line note: "Gloops recordings have no effect on your career's contracts, science, funds, or milestones — they're purely visual."
+
+**Out of scope for v1 of this fix:**
+
+- Retroactive cleanup of existing saves that have leaked events from past Gloops recordings. Document the limitation; ship a forward-fix.
+- Allowing the player to opt into career capture for a Gloops recording. That would contradict the "decorative-only" design intent; if someone wants career effects they should use a normal recording.
+
+**Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
+
+**Status:** TODO. Size: S-M. Pairs naturally with #431 (both enforce "events must share the recording's intent"); ship together or back-to-back.
+
+---
+
+## 431. Events captured during a recording should share the recording's commit/discard fate
+
+**Source:** world-model conversation on #429. Today's epoch mechanic only advances on Revert (`ParsekScenario.cs:970`) and Rewind (`ParsekScenario.cs:1309`), which filters events tagged with the previous epoch out of milestone / ledger walks. But **Discard from the merge dialog** (`MergeDialog.cs:107` → `RecordingStore.DiscardPendingTree` at `RecordingStore.cs:981`) does NOT increment the epoch and only clears `GameStateRecorder.PendingScienceSubjects`. Everything else captured during that flight is still in `GameStateStore.Events` with the current epoch, gets bundled into the next milestone, and stays permanently on the career's ledger — even though the flight that produced it was thrown away.
+
+**The invariant that should hold:**
+
+> A raw `GameStateEvent` captured during the lifetime of a recording should share that recording's commit/discard fate. Commit the recording → event stays. Discard the recording → event is purged (or at minimum, epoch-tagged so it's filtered out of the active career's ledger).
+
+**Concrete player-visible failures this causes:**
+
+- Complete a contract during a Mun landing attempt, then hit Revert-and-Discard. The contract stays Completed on the career's ledger. Funds + rep from the completion stay credited.
+- Achieve `FirstMunFlyby` during a recording, discard it. Milestone is credited permanently even though the mission never happened on the committed timeline.
+- Research a tech node at KSC *during* flight (unlikely but possible via KAC / background events), discard the recording — tech stays researched.
+
+The symmetric-case is fine: Revert already advances the epoch, so those events get filtered out. It's specifically the **no-revert, merge-dialog-Discard** path that leaks.
+
+**Desired behavior:**
+
+- When a recording starts (or when a tree is stashed as pending), stamp subsequent `GameStateEvent`s with a `recordingId` (or `treeName`) indicating which in-flight capture produced them. Events captured at KSC between recordings (no active recording) stay untagged and belong to the career's between-mission state.
+- When `DiscardPendingTree` runs, walk `GameStateStore.Events` and remove every event whose `recordingId` / `treeName` matches the discarded tree. `PendingScienceSubjects.Clear()` stays as today, but is now one specific case of a broader purge.
+- When Revert fires, the in-flight recording is implicitly discarded — apply the same purge to events stamped with that recording's id. Revert and merge-dialog Discard are two doors to the same outcome: "this recording never happened", and its events go with it.
+- When a tree is committed via merge, no filtering is applied — the events naturally flow into the next milestone bundle as today.
+- Retire the `MilestoneStore.CurrentEpoch` filter mechanism once this lands. Epoch counters were a filter-and-forget workaround for leaked events; deterministic purge removes the need for the filter. Ship as a clean-up pass after #431+#432 prove out.
+
+**Related edge cases to work through in the plan:**
+
+- Deletion of an **already-committed** recording from the Recordings Manager: events from it have already been bundled into milestones and applied to the ledger. The commit was the decision point; deletion is metadata cleanup, not time travel. Leave those events alone.
+- EVA-split chains: if the parent recording commits but a child recording is discarded (or vice versa), only the discarded one's events are purged. Tagging per-recording (not per-tree) resolves this — verify against the tree-merge path in the plan.
+- Gloops ghost-only recordings (`Gloops - Ghosts Only` group) are covered by #432: they never capture events, so #431's purge logic is a no-op for them.
+
+**Files likely to touch:**
+
+- `Source/Parsek/GameStateEvent.cs` — add a nullable `RecordingId` (or `TreeName`) field, serialize it.
+- `Source/Parsek/GameStateRecorder.cs` — capture `ActiveRecordingId` / `ActiveTreeName` at event-creation time and stamp it on the emitted `GameStateEvent`.
+- `Source/Parsek/GameStateStore.cs` — new helper `PurgeEventsForTree(treeName)` / `PurgeEventsForRecording(recordingId)`; test-covered pure filter.
+- `Source/Parsek/RecordingStore.cs` — `DiscardPendingTree` calls the new purge helper before clearing `pendingTree`.
+- `Source/Parsek.Tests/GameStateStoreExtractedTests.cs` + new scenario tests under `Source/Parsek.Tests/DiscardFateTests.cs` (or similar): verify that a contract-accept event captured during a synthetic recording that is then discarded does not appear in any subsequent milestone.
+- `docs/user-guide.md` — a one-liner note that Discard fully undoes the mission's career effects (contracts, milestones, tech, etc.).
+
+**Out of scope for v1 of this fix:**
+
+- Retroactive purge of past save files that already contain leaked discard-time events. Ship a fresh-save fix; document the limitation for already-affected saves.
+- UI surface for "these events got discarded". The fix is silent; proactive warnings live in #427.
+
+**Priority:** **HIGHEST** (ships first in the deterministic-timeline correctness cluster — #432 / #433 / #434 depend on its purge semantics).
+
+**Status:** TODO. Size: M. Invariant leak that erodes trust in the ledger-as-truth principle because players discover the symptom hours later ("wait, why is this contract already complete?"). Worth doing before the v0.9 cycle.
+
+---
+
+## 430. "Why is this blocked?" explainer for the committed-action dialog
+
+**Source:** follow-up on the "paradox communication" thread — currently when the player tries to re-research a tech or re-upgrade a facility that's already committed to a future timeline event, `CommittedActionDialog` pops up with a short "Blocked action: X — reason" message. The reason is generic and the player has no way to see *which* committed action is causing the block, or *when* it will play out.
+
+**Desired behavior:**
+
+- Replace the one-line reason with a structured block:
+  - The action the player tried (e.g. "Research node: Heavier Rocketry").
+  - The committed action that blocks it, including the source recording and its UT (e.g. "Already scheduled at UT 183420 in recording 'Mun Lander 3'").
+  - A `Go to Timeline` button that opens the Timeline window and scrolls to the offending entry (reuses `TimelineWindowUI.ScrollToRecording`).
+  - A `Revert to launch` shortcut if the player actually wants to undo it (routes to the existing rewind dialog pre-filled with the blocking recording).
+- Keep the OK/close path unchanged so existing muscle memory still works.
+
+**Why it matters:**
+
+The mental model of "you can't do this because the timeline already did" is counter-intuitive for a first-time player. Showing the *which* and *when* turns a mysterious block into a debuggable constraint, reinforcing the ledger-as-truth principle every time a block fires.
+
+**Files to touch:**
+
+- `Source/Parsek/CommittedActionDialog.cs` — extend the dialog body; accept an optional `blockingRecordingId` + `blockingUT` + `blockingAction` tuple.
+- `Source/Parsek/Patches/*Patch.cs` (where blocks are triggered for tech research / facility upgrade / part purchase) — pass the conflict context into the dialog instead of just the short reason string.
+- `Source/Parsek/UI/TimelineWindowUI.cs` — already has `ScrollToRecording`; no changes beyond what's there.
+
+**Out of scope for v1:**
+
+- Auto-resolving the block by rewinding silently; this stays an informational dialog, not a one-click rewind.
+- Collapsing multiple overlapping blocks into a summary (each block fires its own dialog as today).
+
+**Status:** TODO. Size: S-M. Best quality-per-effort of the paradox-comms work.
+
+---
+
+## ~~429. Abandoned-epoch overlay in Timeline~~
+
+**Scrapped.** Framed on a flawed world model. The timeline is deterministic — there shouldn't be an "abandoned" bucket to visualize. What does exist today (epoch-filtered events from pre-revert / pre-rewind sessions) is an implementation artifact, not a feature. The right direction is #431 + #432 (purge-on-discard + Gloops-never-captures), after which the epoch filter becomes redundant book-keeping worth retiring.
+
+---
+
+## 428. Preview-rewind pane
+
+**Source:** follow-up on the "cost-of-rewind is hard to intuit" thread. Rewind is the most consequential single action in Parsek — it moves the player back to a chosen launch point and replays forward with existing ghosts. But right now the rewind confirmation dialog shows a single summary line ("Rewind to 'Mun Lander 3' at Y1 D23?") and a raw count of "how many future recordings exist". A player can't tell before confirming: which exact recordings will be preserved, which will be replayed, which resources / contracts / milestones will be re-rolled, whether crew reservations will shift.
+
+**Desired behavior:**
+
+- Replace the existing one-line confirmation with a two-pane preview dialog anchored on the rewind button.
+- Left pane: **"Before rewind point"** — committed recordings whose `EndUT <= rewindTargetUT` (stay intact on the ledger and their ledger effects remain applied); game-action milestones that already fired before the target; crew reservations that complete before the target.
+- Right pane: **"Re-rolled forward"** — committed recordings whose `StartUT > rewindTargetUT` (they stay committed; their resource deltas + events re-apply from the target UT forward as the player plays); milestones pending at UT > target (they'll re-fire); crew reservations spanning the target (stand-in chain resets).
+- Each pane shows a count + a preview list of the first ~5 items with `...and N more` if longer.
+- Confirm / Cancel buttons unchanged.
+
+**Why it matters:**
+
+Rewind currently feels like a commitment to the unknown — the player isn't sure what they'll lose. Making the consequences legible before the dialog closes reduces regret and teaches the two buckets (before / re-rolled), which is the honest mental model: rewind is deterministic replay, nothing is thrown away.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/RewindConfirmationUI.cs` (new or extension of the existing confirmation helper — current code is inlined in `RecordingsTableUI.ShowRewindConfirmation`).
+- A `RewindPreview.Build(recordings, ledgerActions, milestones, rewindTargetUT, liveUT)` pure helper that classifies each item as "before rewind point" or "re-rolled forward". Lives next to `TimelineBuilder` since both walk similar data.
+- Tests: classification helper fully covered (happy path + each bucket's edge cases + an item spanning the target UT).
+
+**Out of scope for v1:**
+
+- Previewing the new resource balance after rewind. Just show counts + first few items.
+- Undo for rewind. One-way operation stays one-way.
+
+**Status:** TODO. Size: M-L. Biggest UX win per dollar on the rewind mechanic.
+
+---
+
+## 427. Proactive paradox warnings surface
+
+**Source:** follow-up on the conversation after shipping the Career State window. Today the mod prevents paradoxes mostly via blocks (action-blocked dialog) and a single red over-committed warning in the Timeline's resource footer. There's no centralized surface that says "your committed timeline has these N potential issues" — so a player can build up a career with, e.g., a contract that expires before its committed completion, or a facility upgrade requiring a level that won't be reached in time, and only discover the contradiction when it fires (or silently zeroes out).
+
+**Desired behavior:**
+
+- A **Warnings** badge on the main ParsekUI button row — hidden when count is 0, shown as `Warnings (N)` when any warning rules fire.
+- Clicking opens a small scrollable window listing each warning as a row:
+  - Category tag (`Contract`, `Facility`, `Strategy`, `Resource`, `Crew`).
+  - One-line description (`Contract "Rescue Kerbal" deadline UT 240000 is before committed completion at UT 250000`).
+  - `Go to ...` button linking to the relevant other window (Timeline scroll, Career State tab, etc.).
+- Warnings are computed once per `OnTimelineDataChanged` fan-out (same cache-invalidation channel everything else uses).
+- Starter rule set, each as a pure static helper in `WarningRules.cs`:
+  - **ContractDeadlineMissed** — active contract's `DeadlineUT < terminal-UT of its committed completion recording`.
+  - **FacilityLevelRequirement** — an action requires facility level N but the facility doesn't reach N until after that action's UT.
+  - **StrategySlotOverflow** — projected active strategies > projected max slots (currently only warned in log, not UI).
+  - **ContractSlotOverflow** — same for contracts.
+  - **CrewDoubleBooking** — a stand-in appears in two chains at overlapping UT ranges.
+  - **ResourceOverCommit** — already shown in Timeline budget footer, but also listed here for one-stop-shop.
+
+**Why it matters:**
+
+Action blocking catches paradoxes at the moment the player tries to violate them. Warnings catch *latent* contradictions that the ledger can detect but won't error on — the subtle ones where the ledger silently picks a resolution the player didn't intend (e.g. contract gets zeroed out because its deadline passed unexpectedly). Surfacing these early turns the mod's "structural paradox prevention" into a communicated design contract rather than a hidden invariant.
+
+**Files to touch:**
+
+- `Source/Parsek/UI/WarningsWindowUI.cs` — new scrollable list window.
+- `Source/Parsek/WarningRules.cs` — new pure-static rule evaluators, one method per rule, each returning `List<Warning>` given `(ledger, recordings, modules)`. Heavy unit-test coverage.
+- `Source/Parsek/ParsekUI.cs` — add the badge button + open toggle; integrate with `OnTimelineDataChanged` cache invalidation.
+- `Source/Parsek.Tests/WarningRulesTests.cs` — one test per rule (happy + each flag condition).
+
+**Out of scope for v1:**
+
+- Auto-fix for any warning. Pure read-only surface.
+- Severity levels / color-coding. All warnings are equal in v1; add severity in a follow-up if there are too many of one kind.
+- Per-rule disable toggles. Playtesting can decide which rules feel noisy before we add knobs.
+
+**Status:** TODO. Size: M. Complements the help popup (#426) — where help explains the system, warnings explain *your career's* specific issues. Together they turn the mod from "learn by experimenting" to "learn by seeing the model."
+
+---
+
+## 426. In-window help popups explaining each Parsek system
+
+**Source:** follow-up conversation during the #416 UI polish pass. A player unfamiliar with the mod has to read `docs/user-guide.md` (out of the game) to understand what each window's sections and columns mean. The mechanics are specific enough (slots vs. stand-ins vs. reservations, per-recording fates, timeline tiers, resource budget semantics, etc.) that even tooltips-on-hover don't carry the full picture. An in-game help surface keeps the explanation next to the thing it explains.
+
+**Desired behavior:**
+
+- A small `?` icon button rendered in the title bar (or as the last button in the main toolbar row) of each Parsek window: Recordings, Timeline, Kerbals, Career State, Real Spawn Control, Gloops Flight Recorder, Settings.
+- Clicking the `?` opens a small modal-ish popup window titled `Parsek - {Window} Help` anchored next to the parent window.
+- The popup body is static help text tailored to that window. For tabbed windows (Kerbals, Career State), the help content should also cover each tab, either as one scrolling document or as a small tab-match sub-structure inside the popup. Keep each section brief (5-15 sentences) — the goal is orientation, not exhaustive docs.
+- A "Close" button and `GUI.DragWindow()` so the popup can be moved.
+- Help text can be hard-coded string constants in `Source/Parsek/UI/HelpContent/` (one file per window). No runtime load, no localization for v1.
+- Suggested starter content:
+  - **Recordings** — column-by-column walkthrough, L/R/FF/W/Hide button meanings, group vs chain vs ghost-only distinction.
+  - **Timeline** — Overview vs Details tiers, Recordings/Actions/Events source toggles, time-range filter, resource-budget footer, loop toggle semantics on entry rows, GoTo cross-link.
+  - **Kerbals** — slots vs stand-ins vs reservations (Roster State tab), chronological outcomes per kerbal (Mission Outcomes tab), outcome-click-scrolls-Timeline.
+  - **Career State** — contracts / strategies / facilities / milestones tabs, current-vs-projected columns when the timeline holds pending recordings, Mission Control / Administration slot math.
+  - **Real Spawn Control** — what it does (warp-to-vessel-spawn), State column, 500m proximity trigger.
+  - **Gloops** — ghost-only manual recording, loop-by-default commit, X delete button in Recordings.
+  - **Settings** — group-by-group overview (Recording, Looping, Ghosts, Diagnostics, Recorder Sample Density, Data Management); call out Auto-merge, Auto-launch, Camera cutoff, Show-ghosts-in-Tracking-Station.
+
+**Out of scope for v1:**
+
+- Inline tooltips on every sub-control (hover-tooltips already exist for a few buttons; expanding them is a separate follow-up).
+- Localization / translation.
+- Interactive tutorials.
+- Search within help content.
+- External hyperlinks (no browser launch from KSP IMGUI reliably).
+
+**Files to touch:**
+
+- New: `Source/Parsek/UI/HelpWindowUI.cs` (shared small popup window; takes a `windowKey` + body-text source).
+- New: `Source/Parsek/UI/HelpContent/*.cs` (one static class per window, each exposes `public const string Body` or a `BuildBody()` method if dynamic content is needed later).
+- Each existing window UI file (RecordingsTableUI, TimelineWindowUI, KerbalsWindowUI, CareerStateWindowUI, SpawnControlUI, GloopsRecorderUI, SettingsWindowUI): add a small `?` button and an `IsHelpOpen` toggle that feeds HelpWindowUI.
+- `ParsekUI.cs`: add a single shared `HelpWindowUI` field + accessor so every window delegates to the same instance (only one popup open at a time).
+- `CHANGELOG.md` entry under Unreleased.
+- `docs/user-guide.md` can mention the new `?` buttons briefly but stays as the authoritative long-form reference.
+
+**Status:** TODO. Size: M. Style it the same way as the rest of the mod (shared section headers, dark list box for paragraph groups, pressed toggle idiom if any sub-tabs appear).
+
+---
 
 ## ~~425. Stock map icons can get stuck on the fallback diamond for an entire scene if the first draw predates MapView.UINodePrefab~~
 
@@ -1316,7 +1663,7 @@ The retired stand-ins belong in a kerbal-centric view alongside the other scatte
 
 ---
 
-## 416. Career-state window: surface Contracts / Facilities / Strategies / Milestones
+## ~~416. Career-state window: surface Contracts / Facilities / Strategies / Milestones~~
 
 **Source:** follow-up from PR #320 (#385 Kerbals window). Four of the eight Parsek resource modules have **no UI surface at all today**: `ContractsModule`, `FacilitiesModule`, `StrategiesModule`, and `MilestonesModule` (all in `Source/Parsek/GameActions/`). Their state is tracked internally by the ledger and fed into the Timeline's budget footer (`TimelineWindowUI.DrawResourceBudget`), but the per-module detail is invisible.
 
@@ -1371,7 +1718,49 @@ Sort/stability rules mirror the Kerbals window (ordinal by name, then by UT with
 - `Source/Parsek/GameActions/MilestonesModule.cs` — possibly expose UT-of-credit alongside the existing `IsMilestoneCredited`.
 - `Source/Parsek.Tests/CareerStateWindowUITests.cs` — pure `Build()` unit tests.
 
-**Status:** TODO. Size: M-L. Likely wants a design pass before coding — e.g. whether Facilities + Strategies + Admin slots belong together in a "KSC" sub-section, whether Milestones should be filterable by category, whether to expose the per-contract reward breakdown or defer that to a later polish pass.
+**Status:** DONE. Shipped as four-tab window (Contracts / Strategies / Facilities / Milestones) with current-vs-projected columns, backed by a one-pass `Ledger.Actions` walk that reuses `LedgerOrchestrator.GetContractSlots/GetStrategySlots` (contracts keyed on MissionControl level, strategies on Administration). No new public surface on the four career modules. Tabs use `GUILayout.Toolbar` (Parsek-first), column widths + disclosure arrows mirror the `RecordingsTableUI` conventions. Companion item (Kerbals Fates → Timeline scroll) landed alongside, plus a Verbose log on the Timeline scroll no-match branch. Design doc: `docs/dev/plans/career-state-window.md`. Out of scope for v1 and retained as polish candidates: per-tab scroll position, per-contract reward breakdown, milestone filtering by category, live-UT ticker refresh of the mode banner.
+
+---
+
+## ~~416-1. New career starts with zero funds — GameStateRecorder treats starting roster as paid hires~~
+
+**Source:** c2 career-mode playtest `2026-04-17` (logs `logs/2026-04-17_1301_c2-funds-bug/`). Player started a new career with `StartingFunds = 25000`; `Funding` scenario ended at `funds = 0` within 26 seconds of career creation. `KspStatePatcher` drew funds down to zero via seven back-to-back `KerbalHire` events charging `62113` per kerbal against procedurally-named applicants (`Tomton Kerman`, `Aldard Kerman`, `Helbert Kerman`, `Jedbree Kerman`, `Clauald Kerman`, `Zelfry Kerman`, `Tizer Kerman`). KspStatePatcher's own guard logged `"PatchFunds: suspicious drawdown delta=-25000.0 … earning channel may be missing"` but did not block the write.
+
+**Root cause:** `GameStateRecorder.Subscribe` (Source/Parsek/GameStateRecorder.cs:88) listened to `GameEvents.onKerbalAdded`. Per KSP decompilation (`KerbalRoster.AddCrewMember` → `GameEvents.onKerbalAdded.Fire`), that event fires for **every** `AddCrewMember` call — including the four starter kerbals instantiated in `GenerateInitialCrewRoster` and every procedurally generated applicant added by the pool-refresh helper `AddApplicant`. The real "player paid to hire" signal is `GameEvents.OnCrewmemberHired`, fired only from `KerbalRoster.HireApplicant` (KSP `Assembly-CSharp` line `2603`, just before the `Applicant → Crew` type flip). `MissionParamsExtras.astronautHiresAreFree` (present in the save at `True`) turned out to be a red herring — that flag is scoped to `GameParameters.GameMode.MISSION` only, not CAREER.
+
+**Fix:** swapped the subscription in `Subscribe` and `Unsubscribe` to `GameEvents.OnCrewmemberHired`; renamed the handler to `OnCrewmemberHired(ProtoCrewMember crew, int activeCrewCount)` and used the pre-hire crew count KSP passes in, avoiding a race with the imminent type flip. Extracted `ComputeHireCost(int activeCrewCount)` as an `internal static` null-safe helper (returns 0f when `GameVariables.Instance == null` or `HighLogic.CurrentGame == null`) for testability.
+
+**Tests:** three new regression tests in `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs` — `OnKscSpending_CrewHired_AddsKerbalHireActionWithCost` (full flow with cost), `OnKscSpending_CrewHired_ZeroCost_LandsAsZeroCostAction` (defensive — zero cost still lands as a KerbalHire with zero fund impact), `ComputeHireCost_NullGameVariables_ReturnsZero` (null-safety).
+
+**Files touched:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
+
+**Status:** ~~Fixed~~. Size: S. Retest c3 career `2026-04-17` (logs `logs/2026-04-17_1629_c2-postfix-retest/`): `funds = 60562` after play, zero `Game state: CrewHired` events, zero `KerbalHire` ledger actions.
+
+---
+
+## ~~416-2. Crashed-vessel recordings lose their R (rewind) button — rewind save filename orphaned on disk~~
+
+**Source:** c3 career playtest `2026-04-17` (logs `logs/2026-04-17_1629_c2-postfix-retest/`). Three of six committed recordings had `rewindSave = (none)` in the save file even though the `parsek_rw_*.sfs` files existed on disk under `saves/c3/Parsek/Saves/`. All three were `terminalState = Destroyed` (crashes): `2bf9ed747a...` (Sounder 0 first launch), `9f358dcda0...` (Sounder 0 second launch), `3eb5c3c0b4...` (Sounder 1 second launch). Result: `RecordingStore.GetRewindSaveFileName` returned `null`, `TimelineWindowUI.cs:699` never rendered the R button.
+
+**Root cause:** the crash path routes through `FallbackCommitSplitRecorder` → `TryAppendCapturedToTree` (ParsekFlight.cs:2367) and returns early from the fallback method when the append succeeds, skipping the `rec.RewindSaveFileName = captured.RewindSaveFileName` copy at `ParsekFlight.cs:2392` (that line only runs on the standalone fallback below the early return). `TryAppendCapturedToTree` itself (line 1862) only copies trajectory points + a couple of flags; it did not forward `RewindSaveFileName`, `PreLaunchFunds/Science/Reputation`, or `RewindReservedFunds/Science/Rep` to the tree root. Later, `FinalizeTreeRecordings` ran with `this.recorder == null` — the joint break had moved the main recorder into `pendingSplitRecorder` (see the comment at `ParsekFlight.cs:1152`), so its own `CopyRewindSaveToRoot(tree, recorder, ...)` call at line `6506` silently no-oped under the `if (recorder != null)` guard. Net: the captured rewind save name lived only on the now-discarded recorder state; nothing bridged it to the committed tree root.
+
+**Fix:** `TryAppendCapturedToTree` now calls `CopyRewindSaveToRoot(tree, captured, logTag: "TryAppendCapturedToTree")` after the append, reusing the existing helper (`ParsekFlight.cs:1673`) with its first-wins semantics so legitimate pre-existing root data on multi-branch paths is preserved. The helper lifts `RewindSaveFileName` plus the pre-launch and reserved-budget trios onto `tree.Recordings[tree.RootRecordingId]`.
+
+**Tests:** two new regression tests in `Source/Parsek.Tests/TryAppendCapturedToTreeTests.cs` — `TreeMode_LiftsCapturedRewindSaveOntoRoot` (empty root picks up all six fields + "copied rewind save" log line), `TreeMode_DoesNotOverwriteRootRewindSave_FirstWins` (populated root is preserved, bridge call no-ops).
+
+**Files touched:** `Source/Parsek/ParsekFlight.cs` (TryAppendCapturedToTree), `Source/Parsek.Tests/TryAppendCapturedToTreeTests.cs`.
+
+**Status:** ~~Fixed~~. Size: S. Retest pending — user was mid-playtest when the fix landed; next KSP restart will pick up the Release DLL (KSP held the old DLL during the build so the auto-copy couldn't overwrite).
+
+---
+
+## ~~(no number). `InjectAllRecordings` test fixture leaks orphan sidecar files between runs~~
+
+**Source:** v0.8.2 playtest feedback "showcases disappeared". `dotnet test --filter InjectAllRecordings` writes synthetic recordings to `saves/<test-save>/Parsek/Recordings/` but did not clear previous-run output. When a later run injected a different set of recordings (or the same recordings with different IDs after generator changes), the stale `.prec` / `_ghost.craft` files from the prior run remained. KSP's load-time orphan sweep then deleted them, producing a visible "my showcases vanished" regression for users who re-ran the injector.
+
+**Fix:** the fixture setup now purges stale recording sidecars before writing fresh ones. Subsequent `InjectAllRecordings` runs produce a clean directory layout that KSP's orphan sweep leaves alone.
+
+**Status:** ~~Fixed~~. Size: XS. No bug number assigned — test-infrastructure improvement surfaced during 0.8.2 injector work.
 
 ---
 

@@ -673,7 +673,7 @@ namespace Parsek.InGameTests
             // Per-scene header: last-run timestamp + pass/fail/skip tally for that scene only.
             if (scenesWithResults.Count == 0)
             {
-                lines.Add("Scenes with captured results: (none — run a batch first)");
+                lines.Add("Scenes with captured results: (none - run a batch first)");
             }
             else
             {

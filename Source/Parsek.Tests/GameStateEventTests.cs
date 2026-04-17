@@ -1259,6 +1259,7 @@ namespace Parsek.Tests
         [InlineData(GameStateEventType.ScienceChanged, true)]
         [InlineData(GameStateEventType.ReputationChanged, true)]
         [InlineData(GameStateEventType.CrewStatusChanged, true)]
+        [InlineData(GameStateEventType.ContractOffered, true)]
         [InlineData(GameStateEventType.CrewHired, false)]
         [InlineData(GameStateEventType.CrewRemoved, false)]
         [InlineData(GameStateEventType.TechResearched, false)]

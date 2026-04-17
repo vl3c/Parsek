@@ -74,7 +74,7 @@ namespace Parsek
                 "ParsekTestRunner".GetHashCode(),
                 testRunnerWindowRect,
                 DrawTestRunnerWindow,
-                "Parsek \u2014 Test Runner",
+                "Parsek - Test Runner",
                 opaqueWindowStyle,
                 GUILayout.Width(DefaultWindowWidth)
             );

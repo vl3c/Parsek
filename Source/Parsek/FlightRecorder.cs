@@ -5230,7 +5230,7 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Active vessel changed during recording — auto-stopping " +
                 $"(decision={decision}, was pid={RecordingVesselId}, now pid={v.persistentId}, " +
                 $"nowIsEva={v.isEVA}, startedAsEva={RecordingStartedAsEva})");
-            ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
+            ParsekLog.ScreenMessage("Recording stopped - vessel changed", 3f);
             return true;
         }
 

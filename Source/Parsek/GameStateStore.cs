@@ -71,12 +71,16 @@ namespace Parsek
         /// <summary>
         /// Events that should be excluded from milestones and the Actions window.
         /// Resource events are summarized by the budget; CrewStatusChanged is KSP
-        /// internal bookkeeping (Available↔Assigned) and not a player action.
+        /// internal bookkeeping (Available↔Assigned) and not a player action;
+        /// ContractOffered is a KSP ContractSystem tick artifact — the UT a contract
+        /// was advertised to the player carries no planning value and pre-#398 saves
+        /// still carry these events baked into historical milestones.
         /// </summary>
         internal static bool IsMilestoneFilteredEvent(GameStateEventType type)
         {
             return IsResourceEvent(type) ||
-                   type == GameStateEventType.CrewStatusChanged;
+                   type == GameStateEventType.CrewStatusChanged ||
+                   type == GameStateEventType.ContractOffered;
         }
 
         /// <summary>

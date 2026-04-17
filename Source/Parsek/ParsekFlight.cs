@@ -834,6 +834,7 @@ namespace Parsek
                 ui.DrawRecordingsWindowIfOpen(windowRect);
                 ui.DrawTimelineWindowIfOpen(windowRect);
                 ui.DrawKerbalsWindowIfOpen(windowRect);
+                ui.DrawCareerStateWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
                 ui.DrawSpawnControlWindowIfOpen(windowRect);
                 ui.DrawGloopsRecorderWindowIfOpen(windowRect);
@@ -1390,7 +1391,7 @@ namespace Parsek
                 string reason = IsTreePadFailure(activeTree) ? "pad failure" : "idle on pad";
                 ParsekLog.Info("Flight",
                     $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
-                ScreenMessage($"Recording discarded — {reason}", 3f);
+                ScreenMessage($"Recording discarded - {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
                 Patches.FlightResultsPatch.CancelDeferredMerge(
                     $"tree destruction auto-discarded ({reason})");
@@ -1892,6 +1893,16 @@ namespace Parsek
                 targetRec.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
 
             targetRec.EndBiome = captured.EndBiome;
+
+            // #416 R-button: bridge the captured rewind save / pre-launch budget / reserved
+            // budget onto the tree root. FinalizeTreeRecordings' own CopyRewindSaveToRoot is
+            // gated on this.recorder != null, but when a joint break on crash moves the
+            // recorder into pendingSplitRecorder the main recorder is null by the time
+            // FinalizeTreeRecordings runs — so without this call, crashed-vessel recordings
+            // keep the on-disk parsek_rw_*.sfs but no recording ever references it and the
+            // R button disappears. First-wins semantics inside CopyRewindSaveToRoot preserve
+            // any legitimate pre-existing root data.
+            CopyRewindSaveToRoot(tree, captured, logTag: "TryAppendCapturedToTree");
 
             ParsekLog.Info("Flight",
                 $"TryAppendCapturedToTree: appended {captured.Points.Count} points to " +
@@ -4947,7 +4958,7 @@ namespace Parsek
                 pendingBoardingTargetPid = 0;
                 boardingConfirmFrames = 0;
                 Log("ChainToVessel without active chain or boarding confirmation \u2014 treating as normal stop");
-                ParsekLog.ScreenMessage("Recording stopped \u2014 vessel changed", 3f);
+                ParsekLog.ScreenMessage("Recording stopped - vessel changed", 3f);
                 // Leave CaptureAtStop intact for normal revert/merge handling
             }
         }
@@ -5310,7 +5321,7 @@ namespace Parsek
                 else
                 {
                     Log("Auto-record started (EVA from pad)");
-                    ScreenMessage("Recording STARTED (auto \u2014 EVA from pad)", 2f);
+                    ScreenMessage("Recording STARTED (auto - EVA from pad)", 2f);
                 }
             }
             // else: StartRecording failed (paused game or no active vessel).
@@ -7542,7 +7553,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Flight", $"{logTag}: not enough points (< 2)");
                 gloopsRecorder = null;
-                ParsekLog.ScreenMessage("Gloops recording too short — discarded", 2f);
+                ParsekLog.ScreenMessage("Gloops recording too short - discarded", 2f);
                 return;
             }
 

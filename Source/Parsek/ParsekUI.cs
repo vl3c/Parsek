@@ -22,6 +22,13 @@ namespace Parsek
         // Opaque window style (replaces KSP's semi-transparent default)
         private GUIStyle opaqueWindowStyle;
 
+        // Shared header styles (promoted from CareerStateWindowUI so every window
+        // renders section bars and column headers the same way). Lazy-initialized
+        // via EnsureSharedHeaderStyles because GUIStyle construction requires a
+        // valid GUI.skin — only available during draw.
+        private GUIStyle sharedSectionHeaderStyle;
+        private GUIStyle sharedColumnHeaderStyle;
+
         // Map view markers: icon atlas, fallback texture, label style, hover/sticky
         // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
 
@@ -41,6 +48,9 @@ namespace Parsek
 
         // Kerbals window (reserved crew, active stand-ins, retired stand-ins; #385)
         private KerbalsWindowUI kerbalsUI;
+
+        // Career State window (contracts, strategies, facilities, milestones; #416)
+        private CareerStateWindowUI careerStateUI;
 
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
@@ -69,6 +79,7 @@ namespace Parsek
         internal bool InFlightMode => InFlight;
         internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
         internal TimelineWindowUI GetTimelineUI() => timelineUI;
+        internal CareerStateWindowUI GetCareerStateUI() { return careerStateUI; }
 
         /// <summary>
         /// Shared cross-link between Timeline and Recordings Manager.
@@ -89,6 +100,7 @@ namespace Parsek
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
+            this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -103,6 +115,7 @@ namespace Parsek
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
+            this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -112,6 +125,7 @@ namespace Parsek
         {
             timelineUI.InvalidateCache();
             kerbalsUI.InvalidateCache();
+            careerStateUI.InvalidateCache();
         }
 
         private const float SpacingSmall = 3f;
@@ -134,8 +148,39 @@ namespace Parsek
 
             DrawCompactBudgetLine();
 
-            // --- Timeline buttons ---
             GUILayout.Space(SpacingLarge);
+
+            // Button order (separator groups requested by the player):
+            //   1. Real Spawn Control  (InFlight-only; its trailing separator is inside the block)
+            //   2. Timeline / Recordings
+            //   3. Kerbals / Career State
+            //   4. Gloops Flight Recorder  (InFlight-only; trailing separator inside the block)
+            //   5. Settings
+
+            // --- Real Spawn Control (InFlight-only, top of the button column) ---
+            if (InFlight && flight != null)
+            {
+                int spawnCount = flight.NearbySpawnCandidates.Count;
+                GUI.enabled = spawnCount > 0;
+                if (GUILayout.Button(string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "Real Spawn Control ({0})", spawnCount)))
+                {
+                    spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
+                    ParsekLog.Verbose("UI",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Real Spawn Control window toggled: {0}",
+                            spawnControlUI.IsOpen ? "open" : "closed"));
+                }
+                GUI.enabled = true;
+                GUILayout.Space(SpacingLarge);
+            }
+
+            if (GUILayout.Button("Timeline"))
+            {
+                timelineUI.IsOpen = !timelineUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
+            }
 
             int committedCount = RecordingStore.CommittedRecordings.Count;
             if (GUILayout.Button($"Recordings ({committedCount})"))
@@ -144,11 +189,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(recordingsTableUI.IsOpen ? "open" : "closed")}");
             }
 
-            if (GUILayout.Button("Timeline"))
-            {
-                timelineUI.IsOpen = !timelineUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
-            }
+            GUILayout.Space(SpacingLarge);
 
             // Kerbals window button: count = visible_slots + orphan_retired + end_state_rows.
             // visible_slots = slots that render in the topology section (excludes
@@ -222,37 +263,26 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
             }
 
-            // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
-            if (InFlight && flight != null)
+            if (GUILayout.Button("Career State"))
             {
-                int spawnCount = flight.NearbySpawnCandidates.Count;
-                GUI.enabled = spawnCount > 0;
-                if (GUILayout.Button(string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    "Real Spawn Control ({0})", spawnCount)))
-                {
-                    spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
-                    ParsekLog.Verbose("UI",
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Real Spawn Control window toggled: {0}",
-                            spawnControlUI.IsOpen ? "open" : "closed"));
-                }
-                GUI.enabled = true;
+                careerStateUI.IsOpen = !careerStateUI.IsOpen;
             }
 
+            GUILayout.Space(SpacingLarge);
+
+            // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
             if (InFlight)
             {
-                GUILayout.Space(SpacingLarge);
                 if (GUILayout.Button("Gloops Flight Recorder"))
                 {
                     gloopsUI.IsOpen = !gloopsUI.IsOpen;
                     ParsekLog.Verbose("UI",
                         $"Gloops Flight Recorder window toggled: {(gloopsUI.IsOpen ? "open" : "closed")}");
                 }
+                GUILayout.Space(SpacingLarge);
             }
 
-            // --- Settings button ---
-            GUILayout.Space(SpacingLarge);
+            // --- Settings ---
             if (GUILayout.Button("Settings"))
             {
                 settingsUI.IsOpen = !settingsUI.IsOpen;
@@ -348,6 +378,11 @@ namespace Parsek
             kerbalsUI.DrawIfOpen(mainWindowRect);
         }
 
+        public void DrawCareerStateWindowIfOpen(Rect mainWindowRect)
+        {
+            careerStateUI.DrawIfOpen(mainWindowRect);
+        }
+
         // ════════════════════════════════════════════════════════════════
         //  Recordings table (extracted to RecordingsTableUI)
         // ════════════════════════════════════════════════════════════════
@@ -376,6 +411,16 @@ namespace Parsek
             opaqueWindowStyle.onActive.background = MakeOpaqueCopy(opaqueWindowStyle.onActive.background);
             opaqueWindowStyle.hover.background = MakeOpaqueCopy(opaqueWindowStyle.hover.background);
             opaqueWindowStyle.onHover.background = MakeOpaqueCopy(opaqueWindowStyle.onHover.background);
+
+            // Bigger title font + more breathing room above/below the title text so the
+            // title bar is not cramped. Applied here because every Parsek window routes
+            // through GetOpaqueWindowStyle() — one edit retitles them all.
+            int baseFontSize = GUI.skin.window.fontSize;
+            if (baseFontSize <= 0) baseFontSize = GUI.skin.label.fontSize;   // GUI.skin.window often reports 0
+            if (baseFontSize <= 0) baseFontSize = 12;                         // last-resort default
+            opaqueWindowStyle.fontSize = baseFontSize + 2;
+            var p = opaqueWindowStyle.padding;
+            opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
         }
 
         /// <summary>
@@ -415,6 +460,51 @@ namespace Parsek
         {
             EnsureOpaqueWindowStyle();
             return opaqueWindowStyle;
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        //  Shared header styles (section bars + column headers)
+        // ════════════════════════════════════════════════════════════════
+
+        private void EnsureSharedHeaderStyles()
+        {
+            if (sharedSectionHeaderStyle != null && sharedColumnHeaderStyle != null) return;
+
+            // Section header - bold label in a box, left-aligned, stretches full width.
+            sharedSectionHeaderStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                stretchWidth = true
+            };
+
+            // Column header - bold label in a box with slightly-lighter textColor.
+            sharedColumnHeaderStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+        }
+
+        /// <summary>
+        /// Shared section-header style: bold label in a box, stretches full width.
+        /// Must be called during draw (requires a valid GUI.skin).
+        /// </summary>
+        public GUIStyle GetSectionHeaderStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedSectionHeaderStyle;
+        }
+
+        /// <summary>
+        /// Shared column-header style: bold label in a box with slightly-lighter textColor.
+        /// Must be called during draw (requires a valid GUI.skin).
+        /// </summary>
+        public GUIStyle GetColumnHeaderStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedColumnHeaderStyle;
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -480,14 +570,24 @@ namespace Parsek
 
         internal void DrawSortableHeaderCore<TCol>(
             string label, TCol col, ref TCol currentCol, ref bool ascending,
-            float width, bool expand, Action onChanged)
+            float width, bool expand, Action onChanged, float height = 0f)
             where TCol : struct
         {
             string arrow = EqualityComparer<TCol>.Default.Equals(currentCol, col)
                 ? (ascending ? " \u25b2" : " \u25bc") : "";
-            bool clicked = expand
-                ? GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true))
-                : GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width));
+            // Reuse the shared column-header style so clickable sort headers match the
+            // static column headers in the same row — otherwise the header row looks
+            // half bold-boxed and half plain.
+            GUIStyle headerStyle = GetColumnHeaderStyle();
+            bool clicked;
+            if (expand)
+                clicked = height > 0f
+                    ? GUILayout.Button(label + arrow, headerStyle, GUILayout.ExpandWidth(true), GUILayout.Height(height))
+                    : GUILayout.Button(label + arrow, headerStyle, GUILayout.ExpandWidth(true));
+            else
+                clicked = height > 0f
+                    ? GUILayout.Button(label + arrow, headerStyle, GUILayout.Width(width), GUILayout.Height(height))
+                    : GUILayout.Button(label + arrow, headerStyle, GUILayout.Width(width));
 
             if (clicked)
             {
@@ -840,6 +940,7 @@ namespace Parsek
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
             kerbalsUI.ReleaseInputLock();
+            careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             // Map marker resources (icon atlas, fallback diamond, label style) are

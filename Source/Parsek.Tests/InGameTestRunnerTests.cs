@@ -111,7 +111,7 @@ namespace Parsek.Tests
                 GameScenes.SPACECENTER);
 
             Assert.Contains("Parsek In-Game Test Results", string.Join("\n", lines));
-            Assert.Contains(lines, l => l.Contains("(none — run a batch first)"));
+            Assert.Contains(lines, l => l.Contains("(none - run a batch first)"));
         }
 
         [Fact]

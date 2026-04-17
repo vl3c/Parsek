@@ -34,10 +34,17 @@ namespace Parsek
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 80f;
         private const float ColW_Status = 120f;
-        private const float ColW_Loop = 55f;
+        private const float ColW_Loop = 60f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 65f;
-        private const float ColW_Hide = 50f;
+        private const float ColW_Rewind = 75f;
+        private const float ColW_Hide = 80f;
+
+        // Header cell height — the cells containing a label + select-all toggle
+        // (Loop, Archive) naturally measure taller than a single bold label in
+        // colHdr. Forcing every header cell to this height keeps the row visually
+        // uniform; +10px over the single-label default balances with the toggle
+        // cells without over-inflating them.
+        private const float ColHeaderHeight = 32f;
         private const float ColW_Site = 90f;
         private const float ColW_Group = 50f;
 
@@ -125,7 +132,7 @@ namespace Parsek
         private string loopPeriodEditText = "";
         private Rect loopPeriodEditRect;
 
-        private const float ColW_Period = 80f;
+        private const float ColW_Period = 90f;
 
         // R/FF button state tracking for transition logging
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
@@ -153,6 +160,47 @@ namespace Parsek
         private GUIStyle statusStyleFuture;
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
+
+        // Zero-horizontal-padding body-box style: preserves the dark list-area
+        // background without shifting rows inward (so column left edges align with
+        // the fixed header above the scroll view).
+        private GUIStyle tableBodyBoxStyle;
+        private GUIStyle boldHeaderInnerLabel;
+        private GUIStyle indexRowStyle;
+        private GUIStyle bodyCellLabel;
+        // Zero-horizontal-margin button style used inside DrawBodyCenteredButton's
+        // BeginHorizontal wrap. With default 4/4 margin, a Space(N)+Button layout
+        // overflows the container (margins are "outside" the content width). Zeroing
+        // horizontal margin lets Space(N) + Button(Width=cellW-N) fit the cell exactly.
+        private GUIStyle bodyCellButtonFlush;
+        // Zero-horizontal-margin text-field style for the Period val TextField inside
+        // the same shifted-right wrap treatment as bodyCellButtonFlush.
+        private GUIStyle bodyCellTextFieldFlush;
+        // Wrap container style for button / Period cells: margin 4/4 so the BeginHorizontal
+        // consumes the same row layout footprint a direct Button would (matching the
+        // colHdr Label margin 4/4 used by the corresponding header cell). Without this,
+        // wraps had margin 0 and wrap-to-Label gaps collapsed to 4 (correct) but wrap-to-
+        // wrap gaps collapsed to 0 (incorrect), shrinking body fixed-width sum by 4 px
+        // per wrap-wrap transition and making Name.ExpandWidth absorb the extra.
+        private GUIStyle bodyCellWrapStyle;
+        // Space(5) before Name shifts Name text right inside the ExpandWidth cell so it
+        // sits under the header "Name" text (which is 5 px inset by its colHdr box padding).
+        private const float NameColumnLeadGap = 5f;
+        // padding.left applied to every fixed-width body cell after Name. Matches the
+        // visual text inset produced by the header's colHdr box padding, so body text
+        // lands under header text without moving the body cells' layout boundaries.
+        private const int BodyCellTextIndent = 5;
+        // Left-only inset for DrawBodyCenteredButton and the Period wrap: the button
+        // / Period val visible rect starts this many px into the cell and extends to
+        // the cell's right edge, shifting the rectangle right (asymmetric inset) so
+        // the body button doesn't span edge-to-edge.
+        private const float BodyCellButtonLeftInset = 10f;
+        // Container style for boxed header cells that wrap a toggle (merged toggle+#,
+        // Loop, Archive). Same visual as colHdr but with left/right margin zeroed so
+        // each BeginHorizontal container occupies exactly its Width(X) in the parent
+        // horizontal flow. Top/bottom margin preserved (4/4) so the vertical gap
+        // between the header row and the body box remains intact.
+        private GUIStyle colHdrCellContainerStyle;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -307,7 +355,7 @@ namespace Parsek
                 "ParsekRecordings".GetHashCode(),
                 recordingsWindowRect,
                 DrawRecordingsWindow,
-                "Parsek \u2014 Recordings",
+                "Parsek - Recordings",
                 opaqueWindowStyle,
                 GUILayout.Width(recordingsWindowRect.width),
                 GUILayout.Height(recordingsWindowRect.height)
@@ -345,20 +393,94 @@ namespace Parsek
         {
             if (phaseStyleAtmo != null) return;
 
-            phaseStyleAtmo = new GUIStyle(GUI.skin.label);
+            var cellLabelPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
+            phaseStyleAtmo = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
             phaseStyleAtmo.normal.textColor = new Color(0.4f, 0.7f, 1f); // blue
 
-            phaseStyleExo = new GUIStyle(GUI.skin.label);
+            phaseStyleExo = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
             phaseStyleExo.normal.textColor = new Color(0.75f, 0.55f, 1f); // light purple
 
-            phaseStyleSpace = new GUIStyle(GUI.skin.label);
+            phaseStyleSpace = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
             phaseStyleSpace.normal.textColor = new Color(0.2f, 1f, 0.6f); // lime green
 
-            phaseStyleApproach = new GUIStyle(GUI.skin.label);
+            phaseStyleApproach = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
             phaseStyleApproach.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
 
-            phaseStyleSurface = new GUIStyle(GUI.skin.label);
+            phaseStyleSurface = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
             phaseStyleSurface.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
+
+            // Generic body-cell label style (used by Site/Launch/Duration/expanded stats/
+            // Period placeholder/Watch placeholder/Rewind placeholder). Same padding as
+            // phaseStyle* so every left-aligned body label has a consistent text inset
+            // matching the header's colHdr box padding.
+            bodyCellLabel = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            // Zero horizontal margin variant for use inside DrawBodyCenteredButton wrap.
+            bodyCellButtonFlush = new GUIStyle(GUI.skin.button)
+            {
+                margin = new RectOffset(
+                    0, 0,
+                    GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
+            };
+            bodyCellTextFieldFlush = new GUIStyle(GUI.skin.textField)
+            {
+                margin = new RectOffset(
+                    0, 0,
+                    GUI.skin.textField.margin.top, GUI.skin.textField.margin.bottom)
+            };
+            bodyCellWrapStyle = new GUIStyle
+            {
+                margin = new RectOffset(4, 4, 0, 0)
+            };
+
+            // Body box: dark background only, zero horizontal padding. Keeps the
+            // Career-State-style list surface without pushing row columns inward.
+            tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(0, 0, 2, 2),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+
+            // Bold label for header cells that share their box with a toggle (Loop /
+            // Hide) — the outer BeginHorizontal(colHdr) provides the box background,
+            // but the inner label needs its own bold style (colHdr would double-box).
+            boldHeaderInnerLabel = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+
+            // Body-row # (index) number: MiddleCenter so 1-3 digit values line up visually
+            // under the "#" header character (which is also MiddleCenter in boldHeaderInnerLabel).
+            indexRowStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter
+            };
+
+            // Container style for boxed header cells wrapping a toggle. Clones the
+            // shared column-header style but zeroes only LEFT/RIGHT margin so the
+            // BeginHorizontal's footprint is exactly Width(X). Top/bottom margin
+            // (4/4) preserved so the vertical gap between the header row and the
+            // body list is unchanged.
+            colHdrCellContainerStyle = new GUIStyle(parentUI.GetColumnHeaderStyle())
+            {
+                margin = new RectOffset(0, 0, 4, 4)
+            };
+
+            // One-shot diagnostic log of the runtime GUI skin margins — dictates
+            // exactly how much space each cell leaks or collapses in the layout.
+            var colHdrStyle = parentUI.GetColumnHeaderStyle();
+            ParsekLog.Verbose("UI",
+                $"Rec table skin margins: box=L{GUI.skin.box.margin.left}/R{GUI.skin.box.margin.right}/T{GUI.skin.box.margin.top}/B{GUI.skin.box.margin.bottom} " +
+                $"pad=L{GUI.skin.box.padding.left}/R{GUI.skin.box.padding.right} " +
+                $"button.margin=L{GUI.skin.button.margin.left}/R{GUI.skin.button.margin.right} " +
+                $"label.margin=L{GUI.skin.label.margin.left}/R{GUI.skin.label.margin.right} " +
+                $"toggle.margin=L{GUI.skin.toggle.margin.left}/R{GUI.skin.toggle.margin.right} " +
+                $"textField.margin=L{GUI.skin.textField.margin.left}/R{GUI.skin.textField.margin.right} " +
+                $"colHdr.margin=L{colHdrStyle.margin.left}/R{colHdrStyle.margin.right}/T{colHdrStyle.margin.top}/B{colHdrStyle.margin.bottom}");
+
+            // Arm one-shot alignment capture so the next header+row draw dumps actual rects.
+            ArmAlignmentDebug();
         }
 
         /// <summary>
@@ -519,7 +641,7 @@ namespace Parsek
             if (isDebris)
                 return "Debris is not watchable";
             if (!hasGhost)
-                return "No active ghost — recording is in the past/future or has no trajectory points";
+                return "No active ghost - recording is in the past/future or has no trajectory points";
             if (!sameBody)
                 return "Ghost is on a different body";
             if (!inRange)
@@ -571,15 +693,94 @@ namespace Parsek
             }
         }
 
+        // One-shot capture of actual header/body cell rects for alignment debugging.
+        // Armed via ArmAlignmentDebug() and cleared after the next full header+row draw.
+        private bool alignmentDebugArmed;
+        private readonly System.Text.StringBuilder alignmentDebugHeaderLog = new System.Text.StringBuilder();
+        private readonly System.Text.StringBuilder alignmentDebugRowLog = new System.Text.StringBuilder();
+        private bool alignmentDebugHeaderCaptured;
+        private bool alignmentDebugRowCaptured;
+
+        internal void ArmAlignmentDebug()
+        {
+            alignmentDebugArmed = true;
+            alignmentDebugHeaderCaptured = false;
+            alignmentDebugRowCaptured = false;
+            alignmentDebugHeaderLog.Length = 0;
+            alignmentDebugRowLog.Length = 0;
+            ParsekLog.Info("UI", "Rec table alignment debug armed (will capture next header + first row)");
+        }
+
+        private void AlignDebugLogLastRect(System.Text.StringBuilder sb, string tag)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            var r = GUILayoutUtility.GetLastRect();
+            sb.Append($"{tag}[x={r.x:F1},w={r.width:F1},r={r.x + r.width:F1}] ");
+        }
+
+        // Wraps a single body button in BeginHorizontal(Width=cellWidth) with a fixed
+        // leading Space so the button is shifted right (not centered). The button uses
+        // bodyCellButtonFlush (margin=0) and Width=cellWidth-BodyCellButtonLeftInset so
+        // the inner layout exactly fills the cell. Net effect: button visible rect runs
+        // from [cell + BodyCellButtonLeftInset, cell + cellWidth]; text stays centered
+        // inside the button.
+        private bool DrawBodyCenteredButton(GUIContent content, float cellWidth)
+        {
+            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
+            GUILayout.Space(BodyCellButtonLeftInset);
+            bool clicked = GUILayout.Button(content, bodyCellButtonFlush,
+                GUILayout.Width(cellWidth - BodyCellButtonLeftInset));
+            GUILayout.EndHorizontal();
+            return clicked;
+        }
+
+        private bool DrawBodyCenteredButton(string text, float cellWidth)
+        {
+            return DrawBodyCenteredButton(new GUIContent(text), cellWidth);
+        }
+
+        // Twin-button variant used by ghost-only recording rows (G + X) and
+        // canDisband group rows (G + X). Uses the same wrap + left inset + flush
+        // button margin as DrawBodyCenteredButton so the cell footprint matches
+        // the single-button version exactly — otherwise twin-button rows would
+        // have a different fixed-width sum from single-button rows and
+        // Name.ExpandWidth would absorb the difference unevenly.
+        private void DrawBodyCenteredTwoButtons(
+            string firstText, string secondText, float cellWidth,
+            out bool firstClicked, out bool secondClicked)
+        {
+            float innerW = cellWidth - BodyCellButtonLeftInset;
+            float halfInner = (innerW - 4f) * 0.5f;
+            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
+            GUILayout.Space(BodyCellButtonLeftInset);
+            firstClicked = GUILayout.Button(firstText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUILayout.Space(4f);
+            secondClicked = GUILayout.Button(secondText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawRecordingsTableHeader(IReadOnlyList<Recording> committed)
         {
             // Header row
             GUILayout.BeginHorizontal();
-            // Select-all enable header checkbox
+
+            // Select-all enable toggle + "#" sortable header live in ONE boxed cell
+            // so the column reads as a single unit (toggle above column 0's toggles,
+            // "#" above column 1's row indices) — each inner widget uses the same
+            // individual cell width as its row counterparts so things line up.
             int enableCount = 0;
             for (int i = 0; i < committed.Count; i++)
                 if (committed[i].PlaybackEnabled) enableCount++;
             bool allEnabled = enableCount == committed.Count;
+
+            // Width = ColW_Enable + ColW_Index + 8 to absorb the body pair's 8 px of margin
+            // budget (Toggle.L=4 + gap(4,4)=4 + Label.R=4 collapsed with Name.L=4 = 4, total
+            // 4+20+4+30+4 = 62; container L=0/R=0 + W=58 + next.L=4 collapse = 62 matches).
+            // Without the +8, the merged container is 8 px narrower than the body pair, so
+            // every column right of # drifts 8 px relative to its header cell.
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle,
+                GUILayout.Width(ColW_Enable + ColW_Index + 8f),
+                GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
             if (newAllEnabled != allEnabled)
             {
@@ -587,40 +788,62 @@ namespace Parsek
                     committed[i].PlaybackEnabled = newAllEnabled;
                 ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
             }
-            DrawSortableHeader("#", SortColumn.Index, ColW_Index);
+            // "#" sortable — inline (no outer box because the parent BeginHorizontal
+            // already supplies it; otherwise we'd double-box).
+            string hashArrow = (sortColumn == SortColumn.Index)
+                ? (sortAscending ? " \u25b2" : " \u25bc") : "";
+            if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+            {
+                if (sortColumn == SortColumn.Index) sortAscending = !sortAscending;
+                else { sortColumn = SortColumn.Index; sortAscending = true; }
+                InvalidateSort();
+                ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
+            }
+            GUILayout.EndHorizontal();
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrMerged");
+
             DrawSortableHeader("Name", SortColumn.Name, 0, true);
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrName");
             DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPhase");
             DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site);
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrSite");
             DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
             DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrDur");
 
+            var colHdr = parentUI.GetColumnHeaderStyle();
             if (showExpandedStats)
             {
-                GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
-                GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
-                GUILayout.Label("Start", GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("End", GUILayout.Width(ColW_EndPos));
+                GUILayout.Label("MaxAlt", colHdr, GUILayout.Width(ColW_MaxAlt), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("MaxSpd", colHdr, GUILayout.Width(ColW_MaxSpd), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("Dist", colHdr, GUILayout.Width(ColW_Dist), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("Pts", colHdr, GUILayout.Width(ColW_Pts), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_StartPos), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label("End", colHdr, GUILayout.Width(ColW_EndPos), GUILayout.Height(ColHeaderHeight));
             }
 
             DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrStatus");
 
             // Group column header
-            GUILayout.Label("Group", GUILayout.Width(ColW_Group));
+            GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group), GUILayout.Height(ColHeaderHeight));
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrGroup");
 
-            // Select-all loop header + checkbox
+            // Select-all loop header + checkbox. colHdr supplies the dark boxed
+            // background so the whole cell reads as a header (not just the label).
             int loopCount = 0;
             for (int i = 0; i < committed.Count; i++)
                 if (committed[i].LoopPlayback) loopCount++;
 
             bool allLoop = loopCount == committed.Count;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Loop\nGhost");
+            GUILayout.Label("Loop", boldHeaderInnerLabel);
             bool newAllLoop = GUILayout.Toggle(allLoop, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrLoop");
             if (newAllLoop != allLoop)
             {
                 for (int i = 0; i < committed.Count; i++)
@@ -628,31 +851,49 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
             }
 
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
-            GUILayout.FlexibleSpace();
             GUILayout.Label(new GUIContent("Period",
-                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."),
+                colHdr, GUILayout.Width(ColW_Period), GUILayout.Height(ColHeaderHeight));
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPeriod");
 
             if (parentUI.InFlightMode)
-                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-            GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
+            {
+                GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
+                if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrWatch");
+            }
+            GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrRewind");
 
             // Hide column header + toggle
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Hide");
+            GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrArchive");
             if (newHideActive != GroupHierarchyStore.HideActive)
             {
                 GroupHierarchyStore.HideActive = newHideActive;
                 ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
             }
 
+            // Reserve the vertical-scrollbar column so the fixed header's right edge
+            // aligns with the row cells' right edges (the scroll view always shows a
+            // vertical scrollbar, which claims a fixed-width strip on the right).
+            float scrollbarWidth = GUI.skin.verticalScrollbar != null
+                ? GUI.skin.verticalScrollbar.fixedWidth
+                : 16f;
+            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
+            GUILayout.Space(scrollbarWidth);
+
             GUILayout.EndHorizontal();
+
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured && Event.current.type == EventType.Repaint)
+            {
+                alignmentDebugHeaderCaptured = true;
+                ParsekLog.Info("UI", "AlignDbg HEADER: " + alignmentDebugHeaderLog.ToString());
+            }
         }
 
         private void DrawRecordingsBottomBar(IReadOnlyList<Recording> committed)
@@ -730,6 +971,9 @@ namespace Parsek
 
         private void DrawRecordingsWindow(int windowID)
         {
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
+
             // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
             if (pendingDeleteGhostOnlyIndex >= 0)
             {
@@ -775,12 +1019,19 @@ namespace Parsek
             }
             else
             {
-                // Scrollable table body (header inside scroll view for guaranteed alignment)
+                // Fixed header row (outside the scroll view) — stays pinned to the top
+                // while the body scrolls. A trailing spacer inside the header matches the
+                // vertical scrollbar's reserved width so column right-edges line up with
+                // the row cells exactly.
+                DrawRecordingsTableHeader(committed);
+
                 renderedRowCounter = 0;
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
-                DrawRecordingsTableHeader(committed);
+                // Dark list-area background (matches Career State) without horizontal
+                // padding so row columns align with the header above.
+                GUILayout.BeginVertical(tableBodyBoxStyle);
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
@@ -915,6 +1166,7 @@ namespace Parsek
                     }
                 }
 
+                GUILayout.EndVertical();
                 GUILayout.EndScrollView();
 
                 // Capture scroll view rect for tooltip visibility guard
@@ -945,9 +1197,11 @@ namespace Parsek
             renderedRowCounter++;
 
             GUILayout.BeginHorizontal();
+            bool captureThisRow = alignmentDebugArmed && !alignmentDebugRowCaptured;
 
             // Enable checkbox (always at column 0)
             bool enabled = GUILayout.Toggle(rec.PlaybackEnabled, "", GUILayout.Width(ColW_Enable));
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowToggle");
             if (enabled != rec.PlaybackEnabled)
             {
                 rec.PlaybackEnabled = enabled;
@@ -956,10 +1210,17 @@ namespace Parsek
             }
 
             // #
-            GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
+            GUILayout.Label((ri + 1).ToString(), indexRowStyle, GUILayout.Width(ColW_Index));
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowIdx");
+
+            // Lead-gap before Name column: shifts body text right to sit under the header
+            // "Name" label (which is inset by box padding inside its colHdr cell). Absorbed
+            // into Name.ExpandWidth so cells right of Name stay aligned with the header.
+            GUILayout.Space(NameColumnLeadGap);
 
             // Name (double-click to rename, deferred to next frame)
             DrawRecordingNameCell(ri, rec, committed, indentPx);
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowName");
 
             // Phase label
             string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
@@ -976,33 +1237,36 @@ namespace Parsek
             }
             else
             {
-                GUILayout.Label("", GUILayout.Width(ColW_Phase));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
             }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPhase");
 
             // Site (launch site name)
-            GUILayout.Label(rec.LaunchSiteName ?? "", GUILayout.Width(ColW_Site));
+            GUILayout.Label(rec.LaunchSiteName ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowSite");
 
             // Launch Time
             string launchTime = rec.Points.Count > 0
                 ? KSPUtil.PrintDateCompact(rec.StartUT, true)
                 : "-";
-            GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
+            GUILayout.Label(launchTime, bodyCellLabel, GUILayout.Width(ColW_Launch));
 
             // Duration
             double dur = rec.EndUT - rec.StartUT;
-            GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
+            GUILayout.Label(FormatDuration(dur), bodyCellLabel, GUILayout.Width(ColW_Dur));
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowDur");
 
             // Expanded stats
             if (showExpandedStats)
             {
                 var stats = GetOrComputeStats(rec);
-                GUILayout.Label(FormatAltitude(stats.maxAltitude), GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label(FormatSpeed(stats.maxSpeed), GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label(FormatDistance(stats.distanceTravelled), GUILayout.Width(ColW_Dist));
-                GUILayout.Label(stats.pointCount.ToString(), GUILayout.Width(ColW_Pts));
+                GUILayout.Label(FormatAltitude(stats.maxAltitude), bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label(FormatSpeed(stats.maxSpeed), bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label(FormatDistance(stats.distanceTravelled), bodyCellLabel, GUILayout.Width(ColW_Dist));
+                GUILayout.Label(stats.pointCount.ToString(), bodyCellLabel, GUILayout.Width(ColW_Pts));
                 string parentVessel = ResolveParentVesselName(rec, committed);
-                GUILayout.Label(FormatStartPosition(rec, parentVessel), GUILayout.Width(ColW_StartPos));
-                GUILayout.Label(FormatEndPosition(rec, parentVessel), GUILayout.Width(ColW_EndPos));
+                GUILayout.Label(FormatStartPosition(rec, parentVessel), bodyCellLabel, GUILayout.Width(ColW_StartPos));
+                GUILayout.Label(FormatEndPosition(rec, parentVessel), bodyCellLabel, GUILayout.Width(ColW_EndPos));
             }
 
             // Status (#98: merged countdown into status column)
@@ -1043,18 +1307,20 @@ namespace Parsek
             }
             var statusContent = new GUIContent(statusText, chainStatusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
 
             // Group assignment button (split with X delete for ghost-only recordings)
             if (rec.IsGhostOnly)
             {
-                float halfGroup = (ColW_Group - 4f) * 0.5f;
-                if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
+                bool ghostGClicked, ghostXClicked;
+                DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out ghostGClicked, out ghostXClicked);
+                if (ghostGClicked)
                 {
                     var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                     groupPicker.OpenForRecording(ri, mousePos);
                     ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
                 }
-                if (GUILayout.Button("X", GUILayout.Width(halfGroup)))
+                if (ghostXClicked)
                 {
                     pendingDeleteGhostOnlyIndex = ri;
                     ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} name='{rec.VesselName}'");
@@ -1062,13 +1328,14 @@ namespace Parsek
             }
             else
             {
-                if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+                if (DrawBodyCenteredButton("G", ColW_Group))
                 {
                     var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                     groupPicker.OpenForRecording(ri, mousePos);
                     ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
                 }
             }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
             // Loop checkbox
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
@@ -1076,6 +1343,7 @@ namespace Parsek
             bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
@@ -1085,8 +1353,14 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
             }
 
-            // Period
+            // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
+            // val+unit start 10 px into the cell, matching the shifted-right treatment
+            // applied to single-button body cells (DrawBodyCenteredButton).
+            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
+            GUILayout.Space(BodyCellButtonLeftInset);
             DrawLoopPeriodCell(rec, ri, dur);
+            GUILayout.EndHorizontal();
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPeriod");
 
             // Watch button (flight only)
             if (parentUI.InFlightMode)
@@ -1123,7 +1397,7 @@ namespace Parsek
                 string watchLabel = isWatching ? "W*" : "W";
                 string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
-                if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))
+                if (DrawBodyCenteredButton(watchContent, ColW_Watch))
                 {
                     string beforeFocus = flight.DescribeWatchFocusForLogs();
                     string beforeEligibility = flight.DescribeWatchEligibilityForLogs(ri);
@@ -1136,6 +1410,7 @@ namespace Parsek
                         $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                 }
                 GUI.enabled = true;
+                if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowWatch");
             }
 
             // Rewind / Fast-forward button
@@ -1159,7 +1434,7 @@ namespace Parsek
                     string tooltip = canFF
                         ? "Fast-forward to this launch"
                         : ffReason;
-                    if (GUILayout.Button(new GUIContent("FF", tooltip), GUILayout.Width(ColW_Rewind)))
+                    if (DrawBodyCenteredButton(new GUIContent("FF", tooltip), ColW_Rewind))
                     {
                         ParsekLog.Info("UI", $"FF button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowFastForwardConfirmation(rec);
@@ -1182,7 +1457,7 @@ namespace Parsek
                     string tooltip = canRewind
                         ? "Rewind to this launch"
                         : rewindReason;
-                    if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                    if (DrawBodyCenteredButton(new GUIContent("R", tooltip), ColW_Rewind))
                     {
                         ParsekLog.Info("UI", $"Rewind button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowRewindConfirmation(rec);
@@ -1191,9 +1466,10 @@ namespace Parsek
                 }
                 else
                 {
-                    GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
                 }
             }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowRewind");
 
             // Hide checkbox
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
@@ -1201,6 +1477,7 @@ namespace Parsek
             bool hidden = GUILayout.Toggle(rec.Hidden, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowArchive");
             if (hidden != rec.Hidden)
             {
                 rec.Hidden = hidden;
@@ -1208,6 +1485,13 @@ namespace Parsek
             }
 
             GUILayout.EndHorizontal();
+
+            if (captureThisRow && Event.current.type == EventType.Repaint)
+            {
+                alignmentDebugRowCaptured = true;
+                ParsekLog.Info("UI", "AlignDbg ROW: " + alignmentDebugRowLog.ToString());
+                if (alignmentDebugHeaderCaptured) alignmentDebugArmed = false;
+            }
 
             return false;
         }
@@ -1219,7 +1503,12 @@ namespace Parsek
         private void DrawRecordingNameCell(int ri, Recording rec,
             IReadOnlyList<Recording> committed, float indentPx)
         {
-            // Indent inside Name column for grouped/chained recordings
+            // Uniform 2px nudge so rows (which have a "#" number in col 1) line up
+            // their Name text with the group/chain header Name text above. Group/
+            // chain headers render the arrow at the cell's raw origin; rows'
+            // Name button gets shifted right by this 2px to match visually.
+            GUILayout.Space(2f);
+            // Indent inside Name column for grouped/chained subitems.
             if (indentPx > 0f) GUILayout.Space(indentPx);
             string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
             if (renamingRecordingIdx == ri)
@@ -1319,6 +1608,9 @@ namespace Parsek
             // Spacer for # column (fixed-width label for alignment with recording rows)
             GUILayout.Label("", GUILayout.Width(ColW_Index));
 
+            // Lead-gap before Name column (see DrawRecordingRow for rationale).
+            GUILayout.Space(NameColumnLeadGap);
+
             // Expand/collapse + name (indent inside Name column for sub-groups)
             if (indent > 0f) GUILayout.Space(indent);
             bool expanded = expandedGroups.Contains(groupName);
@@ -1385,33 +1677,33 @@ namespace Parsek
             }
 
             // Phase placeholder (groups have no phase)
-            GUILayout.Label("", GUILayout.Width(ColW_Phase));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
 
             // Site (from main/root recording if available)
             int grpMainIdx = FindGroupMainRecordingIndex(descendants, committed);
             string grpSite = grpMainIdx >= 0 ? committed[grpMainIdx].LaunchSiteName : null;
-            GUILayout.Label(grpSite ?? "", GUILayout.Width(ColW_Site));
+            GUILayout.Label(grpSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
 
             // Launch time (earliest among descendants)
             double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
             string grpLaunchText = (memberCount > 0 && grpEarliest < double.MaxValue)
                 ? KSPUtil.PrintDateCompact(grpEarliest, true)
                 : "-";
-            GUILayout.Label(grpLaunchText, GUILayout.Width(ColW_Launch));
+            GUILayout.Label(grpLaunchText, bodyCellLabel, GUILayout.Width(ColW_Launch));
 
             // Duration (sum of descendant durations)
             double grpTotalDur = GetGroupTotalDuration(descendants, committed);
-            GUILayout.Label(FormatDuration(grpTotalDur), GUILayout.Width(ColW_Dur));
+            GUILayout.Label(FormatDuration(grpTotalDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
 
             // Expanded stats spacers
             if (showExpandedStats)
             {
-                GUILayout.Label("", GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("", GUILayout.Width(ColW_Dist));
-                GUILayout.Label("", GUILayout.Width(ColW_Pts));
-                GUILayout.Label("", GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("", GUILayout.Width(ColW_EndPos));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dist));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Pts));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndPos));
             }
 
             // Status (closest active T- among descendants)
@@ -1425,15 +1717,26 @@ namespace Parsek
 
             bool canDisbandGroup = !RecordingStore.IsAutoGeneratedTreeGroup(groupName);
 
-            // Group management buttons: custom groups get G + X; mission-generated tree groups keep only G.
-            float halfGroup = (ColW_Group - 4f) * 0.5f; // 4px for spacing between buttons
-            if (GUILayout.Button("G", GUILayout.Width(canDisbandGroup ? halfGroup : ColW_Group)))
+            // Group management buttons: custom groups get G + X (wrapped to match the
+            // single-G footprint of non-disbandable groups); mission-generated tree
+            // groups keep only G via DrawBodyCenteredButton.
+            bool grpGClicked;
+            bool grpXClicked = false;
+            if (canDisbandGroup)
+            {
+                DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out grpGClicked, out grpXClicked);
+            }
+            else
+            {
+                grpGClicked = DrawBodyCenteredButton("G", ColW_Group);
+            }
+            if (grpGClicked)
             {
                 var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 groupPicker.OpenForGroup(groupName, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for group '{groupName}'");
             }
-            if (canDisbandGroup && GUILayout.Button("X", GUILayout.Width(halfGroup)))
+            if (grpXClicked)
             {
                 ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
                 ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
@@ -1457,7 +1760,7 @@ namespace Parsek
             }
 
             // Period placeholder
-            GUILayout.Label("", GUILayout.Width(ColW_Period));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
 
             var flight = parentUI.Flight;
 
@@ -1561,7 +1864,7 @@ namespace Parsek
                 else
                     watchTooltip = GetWatchButtonTooltip(isWatching, false, false, false, false);
 
-                if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
+                if (DrawBodyCenteredButton(new GUIContent(watchLabel, watchTooltip), ColW_Watch))
                 {
                     string beforeFocus = flight.DescribeWatchFocusForLogs();
                     string beforeEligibility = BuildWatchObservabilitySuffix(flight, mainIdx, nextTargetIdx);
@@ -1617,7 +1920,7 @@ namespace Parsek
                     bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
                     GUI.enabled = canFF;
                     string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
-                    if (GUILayout.Button(new GUIContent("FF", tooltip), GUILayout.Width(ColW_Rewind)))
+                    if (DrawBodyCenteredButton(new GUIContent("FF", tooltip), ColW_Rewind))
                     {
                         ParsekLog.Info("UI", $"Group '{groupName}' FF button: #{mainIdx} \"{mainRec.VesselName}\"");
                         ShowFastForwardConfirmation(mainRec);
@@ -1630,7 +1933,7 @@ namespace Parsek
                     bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
                     string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
-                    if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                    if (DrawBodyCenteredButton(new GUIContent("R", tooltip), ColW_Rewind))
                     {
                         ParsekLog.Info("UI", $"Group '{groupName}' R button: #{mainIdx} \"{mainRec.VesselName}\"");
                         ShowRewindConfirmation(mainRec);
@@ -1639,12 +1942,12 @@ namespace Parsek
                 }
                 else
                 {
-                    GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
                 }
             }
             else
             {
-                GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
             }
 
             // Hide group checkbox — toggles Hidden on all member recordings
@@ -1763,7 +2066,13 @@ namespace Parsek
                 ParsekLog.Info("UI", $"{logKind} '{logId}' playback set to {blockNewEnabled} ({members.Count} recordings)");
             }
 
-            GUILayout.Space(ColW_Index);
+            // Use the same empty-label spacer as DrawGroupTree (which is also what
+            // subitem rows use) so the triangle's X position in this chain/block
+            // header matches sibling group headers and subitems in the column below.
+            GUILayout.Label("", GUILayout.Width(ColW_Index));
+
+            // Lead-gap before Name column (see DrawRecordingRow for rationale).
+            GUILayout.Space(NameColumnLeadGap);
 
             if (indent > 0f) GUILayout.Space(indent);
 
@@ -1787,25 +2096,25 @@ namespace Parsek
                     $"{logKind} '{blockName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} recordings)");
             }
 
-            GUILayout.Label("", GUILayout.Width(ColW_Phase));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
 
             string blockSite = committed[members[0]].LaunchSiteName;
-            GUILayout.Label(blockSite ?? "", GUILayout.Width(ColW_Site));
+            GUILayout.Label(blockSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
 
             GUILayout.Label(blockStart < double.MaxValue
                 ? KSPUtil.PrintDateCompact(blockStart, true) : "-",
-                GUILayout.Width(ColW_Launch));
+                bodyCellLabel, GUILayout.Width(ColW_Launch));
 
-            GUILayout.Label(FormatDuration(blockEnd - blockStart), GUILayout.Width(ColW_Dur));
+            GUILayout.Label(FormatDuration(blockEnd - blockStart), bodyCellLabel, GUILayout.Width(ColW_Dur));
 
             if (showExpandedStats)
             {
-                GUILayout.Label("", GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("", GUILayout.Width(ColW_Dist));
-                GUILayout.Label("", GUILayout.Width(ColW_Pts));
-                GUILayout.Label("", GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("", GUILayout.Width(ColW_EndPos));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dist));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Pts));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndPos));
             }
 
             string blockStatusText;
@@ -1817,7 +2126,7 @@ namespace Parsek
             GUILayout.Label(blockStatusText, blockStatusStyle, GUILayout.Width(ColW_Status));
 
             // Aggregated blocks expose group assignment but no disband button.
-            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+            if (DrawBodyCenteredButton("G", ColW_Group))
             {
                 var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 if (!string.IsNullOrEmpty(chainIdForPopup))
@@ -1845,10 +2154,10 @@ namespace Parsek
                 }
                 ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({members.Count} recordings)");
             }
-            GUILayout.Label("", GUILayout.Width(ColW_Period));
-            if (parentUI.InFlightMode) GUILayout.Label("", GUILayout.Width(ColW_Watch));
-            GUILayout.Label("", GUILayout.Width(ColW_Rewind));
-            GUILayout.Label("", GUILayout.Width(ColW_Hide));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            if (parentUI.InFlightMode) GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Hide));
 
             GUILayout.EndHorizontal();
 
@@ -2162,7 +2471,7 @@ namespace Parsek
             {
                 InvalidateSort();
                 ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
-            });
+            }, ColHeaderHeight);
         }
 
         private void InvalidateSort()
@@ -3161,9 +3470,12 @@ namespace Parsek
 
         private void DrawLoopPeriodCell(Recording rec, int ri, double dur)
         {
-            // All states use same [value area][unit button] layout to keep column alignment consistent.
+            // All states use same [value area][unit button] layout. val + Space(4) + unit fills
+            // ColW_Period - BodyCellButtonLeftInset. The wrapping BeginHorizontal at the call
+            // site provides the Space(BodyCellButtonLeftInset) on the left so val+unit start
+            // 10 px into the Period cell.
             const float unitBtnW = 40f;
-            float valueBtnW = ColW_Period - unitBtnW - 2f;
+            float valueBtnW = ColW_Period - unitBtnW - 4f - BodyCellButtonLeftInset;
 
             if (!rec.LoopPlayback)
             {
@@ -3182,8 +3494,9 @@ namespace Parsek
                 {
                     disabledText = ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit);
                 }
-                GUILayout.TextField(disabledText, GUILayout.Width(valueBtnW));
-                GUILayout.Button(ParsekUI.UnitLabel(rec.LoopTimeUnit), GUILayout.Width(unitBtnW));
+                GUILayout.TextField(disabledText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                GUILayout.Space(4f);
+                GUILayout.Button(ParsekUI.UnitLabel(rec.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW));
                 GUI.enabled = true;
                 return;
             }
@@ -3197,7 +3510,7 @@ namespace Parsek
                     : 10;
                 GUI.enabled = false;
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
-                GUILayout.TextField(ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), GUILayout.Width(valueBtnW));
+                GUILayout.TextField(ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
                 GUI.enabled = true;
             }
             else
@@ -3210,7 +3523,7 @@ namespace Parsek
                     string displayText = ParsekUI.FormatLoopValue(displayValue, rec.LoopTimeUnit);
                     string controlName = "LoopPeriod_" + ri;
                     GUI.SetNextControlName(controlName);
-                    string newText = GUILayout.TextField(displayText, GUILayout.Width(valueBtnW));
+                    string newText = GUILayout.TextField(displayText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
                     if (GUI.GetNameOfFocusedControl() == controlName)
                     {
                         loopPeriodEditText = newText;
@@ -3229,7 +3542,7 @@ namespace Parsek
 
                     // Editing: use buffer, track rect for click-outside
                     GUI.SetNextControlName("LoopPeriod_" + ri);
-                    string newText = GUILayout.TextField(loopPeriodEditText, GUILayout.Width(valueBtnW));
+                    string newText = GUILayout.TextField(loopPeriodEditText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
                     loopPeriodEditRect = GUILayoutUtility.GetLastRect();
                     if (newText != loopPeriodEditText)
                         loopPeriodEditText = newText;
@@ -3243,7 +3556,8 @@ namespace Parsek
             }
 
             // Unit cycling button (shared by both auto and manual modes)
-            if (GUILayout.Button(ParsekUI.UnitLabel(rec.LoopTimeUnit), GUILayout.Width(unitBtnW)))
+            GUILayout.Space(4f);
+            if (GUILayout.Button(ParsekUI.UnitLabel(rec.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
             {
                 var newUnit = CycleRecordingUnit(rec.LoopTimeUnit);
                 rec.LoopTimeUnit = newUnit;
@@ -3314,13 +3628,14 @@ namespace Parsek
         {
             if (statusStyleFuture != null) return;
 
-            statusStyleFuture = new GUIStyle(GUI.skin.label);
+            var statusPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
+            statusStyleFuture = new GUIStyle(GUI.skin.label) { padding = statusPadding };
             statusStyleFuture.normal.textColor = Color.white;
 
-            statusStyleActive = new GUIStyle(GUI.skin.label);
+            statusStyleActive = new GUIStyle(GUI.skin.label) { padding = statusPadding };
             statusStyleActive.normal.textColor = Color.green;
 
-            statusStylePast = new GUIStyle(GUI.skin.label);
+            statusStylePast = new GUIStyle(GUI.skin.label) { padding = statusPadding };
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
         }
 

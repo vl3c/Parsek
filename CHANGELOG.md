@@ -8,79 +8,84 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
-- In-game test results file (`parsek-test-results.txt`) now preserves per-scene history — running Run All / Run Category in KSC and then again in Flight accumulates both modes' outcomes (one row per scene, per test) instead of the later run overwriting the earlier. The file auto-exports after every batch finishes; the Export Results button remains for manual re-writes.
-- Add Gloops Flight Recorder window for manual ghost-only recordings. Manual recording controls (Start/Stop, Preview, Discard) moved from the main Parsek UI to a dedicated "Gloops Flight Recorder" window opened via a button in the main UI. Recordings are marked `IsGhostOnly` and never spawn a real vessel at playback end. They auto-commit on stop with looping enabled by default and are placed in the "Gloops - Ghosts Only" group (pre-rename recordings in the longer "Gloops Flight Recordings - Ghosts Only" group migrate transparently on load). Ghost-only recordings can run in parallel with the auto-recording system. An X (delete) button is added to the recordings table for ghost-only recordings.
-- `#385` New Kerbals window (reserved crew, active stand-ins, retired stand-ins) opened via a button in the main Parsek window; Retired Stand-ins removed from the Timeline footer.
-- `#415` Kerbals window now also shows a **Per-Recording Fates** section — which committed recording each kerbal appeared in, with end-state (Aboard / Dead / Recovered) color-coded per row.
-- `#415-1` Per-Recording Fates entries are now foldable per kerbal — click a kerbal's header to collapse their rows under a compact `N missions — X Dead, Y Recovered, Z Aboard` summary.
-- `#415-2` New chain topology view in the Kerbals window replaces the flat Reserved / Active / Retired sections with a per-owner collapsible tree; orphan retired stand-ins are listed separately.
-- `#388` New **Show ghosts in Tracking Station** toggle (Settings → Ghosts) hides Parsek ghost ProtoVessels and atmospheric ghost markers from the tracking station when off. The setting is sticky across rewind, quickload, and KSP session restart.
-- `#389` Timeline and Recordings windows now support a shared time-range filter. Quick presets (Last Day, Last 7d, Last 30d, This Year, All) and a collapsible custom-range dual-slider let you narrow both windows to a specific time slice — useful for navigating long careers with many missions. Recordings table shows a compact filter indicator with a Clear button so the active filter is visible even when the Timeline is closed.
-- Added an **L** (loop toggle) button to the timeline for recordings that are logically loopable — launches, atmospheric descents, surface departures, and docking segments. The button sits after the R (rewind) button and uses the recording's existing saved loop interval. Active loops show green text for quick scanning.
+- In-game test results file (`parsek-test-results.txt`) now preserves per-scene history so KSC and Flight runs accumulate instead of overwriting each other.
+- New **Gloops Flight Recorder** window for manual ghost-only recordings (Start/Stop, Preview, Discard). Ghost-only recordings auto-commit with looping on, run parallel to auto-recording, and get an X delete button in the recordings table.
+- `#385` New **Kerbals** window (reserved crew, active stand-ins, retired stand-ins) opened from the main Parsek window; Retired Stand-ins removed from the Timeline footer.
+- `#415` Kerbals window shows a **Per-Recording Fates** section — which recording each kerbal appeared in, color-coded by end-state (Aboard / Dead / Recovered).
+- `#415-1` Per-Recording Fates entries are foldable per kerbal with a compact `N missions — X Dead, Y Recovered, Z Aboard` summary.
+- `#415-2` New chain topology view in the Kerbals window replaces the flat Reserved / Active / Retired sections with a per-owner collapsible tree.
+- `#416` New **Career State** window (Contracts / Strategies / Facilities / Milestones tabs) with "current" vs. "at timeline end" columns. Kerbals mission-outcome rows are now clickable and scroll the Timeline to the matching recording.
+- `#388` New **Show ghosts in Tracking Station** toggle (Settings → Ghosts); sticky across rewind, quickload, and KSP session restart.
+- `#389` Timeline and Recordings windows now share a time-range filter with quick presets (Last Day, 7d, 30d, This Year, All) and a custom-range dual-slider. A filter indicator with a Clear button stays visible in the Recordings table.
+- Added an **L** (loop toggle) button next to R on the timeline for loopable recordings; active loops show green text.
 
 ### Enhancements
 
-- `#386` Ghost map and tracking station icons now hide their label by default, show it on hover, and pin it on click — matching stock KSP vessel icons.
-- Replaced the four individual sampling sliders (min/max interval, direction threshold, speed threshold) with a single **Recorder Sample Density** setting offering three presets: Low (fewer samples, smaller files), Medium (balanced, same as previous defaults), and High (dense sampling for cinematic recordings). Existing slider-based saves now migrate their legacy thresholds to the nearest preset on load instead of silently defaulting to Medium, and the preset remains available from both the Parsek settings window and KSP's stock Game Parameters UI.
-- `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose and documented the `allowActivation` contract threaded through `IGhostPositioner` positioning methods.
-- `#378` Added a rate-limited warn when the on-save exact-match rebuild-and-compare of flat trajectory vs. track sections exceeds 5 ms on a single recording, so large-recording save stutter becomes visible in `KSP.log`.
-- `#376` Documented the dual-storage invariant for `AutoAssignedStandaloneGroupName` and flagged `ClearAutoAssignedStandaloneGroup` as the mandatory entry point for any new group-mutation path.
+- `#386` Ghost map and tracking station icons now hide their label by default, show on hover, and pin on click — matching stock KSP.
+- Gloops Flight Recorder window keeps its three buttons (Start/Stop, Preview, Discard) in fixed positions across states, graying out unavailable actions instead of rearranging them.
+- `#416` Recordings table header and body columns now line up across recording, group, and chain rows. Row index numbers sit under the `#` character, buttons (G/W/FF/R) and the Period input are 10 px inset from the cell left, and body text indents 5 px to match header text.
+- Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
+- `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose.
+- `#378` Added a rate-limited warn when on-save monotonicity rebuild exceeds 5 ms on a single recording, so save-time stutter is visible in `KSP.log`.
+- `#376` Documented the dual-storage invariant for auto-assigned standalone group names.
 
 ### Tests
 
-- `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test covering v3 binary sidecar save/load/optimize/resave/reload, plus a companion assertion that the optimizer rejects orbital-phase pairs.
-- `#384` Added the Learstar A1 mission from the S16 career to the `DefaultCareer` test fixture so `dotnet test --filter InjectAllRecordings` now covers a far-away / map-view smoke-test recording.
-- `#399` Added regression tests confirming `ScienceModule.ComputeTotalSpendings` correctly counts two `ScienceSpending` actions at the same UT — the suspected dedup bug was a log-reading artifact from intermediate `RecalculateAndPatch` calls.
-- `#390` Added 10 unit tests for `GameStateStore.PruneProcessedEvents` and `MilestoneStore.GetLatestCommittedEndUT` covering epoch filtering, threshold pruning, empty store, and mixed scenarios.
-- `#391` Added 6 unit tests for `GameStateStore.RebuildCommittedScienceSubjects` covering repopulation, clearing, value overwrite, and log output.
-- `T67` Replaced the skipped Unity-GameObject xUnit priming test with an in-game runtime test (`GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame`) so `dotnet test` runs clean without losing `GhostPlaybackEngine.SpawnGhost` priming coverage.
-- `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster `Remove` path against a reflected `KerbalRoster` instance in `KerbalLoadDiagnosticsTests`, confirming unused displaced stand-in deletion works end-to-end through the real adapter.
-- `T66` Added in-game runtime regression for PR #288 fresh watch-entry camera orientation -- pins canonical pitch/heading and guards against the 180-degree flip.
-- `T61` Added two hydration-salvage regression tests: one drives a save after `RestoreHydrationFailedRecordingsFromPendingTree` and pins that the `.prec` sidecar is rewritten, the epoch advances, and `FilesDirty` clears; the other covers a mixed-case tree with three failed recordings where only a subset is restorable from the pending tree and asserts the restore count plus the snapshot-only/full accounting in the summary log.
-- `#365` Added unit coverage for v2/v3 binary sidecar reader bounds, sparse v3 flag combinations, and full codec round-trip matrix.
+- `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test plus an assertion that the optimizer rejects orbital-phase pairs.
+- `#384` Added the Learstar A1 S16 mission to the `DefaultCareer` fixture so `InjectAllRecordings` covers a far-away / map-view recording.
+- `#399` Regression tests for `ScienceModule.ComputeTotalSpendings` at duplicate UTs.
+- `#390` 10 unit tests for `GameStateStore.PruneProcessedEvents` and `MilestoneStore.GetLatestCommittedEndUT`.
+- `#391` 6 unit tests for `GameStateStore.RebuildCommittedScienceSubjects`.
+- `T67` Replaced the skipped Unity-GameObject xUnit priming test with an in-game runtime equivalent.
+- `T63` Pinned `KerbalsModule.ApplyToRoster` real-roster Remove path in `KerbalLoadDiagnosticsTests`.
+- `T66` In-game runtime regression for fresh watch-entry camera orientation (canonical pitch/heading, no 180° flip).
+- `T61` Two hydration-salvage regression tests covering `RestoreHydrationFailedRecordingsFromPendingTree` and mixed subset-restorable trees.
+- `#365` Unit coverage for v2/v3 binary sidecar reader bounds and full codec round-trip matrix.
 
 ### Documentation
 
-- `T61` Refreshed the live storage rebaseline in `docs/dev/research/phase-11-5-recording-storage-baseline.md` against the April 14-16 playtest bundles; post-compression `.prec` and `_ghost.craft` are now roughly equal buckets at around 46% each of the authoritative payload, so further snapshot-side shrink work is measurement-gated rather than pre-committed.
+- `T61` Refreshed the live storage rebaseline against the April 14-16 playtest bundles.
 
 ### Bug Fixes
 
-- `#419` Debris recordings spawned from a crash-breakup no longer violate monotonic-UT invariants at the parent-breakup boundary. `BackgroundRecorder.ApplyTrajectoryPointToRecording` now rejects appends whose UT is strictly less than the recording's current last-point UT and returns `bool` so state-advancing callers short-circuit the track-section append and `lastRecordedUT` bookkeeping on rejection, and a defense-in-depth monotonicity guard in `RecordingStore.AppendPointsFromTrackSections` skips non-monotonic frames at the flush stitch so the same corruption can't re-materialize through save-load.
-- `#383` Ghost engine flames now render at roughly stock full-thrust size via a one-shot 1.5x `startSizeMultiplier`/`startLifetimeMultiplier` boost applied when each engine FX instance is cloned; preserves prefab particle curve modes and adds zero per-frame cost.
-- `#366` Wrapped each step of the staged-sidecar rollback in its own try/catch so a rollback exception on one file (e.g. external process deleting a `.bak`) no longer aborts the remaining rollback — best-effort atomicity is preserved and each failure is warn-logged.
-- `#369` Hardened `GhostPlaybackLogic.ComputePendingWatchHoldSeconds` against a NaN warp rate (previously fell through to the base hold via NaN arithmetic); cleaned up a cosmetic double `return true;` in `GhostPlaybackEngine.RenderInRangeGhost`.
-- `#377` Removed dead `GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset` and its always-zero visual-root offset propagation; refactored `RecordingOptimizer.FindLastInterestingUT` to scan all `PartEvents` / `SegmentEvents` / `FlagEvents` for max-UT instead of breaking at the first non-inert tail element, so the helper no longer relies on implicit sort order. Added a one-time Info log when auto-generated tree groups are inferred from the pre-#265 legacy heuristic. Added a one-shot-per-pending-restore latch in `WatchModeController.UpdateMapFocusRestore` so `EnsureGhostOrbitRenderers` is not called every frame while waiting for the ghost to materialize in MapView; the latch is also cleared at watch-session start and reset so a fresh session entered while map view is already open still runs renderer creation.
+- `#416` New career no longer starts with zero funds.
+- `#416` Crashed-vessel recordings now keep their R (rewind) button.
+- `#419` Debris recordings from a crash breakup no longer violate monotonic-UT invariants at the parent-breakup boundary.
+- `#383` Ghost engine flames now render at roughly stock full-thrust size.
+- `#366` Sidecar rollback no longer aborts mid-way when one step fails — each step catches independently and keeps going.
+- `#369` Hardened loop-pause hold computation against a NaN warp rate.
+- `#377` Removed dead visual-root offset code; auto-generated tree groups from the legacy heuristic log once; stopped per-frame renderer-creation calls while waiting for the ghost in MapView.
 - `#394`, `#395`, `#396`, `#397`, `#398`, `#400`, `#401`, `#402`, `#403`, `#404`, `#405` Fixed a cascade of career-mode ledger bugs that drained funds to zero, lost accepted contracts on scene transition, pinned science at the starting seed, and zeroed out milestone funds/rep rewards. Broken sci1/c1 saves are repaired automatically on first load.
-- `#391` `committedScienceSubjects` dictionary is now rebuilt from the ledger after every recalculation and before load-time recovery, so deleting a recording no longer leaves stale science entries that could be re-synthesized as ghost `ScienceEarning` actions on the next load.
-- `#390` `GameStateStore.Events` is now pruned after each commit — old-epoch events and events already swept into milestones are removed, preventing unbounded growth in long careers.
-- `#393` Fixed misleading "sandbox/science mode" log message in `PatchScience` — `ResearchAndDevelopment.Instance` is only null in sandbox mode, not science mode.
-- `#406` Map-view framerate with many looping showcase ghosts no longer collapses — stationary and slow recordings skip the reentry FX build that was being thrown away and rebuilt on every loop-cycle boundary.
-- `#362` Terminal crash-end decouple fragments (parachutes, heat shields, late shrapnel) now become proper debris branches at the very end of a recording instead of being silently dropped when the parent vessel is already in its destruction frame.
-- `#370` Hardened the group Watch button log lines against a latent `IndexOutOfRangeException` if `ResolveEffectiveWatchTargetIndex` ever returns `-1` while the click reaches the handler.
-- `#373` Landed ghost clearance no longer silently regresses to the legacy 0.5 m floor when the distance-aware resolver cannot run — the fallback now emits a rate-limited warning naming the ghost, recording, and reason so the cold-start / scene-transition path is visible in the log.
-- `#380` `scripts/release.py` now runs end-to-end and packages the release zip without aborting on a pre-existing unit-test failure.
-- `#381` The recording loop "Period" field is now the launch-to-launch period: a recording set to 10s relaunches every 10s regardless of duration, overlap emerges automatically when the period is shorter than the recording, and pre-`#381` saved gap values are version-migrated on load to preserve old launch-to-launch timing.
-- `#382` Group `W` button now cycles to the next watchable vessel in the group on each press instead of always toggling the same target.
-- `#409` Fixed a watch-mode overlap-vs-single dispatch mismatch for recordings with a loop subrange: `ResolveWatchPlaybackUT` and `TryStartWatchSession` now read the same `EffectiveLoopDuration` and cycle-start reference, so the two sites can no longer disagree on which playback path to take.
-- `#410` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries — `ComputeLoopPhaseFromUT`, `TryComputeLoopPlaybackUT`, and the live flight/KSC loop schedulers now share a `BoundaryEpsilon` tolerance so they agree on the `isInPause` flag at `phase == duration`.
-- `#411` Loop playback now uses the effective loop subrange consistently in flight and KSC: the overlap-vs-single dispatch, overlap active-cycle bounds, overlap phase anchoring, and loop-end teardown/pause holds now read `EffectiveLoopDuration` / `EffectiveLoopStartUT` / `EffectiveLoopEndUT` instead of raw or hybrid recording ranges.
+- `#391` Deleting a recording no longer leaves stale science entries that could re-synthesize on next load.
+- `#390` Events are pruned after each commit to prevent unbounded growth in long careers.
+- `#393` Fixed misleading "sandbox/science mode" log message in `PatchScience`.
+- `#406` Map-view framerate with many looping showcase ghosts no longer collapses.
+- `#362` Terminal crash-end decouple fragments (parachutes, heat shields, late shrapnel) now become proper debris branches instead of being silently dropped.
+- `#370` Hardened the group Watch button against a latent `IndexOutOfRangeException`.
+- `#373` Landed-ghost clearance fallback now emits a rate-limited warning instead of silently regressing to the legacy 0.5 m floor.
+- `#380` `scripts/release.py` runs end-to-end without aborting on a pre-existing test failure.
+- `#381` Loop "Period" field is now launch-to-launch period; pre-`#381` saves are version-migrated on load.
+- `#382` Group `W` button cycles to the next watchable vessel on each press instead of always toggling the same target.
+- `#409` Fixed a watch-mode dispatch mismatch for recordings with a loop subrange.
+- `#410` Fixed a one-frame `playing → paused → playing` flicker at exact loop-cycle boundaries.
+- `#411` Loop playback now uses the effective loop subrange consistently in flight and KSC.
 - `#387` Ghost map icons now match stock ProtoVessel icons for each vessel type (Ship, Plane, Probe, Station, …).
-- Fixed a per-frame `ResolveLoopInterval` clamp-warning log storm (over 1 million entries in a 6-minute session on saves with legacy loop data) — each affected recording now warns at most once per session while the defensive 1s clamp is unchanged.
-- `#412` Fixed looping showcase recordings (both newly injected and any already on disk) reaching playback with a loop period of 0 seconds: the synthetic RecordingBuilder now auto-derives the period from trajectory duration, and any recording loaded with a degenerate sub-1s period is auto-repaired once to the recording's own duration.
-- `InjectAllRecordings` test fixture now purges stale recording sidecars from the previous run before writing fresh ones, so re-injects no longer leave orphan `.prec` / `_ghost.craft` files that KSP's load-time orphan sweep later deletes (causing "showcases disappeared" on playtest).
-- `#420` In-game test `CurrentFormatTrajectorySidecarsProbeAsBinary` no longer fails on tree-root recordings that legitimately have no `.prec` sidecar — trajectory-less tree roots are now skipped, matching the sibling `ExternalFilesExist` test.
-- `#421` Ghost audio "AudioClip not found" warnings are now deduped per (ghost, pid, clip) — a missing stock clip logs once per ghost lifetime instead of repeating on every loop rebuild (previously up to 7 identical warns in ~3.5 min on a looping ion-engine showcase).
-- `#417`, `#418` Running the in-game test runner's Run All / Run Category twice in the same session no longer compounds leftover ghosts and orphan ghost-map PIDs — the runner now destroys all ghosts and clears ghost-map bookkeeping before each batch, so `GhostCountReasonable` and `GhostPidsResolveToProtoVessels` pass on every consecutive pass.
-- `#422` Freshly-loaded test saves no longer emit a per-tree WARN roll-up on top of the per-recording "trajectory file missing" INFO lines when every failure is a synthetic-fixture marker (missing `.prec` + zero points); mixed batches with any genuine degradation still warn.
-- `#413` Replacement kerbals are now seated in the correct part after revert/merge — the orphan-placement seat matcher was reading a non-existent `pid` key on snapshot PART nodes, so every lookup returned `pid=0` and fell through to name-only matching (or failed entirely, leaving the stand-in unseated).
-- `#414` Added a one-shot per-phase breakdown WARN next to the first `Playback frame budget exceeded` line in each session so the responsible sub-phase (main loop, spawn, destroy, explosion cleanup, deferred created/completed events, observability capture) is visible in the log the next time the 39ms startup spike reproduces.
-- `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI — previously the persistent store masked any live change once the user had ever flipped the toggle from the Parsek window, stranding ghost visibility on the stored value for the rest of the session.
-- `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized `MapView.UINodePrefab` or empty `iconSprites` array. Transient startup failures now retry on the next frame instead of latching; only structural errors (missing private field, no sprite carries a texture) latch to avoid per-frame warn spam.
+- Fixed a per-frame `ResolveLoopInterval` clamp-warning log storm on saves with legacy loop data — one warn per recording per session now.
+- `#412` Fixed looping showcase recordings reaching playback with a 0-second period; synthetic recordings auto-derive period and degenerate saves are auto-repaired once on load.
+- `InjectAllRecordings` test fixture now purges stale sidecars before writing fresh ones, so re-injects no longer leave orphan files for KSP to sweep.
+- `#420` In-game test `CurrentFormatTrajectorySidecarsProbeAsBinary` no longer fails on tree roots that legitimately have no `.prec` sidecar.
+- `#421` Ghost audio "AudioClip not found" warnings are now deduped per (ghost, pid, clip) — once per ghost lifetime instead of per loop rebuild.
+- `#417`, `#418` Running the in-game test runner's Run All / Run Category twice in the same session no longer compounds leftover ghosts and orphan ghost-map PIDs.
+- `#422` Freshly-loaded test saves no longer emit spurious per-tree WARNs when every failure is a synthetic-fixture marker.
+- `#413` Replacement kerbals are now seated in the correct part after revert/merge.
+- `#414` Added a one-shot per-phase breakdown WARN next to the first `Playback frame budget exceeded` line per session.
+- `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
+- `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 
 ### Maintenance
 
-- `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation` explaining the expected skip during early load.
-- `#372` Removed orphaned synthetic-scenario test helpers left behind after the live FLIGHT save/load round-trip test infrastructure was reverted.
+- `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation`.
+- `#372` Removed orphaned synthetic-scenario test helpers.
 
 ---
 

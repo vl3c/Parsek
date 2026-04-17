@@ -91,7 +91,7 @@ namespace Parsek
                 "ParsekSpawnControl".GetHashCode(),
                 spawnControlWindowRect,
                 (id) => DrawSpawnControlWindow(id, flight),
-                "Parsek \u2014 Real Spawn Control",
+                "Parsek - Real Spawn Control",
                 opaqueWindowStyle,
                 GUILayout.Width(spawnControlWindowRect.width),
                 GUILayout.Height(spawnControlWindowRect.height)
@@ -158,6 +158,9 @@ namespace Parsek
 
         private void DrawSpawnControlWindow(int windowID, ParsekFlight flight)
         {
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
+
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double currentUT = Planetarium.GetUniversalTime();
             var candidates = flight.NearbySpawnCandidates;
@@ -177,7 +180,7 @@ namespace Parsek
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
             DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
             DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
-            GUILayout.Label("State", GUILayout.Width(SpawnColW_State));
+            GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
@@ -208,6 +211,8 @@ namespace Parsek
             double currentUT, System.Globalization.CultureInfo ic, ParsekFlight flight)
         {
             spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
+            // Dark list-area background (matches Career State / Recordings body look).
+            GUILayout.BeginVertical(GUI.skin.box);
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
@@ -278,6 +283,7 @@ namespace Parsek
                 }
                 GUILayout.EndHorizontal();
             }
+            GUILayout.EndVertical();
             GUILayout.EndScrollView();
         }
 

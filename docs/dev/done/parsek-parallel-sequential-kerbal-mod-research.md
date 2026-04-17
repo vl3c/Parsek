@@ -518,7 +518,7 @@ Advanced n-body physics. Reference for orbital prediction systems, though overki
    - KSP.Localization for all UI strings (from FMRS)
 4. ~~**Create project skeleton** with proper dependencies~~ **DONE** - SDK-style .csproj created
 5. ~~**Implement spike prototype**~~ **DONE** - Basic recording + playback verified
-6. **Implement MVP Phase 1** - See `docs/parsek-architecture.md` Phase 1 checklist
+6. **Implement MVP Phase 1** - See `docs/dev/done/parsek-architecture-v0.4.3.md` Phase 1 checklist
 
 ## Cloned Mods Summary
 

@@ -6,11 +6,12 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Kerbals roster window — renders each career-kerbal slot as a collapsible
-    /// per-owner chain (reserved/active/retired/displaced stand-ins indented as
-    /// tree children), plus an Unlinked Retired tail section for stand-ins that
-    /// no longer belong to any slot, plus the Per-Recording Fates section with
-    /// per-kerbal fold/unfold (#415-1).
+    /// Kerbals window — two tabs:
+    ///   * "Roster State": per-owner collapsible chain (reserved/active/retired/
+    ///     displaced stand-ins) plus the Unlinked Retired tail for stand-ins that
+    ///     no longer belong to any slot.
+    ///   * "Mission Outcomes": per-kerbal chronological committed-mission history
+    ///     (Aboard / Recovered / Dead / Unknown) with per-kerbal fold (#415-1).
     /// </summary>
     internal class KerbalsWindowUI
     {
@@ -24,7 +25,9 @@ namespace Parsek
         private const string KerbalsInputLockId = "Parsek_KerbalsWindow";
         private const float MinWindowWidth = 280f;
         private const float MinWindowHeight = 150f;
-        private const float DefaultWindowWidth = 320f;
+        // Default width is half of CareerStateWindowUI.DefaultWindowWidth (820) so
+        // the two windows can sit side by side on a typical 16:9 monitor.
+        private const float DefaultWindowWidth = 410f;
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 
@@ -34,7 +37,7 @@ namespace Parsek
         private const string FoldedArrow = "\u25b6";
         private const string UnfoldedArrow = "\u25bc";
 
-        // Transient fold state for Per-Recording Fates groups. Default-unfolded means we
+        // Transient fold state for Mission Outcomes groups. Default-unfolded means we
         // only store names that are currently folded, so HashSet fits the access pattern.
         // InvalidateCache does NOT clear this — fold is UI preference, not data.
         internal readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
@@ -53,6 +56,18 @@ namespace Parsek
         private GUIStyle aboardStyle;
         private GUIStyle activeChainStyle;
         private GUIStyle displacedStyle;
+        // Toggle button style for tab bar — mirrors CareerStateWindowUI / TimelineWindowUI:
+        // the "on" background is copied from GUI.skin.button.active so the selected tab
+        // looks visibly pushed in.
+        private GUIStyle toggleButtonStyle;
+
+        // Transient tab selection for the Kerbals window. Matches the Career State pattern.
+        private int selectedTab;
+
+        private static readonly string[] TabLabels = new[]
+        {
+            "Roster State", "Mission Outcomes"
+        };
 
         internal struct KerbalsViewModel
         {
@@ -142,7 +157,7 @@ namespace Parsek
                 "ParsekKerbals".GetHashCode(),
                 kerbalsWindowRect,
                 DrawKerbalsWindow,
-                "Parsek \u2014 Kerbals",
+                "Parsek - Kerbals",
                 opaqueWindowStyle,
                 GUILayout.Width(kerbalsWindowRect.width),
                 GUILayout.Height(kerbalsWindowRect.height)
@@ -172,16 +187,13 @@ namespace Parsek
 
         private void EnsureStyles()
         {
+            // Section header style is shared across the mod via ParsekUI; reassign
+            // every draw so any ParsekUI-level updates flow through.
+            sectionHeaderStyle = parentUI.GetSectionHeaderStyle();
             if (grayStyle != null) return;
             grayStyle = new GUIStyle(GUI.skin.label)
             {
                 normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
-            };
-            sectionHeaderStyle = new GUIStyle(GUI.skin.box)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                fontStyle = FontStyle.Bold,
-                stretchWidth = true
             };
             groupHeaderStyle = new GUIStyle(GUI.skin.label)
             {
@@ -208,11 +220,25 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
             };
+            // Tab bar button: selected tab looks pressed via onNormal.background copied
+            // from GUI.skin.button.active.background (matches CareerStateWindowUI and
+            // TimelineWindowUI toggle idiom).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
         }
 
         private void DrawKerbalsWindow(int windowID)
         {
             EnsureStyles();
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
 
             if (cachedVM == null)
             {
@@ -240,17 +266,41 @@ namespace Parsek
 
             var vm = cachedVM.Value;
 
+            // Tab bar — same idiom as CareerStateWindowUI.
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
+            if (newTab != selectedTab)
+            {
+                SwitchTab(selectedTab, newTab);
+                selectedTab = newTab;
+                kerbalsScrollPos.y = 0f;
+            }
+
             kerbalsScrollPos = GUILayout.BeginScrollView(kerbalsScrollPos, GUILayout.ExpandHeight(true));
 
-            if (vm.Topology.Count == 0 && vm.OrphanRetired.Count == 0 && vm.EndStates.Count == 0)
+            switch (selectedTab)
             {
-                GUILayout.Label("No reserved crew, stand-ins, retired kerbals, or committed crew history.", grayStyle);
-            }
-            else
-            {
-                DrawTopologySection(vm.Topology);
-                DrawOrphanRetiredSection(vm.OrphanRetired);
-                DrawEndStatesSection(vm.EndStates);
+                case 0:
+                    if (vm.Topology.Count == 0 && vm.OrphanRetired.Count == 0)
+                    {
+                        GUILayout.Label("No reserved crew, stand-ins, or retired kerbals.", grayStyle);
+                    }
+                    else
+                    {
+                        DrawTopologySection(vm.Topology);
+                        DrawOrphanRetiredSection(vm.OrphanRetired);
+                    }
+                    break;
+
+                case 1:
+                    if (vm.EndStates.Count == 0)
+                    {
+                        GUILayout.Label("No committed crew history yet.", grayStyle);
+                    }
+                    else
+                    {
+                        DrawEndStatesSection(vm.EndStates);
+                    }
+                    break;
             }
 
             GUILayout.EndScrollView();
@@ -270,8 +320,6 @@ namespace Parsek
         private void DrawTopologySection(List<SlotTopologyEntry> topology)
         {
             if (topology.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label($"Kerbal Slots ({topology.Count})", sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
 
             bool first = true;
@@ -305,8 +353,9 @@ namespace Parsek
                     {
                         var member = entry.Chain[c];
                         if (string.IsNullOrEmpty(member.Name)) continue;
-                        string prefix = (c == lastIdx) ? "    \u2514\u2500 " : "    \u251c\u2500 ";
-                        GUILayout.Label(prefix + FormatChainMember(member), StyleForChainMember(member.Status));
+                        GUILayout.Label(
+                            FormatRosterChainMemberText(member, isLast: (c == lastIdx)),
+                            StyleForChainMember(member.Status));
                     }
                 }
             }
@@ -391,7 +440,7 @@ namespace Parsek
             {
                 status = "active";
             }
-            return $"{entry.OwnerName} [{entry.OwnerTrait}] \u2014 {status}";
+            return $"{entry.OwnerName} [{entry.OwnerTrait}] - {status}";
         }
 
         internal static string FormatChainMember(ChainMember m)
@@ -407,11 +456,40 @@ namespace Parsek
             return $"{m.Name} ({tag})";
         }
 
+        /// <summary>
+        /// Leading indent used by every subitem row under a fold/expand parent in this
+        /// window. Four spaces puts the first subitem character roughly under the
+        /// parent kerbal-name's first character (after the "▼ " arrow). Both the
+        /// Roster State tab's chain-member rows and the Mission Outcomes tab's per-
+        /// recording rows share this prefix so the two tabs cannot visually drift
+        /// apart — any edit that changes the prefix must update both format helpers
+        /// (and their parity test will fail if it doesn't).
+        /// </summary>
+        internal const string SubitemIndent = "    ";
+
+        /// <summary>
+        /// Renders a Mission Outcomes subitem row as a single pre-indented string,
+        /// ready to pass to GUILayout.Button. The indent is SubitemIndent.
+        /// </summary>
+        internal static string FormatMissionOutcomeSubitemText(CrewEndStateEntry e)
+        {
+            return SubitemIndent + FormatEndStateRow(e);
+        }
+
+        /// <summary>
+        /// Renders a Roster State chain-member subitem row as a single pre-indented
+        /// string with a tree-branch glyph. <paramref name="isLast"/> picks between
+        /// the "mid" (├─) and "last" (└─) tree characters.
+        /// </summary>
+        internal static string FormatRosterChainMemberText(ChainMember m, bool isLast)
+        {
+            string branch = isLast ? "\u2514\u2500 " : "\u251c\u2500 ";
+            return SubitemIndent + branch + FormatChainMember(m);
+        }
+
         private void DrawEndStatesSection(List<CrewEndStateEntry> endStates)
         {
             if (endStates.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label($"Per-Recording Fates ({endStates.Count})", sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
 
             int i = 0;
@@ -431,11 +509,10 @@ namespace Parsek
                     ? FormatKerbalSummary(name, endStates, i, j)
                     : name;
 
-                // Use groupHeaderStyle (bold) as the button style so unfolded output stays
-                // visually identical to the pre-fold-toggle design — only the arrow prefix
-                // is new. RecordingsTableUI uses GUI.skin.label for its chain blocks because
-                // those are body rows; Per-Recording Fates headers are group headers.
-                if (GUILayout.Button($"{arrow} {headerText}", groupHeaderStyle, GUILayout.ExpandWidth(true)))
+                // Per-kerbal fold row: non-bold label-styled button so the dropdown header
+                // sits visually as a row rather than a sub-heading (RecordingsTableUI uses
+                // the same pattern for its chain blocks).
+                if (GUILayout.Button($"{arrow} {headerText}", GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     ToggleFold(foldedKerbals, name, j - i);
                 }
@@ -445,13 +522,35 @@ namespace Parsek
                     for (int k = i; k < j; k++)
                     {
                         var e = endStates[k];
-                        GUILayout.Label("  " + FormatEndStateRow(e), StyleForEndState(e.EndState));
+                        // Subitem indent: shared with the Roster State tab's chain-
+                        // member format — see FormatMissionOutcomeSubitemText.
+                        if (GUILayout.Button(FormatMissionOutcomeSubitemText(e), StyleForEndState(e.EndState)))
+                        {
+                            // Mirrors the Timeline.GoTo → RecordingsTableUI.ScrollToRecording
+                            // cross-link pattern (TimelineWindowUI.cs:665). GetTimelineUI()
+                            // can return null during cold-start scene transitions — the
+                            // helper tolerates a null callback and still emits the
+                            // diagnostic log (E14).
+                            var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
+                            Action<string> scrollCallback = timelineUI != null
+                                ? timelineUI.ScrollToRecording
+                                : (Action<string>)null;
+                            OnFatesRowClicked(scrollCallback, e.RecordingId);
+                        }
                     }
                 }
                 i = j;
             }
 
             GUILayout.EndVertical();
+        }
+
+        // Logs the tab-switch. Extracted as a pure helper so the log contract stays
+        // testable outside IMGUI (mirrors CareerStateWindowUI.SwitchTab).
+        internal static void SwitchTab(int oldTab, int newTab)
+        {
+            ParsekLog.Verbose("UI",
+                $"KerbalsWindow: tab switched {oldTab}->{newTab}");
         }
 
         // Pure mutation + log helper so the toggle contract is unit-testable outside IMGUI.
@@ -465,6 +564,19 @@ namespace Parsek
             ParsekLog.Verbose("UI",
                 $"Kerbals fold toggled: '{kerbalName}' -> {(wasFolded ? "unfolded" : "folded")} ({missionCount} missions)");
             return !wasFolded;
+        }
+
+        // Pure helper for the Fates → Timeline cross-link. Production passes
+        // `parentUI.GetTimelineUI().ScrollToRecording` as the callback; tests pass a
+        // lambda spy. Tolerates a null callback (E14 — GetTimelineUI() can be null
+        // during cold-start scene transitions) so the click never NREs; the log
+        // still fires so stale-id clicks leave a diagnostic trail.
+        internal static void OnFatesRowClicked(
+            Action<string> scrollCallback, string recordingId)
+        {
+            ParsekLog.Verbose("UI",
+                $"Kerbals Fates \u2192 Timeline scroll: recordingId={recordingId}");
+            if (scrollCallback != null) scrollCallback(recordingId);
         }
 
         internal static string FormatKerbalSummary(
@@ -491,7 +603,7 @@ namespace Parsek
             if (aboard > 0) parts.Add($"{aboard} Aboard");
             if (unknown > 0) parts.Add($"{unknown} Unknown");
             string missionLabel = total == 1 ? "1 mission" : $"{total} missions";
-            return $"{kerbalName} ({missionLabel} \u2014 {string.Join(", ", parts)})";
+            return $"{kerbalName} ({missionLabel} - {string.Join(", ", parts)})";
         }
 
         private GUIStyle StyleForEndState(KerbalEndState s)
@@ -509,7 +621,7 @@ namespace Parsek
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             string rec = string.IsNullOrEmpty(e.RecordingName) ? "(unnamed)" : e.RecordingName;
-            return $"{rec} \u2014 {FormatEndState(e.EndState)} at UT {e.EndUT.ToString("F0", ic)}";
+            return $"{rec} - {FormatEndState(e.EndState)} at UT {e.EndUT.ToString("F0", ic)}";
         }
 
         internal static string FormatEndState(KerbalEndState s)

@@ -123,7 +123,7 @@ namespace Parsek.InGameTests
                 "ParsekTestRunnerGlobal".GetHashCode(),
                 windowRect,
                 DrawWindow,
-                "Parsek \u2014 Test Runner",
+                "Parsek - Test Runner",
                 opaqueStyle,
                 GUILayout.Width(DefaultWindowWidth));
 

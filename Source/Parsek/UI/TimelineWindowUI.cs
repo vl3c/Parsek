@@ -27,6 +27,11 @@ namespace Parsek
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
 
+        // Shared width for all top filter/preset buttons (Overview, Details, Recordings,
+        // Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
+        // Every button in the Timeline's top zone uses the same width so the rows align.
+        private const float FilterButtonWidth = 93f;
+
         // Cached timeline data (invalidated on triggers)
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
@@ -50,7 +55,6 @@ namespace Parsek
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
-        private GUIStyle loopActiveButtonStyle;
 
         // Cached stats text — refreshed on cache rebuild or filter change
         private string cachedStatsText;
@@ -86,13 +90,15 @@ namespace Parsek
                 return;
             }
 
-            // Position to the left of main window on first open
+            // Position to the left of main window on first open. Default width must
+            // accommodate 6 minimum-width buttons + inter-button margin budget
+            // (6*93 + 28 + chrome ≈ 608), with some breathing room.
             if (timelineWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 538;
+                float x = mainWindowRect.x - 650;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
                 float height = Math.Max(600f, mainWindowRect.height);
-                timelineWindowRect = new Rect(x, mainWindowRect.y, 528, height);
+                timelineWindowRect = new Rect(x, mainWindowRect.y, 640, height);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
@@ -106,7 +112,7 @@ namespace Parsek
                 "ParsekTimeline".GetHashCode(),
                 timelineWindowRect,
                 DrawTimelineWindow,
-                "Parsek \u2014 Timeline",
+                "Parsek - Timeline",
                 opaqueWindowStyle,
                 GUILayout.Width(timelineWindowRect.width),
                 GUILayout.Height(timelineWindowRect.height)
@@ -194,18 +200,39 @@ namespace Parsek
             timelineBlueStyle.normal.textColor = new Color(0.5f, 0.7f, 1f);
 
             // Toggle button: "on" state reuses the button's own rounded-corner texture
-            // but tints it darker via the on-state background color trick
+            // but tints it darker via the on-state background color trick. Explicit
+            // 4px horizontal margin gives adjacent buttons a visible gap (inter-button
+            // gap = 4px after IMGUI's max-collapse); the GetResponsiveButtonWidth math
+            // below accounts for this exact margin budget. Vertical margin inherits
+            // from GUI.skin.button so the L toggle vertically aligns with the R /
+            // FF / GoTo buttons (which use plain GUI.skin.button) in entry rows.
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
-            // Copy the normal (off) background to the on states so we keep rounded corners
+            toggleButtonStyle.margin = new RectOffset(4, 4,
+                GUI.skin.button.margin.top, GUI.skin.button.margin.bottom);
             toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
+        }
 
-            // Loop active button: green-tinted text so active loops stand out in the timeline
-            loopActiveButtonStyle = new GUIStyle(GUI.skin.button);
-            loopActiveButtonStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
-            loopActiveButtonStyle.hover.textColor = new Color(0.5f, 1f, 0.5f);
+        /// <summary>
+        /// Shared button width used by every button in the top filter row (5 buttons)
+        /// and the time-range preset row (6 buttons). Computed each frame from the
+        /// current window width so both rows scale uniformly. The margin budget
+        /// (outer+inter-cell gaps at 2px per margin.left/right) is subtracted before
+        /// dividing by 6 so the preset row fills the available span exactly AND the
+        /// filter row's FlexibleSpace expands to exactly one button-plus-gap —
+        /// guaranteeing the Recordings/Actions/Events column centers sit directly
+        /// above This Year/All/Custom in the row below. Floored at FilterButtonWidth
+        /// so buttons never shrink below the minimum legibility width.
+        /// </summary>
+        private float GetResponsiveButtonWidth()
+        {
+            const float horizontalChromePx = 22f;      // approx left+right window padding
+            // margin=(4,4,0,0): outer left (4) + 5 inter-button gaps (4 each) + outer right (4) = 28
+            const float marginBudget = 28f;
+            float avail = timelineWindowRect.width - horizontalChromePx - marginBudget;
+            return Mathf.Max(FilterButtonWidth, avail / 6f);
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -294,29 +321,43 @@ namespace Parsek
         private void DrawFilterBar()
         {
             GUILayout.Space(5);
+
+            // Top-filter buttons sit at fixed column positions matching the preset
+            // row below: Overview=col1, Details=col2, (empty col3), Recordings=col4,
+            // Actions=col5, Events=col6. The empty column 3 is an explicit
+            // GUILayout.Space(btnW) so the source-group buttons are placed at
+            // sequential positions, not right-anchored — this keeps their columns
+            // locked to the preset row regardless of any future layout quirks.
+            float btnW = GetResponsiveButtonWidth();
+
             GUILayout.BeginHorizontal();
 
-            // Tier selector
+            // Tier selector (columns 1-2).
             bool overviewActive = !showDetail;
             bool detailActive = showDetail;
 
-            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(80)) && !overviewActive)
+            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
                 showDetail = false;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
-            if (GUILayout.Toggle(detailActive, "Detail", toggleButtonStyle, GUILayout.Width(70)) && !detailActive)
+            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
                 showDetail = true;
                 filterDirty = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Detail");
+                ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
 
-            GUILayout.Space(10);
+            // Empty column 3 — keeps source-group buttons at col 4/5/6. Must be a
+            // Label (not Space) so its margins participate in IMGUI's max-collapse
+            // rule the same way the preset row's Last 30d button does at col 3;
+            // GUILayout.Space doesn't carry a margin, so Space(btnW) would leave
+            // Recordings 8px left of This Year due to the missing margin gap.
+            GUILayout.Label("", GUILayout.Width(btnW));
 
-            // Source toggles
-            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(90));
+            // Source toggles (columns 4-6).
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
@@ -324,7 +365,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
-            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(70));
+            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
@@ -332,7 +373,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
-            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(65));
+            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
@@ -376,25 +417,27 @@ namespace Parsek
 
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
-            // Preset row
+            // Every preset button (including All and Custom) uses the same responsive
+            // width as the top filter row so both rows column-align and scale together.
+            float btnW = GetResponsiveButtonWidth();
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
 
             int secsPerDay = ParsekTimeFormat.SecsPerDay;
             int secsPerYear = ParsekTimeFormat.SecsPerYear;
 
-            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT);
-            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT);
-            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT);
+            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, btnW);
 
             // "This Year" = current Kerbin/Earth calendar year boundaries
             double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
             double yearEnd = yearStart + secsPerYear;
-            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT);
+            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, btnW);
 
             // "All" = clear filter
             bool allActive = !filter.IsActive;
-            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(40)) && !allActive)
+            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(btnW)) && !allActive)
             {
                 filter.Clear();
                 sliderMin = sliderBoundMin;
@@ -403,33 +446,43 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
             }
 
+            // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
+            if (hasRange)
+            {
+                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(btnW));
+                if (newShowCustom != showCustomRange)
+                {
+                    showCustomRange = newShowCustom;
+                    ParsekLog.Verbose("UI",
+                        $"Time-range filter: custom sliders {(showCustomRange ? "shown" : "hidden")}");
+                }
+            }
+
             GUILayout.EndHorizontal();
 
             if (!hasRange) return;
 
-            // Disclosure header
-            GUILayout.BeginHorizontal();
-            string arrow = showCustomRange ? "\u25bc" : "\u25b6";
-            string headerLabel = arrow + " Custom range";
-            if (filter.IsActive && filter.ActivePresetName == null)
-            {
-                headerLabel += "  " + TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
-                    + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
-            }
-            if (GUILayout.Button(headerLabel, GUI.skin.label))
-            {
-                showCustomRange = !showCustomRange;
-            }
-            GUILayout.EndHorizontal();
-
-            // Custom range sliders
+            // Custom range sliders (visible only when the "Custom" toggle is on).
             if (showCustomRange)
             {
-                // From slider
+                // Active-range readout (only meaningful when the filter is set to a custom range, not a preset).
+                if (filter.IsActive && filter.ActivePresetName == null)
+                {
+                    string rangeLabel = TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
+                        + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
+                    GUILayout.Label(rangeLabel, timelineDimStyle);
+                }
+
+                // From slider — slider gets a vertical nudge so the track aligns
+                // with the label baselines (IMGUI's default slider renders a few px
+                // higher than the adjacent labels in a horizontal row).
                 GUILayout.BeginHorizontal();
                 string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
                 GUILayout.Label("From:", GUILayout.Width(38));
+                GUILayout.BeginVertical();
+                GUILayout.Space(9f);
                 float newMin = GUILayout.HorizontalSlider(sliderMin, sliderBoundMin, sliderBoundMax);
+                GUILayout.EndVertical();
                 GUILayout.Label(fromLabel, GUILayout.Width(120));
                 GUILayout.EndHorizontal();
 
@@ -437,7 +490,10 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 string toLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMax);
                 GUILayout.Label("To:", GUILayout.Width(38));
+                GUILayout.BeginVertical();
+                GUILayout.Space(9f);
                 float newMax = GUILayout.HorizontalSlider(sliderMax, sliderBoundMin, sliderBoundMax);
+                GUILayout.EndVertical();
                 GUILayout.Label(toLabel, GUILayout.Width(120));
                 GUILayout.EndHorizontal();
 
@@ -456,10 +512,10 @@ namespace Parsek
         }
 
         private void DrawPresetButton(TimeRangeFilterState filter, string name,
-            double minUT, double maxUT, double currentUT)
+            double minUT, double maxUT, double currentUT, float width)
         {
             bool isActive = filter.IsActive && filter.ActivePresetName == name;
-            if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(70)) && !isActive)
+            if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(width)) && !isActive)
             {
                 // Clamp to slider bounds so we don't filter outside the data range
                 double clampedMin = System.Math.Max(minUT, sliderBoundMin);
@@ -470,7 +526,7 @@ namespace Parsek
                 sliderMax = (float)clampedMax;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
-                    $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} — " +
+                    $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} - " +
                     $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
             }
         }
@@ -513,10 +569,21 @@ namespace Parsek
                     ParsekLog.Verbose("Timeline",
                         $"Cross-link: scrolled to row {scrollTargetRow} for recordingId={pendingScrollToRecordingId}");
                 }
+                else
+                {
+                    // E14: stale id (recording purged, outside visibility filter, etc.).
+                    // Behavior unchanged — we still clear the pending id below — but
+                    // the click trail is no longer silent.
+                    ParsekLog.Verbose("Timeline",
+                        $"Timeline scroll target not found: id={pendingScrollToRecordingId}");
+                }
                 pendingScrollToRecordingId = null;
             }
 
             timelineScrollPos = GUILayout.BeginScrollView(timelineScrollPos, GUILayout.ExpandHeight(true));
+
+            // Dark list-area background (matches Career State / Recordings body look).
+            GUILayout.BeginVertical(GUI.skin.box);
 
             bool dividerDrawn = false;
 
@@ -544,6 +611,7 @@ namespace Parsek
                 DrawNowDivider(currentUT);
             }
 
+            GUILayout.EndVertical();
             GUILayout.EndScrollView();
         }
 
@@ -597,6 +665,10 @@ namespace Parsek
             catch { time = entry.UT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
             GUILayout.Label(time, style, GUILayout.Width(90));
 
+            // Visual spacer between UT and description — matches the breathing room
+            // that appears before the R / FF / L / GoTo buttons on the far right.
+            GUILayout.Space(14f);
+
             // Description text
             GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
 
@@ -642,13 +714,16 @@ namespace Parsek
 
                     // L (loop toggle) — show for past/active recordings that are loopable,
                     // or any recording already looping so the timeline can still disable it.
+                    // Uses the shared toggleButtonStyle so the "on" state looks pressed in
+                    // (same idiom as the filter/tab toggles); text color stays default.
                     if (ShouldShowLoopToggle(rec, isFuture))
                     {
-                        GUIStyle lStyle = rec.LoopPlayback ? loopActiveButtonStyle : GUI.skin.button;
                         string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
-                        if (GUILayout.Button(new GUIContent("L", lTooltip), lStyle, GUILayout.Width(25)))
+                        bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
+                            toggleButtonStyle, GUILayout.Width(25));
+                        if (newLoop != rec.LoopPlayback)
                         {
-                            rec.LoopPlayback = !rec.LoopPlayback;
+                            rec.LoopPlayback = newLoop;
                             RecordingsTableUI.ApplyAutoLoopRange(rec, rec.LoopPlayback);
                             if (!rec.LoopPlayback)
                                 tableUI?.ClearLoopPeriodFocus();
@@ -712,7 +787,7 @@ namespace Parsek
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             GUILayout.Space(5);
-            GUILayout.Label("Resources", GUI.skin.box);
+            GUILayout.Label("Resources", parentUI.GetSectionHeaderStyle());
 
             bool anyOverCommitted = false;
             bool isScienceMode = false;

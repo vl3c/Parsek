@@ -362,7 +362,7 @@ namespace Parsek.Tests
                     OwnerReservedUntilUT = 18230.0
                 };
                 Assert.Equal(
-                    "Jebediah Kerman [Pilot] \u2014 reserved until UT 18230",
+                    "Jebediah Kerman [Pilot] - reserved until UT 18230",
                     KerbalsWindowUI.FormatOwnerHeader(entry));
             }
             finally
@@ -381,7 +381,7 @@ namespace Parsek.Tests
                 OwnerPermanentlyGone = true
             };
             Assert.Equal(
-                "Valentina Kerman [Pilot] \u2014 deceased",
+                "Valentina Kerman [Pilot] - deceased",
                 KerbalsWindowUI.FormatOwnerHeader(entry));
         }
 
@@ -395,7 +395,7 @@ namespace Parsek.Tests
                 OwnerReserved = false
             };
             Assert.Equal(
-                "Bob Kerman [Engineer] \u2014 active",
+                "Bob Kerman [Engineer] - active",
                 KerbalsWindowUI.FormatOwnerHeader(entry));
         }
 
@@ -412,7 +412,7 @@ namespace Parsek.Tests
                 OwnerReservedUntilUT = double.PositiveInfinity
             };
             Assert.Equal(
-                "Jebediah Kerman [Pilot] \u2014 reserved",
+                "Jebediah Kerman [Pilot] - reserved",
                 KerbalsWindowUI.FormatOwnerHeader(entry));
         }
 
@@ -594,7 +594,7 @@ namespace Parsek.Tests
                 EndState = KerbalEndState.Recovered
             };
             Assert.Equal(
-                "Mun Hopper \u2014 Recovered at UT 12045",
+                "Mun Hopper - Recovered at UT 12045",
                 KerbalsWindowUI.FormatEndStateRow(entry));
 
             var unnamed = new KerbalsWindowUI.CrewEndStateEntry
@@ -605,8 +605,105 @@ namespace Parsek.Tests
                 EndState = KerbalEndState.Dead
             };
             Assert.Equal(
-                "(unnamed) \u2014 Dead at UT 50",
+                "(unnamed) - Dead at UT 50",
                 KerbalsWindowUI.FormatEndStateRow(unnamed));
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Subitem-indent parity (Roster State ↔ Mission Outcomes)
+        //
+        // These tests lock down the shared leading-indent convention used by
+        // both tabs' subitem rows. If someone refactors one tab's render code
+        // and silently changes the indent, the parity test fails before the
+        // drift reaches the player. This covers a regression we already hit
+        // twice during #416 UI polish.
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void SubitemIndent_IsFourSpaces()
+        {
+            // Regression: fails if anyone "cleans up" the indent constant to a
+            // different value, silently shifting both tabs' subitem rendering.
+            Assert.Equal("    ", KerbalsWindowUI.SubitemIndent);
+        }
+
+        [Fact]
+        public void FormatMissionOutcomeSubitemText_StartsWithSubitemIndent()
+        {
+            // Regression: fails if Mission Outcomes subitem composition stops
+            // using the shared indent and, e.g., reverts to a BeginHorizontal
+            // + GUILayout.Space pattern (which historically produced the
+            // "subitems not aligned with parent" bug).
+            var entry = new KerbalsWindowUI.CrewEndStateEntry
+            {
+                KerbalName = "Jeb Kerman",
+                RecordingName = "Mun Hopper",
+                EndUT = 12045.0,
+                EndState = KerbalEndState.Recovered
+            };
+            string text = KerbalsWindowUI.FormatMissionOutcomeSubitemText(entry);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, text);
+            // And the body itself (after the indent) is the unchanged FormatEndStateRow output.
+            Assert.Equal(
+                KerbalsWindowUI.SubitemIndent + KerbalsWindowUI.FormatEndStateRow(entry),
+                text);
+        }
+
+        [Fact]
+        public void FormatRosterChainMemberText_StartsWithSubitemIndent_AndUsesBranchGlyph()
+        {
+            // Regression: fails if the Roster chain-member render path drops the
+            // shared indent, or picks the wrong tree-branch glyph between the
+            // last-child (└─) and mid-child (├─) cases.
+            var member = new KerbalsWindowUI.ChainMember
+            {
+                Name = "Bill Kerman",
+                ChainIndex = 0,
+                Status = KerbalsWindowUI.ChainMemberStatus.Retired
+            };
+
+            string mid = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: false);
+            string last = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
+
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, mid);
+            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, last);
+            Assert.Contains("\u251c\u2500", mid);   // mid-child branch char (├─)
+            Assert.Contains("\u2514\u2500", last);  // last-child branch char (└─)
+            Assert.Contains(KerbalsWindowUI.FormatChainMember(member), mid);
+            Assert.Contains(KerbalsWindowUI.FormatChainMember(member), last);
+        }
+
+        [Fact]
+        public void MissionOutcomesAndRosterUseSameSubitemIndent()
+        {
+            // Parity test — the whole reason for extracting SubitemIndent into a
+            // shared constant. Fails if either tab's helper starts building its
+            // own indent from a literal string, letting the two drift apart.
+            var entry = new KerbalsWindowUI.CrewEndStateEntry
+            {
+                KerbalName = "Jeb Kerman",
+                RecordingName = "Mun Hopper",
+                EndUT = 12045.0,
+                EndState = KerbalEndState.Recovered
+            };
+            var member = new KerbalsWindowUI.ChainMember
+            {
+                Name = "Bill Kerman",
+                ChainIndex = 0,
+                Status = KerbalsWindowUI.ChainMemberStatus.Retired
+            };
+
+            string outcomeText = KerbalsWindowUI.FormatMissionOutcomeSubitemText(entry);
+            string rosterText = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
+
+            // Both texts must begin with the same leading run of spaces.
+            Assert.True(outcomeText.StartsWith(KerbalsWindowUI.SubitemIndent, StringComparison.Ordinal));
+            Assert.True(rosterText.StartsWith(KerbalsWindowUI.SubitemIndent, StringComparison.Ordinal));
+            // The indent length must be identical (defensive check in case a future
+            // SubitemIndent becomes non-space; then startswith + equal-length still
+            // holds but the content must match exactly).
+            Assert.Equal(KerbalsWindowUI.SubitemIndent.Length,
+                outcomeText.Length - KerbalsWindowUI.FormatEndStateRow(entry).Length);
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -637,7 +734,7 @@ namespace Parsek.Tests
             string result = KerbalsWindowUI.FormatKerbalSummary(
                 "Bill Kerman", entries, 0, entries.Count);
 
-            Assert.Equal("Bill Kerman (1 mission \u2014 1 Recovered)", result);
+            Assert.Equal("Bill Kerman (1 mission - 1 Recovered)", result);
         }
 
         [Fact]
@@ -655,7 +752,7 @@ namespace Parsek.Tests
                 "Jebediah Kerman", entries, 0, entries.Count);
 
             Assert.Equal(
-                "Jebediah Kerman (4 missions \u2014 1 Dead, 2 Recovered, 1 Aboard)",
+                "Jebediah Kerman (4 missions - 1 Dead, 2 Recovered, 1 Aboard)",
                 result);
         }
 
@@ -672,7 +769,7 @@ namespace Parsek.Tests
             string result = KerbalsWindowUI.FormatKerbalSummary(
                 "Bill Kerman", entries, 0, entries.Count);
 
-            Assert.Equal("Bill Kerman (3 missions \u2014 3 Dead)", result);
+            Assert.Equal("Bill Kerman (3 missions - 3 Dead)", result);
             Assert.DoesNotContain("Recovered", result);
             Assert.DoesNotContain("Aboard", result);
             Assert.DoesNotContain("Unknown", result);
@@ -691,7 +788,7 @@ namespace Parsek.Tests
                 "Hanley Kerman", entries, 0, entries.Count);
 
             Assert.Equal(
-                "Hanley Kerman (2 missions \u2014 1 Aboard, 1 Unknown)",
+                "Hanley Kerman (2 missions - 1 Aboard, 1 Unknown)",
                 result);
         }
 
@@ -715,7 +812,7 @@ namespace Parsek.Tests
                 "Bill Kerman", entries, 2, 5);
 
             Assert.Equal(
-                "Bill Kerman (3 missions \u2014 1 Dead, 2 Recovered)",
+                "Bill Kerman (3 missions - 1 Dead, 2 Recovered)",
                 result);
         }
 
@@ -767,6 +864,47 @@ namespace Parsek.Tests
 
             Assert.Contains("Bill Kerman", ui.foldedKerbals);
             Assert.Contains("Jebediah Kerman", ui.foldedKerbals);
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // OnFatesRowClicked (#416 Phase 4 — Fates → Timeline scroll companion)
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void OnFatesRowClicked_InvokesCallbackWithRecordingId()
+        {
+            // Regression: fails if the hookup is wired to the wrong id (e.g. group id
+            // instead of recording id).
+            string captured = null;
+            KerbalsWindowUI.OnFatesRowClicked(id => captured = id, "rec-42");
+            Assert.Equal("rec-42", captured);
+        }
+
+        [Fact]
+        public void OnFatesRowClicked_LogsRecordingId()
+        {
+            // Regression: fails silently if the click handler forgets to log.
+            KerbalsWindowUI.OnFatesRowClicked(_ => { }, "rec-42");
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals Fates \u2192 Timeline scroll")
+                && l.Contains("recordingId=rec-42"));
+        }
+
+        [Fact]
+        public void OnFatesRowClicked_NullCallback_NoOpAndLogsOnce()
+        {
+            // Regression: E14 — the pure helper must not NRE when the production
+            // callback (GetTimelineUI().ScrollToRecording) is missing, e.g. during
+            // a cold-start scene transition.
+            var ex = Record.Exception(() =>
+                KerbalsWindowUI.OnFatesRowClicked(null, "rec-stale"));
+            Assert.Null(ex);
+            int matches = logLines.Count(l =>
+                l.Contains("[UI]")
+                && l.Contains("Kerbals Fates \u2192 Timeline scroll")
+                && l.Contains("recordingId=rec-stale"));
+            Assert.Equal(1, matches);
         }
 
         [Fact]
