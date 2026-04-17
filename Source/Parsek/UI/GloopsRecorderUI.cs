@@ -181,6 +181,15 @@ namespace Parsek
                 GUILayout.Label("Ghost-only - loops by default");
             }
 
+            GUILayout.FlexibleSpace();
+
+            if (GUILayout.Button("Close"))
+            {
+                showWindow = false;
+                ReleaseInputLock();
+                ParsekLog.Verbose("UI", "Gloops Recorder window closed via button");
+            }
+
             GUILayout.EndVertical();
             GUI.DragWindow();
         }

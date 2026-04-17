@@ -28,6 +28,9 @@ All notable changes to Parsek are documented here.
 - `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose.
 - `#378` Added a rate-limited warn when on-save monotonicity rebuild exceeds 5 ms on a single recording, so save-time stutter is visible in `KSP.log`.
 - `#376` Documented the dual-storage invariant for auto-assigned standalone group names.
+- Gloops Flight Recorder window now has a Close button at the bottom, matching other Parsek windows.
+- Recordings window opens wider by default (1280 px) so more columns fit without a horizontal scroll; the Info-expanded width scales up to match.
+- Group column in the Recordings table widened to match the Loop column so the G and X buttons sit under the header.
 
 ### Tests
 
