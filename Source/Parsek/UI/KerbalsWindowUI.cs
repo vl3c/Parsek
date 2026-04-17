@@ -53,6 +53,18 @@ namespace Parsek
         private GUIStyle aboardStyle;
         private GUIStyle activeChainStyle;
         private GUIStyle displacedStyle;
+        // Toggle button style for tab bar — mirrors CareerStateWindowUI / TimelineWindowUI:
+        // the "on" background is copied from GUI.skin.button.active so the selected tab
+        // looks visibly pushed in.
+        private GUIStyle toggleButtonStyle;
+
+        // Transient tab selection for the Kerbals window. Matches the Career State pattern.
+        private int selectedTab;
+
+        private static readonly string[] TabLabels = new[]
+        {
+            "Kerbal Slots", "Per-Recording Fates"
+        };
 
         internal struct KerbalsViewModel
         {
@@ -205,6 +217,18 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
             };
+            // Tab bar button: selected tab looks pressed via onNormal.background copied
+            // from GUI.skin.button.active.background (matches CareerStateWindowUI and
+            // TimelineWindowUI toggle idiom).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
         }
 
         private void DrawKerbalsWindow(int windowID)
@@ -237,17 +261,41 @@ namespace Parsek
 
             var vm = cachedVM.Value;
 
+            // Tab bar — same idiom as CareerStateWindowUI.
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
+            if (newTab != selectedTab)
+            {
+                SwitchTab(selectedTab, newTab);
+                selectedTab = newTab;
+                kerbalsScrollPos.y = 0f;
+            }
+
             kerbalsScrollPos = GUILayout.BeginScrollView(kerbalsScrollPos, GUILayout.ExpandHeight(true));
 
-            if (vm.Topology.Count == 0 && vm.OrphanRetired.Count == 0 && vm.EndStates.Count == 0)
+            switch (selectedTab)
             {
-                GUILayout.Label("No reserved crew, stand-ins, retired kerbals, or committed crew history.", grayStyle);
-            }
-            else
-            {
-                DrawTopologySection(vm.Topology);
-                DrawOrphanRetiredSection(vm.OrphanRetired);
-                DrawEndStatesSection(vm.EndStates);
+                case 0:
+                    if (vm.Topology.Count == 0 && vm.OrphanRetired.Count == 0)
+                    {
+                        GUILayout.Label("No reserved crew, stand-ins, or retired kerbals.", grayStyle);
+                    }
+                    else
+                    {
+                        DrawTopologySection(vm.Topology);
+                        DrawOrphanRetiredSection(vm.OrphanRetired);
+                    }
+                    break;
+
+                case 1:
+                    if (vm.EndStates.Count == 0)
+                    {
+                        GUILayout.Label("No committed crew history yet.", grayStyle);
+                    }
+                    else
+                    {
+                        DrawEndStatesSection(vm.EndStates);
+                    }
+                    break;
             }
 
             GUILayout.EndScrollView();
@@ -267,8 +315,6 @@ namespace Parsek
         private void DrawTopologySection(List<SlotTopologyEntry> topology)
         {
             if (topology.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label($"Kerbal Slots ({topology.Count})", sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
 
             bool first = true;
@@ -407,8 +453,6 @@ namespace Parsek
         private void DrawEndStatesSection(List<CrewEndStateEntry> endStates)
         {
             if (endStates.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label($"Per-Recording Fates ({endStates.Count})", sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
 
             int i = 0;
@@ -460,6 +504,14 @@ namespace Parsek
             }
 
             GUILayout.EndVertical();
+        }
+
+        // Logs the tab-switch. Extracted as a pure helper so the log contract stays
+        // testable outside IMGUI (mirrors CareerStateWindowUI.SwitchTab).
+        internal static void SwitchTab(int oldTab, int newTab)
+        {
+            ParsekLog.Verbose("UI",
+                $"KerbalsWindow: tab switched {oldTab}->{newTab}");
         }
 
         // Pure mutation + log helper so the toggle contract is unit-testable outside IMGUI.
