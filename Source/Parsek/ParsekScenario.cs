@@ -153,6 +153,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #434 follow-up: dispatch-level guard that decides whether the OnLoad
+        /// quickload-discard branch should fire. Pure function of the three
+        /// classification bits so it can be unit-tested in isolation — the
+        /// <see cref="OnLoad"/> call site it gates is itself not reachable from
+        /// xUnit (ScenarioModule lifecycle).
+        ///
+        /// The truth table that matters:
+        /// <list type="bullet">
+        ///   <item>Pure F5/F9 quickload (<c>isRevert=false</c>, UT back, flight-to-flight): <b>true</b> — hard-discard the stashed-this-transition tree.</item>
+        ///   <item>Revert to Launch (<c>isRevert=true</c>, UT back, flight-to-flight): <b>false</b> — the revert branch owns pending-tree handling via <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>, which preserves sidecar files for F9-from-flight-quicksave.</item>
+        ///   <item>Scene reload with same UT: <b>false</b> — nothing to discard.</item>
+        /// </list>
+        /// </summary>
+        internal static bool ShouldRunQuickloadDiscard(
+            bool utWentBackwards, bool isFlightToFlight, bool isRevert)
+        {
+            return utWentBackwards && isFlightToFlight && !isRevert;
+        }
+
+        /// <summary>
         /// Discards any pending tree that was stashed
         /// during the current scene transition, on a detected quickload
         /// (UT regressed between OnSceneChangeRequested and OnLoad). Clears
@@ -164,10 +184,40 @@ namespace Parsek
         /// handled by the restore-and-resume dispatch further down in OnLoad.
         /// Extracted as <c>internal static</c> so log-assertion tests can
         /// exercise it without a full Unity lifecycle.
+        ///
+        /// <para>
+        /// <b>Caller contract (#434 follow-up, 2026-04-17):</b> this method is
+        /// destructive — it deletes sidecar files via
+        /// <see cref="RecordingStore.DiscardPendingTree"/> — and MUST NOT be
+        /// called from the revert path. Revert-to-Launch in particular matches
+        /// the "UT went backwards and scene stayed in FLIGHT" quickload
+        /// heuristic, but reverted recordings must survive on disk so a flight
+        /// F5 quicksave's F9 can still restore. The production caller in
+        /// <see cref="OnLoad"/> gates the call through
+        /// <see cref="ShouldRunQuickloadDiscard"/>; the defense-in-depth check
+        /// on the first line below refuses to proceed if a revert just fired.
+        /// </para>
         /// </summary>
         internal static void DiscardStashedOnQuickload(
             double preChangeUT, double currentUT)
         {
+            // Defense-in-depth: even if a future refactor inlines or removes
+            // the ShouldRunQuickloadDiscard gate at the OnLoad call site, the
+            // armed RevertDetector state means a revert is in progress.
+            // OnLoad consumes the flag immediately before the dispatch call,
+            // so under the correct (!isRevert) path this check always reads
+            // None; only a buggy caller that skipped the gate would see an
+            // armed kind. The method refuses rather than delete sidecar files
+            // tied to the reverted flight.
+            if (RevertDetector.PendingKind != RevertKind.None)
+            {
+                ParsekLog.Warn("Scenario",
+                    "DiscardStashedOnQuickload: refusing to run with armed RevertDetector " +
+                    $"(pending={RevertDetector.PendingKind}). Caller skipped the #434 guard at " +
+                    "the OnLoad dispatch — sidecar preservation invariant enforced here.");
+                return;
+            }
+
             ParsekLog.Info("Scenario",
                 "Quickload detected: UT " +
                 preChangeUT.ToString("F2", CultureInfo.InvariantCulture) +
@@ -788,7 +838,18 @@ namespace Parsek
                     // tree, isRevert=false (counts and epoch match the quicksave),
                     // so the existing revert-branch discard path never runs — this
                     // is why the bug manifested in the 2026-04-09 playtest.
-                    if (utWentBackwards && isFlightToFlight)
+                    //
+                    // #434 follow-up (2026-04-17): skip this on revert. Revert-to-Launch is
+                    // always `utWentBackwards && isFlightToFlight`, so without the !isRevert
+                    // guard the hard-discard path ran first and deleted sidecar files +
+                    // purged tagged events, defeating the soft-unstash invariant established
+                    // in the isRevert branch below. Observed in
+                    // `logs/2026-04-17_2158_revert-stress-test`: recording 4f2a8438's .prec /
+                    // _ghost.craft files were deleted before `UnstashPendingTreeOnRevert`
+                    // could run, which would break F9-from-flight-quicksave in any playthrough
+                    // where the user F5'd during the doomed flight. Gate extracted to
+                    // ShouldRunQuickloadDiscard so the contract is unit-testable.
+                    if (ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert))
                     {
                         DiscardStashedOnQuickload(preChangeUT, loadedUT);
                     }
@@ -989,9 +1050,18 @@ namespace Parsek
                         //
                         // This runs BEFORE the limbo-dispatch block below — clearing the pending
                         // slot short-circuits the finalize/restore paths because the tree is gone.
-                        if (RecordingStore.HasPendingTree)
+                        //
+                        // Call UnstashPendingTreeOnRevert unconditionally — even with no pending
+                        // tree, the method clears any in-flight PendingScienceSubjects captured
+                        // after the launch quicksave, which otherwise would leak onto the next
+                        // committed recording. (The function no-ops cleanly when both the tree and
+                        // the subject list are empty.) Only show the screen message when a tree
+                        // was actually unstashed, since the user's only observable action was the
+                        // revert itself.
+                        bool hadPendingTree = RecordingStore.HasPendingTree;
+                        RecordingStore.UnstashPendingTreeOnRevert();
+                        if (hadPendingTree)
                         {
-                            RecordingStore.UnstashPendingTreeOnRevert();
                             // ScreenMessages.PostScreenMessage calls into Unity's UI stack,
                             // which isn't wired up in xUnit test hosts — typed catch so
                             // real runtime errors still surface in logs.
