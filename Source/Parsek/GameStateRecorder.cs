@@ -51,9 +51,9 @@ namespace Parsek
         /// <summary>
         /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
         /// Resolves the current recording tag, stamps it on the event, logs the emission, and warns
-        /// on drift (tagged event outside flight without a pending vessel-switch, or in-flight event
-        /// with an active recorder but no tag). All 17 <c>GameStateStore.AddEvent</c> call sites in
-        /// this class route through <c>Emit</c>.
+        /// on drift (tagged event with no live recorder / no pending vessel-switch, or in-flight event
+        /// with an active recorder but no tag). All captured-event sites in this class route through
+        /// <c>Emit</c>.
         /// </summary>
         internal static void Emit(GameStateEvent evt, string source)
         {
@@ -66,9 +66,15 @@ namespace Parsek
 
             bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
             bool midSwitch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
-            if (!inFlight && !midSwitch && !string.IsNullOrEmpty(tag))
+            bool flightAlive = ParsekFlight.Instance != null;
+            // Drift A: non-empty tag with no live flight context. During FLIGHT -> KSC transitions,
+            // ParsekFlight.Instance lingers for a few frames while the scene enum already reads
+            // SPACECENTER and recovery-reward events fire — that path is legitimate, so the warn
+            // gates on Instance == null (not just scene != FLIGHT).
+            if (!inFlight && !midSwitch && !flightAlive && !string.IsNullOrEmpty(tag))
                 ParsekLog.Warn("GameStateRecorder",
-                    $"Emit drift: event '{evt.eventType}' tagged '{tag}' outside flight and outside LimboVesselSwitch — stale tag?");
+                    $"Emit drift: event '{evt.eventType}' tagged '{tag}' with no live flight context — stale tag?");
+            // Drift B: in flight with a live recorder but no tag resolved.
             if (inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder())
                 ParsekLog.Warn("GameStateRecorder",
                     $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");

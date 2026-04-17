@@ -304,18 +304,40 @@ namespace Parsek.Tests
 
         // --- #8: LimboVesselSwitch resolver fallback ---
 
-        [Fact(Skip = "LimboVesselSwitch fallback requires RecordingStore.PendingTree + state setup " +
-            "that StashPendingTree doesn't expose — state is always reset to Finalized. " +
-            "Exercised indirectly via production-only test path in QuickloadResumeTests; revisit " +
-            "if a test-only setter for pendingTreeState gets added.")]
+        [Fact]
         public void LimboVesselSwitch_EmitsTaggedWithPendingTreeActiveId()
         {
+            // Events captured while the pending tree is in LimboVesselSwitch state belong to
+            // the outgoing recording. ResolveCurrentRecordingTag falls back to
+            // RecordingStore.PendingTree.ActiveRecordingId; Emit should stamp that tag without
+            // firing the "outside flight" drift warn (midSwitch gates it off).
+            var tree = new RecordingTree
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                TreeName = "switch-tree",
+                ActiveRecordingId = "rec-outgoing",
+                RootRecordingId = "rec-outgoing",
+            };
+            RecordingStore.StashPendingTree(tree);
+            RecordingStore.SetPendingTreeStateForTesting(PendingTreeState.LimboVesselSwitch);
+            GameStateRecorder.TagResolverForTesting = null; // use the production resolver
+            HighLogic.LoadedScene = GameScenes.SPACECENTER; // scene reads SPACECENTER mid-switch
+
+            GameStateRecorder.Emit(
+                MakeEvent(GameStateEventType.ContractAccepted, "guid-switch", 100.0),
+                "LimboVesselSwitch-test");
+
+            var stored = GameStateStore.Events.Single(e => e.key == "guid-switch");
+            Assert.Equal("rec-outgoing", stored.recordingId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[GameStateRecorder]") && l.Contains("Emit drift"));
         }
 
         // --- #9: Drift warnings ---
-        // Emit's drift-warn branches (GameStateRecorder.cs:69-74):
-        //   (a) !inFlight && !midSwitch && !string.IsNullOrEmpty(tag) — stale tag outside flight.
-        //   (b) inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder()
+        // Emit's drift-warn branches:
+        //   (a) !inFlight && !midSwitch && !flightAlive && tag != "" — stale tag with no live flight
+        //       (flightAlive gates out legitimate FLIGHT->KSC recovery windows where Instance lingers).
+        //   (b) inFlight && tag == "" && HasLiveRecorder()
         //       — in-flight empty tag with live recorder (needs ParsekFlight.Instance, not testable
         //         from xUnit; covered by branch (a) plus the no-warn negative case below).
 

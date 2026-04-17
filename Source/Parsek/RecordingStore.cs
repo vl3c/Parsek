@@ -2096,6 +2096,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #431: sets <see cref="PendingTreeStateValue"/> directly. For unit tests only —
+        /// production always transitions state via <see cref="StashPendingTree"/>,
+        /// <see cref="CommitPendingTree"/>, <see cref="DiscardPendingTree"/>, or the limbo-stash
+        /// paths. Used by the LimboVesselSwitch tag-fallback test.
+        /// </summary>
+        internal static void SetPendingTreeStateForTesting(PendingTreeState state)
+        {
+            pendingTreeState = state;
+        }
+
+        /// <summary>
         /// Adds a recording to the committed list with tree ownership enforced.
         /// If the recording has no TreeId, wraps it in a single-node RecordingTree.
         /// For unit tests only.
