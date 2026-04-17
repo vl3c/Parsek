@@ -27,6 +27,11 @@ namespace Parsek
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
 
+        // Shared width for all top filter/preset buttons (Overview, Details, Recordings,
+        // Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
+        // Every button in the Timeline's top zone uses the same width so the rows align.
+        private const float FilterButtonWidth = 93f;
+
         // Cached timeline data (invalidated on triggers)
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
@@ -300,29 +305,24 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // Uniform-width filter toggles. Tier group (Overview / Details) anchors
-            // to the left edge; source group (Recordings / Actions / Events) anchors
-            // to the right edge, with a FlexibleSpace gap between them. Buttons are
-            // sized at 80% of the row-fill width so they don't feel chunky, and the
-            // extra slack gets absorbed by the FlexibleSpace gap.
-            const float GapWidth = 16f;
-            float rowWidth = timelineWindowRect.width - 20f;   // minus window chrome padding
-            if (rowWidth < 300f) rowWidth = 300f;
-            float btnW = Mathf.Max(48f, 0.8f * (rowWidth - GapWidth) / 5f);
-
+            // All five top-filter buttons use a fixed width (FilterButtonWidth) shared
+            // with the time-range preset row. Tier group anchors left, source group
+            // anchors right, and the FlexibleSpace in between absorbs whatever spare
+            // horizontal room the window has — it grows/shrinks on resize while the
+            // button widths stay constant.
             GUILayout.BeginHorizontal();
 
             // Tier selector (left-aligned group).
             bool overviewActive = !showDetail;
             bool detailActive = showDetail;
 
-            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
+            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(FilterButtonWidth)) && !overviewActive)
             {
                 showDetail = false;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
-            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
+            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(FilterButtonWidth)) && !detailActive)
             {
                 showDetail = true;
                 filterDirty = true;
@@ -332,7 +332,7 @@ namespace Parsek
             GUILayout.FlexibleSpace();
 
             // Source toggles (right-aligned group).
-            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
@@ -340,7 +340,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
-            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
+            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
@@ -348,7 +348,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
-            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(btnW));
+            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
@@ -392,29 +392,26 @@ namespace Parsek
 
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
-            // Preset row — every preset button (including All and Custom) shares the
-            // same width so the row looks uniform. 30% wider than the previous 70px
-            // to give labels like "This Year" and "Custom" a bit more breathing room.
-            const float PresetBtnWidth = 91f;
-
+            // Every preset button (including All and Custom) uses the shared
+            // FilterButtonWidth so the preset row and the filter row line up.
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
 
             int secsPerDay = ParsekTimeFormat.SecsPerDay;
             int secsPerYear = ParsekTimeFormat.SecsPerYear;
 
-            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, PresetBtnWidth);
-            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, PresetBtnWidth);
-            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, PresetBtnWidth);
+            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, FilterButtonWidth);
+            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, FilterButtonWidth);
+            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, FilterButtonWidth);
 
             // "This Year" = current Kerbin/Earth calendar year boundaries
             double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
             double yearEnd = yearStart + secsPerYear;
-            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, PresetBtnWidth);
+            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, FilterButtonWidth);
 
             // "All" = clear filter
             bool allActive = !filter.IsActive;
-            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(PresetBtnWidth)) && !allActive)
+            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(FilterButtonWidth)) && !allActive)
             {
                 filter.Clear();
                 sliderMin = sliderBoundMin;
@@ -426,7 +423,7 @@ namespace Parsek
             // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
             if (hasRange)
             {
-                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(PresetBtnWidth));
+                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(FilterButtonWidth));
                 if (newShowCustom != showCustomRange)
                 {
                     showCustomRange = newShowCustom;
@@ -457,7 +454,7 @@ namespace Parsek
                 string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
                 GUILayout.Label("From:", GUILayout.Width(38));
                 GUILayout.BeginVertical();
-                GUILayout.Space(6f);
+                GUILayout.Space(9f);
                 float newMin = GUILayout.HorizontalSlider(sliderMin, sliderBoundMin, sliderBoundMax);
                 GUILayout.EndVertical();
                 GUILayout.Label(fromLabel, GUILayout.Width(120));
@@ -468,7 +465,7 @@ namespace Parsek
                 string toLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMax);
                 GUILayout.Label("To:", GUILayout.Width(38));
                 GUILayout.BeginVertical();
-                GUILayout.Space(6f);
+                GUILayout.Space(9f);
                 float newMax = GUILayout.HorizontalSlider(sliderMax, sliderBoundMin, sliderBoundMax);
                 GUILayout.EndVertical();
                 GUILayout.Label(toLabel, GUILayout.Width(120));
