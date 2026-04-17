@@ -39,6 +39,10 @@ namespace Parsek
         private GUIStyle sectionHeaderStyle;
         private GUIStyle groupHeaderStyle;
         private GUIStyle columnHeaderStyle;
+        // Toggle-button style for disclosure sections — reuses GUI.skin.button's own
+        // active-state texture as the "on" background so expanded sections look pressed
+        // (mirrors TimelineWindowUI.toggleButtonStyle).
+        private GUIStyle toggleButtonStyle;
         private GUIStyle pendingStyle;
         private GUIStyle grayStyle;
         private GUIStyle bannerStyle;
@@ -69,8 +73,6 @@ namespace Parsek
         private const float ColW_Status = 180f;
 
         // Disclosure arrows (mirrors KerbalsWindowUI:34-35).
-        private const string FoldedArrow = "\u25b6";
-        private const string UnfoldedArrow = "\u25bc";
 
         // Transient fold state for Contracts/Strategies "Pending in timeline" section headers.
         // Default-unfolded means we only store names that are currently folded. Tab switches
@@ -1010,6 +1012,19 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
+            // Toggle button "on" state reuses the button's own pressed texture so
+            // expanded disclosure sections look pressed. Mirrors TimelineWindowUI
+            // (onNormal/onHover copied from button.active).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
+
             // Pending rows: muted amber to mark "not yet lived" entries.
             pendingStyle = new GUIStyle(GUI.skin.label)
             {
@@ -1179,13 +1194,15 @@ namespace Parsek
                 for (int i = 0; i < tab.ProjectedRows.Count; i++)
                     if (tab.ProjectedRows[i].IsPendingAccept) pendingCount++;
 
-                bool folded = foldedGroups.Contains(GroupKey_ContractsPending);
-                string arrow = folded ? FoldedArrow : UnfoldedArrow;
-                string headerText = $"{arrow} Pending in timeline ({pendingCount.ToString(ic)})";
-                if (GUILayout.Button(headerText, groupHeaderStyle, GUILayout.ExpandWidth(true)))
+                bool expanded = !foldedGroups.Contains(GroupKey_ContractsPending);
+                string headerText = $"Pending in timeline ({pendingCount.ToString(ic)})";
+                bool newExpanded = GUILayout.Toggle(expanded, headerText, toggleButtonStyle,
+                    GUILayout.ExpandWidth(true));
+                if (newExpanded != expanded)
                 {
                     ToggleSection(foldedGroups, GroupKey_ContractsPending);
                 }
+                bool folded = !newExpanded;
 
                 if (!folded)
                 {
@@ -1270,13 +1287,15 @@ namespace Parsek
                 for (int i = 0; i < tab.ProjectedRows.Count; i++)
                     if (tab.ProjectedRows[i].IsPendingActivate) pendingCount++;
 
-                bool folded = foldedGroups.Contains(GroupKey_StrategiesPending);
-                string arrow = folded ? FoldedArrow : UnfoldedArrow;
-                string headerText = $"{arrow} Pending in timeline ({pendingCount.ToString(ic)})";
-                if (GUILayout.Button(headerText, groupHeaderStyle, GUILayout.ExpandWidth(true)))
+                bool expanded = !foldedGroups.Contains(GroupKey_StrategiesPending);
+                string headerText = $"Pending in timeline ({pendingCount.ToString(ic)})";
+                bool newExpanded = GUILayout.Toggle(expanded, headerText, toggleButtonStyle,
+                    GUILayout.ExpandWidth(true));
+                if (newExpanded != expanded)
                 {
                     ToggleSection(foldedGroups, GroupKey_StrategiesPending);
                 }
+                bool folded = !newExpanded;
 
                 if (!folded)
                 {
