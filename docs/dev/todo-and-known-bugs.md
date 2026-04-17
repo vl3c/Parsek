@@ -58,22 +58,6 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 441. Extend `Ledger.Reconcile` to prune spending actions by `RecordingId`
-
-**Source:** follow-up explicitly flagged by the Phase A migration (#436, PR #338) and Phase B review (#437, PR #340). Today `Ledger.Reconcile` (see `Source/Parsek/GameActions/Ledger.cs:246-360`) has asymmetric pruning semantics: **earning** actions whose `RecordingId` is not in `validRecordingIds` are removed (line 281), but **spending** actions are pruned only by `UT > maxUT` (line 300). A spending action tagged with a recording that no longer exists survives as an orphan.
-
-**Why it matters:** Phase A's legacy migration (`LedgerOrchestrator.MigrateLegacyTreeResources`) emits synthetic `FundsEarning` / `ScienceEarning` / `ReputationEarning` tagged with `tree.RootRecordingId` so tree deletion purges them cleanly. When a tree has a **negative** science or reputation residual (the flight spent more than it earned), the symmetric fix would be to emit `ScienceSpending` / `ReputationPenalty` tagged with `RootRecordingId`. But those spending actions would NOT be pruned on tree deletion under today's `Reconcile`, so the migration deliberately skips negative science and rep residuals with a WARN instead of injecting them. `LegacyTreeMigrationTests` has tests pinning this WARN-and-skip behavior.
-
-**Fix:** Extend the per-type pruning in `Ledger.Reconcile` so spending actions with a non-null `RecordingId` also require `RecordingId ∈ validRecordingIds` to survive. Null-`RecordingId` spendings (career-level KSC writes) keep their current UT-only rule. After the fix, update Phase A's negative-residual branches to emit `ScienceSpending` (with `SubjectId="LegacyMigration:{treeId}"`) and `ReputationPenalty` (with `RepPenaltySource.Other`) instead of WARNing and skipping. Update `LegacyTreeMigrationTests` to assert the new injection + purge-on-deletion behavior for negative residuals, and drop the three current "negative residual skipped with WARN" tests in favor of full-coverage equivalents.
-
-**Scope:** ~20 lines in `Ledger.cs`, ~30 lines in `LedgerOrchestrator.MigrateLegacyTreeResources` (un-skip the negative branches), plus test updates. Small. No API surface change outside these two files.
-
-**Dependencies:** none. Can land independently of the rest of Phase E.
-
-**Status:** TODO. Priority: medium. Not release-blocking for v0.8.2 (negative science/rep residuals on legacy saves are rare; current WARN-and-skip is a correct fail-safe). Worth doing before Phase F removes the legacy `tree.DeltaFunds` fields entirely.
-
----
-
 ## 440. Post-walk reconciliation for strategy-transformed and curve-applied reward types
 
 **Source:** Phase B (#437, PR #340) explicitly excluded these from KSC-side reconciliation. `LedgerOrchestrator.ReconcileKscAction.ClassifyAction` routes `ContractComplete` / `ContractFail` / `ContractCancel` / `MilestoneAchievement` / `ReputationEarning` / `ReputationPenalty` / direct KSC-path `FundsEarning` / `ScienceEarning` into the "transformed — skip with VERBOSE" bucket because their raw action fields (e.g. `FundsReward`, `NominalRep`) diverge from the live KSP balance delta by the time the walk runs: `StrategiesModule` mutates `TransformedFundsReward` during the walk, and `ReputationModule.ApplyReputationCurve` transforms rep earnings/penalties non-linearly. Comparing raw fields to observed deltas would produce false-positive WARNs on every legitimate contract completion once strategies are active.
@@ -89,7 +73,7 @@ Design constraints pulled from Phase D's (#343) plumbing:
 
 **Scope:** new helper in `LedgerOrchestrator.cs` (~80-120 lines), new tests in `EarningsReconciliationTests.cs` (~10 cases for: contract complete pre-strategy vs post-strategy, rep earning through the curve, milestone + effective duplicate, strategy-diverted reward, cutoff filter). Medium.
 
-**Dependencies:** #439 (strategy capture) should land first so the strategy-diversion cases can be tested end-to-end; otherwise a significant cohort of "transformed" WARNs won't have a test to pin them. Phase D (#343) should land first too so `utCutoff` is threaded correctly. Order: D → #439 → #440.
+**Dependencies:** #439 (strategy capture) should land first so the strategy-diversion cases can be tested end-to-end; otherwise a significant cohort of "transformed" WARNs won't have a test to pin them. Phase D (#343) shipped — `utCutoff` is already threaded through `RecalculateAndPatch`. Order: #439 → #440.
 
 **Status:** TODO. Priority: medium. Diagnostic-only (like the rest of reconciliation). Not release-blocking.
 
@@ -112,9 +96,9 @@ Design constraints pulled from Phase D's (#343) plumbing:
 
 **Scope:** medium-large. New Harmony patches + new event types + new enum values + converter + module plumbing + test file. Estimate 2-3 days of focused work.
 
-**Dependencies:** #436 (Phase A) shipped — yes, already merged. Phase F (`ApplyTreeLumpSum` deletion) should NOT land before #439 unless the Phase A legacy-migration safety net is kept in place, because without strategy capture and without the lump sum, strategy income on new saves has nothing crediting it. Recommended ordering: #439 → #440 → Phase F.
+**Dependencies:** #436 (Phase A), Phase B (#437), Phase C, Phase D (#343), Phase F, #441 all shipped. Strategy income on new saves is currently uncredited in the ledger walk — Phase A's legacy-migration path does NOT fire for new-save trees because they don't have persisted `tree.DeltaFunds` to migrate. A KSC-active strategy on a brand-new career will produce a `PatchFunds: suspicious drawdown` WARN until #439 lands. Recommended ordering: #439 → #440.
 
-**Status:** TODO. Priority: medium. Release-blocking for strategy-using careers in v0.8.3; v0.8.2 ships with strategies unsupported (user-visible effect: `PatchFunds: suspicious drawdown` WARN when a strategy diverts reward). Document the known limitation in CHANGELOG for v0.8.2.
+**Status:** TODO. Priority: medium. Release-blocking for strategy-using careers in v0.8.3; v0.8.2 ships with strategies unsupported (user-visible effect: `PatchFunds: suspicious drawdown` WARN when a strategy diverts reward). Documented as a known limitation in CHANGELOG for v0.8.2.
 
 ---
 
