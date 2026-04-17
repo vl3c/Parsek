@@ -13,8 +13,13 @@ namespace Parsek.Tests
         public List<OrbitSegment> OrbitSegments { get; set; } = new List<OrbitSegment>();
         public bool HasOrbitSegments => OrbitSegments != null && OrbitSegments.Count > 0;
         public List<TrackSection> TrackSections { get; set; } = new List<TrackSection>();
-        public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
-        public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
+        public double StartUT => StartUTOverride ?? (Points.Count > 0 ? Points[0].ut : 0);
+        public double EndUT => EndUTOverride ?? (Points.Count > 0 ? Points[Points.Count - 1].ut : 0);
+
+        /// <summary>Set to decouple EndUT from Points — useful for orbit-only or
+        /// surface-only trajectories whose terminus isn't in the Points list.</summary>
+        public double? EndUTOverride { get; set; }
+        public double? StartUTOverride { get; set; }
         public int RecordingFormatVersion { get; set; } = 0;
         public List<PartEvent> PartEvents { get; set; } = new List<PartEvent>();
         public List<FlagEvent> FlagEvents { get; set; } = new List<FlagEvent>();

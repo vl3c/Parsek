@@ -228,7 +228,7 @@ TrajectoryPlaybackFlags
   chainEndUT:             double — when the full chain ends
   needsSpawn:             bool — pre-computed spawn decision
   isActiveChainMember:    bool — belongs to currently recording chain
-  isChainLoopingOrDisabled: bool — chain is fully looping or disabled
+  isChainLooping:         bool — chain has a branch-0 looping segment
   segmentLabel:           string — for logging
   recordingId:            string — identity key for events
   vesselPersistentId:     uint — identity for events

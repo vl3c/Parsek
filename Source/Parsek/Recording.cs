@@ -113,7 +113,9 @@ namespace Parsek
         public string StartSituation;    // vessel situation at recording start (null = not set)
         public string EndBiome;          // biome at recording end (null = not set / unavailable)
         public string LaunchSiteName;    // stock/mod launch site name (null = not launched from a site)
-        public bool PlaybackEnabled = true;  // false = skip ghost during playback
+        // false = hide ghost during playback. Visual-only: does not affect ledger
+        // actions, vessel spawn, crew reservations, or resource budget. (bug #433)
+        public bool PlaybackEnabled = true;
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
         // EVA child recording linkage

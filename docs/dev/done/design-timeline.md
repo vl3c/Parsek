@@ -99,7 +99,7 @@ Three collectors, then merge. Uncommitted events not shown.
 Iterates `committedRecordings`:
 - Emits `RecordingStart` at `rec.StartUT` with vessel name
 - Emits `RecordingEnd` at `rec.EndUT` with terminal state from `rec.TerminalStateValue` (e.g., "Recovering", "Destroyed", "Orbiting Kerbin"). Null terminal state → "End"
-- Emits `VesselSpawn` at `rec.StartUT` if `rec.PlaybackEnabled` and recording is not a mid-chain segment
+- Emits `VesselSpawn` at `rec.EndUT` if the recording is not a mid-chain segment and has a spawnable terminal state (bug #433 removed the `rec.PlaybackEnabled` qualifier; the toggle is visual-only and does not affect whether a vessel materializes)
 - Skips hidden recordings (`rec.Hidden`) unless a "show hidden" flag is set
 - Does **not** iterate `rec.PartEvents`, `rec.SegmentEvents`, or `rec.FlagEvents` — those are vessel telemetry, not career events
 

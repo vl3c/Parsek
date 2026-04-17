@@ -24,8 +24,8 @@ namespace Parsek
         /// <summary>This recording belongs to the currently active recording chain.</summary>
         public bool isActiveChainMember;
 
-        /// <summary>The chain this belongs to is fully looping or fully disabled.</summary>
-        public bool isChainLoopingOrDisabled;
+        /// <summary>The chain this belongs to has a branch-0 looping segment.</summary>
+        public bool isChainLooping;
 
         /// <summary>Segment phase label for logging (e.g., "Ascent [Kerbin]").</summary>
         public string segmentLabel;

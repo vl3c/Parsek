@@ -40,7 +40,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);
@@ -57,7 +57,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("no vessel snapshot", reason);
@@ -74,7 +74,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("already spawned", reason);
@@ -91,7 +91,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("vessel destroyed", reason);
@@ -111,7 +111,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("branch > 0", reason);
@@ -127,7 +127,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -146,7 +146,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: true, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: true, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("active chain being built", reason);
@@ -162,17 +162,17 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
 
         #endregion
 
-        #region ShouldSpawnAtRecordingEnd — Looping/Disabled Chain Suppression
+        #region ShouldSpawnAtRecordingEnd — Looping Chain Suppression
 
         [Fact]
-        public void ShouldSpawn_ChainLoopingOrDisabled_ReturnsFalse()
+        public void ShouldSpawn_ChainLooping_ReturnsFalse()
         {
             var rec = new Recording
             {
@@ -181,10 +181,10 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: true);
+                rec, isActiveChainMember: false, isChainLooping: true);
 
             Assert.False(needsSpawn);
-            Assert.Contains("chain looping or fully disabled", reason);
+            Assert.Contains("chain looping", reason);
         }
 
         #endregion
@@ -201,7 +201,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf tree recording", reason);
@@ -217,7 +217,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -236,7 +236,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Destroyed", reason);
@@ -252,7 +252,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Recovered", reason);
@@ -268,7 +268,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Docked", reason);
@@ -284,7 +284,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Boarded", reason);
@@ -301,7 +301,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -316,7 +316,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -332,7 +332,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state SubOrbital", reason);
@@ -348,7 +348,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -363,7 +363,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -382,7 +382,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("already spawned", reason);
@@ -399,7 +399,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -422,7 +422,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("vessel destroyed", reason);
@@ -440,7 +440,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("branch > 0", reason);
@@ -557,7 +557,7 @@ namespace Parsek.Tests
             RecordingStore.ResetAllPlaybackState();
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -580,7 +580,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -598,7 +598,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                rec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("already spawned", reason);
@@ -647,7 +647,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                parentRec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf tree recording", reason);
@@ -690,7 +690,7 @@ namespace Parsek.Tests
             tree.BranchPoints.Add(bp);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false, tree);
+                parentRec, isActiveChainMember: false, isChainLooping: false, tree);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf tree recording", reason);
@@ -738,7 +738,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+                parentRec, isActiveChainMember: false, isChainLooping: false);
 
             Assert.True(needsSpawn);
         }
@@ -782,7 +782,7 @@ namespace Parsek.Tests
             tree.BranchPoints.Add(bp);
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false, tree);
+                parentRec, isActiveChainMember: false, isChainLooping: false, tree);
 
             Assert.True(needsSpawn);
         }
