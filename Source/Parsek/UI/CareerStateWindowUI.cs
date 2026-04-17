@@ -189,6 +189,11 @@ namespace Parsek
             public double AcceptUT;
             public double DeadlineUT;   // NaN if none
             public bool IsPendingAccept;
+            // Active now but will complete / fail / cancel before the timeline's terminal UT
+            // (only meaningful on CurrentRows entries). Surfaces as "(closing)" in the Status
+            // column so the player sees that A will disappear, not just that pending-B will
+            // appear.
+            public bool IsClosingByTimelineEnd;
         }
 
         internal struct StrategiesTabVM
@@ -212,6 +217,9 @@ namespace Parsek
             public StrategyResource TargetResource;
             public float Commitment;
             public bool IsPendingActivate;
+            // Active now but will deactivate before the timeline's terminal UT (only
+            // meaningful on CurrentRows entries).
+            public bool IsClosingByTimelineEnd;
         }
 
         internal struct FacilitiesTabVM
@@ -532,13 +540,19 @@ namespace Parsek
                 foreach (var kvp in activeContractsCurSnap)
                 {
                     var c = kvp.Value;
+                    // Active now but not in the terminal snapshot -> will complete/fail/cancel
+                    // before timeline end. Surfaces as "(closing)" so the UI doesn't silently
+                    // hide disappearing contracts (bug: without this, only pending-new rows
+                    // show the delta, leaving contracts that wind down invisible).
+                    bool closing = !activeContractsTerm.ContainsKey(c.ContractId);
                     contractsVM.CurrentRows.Add(new ContractRow
                     {
                         ContractId = c.ContractId,
                         DisplayTitle = c.Title,
                         AcceptUT = c.AcceptUT,
                         DeadlineUT = c.DeadlineUT,
-                        IsPendingAccept = false
+                        IsPendingAccept = false,
+                        IsClosingByTimelineEnd = closing
                     });
                 }
                 foreach (var kvp in activeContractsTerm)
@@ -575,6 +589,9 @@ namespace Parsek
                 foreach (var kvp in activeStrategiesCurSnap)
                 {
                     var s = kvp.Value;
+                    // Active now but not in the terminal snapshot -> will deactivate by
+                    // timeline end. Surfaces as "(closing)" in the Status column.
+                    bool closing = !activeStrategiesTerm.ContainsKey(s.StrategyId);
                     strategiesVM.CurrentRows.Add(new StrategyRow
                     {
                         StrategyId = s.StrategyId,
@@ -583,7 +600,8 @@ namespace Parsek
                         SourceResource = s.SourceResource,
                         TargetResource = s.TargetResource,
                         Commitment = s.Commitment,
-                        IsPendingActivate = false
+                        IsPendingActivate = false,
+                        IsClosingByTimelineEnd = closing
                     });
                 }
                 foreach (var kvp in activeStrategiesTerm)
@@ -1055,13 +1073,18 @@ namespace Parsek
             }
 
             var currentMode = currentGame.Mode;
+            double liveUT = Planetarium.GetUniversalTime();
 
-            // Rebuild if no cache or if mode has changed while the window was open.
-            if (cachedVM == null || cachedVM.Value.Mode != currentMode)
+            // Rebuild if no cache, if mode changed, or if UT has advanced (including
+            // while the window was open, or between close and reopen — otherwise the
+            // banner and current-vs-pending partition stay frozen at the cached UT).
+            if (cachedVM == null
+                || cachedVM.Value.Mode != currentMode
+                || cachedVM.Value.LiveUT != liveUT)
             {
                 cachedVM = Build(
                     Ledger.Actions,
-                    Planetarium.GetUniversalTime(),
+                    liveUT,
                     currentMode,
                     LedgerOrchestrator.Contracts,
                     LedgerOrchestrator.Strategies,
@@ -1488,7 +1511,9 @@ namespace Parsek
         /// </summary>
         internal static string FormatContractRow_Pending(ContractRow r)
         {
-            return r.IsPendingAccept ? "(pending)" : "";
+            if (r.IsPendingAccept) return "(pending)";
+            if (r.IsClosingByTimelineEnd) return "(closing)";
+            return "";
         }
 
         /// <summary>
@@ -1504,6 +1529,7 @@ namespace Parsek
                 : $"deadline UT {FormatContractRow_Deadline(r)}";
             string baseLine = $"{title}  accepted UT {FormatContractRow_Accept(r)}  {deadline}";
             if (r.IsPendingAccept) baseLine += " (pending)";
+            else if (r.IsClosingByTimelineEnd) baseLine += " (closing)";
             return baseLine;
         }
 
@@ -1532,7 +1558,9 @@ namespace Parsek
 
         internal static string FormatStrategyRow_Pending(StrategyRow r)
         {
-            return r.IsPendingActivate ? "(pending)" : "";
+            if (r.IsPendingActivate) return "(pending)";
+            if (r.IsClosingByTimelineEnd) return "(closing)";
+            return "";
         }
 
         /// <summary>
@@ -1544,6 +1572,7 @@ namespace Parsek
             string baseLine =
                 $"{title}  activated UT {FormatStrategyRow_Activate(r)}  {FormatStrategyRow_Flow(r)}";
             if (r.IsPendingActivate) baseLine += " (pending)";
+            else if (r.IsClosingByTimelineEnd) baseLine += " (closing)";
             return baseLine;
         }
 
