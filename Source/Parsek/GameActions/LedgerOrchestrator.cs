@@ -33,6 +33,45 @@ namespace Parsek
         private static bool repSeedDone;
 
         /// <summary>
+        /// Set to <c>true</c> by <see cref="MigrateOldSaveEvents"/> when — and only when —
+        /// it actually synthesized at least one action from <see cref="GameStateStore.Events"/>.
+        /// Reset to <c>false</c> at the top of every <see cref="OnKspLoad"/>.
+        ///
+        /// <para>Used by <see cref="HasAnyLedgerCoverage"/> to gate the null-RecordingId-in-window
+        /// coverage rule. Round-2 external review (PR #347) found that
+        /// <see cref="TryRecoverBrokenLedgerOnLoad"/> synthesizes null-tagged
+        /// <see cref="GameActionType.ContractAccept"/>/<see cref="GameActionType.ContractComplete"/>/<see cref="GameActionType.ContractFail"/>/<see cref="GameActionType.ContractCancel"/>/<see cref="GameActionType.FundsSpending"/>
+        /// actions from the global <see cref="GameStateStore"/> — and on subsequent loads,
+        /// those previously-persisted null-tagged actions sit in the ledger at UTs that may
+        /// fall inside a legacy tree's window. A multi-day mission can easily overlap with
+        /// unrelated KSC activity (player accepts a contract, buys a part, cancels a
+        /// contract). The coverage probe saw those actions and incorrectly concluded
+        /// "covered" → skipped migration → legacy residual silently dropped.</para>
+        ///
+        /// <para>The flag distinguishes "null-tagged because the first-load
+        /// MigrateOldSaveEvents just synthesized these" from "null-tagged because normal
+        /// KSC activity". Only the first case should register as coverage (to prevent
+        /// the first-load double-credit that round-3 of Phase A was designed to avoid).</para>
+        /// </summary>
+        private static bool migrateOldSaveEventsRanThisLoad;
+
+        /// <summary>
+        /// Test-only setter for <see cref="migrateOldSaveEventsRanThisLoad"/>. Production
+        /// code sets this flag via <see cref="MigrateOldSaveEvents"/> and resets it at the
+        /// top of <see cref="OnKspLoad"/>; tests bypass that flow by calling this helper.
+        /// </summary>
+        internal static void SetMigrateOldSaveEventsRanThisLoadForTesting(bool value)
+        {
+            migrateOldSaveEventsRanThisLoad = value;
+        }
+
+        /// <summary>Test-only getter paired with the setter above.</summary>
+        internal static bool GetMigrateOldSaveEventsRanThisLoadForTesting()
+        {
+            return migrateOldSaveEventsRanThisLoad;
+        }
+
+        /// <summary>
         /// Monotonically increasing sequence counter for KSC events added individually
         /// via <see cref="OnKscSpending"/>. Ensures stable ordering when multiple KSC
         /// events occur at the same UT (e.g., rapid tech unlocks or facility upgrades).
@@ -775,6 +814,12 @@ namespace Parsek
         {
             Initialize();
 
+            // Reset the per-load MigrateOldSaveEvents flag — only this load's
+            // MigrateOldSaveEvents synthetics should gate the null-tag coverage rule.
+            // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
+            // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
+            migrateOldSaveEventsRanThisLoad = false;
+
             // Reconcile first — prunes orphaned actions from the existing ledger.
             // On empty ledger (old save), this is a no-op.
             Ledger.Reconcile(validRecordingIds, maxUT);
@@ -832,6 +877,13 @@ namespace Parsek
             if (actions.Count > 0)
             {
                 Ledger.AddActions(actions);
+                // Signal to HasAnyLedgerCoverage that null-tagged in-window actions
+                // synthesized on this load should count as coverage (to prevent the
+                // first-load double-credit that Phase A round 3 was designed to avoid).
+                // Only set on actual synthesis — an empty MigrateOldSaveEvents must NOT
+                // make pre-existing null-tagged actions (from prior loads' recovery)
+                // falsely count as coverage.
+                migrateOldSaveEventsRanThisLoad = true;
                 ParsekLog.Info(Tag,
                     $"MigrateOldSaveEvents: migrated {actions.Count} actions from {events.Count} events " +
                     $"(committed recordings: {validRecordingIds.Count})");
@@ -1378,9 +1430,8 @@ namespace Parsek
         /// least one <see cref="IsResourceImpactingAction"/>-passing action whose UT falls
         /// inside <paramref name="startUT"/>..<paramref name="endUT"/> AND whose
         /// <see cref="GameAction.RecordingId"/> is either a key in
-        /// <see cref="RecordingTree.Recordings"/> OR null (null-tagged actions are KSC-scope
-        /// or <see cref="MigrateOldSaveEvents"/> output; both legitimately count as coverage
-        /// because the ledger already carries the reward those events represent).
+        /// <see cref="RecordingTree.Recordings"/> OR null (null-tagged actions may be
+        /// <see cref="MigrateOldSaveEvents"/> output — see the flag gate below).
         ///
         /// <para>Two round-2 P1s this shape fixes:</para>
         /// <list type="number">
@@ -1391,11 +1442,25 @@ namespace Parsek
         ///   and its residual silently dropped.</description></item>
         ///   <item><description><see cref="MigrateOldSaveEvents"/>'s null-tagged reward
         ///   synthetics (ContractComplete / MilestoneAchievement / ContractAccept from
-        ///   GameStateStore on first load of a pre-ledger save) now DO register as
-        ///   coverage — without this, an uncrewed legacy tree on first load would get
-        ///   its full residual injected on top of the already-migrated rewards,
-        ///   double-crediting.</description></item>
+        ///   GameStateStore on first load of a pre-ledger save) register as coverage ONLY
+        ///   when <see cref="migrateOldSaveEventsRanThisLoad"/> is true — otherwise an
+        ///   uncrewed legacy tree on first load would get its full residual injected on
+        ///   top of the already-migrated rewards, double-crediting.</description></item>
         /// </list>
+        ///
+        /// <para>Round-2 P1 (PR #347 external review) — null-tag gate:
+        /// <see cref="TryRecoverBrokenLedgerOnLoad"/> runs on every load and persists
+        /// null-tagged <see cref="GameActionType.ContractAccept"/>/<see cref="GameActionType.ContractComplete"/>/<see cref="GameActionType.ContractFail"/>/<see cref="GameActionType.ContractCancel"/>/<see cref="GameActionType.FundsSpending"/>
+        /// actions into the ledger file. On a subsequent load of a long-running mission
+        /// save, those previously-persisted null-tagged KSC actions can land at UTs
+        /// inside the legacy tree's window (multi-day flight spanning normal KSC
+        /// activity: contract accept, part purchase, contract cancel). Without the
+        /// flag gate, the probe sees them and falsely concludes the tree is covered —
+        /// residual silently lost. With the gate, null-tagged in-window actions only
+        /// count when <see cref="MigrateOldSaveEvents"/> actually synthesized actions
+        /// on THIS load (the case where the first-load double-credit protection is
+        /// needed); in every other case they are ignored, and the tree gets its
+        /// residual injected as intended.</para>
         ///
         /// <para>Replaces the v1 residual-math approach: persisted tree deltas were captured
         /// from LIVE KSP state post-commit (post-cap, post-curve, post-strategy-transform,
@@ -1421,11 +1486,21 @@ namespace Parsek
                 string recId = action.RecordingId;
                 bool nullTagged = string.IsNullOrEmpty(recId);
                 bool treeTagged = !nullTagged && recordings.ContainsKey(recId);
-                if (!nullTagged && !treeTagged) continue;
 
-                // UT window bound was already checked above. Both tree-tagged and
-                // null-tagged in-window actions count as coverage.
-                return true;
+                if (treeTagged)
+                {
+                    // Tree-tagged in-window action always counts.
+                    return true;
+                }
+                if (nullTagged && migrateOldSaveEventsRanThisLoad)
+                {
+                    // Null-tagged action counts ONLY when MigrateOldSaveEvents just ran
+                    // this load — see the flag's XML doc for why TryRecoverBrokenLedgerOnLoad
+                    // output (persisted from prior loads) must NOT trigger this branch.
+                    return true;
+                }
+                // Otherwise skip — non-tree-tagged (orphaned) actions and null-tagged
+                // KSC activity during normal operation do not count as tree coverage.
             }
             return false;
         }
@@ -2392,6 +2467,7 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
+            migrateOldSaveEventsRanThisLoad = false;
             kscSequenceCounter = 0;
             scienceModule = null;
             milestonesModule = null;

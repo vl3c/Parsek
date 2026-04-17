@@ -275,6 +275,128 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // RetagActionsForRecordingRewrite (#441 round 2 P2)
+        // ================================================================
+
+        [Fact]
+        public void RetagActionsForRecordingRewrite_RemapsAllMatchingActions_SurvivesReconcile()
+        {
+            // Canonical round-2 P2 scenario: a LegacyMigration FundsEarning synthetic
+            // tagged with the old root recording id becomes orphaned when the
+            // optimizer rewrites tree.RootRecordingId. Retag remaps the synthetic
+            // (along with any other action tagged with the old id) to the new root.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_old_root",
+                FundsAwarded = 34400f,
+                FundsSource = FundsEarningSource.LegacyMigration
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 155.0,
+                Type = GameActionType.ScienceSpending,
+                RecordingId = "rec_old_root",
+                NodeId = "LegacyMigration:tree_x",
+                Cost = 7.7f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 160.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_old_root",
+                KerbalName = "Jebediah"
+            });
+
+            int remapped = Ledger.RetagActionsForRecordingRewrite("rec_old_root", "rec_new_root");
+
+            Assert.Equal(3, remapped);
+            Assert.All(Ledger.Actions, a => Assert.Equal("rec_new_root", a.RecordingId));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("RetagActionsForRecordingRewrite")
+                && l.Contains("remapped=3"));
+
+            // After Reconcile with the NEW root id in validRecordingIds, remapped
+            // actions survive — this is the contract the P2 fix establishes.
+            var valid = new HashSet<string> { "rec_new_root" };
+            Ledger.Reconcile(valid, maxUT: 10_000.0);
+
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.All(Ledger.Actions, a => Assert.Equal("rec_new_root", a.RecordingId));
+        }
+
+        [Fact]
+        public void RetagActionsForRecordingRewrite_NullOrEmptyInputs_AreNoOp()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_x",
+                FundsAwarded = 1000f
+            });
+
+            Assert.Equal(0, Ledger.RetagActionsForRecordingRewrite(null, "rec_y"));
+            Assert.Equal(0, Ledger.RetagActionsForRecordingRewrite("rec_x", null));
+            Assert.Equal(0, Ledger.RetagActionsForRecordingRewrite("", "rec_y"));
+            Assert.Equal(0, Ledger.RetagActionsForRecordingRewrite("rec_x", ""));
+            // No-op: tag unchanged.
+            Assert.Equal("rec_x", Ledger.Actions[0].RecordingId);
+        }
+
+        [Fact]
+        public void RetagActionsForRecordingRewrite_SameOldAndNewId_AreNoOp()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_same",
+                FundsAwarded = 1000f
+            });
+
+            int remapped = Ledger.RetagActionsForRecordingRewrite("rec_same", "rec_same");
+
+            Assert.Equal(0, remapped);
+            Assert.Equal("rec_same", Ledger.Actions[0].RecordingId);
+        }
+
+        [Fact]
+        public void RetagActionsForRecordingRewrite_LeavesUnrelatedActionsUntouched()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_old",
+                FundsAwarded = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 160.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_other",
+                FundsAwarded = 500f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 170.0,
+                Type = GameActionType.FundsSpending,
+                RecordingId = null,
+                FundsSpent = 200f
+            });
+
+            int remapped = Ledger.RetagActionsForRecordingRewrite("rec_old", "rec_new");
+
+            Assert.Equal(1, remapped);
+            Assert.Equal("rec_new", Ledger.Actions[0].RecordingId);
+            Assert.Equal("rec_other", Ledger.Actions[1].RecordingId);
+            Assert.Null(Ledger.Actions[2].RecordingId);
+        }
+
+        // ================================================================
         // Reconcile — Spending pruning
         // ================================================================
 
