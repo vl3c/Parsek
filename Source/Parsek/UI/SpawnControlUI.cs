@@ -158,6 +158,9 @@ namespace Parsek
 
         private void DrawSpawnControlWindow(int windowID, ParsekFlight flight)
         {
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
+
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double currentUT = Planetarium.GetUniversalTime();
             var candidates = flight.NearbySpawnCandidates;

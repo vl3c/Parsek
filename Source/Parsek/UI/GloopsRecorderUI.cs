@@ -91,6 +91,8 @@ namespace Parsek
         private void DrawWindow(int windowID, ParsekFlight flight)
         {
             GUILayout.BeginVertical();
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
 
             bool isRecording = flight.IsGloopsRecording;
             bool hasLastRecording = flight.LastGloopsRecording != null;

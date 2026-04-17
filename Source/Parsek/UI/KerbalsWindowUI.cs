@@ -237,6 +237,8 @@ namespace Parsek
         private void DrawKerbalsWindow(int windowID)
         {
             EnsureStyles();
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
 
             if (cachedVM == null)
             {

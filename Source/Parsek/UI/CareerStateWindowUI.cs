@@ -1033,6 +1033,8 @@ namespace Parsek
         private void DrawCareerStateWindow(int windowID)
         {
             EnsureStyles();
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
 
             // Rebuild the cached VM on demand. Defensive against a null CurrentGame
             // (e.g. transient scene transitions or a mod that hot-swaps HighLogic).

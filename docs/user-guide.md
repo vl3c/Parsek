@@ -120,7 +120,7 @@ Columns:
 - **Period** - launch-to-launch loop period with a unit button that cycles `sec -> min -> hr -> auto`. "auto" inherits the default from Settings -> Looping.
 - **Watch** (flight only) - "W" / "W*" button. See Watch Mode below.
 - **Rewind / F.Forward** - "R" (rewind) for past/active recordings with a rewind save; "FF" (fast-forward) for future recordings. The button is disabled if the operation is currently not safe; hover for the reason.
-- **Hide** - per-row hide toggle. The header checkbox controls whether hidden recordings are filtered out (checked, default) or shown in the table (unchecked). Hidden recordings still play as ghosts normally.
+- **Archive** - per-row archive toggle. The header checkbox controls whether archived recordings are filtered out of the table (checked, default) or shown (unchecked). Archived recordings still play as ghosts, still apply their career effects, still spawn vessels — the toggle only hides the row from this table.
 
 Click any sortable column header (#, Name, Phase, Site, Launch, Duration, Status) to sort by that column. Click again to reverse. The window is draggable and resizable.
 

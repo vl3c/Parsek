@@ -151,6 +151,8 @@ namespace Parsek
         private void DrawSettingsWindow(int windowID)
         {
             EnsureLayoutStyles();
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
             var s = ParsekSettings.Current;
             if (s == null)
             {

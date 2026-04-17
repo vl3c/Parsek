@@ -37,7 +37,7 @@ namespace Parsek
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 85f;
-        private const float ColW_Hide = 50f;
+        private const float ColW_Hide = 70f;
         private const float ColW_Site = 90f;
         private const float ColW_Group = 50f;
 
@@ -665,7 +665,7 @@ namespace Parsek
             // Hide column header + toggle
             GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Hide", boldHeaderInnerLabel);
+            GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -762,6 +762,9 @@ namespace Parsek
 
         private void DrawRecordingsWindow(int windowID)
         {
+            // Breathing room below the title bar — matches Timeline's visual spacing.
+            GUILayout.Space(5);
+
             // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
             if (pendingDeleteGhostOnlyIndex >= 0)
             {
