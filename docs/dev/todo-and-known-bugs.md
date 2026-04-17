@@ -5,6 +5,19 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 ---
 
+## Priority queue — deterministic-timeline correctness
+
+These four TODOs are the top of the work queue. They're load-bearing correctness fixes that enforce the "every career effect flows from the committed ledger, nothing survives the recording it was born in" invariant. Ship in this order; #431 should land first since #433 / #434 depend on its purge semantics.
+
+1. **#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).
+2. **#432** — Gloops ghost-only recordings must not capture or apply any game events.
+3. **#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).
+4. **#434** — Revert to Launch should auto-discard, not open the merge dialog.
+
+Once this cluster lands, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
+
+---
+
 ## Post-review follow-ups on PR #307 (career-earnings-bundle)
 
 After the initial 11-bug bundle landed on `fix/career-earnings-bundle`, an independent
@@ -44,6 +57,51 @@ are fixed in the same PR branch with additional commits:
 ---
 
 # Known Bugs
+
+## 434. Revert to Launch should auto-discard, not open the merge dialog
+
+**Source:** follow-up on #431 and the deterministic-timeline conversation. Today when the player hits KSP's "Revert to Launch", Parsek shows the merge/discard dialog same as a normal end-of-flight. This was kept deliberately as testing / debugging scaffolding — it's useful during development to be able to inspect a reverted recording before deciding — but it's wrong for ship: Revert is the player's explicit signal that "this mission never happened", and offering a "Merge to Timeline" button at that moment invites a footgun where a misclick or a "but I want the science" impulse commits a recording the player conceptually un-did. The committed recording then survives as a ghost and eventually spawns its vessel at ghost-end, producing exactly the paradox (reverted mission whose vessel materializes anyway) that the deterministic principle rules out.
+
+**The invariant that should hold:**
+
+> Revert is "this mission never happened". It is not a choice point — it's a declaration. The active recording (and its pending tree, if any) auto-discards with the same purge semantics as the merge-dialog Discard button, no player interaction required.
+
+**Desired behavior:**
+
+- On revert detection (`ParsekScenario` OnLoad with `isRevert = true`), skip the merge-dialog path entirely and route straight to `RecordingStore.DiscardPendingTree()`.
+- The discard must purge events stamped with the reverted recording's id (see #431). If #431 hasn't shipped yet, the epoch-increment fallback at `ParsekScenario.cs:970` stays — but the long-term correct path is purge-on-discard, not filter-by-epoch.
+- A brief screen message confirms the outcome — e.g. `"Recording discarded (revert)"` — so the player isn't surprised that no dialog appeared.
+- Flight-scene revert: the in-progress recording is discarded even if it wasn't yet stashed as pending. The recorder flushes whatever it had, then routes through the same discard path.
+- Gloops recordings under revert: already auto-committed when stopped, but on revert they're treated like any other recording — discarded (and under #432 they have no events to purge anyway).
+
+**Files likely to touch:**
+
+- `Source/Parsek/ParsekScenario.cs` — the `isRevert` branch around line 964-977. Currently it just increments epoch and schedules budget deduction; needs to also discard the pending tree and any active recorder state.
+- `Source/Parsek/ParsekFlight.cs` — the revert-detection path that currently leads into the merge dialog. Short-circuit to discard on `isRevert`.
+- `Source/Parsek/MergeDialog.cs` — unchanged, but verify it's not invoked at all on revert. The Discard button logic becomes the shared entry point used by both code paths.
+- `Source/Parsek/RecordingStore.cs` — `DiscardPendingTree` already purges per #431 once that lands; no new work unless the revert path needs an extra entry helper.
+- `Source/Parsek.Tests/RevertDiscardTests.cs` (new) — synthetic revert with a pending tree, assert the dialog never opens, the tree is discarded, linked events are purged (once #431 is in), and no `VesselSpawn` fires at ghost-end for the reverted recording.
+- `docs/user-guide.md` — add a one-liner under "Automatic Behaviors → Scene Transitions": "Revert to Launch auto-discards the in-progress recording. Use Abort Mission to Space Center if you want the merge dialog."
+
+**Interaction with existing "Abort Mission" path:**
+
+- `docs/user-guide.md` already documents that aborting to Space Center auto-commits any pending recording (with vessel snapshot discarded). That behavior stays — Abort is "keep what I recorded, no merge dialog"; Revert is "nothing happened, drop everything".
+- The two non-merge-dialog exits (Abort = auto-commit, Revert = auto-discard) are symmetric: the dialog is for the normal end-of-flight path only.
+
+**Out of scope for v1:**
+
+- An opt-in developer toggle to restore the dialog-on-revert behavior for debugging. If that's ever needed, it belongs behind a `ParsekSettings.showMergeDialogOnRevert` devmode flag, default off. Don't add it unless a concrete debugging need surfaces.
+- Prompting the player for confirmation before auto-discarding on revert. Revert itself is the confirmation; adding a second "are you sure?" dialog would be noise.
+
+**Dependency on #431:**
+
+This TODO's correctness depends on #431 (event-purge-on-discard) landing first (or together). Without #431, auto-discard-on-revert still prevents the vessel-spawn paradox (no merge ⇒ no committed recording ⇒ no spawn) but still leaks raw `GameStateEvent`s captured during the reverted flight via the store-and-epoch-filter path. That leak is what #431 fixes. Ship them as a pair or ship #431 first.
+
+**Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
+
+**Status:** TODO. Size: S-M. The merge-dialog-on-revert footgun is currently masked by the fact that most players discard anyway, but under the deterministic-timeline principle it's a latent correctness bug that should be gone before v0.9.
+
+---
 
 ## 433. `PlaybackEnabled` toggle should be visual-only — stop gating vessel spawn and crew reservations
 
@@ -92,6 +150,8 @@ are fixed in the same PR branch with additional commits:
 - Adding a SEPARATE "skip career effects" toggle for players who explicitly want to exclude a recording from the ledger — this would contradict the deterministic-timeline principle; if a player wants to exclude a recording's effects, the answer is Delete (post-commit) or Discard (pre-commit), not a toggle.
 - Retroactively reconciling saves where a disabled recording's vessel "should have" spawned but didn't. The player can toggle the recording back on to trigger the spawn at the next ghost-end cycle, or re-rewind through it.
 
+**Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
+
 **Status:** TODO. Size: S-M. **Correctness bug under the deterministic-timeline principle.** Pairs conceptually with #431 (which also enforces "career state flows from the committed ledger, not from UI state"). Ship before any rework that depends on the toggle's semantics being visual-only.
 
 ---
@@ -124,6 +184,8 @@ Currently `GameStateRecorder` runs regardless of recording type, so events captu
 
 - Retroactive cleanup of existing saves that have leaked events from past Gloops recordings. Document the limitation; ship a forward-fix.
 - Allowing the player to opt into career capture for a Gloops recording. That would contradict the "decorative-only" design intent; if someone wants career effects they should use a normal recording.
+
+**Priority:** **HIGHEST** (part of the deterministic-timeline correctness cluster).
 
 **Status:** TODO. Size: S-M. Pairs naturally with #431 (both enforce "events must share the recording's intent"); ship together or back-to-back.
 
@@ -173,7 +235,9 @@ The symmetric-case is fine: Revert already advances the epoch, so those events g
 - Retroactive purge of past save files that already contain leaked discard-time events. Ship a fresh-save fix; document the limitation for already-affected saves.
 - UI surface for "these events got discarded". The fix is silent; proactive warnings live in #427.
 
-**Status:** TODO. Size: M. **High-priority correctness bug** — the kind of invariant leak that erodes trust in the ledger-as-truth principle because players discover the symptom hours later ("wait, why is this contract already complete?"). Worth doing before the v0.9 cycle.
+**Priority:** **HIGHEST** (ships first in the deterministic-timeline correctness cluster — #432 / #433 / #434 depend on its purge semantics).
+
+**Status:** TODO. Size: M. Invariant leak that erodes trust in the ledger-as-truth principle because players discover the symptom hours later ("wait, why is this contract already complete?"). Worth doing before the v0.9 cycle.
 
 ---
 
