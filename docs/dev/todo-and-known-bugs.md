@@ -58,6 +58,89 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 441. Extend `Ledger.Reconcile` to prune spending actions by `RecordingId`
+
+**Source:** follow-up explicitly flagged by the Phase A migration (#436, PR #338) and Phase B review (#437, PR #340). Today `Ledger.Reconcile` (see `Source/Parsek/GameActions/Ledger.cs:246-360`) has asymmetric pruning semantics: **earning** actions whose `RecordingId` is not in `validRecordingIds` are removed (line 281), but **spending** actions are pruned only by `UT > maxUT` (line 300). A spending action tagged with a recording that no longer exists survives as an orphan.
+
+**Why it matters:** Phase A's legacy migration (`LedgerOrchestrator.MigrateLegacyTreeResources`) emits synthetic `FundsEarning` / `ScienceEarning` / `ReputationEarning` tagged with `tree.RootRecordingId` so tree deletion purges them cleanly. When a tree has a **negative** science or reputation residual (the flight spent more than it earned), the symmetric fix would be to emit `ScienceSpending` / `ReputationPenalty` tagged with `RootRecordingId`. But those spending actions would NOT be pruned on tree deletion under today's `Reconcile`, so the migration deliberately skips negative science and rep residuals with a WARN instead of injecting them. `LegacyTreeMigrationTests` has tests pinning this WARN-and-skip behavior.
+
+**Fix:** Extend the per-type pruning in `Ledger.Reconcile` so spending actions with a non-null `RecordingId` also require `RecordingId ∈ validRecordingIds` to survive. Null-`RecordingId` spendings (career-level KSC writes) keep their current UT-only rule. After the fix, update Phase A's negative-residual branches to emit `ScienceSpending` (with `SubjectId="LegacyMigration:{treeId}"`) and `ReputationPenalty` (with `RepPenaltySource.Other`) instead of WARNing and skipping. Update `LegacyTreeMigrationTests` to assert the new injection + purge-on-deletion behavior for negative residuals, and drop the three current "negative residual skipped with WARN" tests in favor of full-coverage equivalents.
+
+**Scope:** ~20 lines in `Ledger.cs`, ~30 lines in `LedgerOrchestrator.MigrateLegacyTreeResources` (un-skip the negative branches), plus test updates. Small. No API surface change outside these two files.
+
+**Dependencies:** none. Can land independently of the rest of Phase E.
+
+**Status:** TODO. Priority: medium. Not release-blocking for v0.8.2 (negative science/rep residuals on legacy saves are rare; current WARN-and-skip is a correct fail-safe). Worth doing before Phase F removes the legacy `tree.DeltaFunds` fields entirely.
+
+---
+
+## 440. Post-walk reconciliation for strategy-transformed and curve-applied reward types
+
+**Source:** Phase B (#437, PR #340) explicitly excluded these from KSC-side reconciliation. `LedgerOrchestrator.ReconcileKscAction.ClassifyAction` routes `ContractComplete` / `ContractFail` / `ContractCancel` / `MilestoneAchievement` / `ReputationEarning` / `ReputationPenalty` / direct KSC-path `FundsEarning` / `ScienceEarning` into the "transformed — skip with VERBOSE" bucket because their raw action fields (e.g. `FundsReward`, `NominalRep`) diverge from the live KSP balance delta by the time the walk runs: `StrategiesModule` mutates `TransformedFundsReward` during the walk, and `ReputationModule.ApplyReputationCurve` transforms rep earnings/penalties non-linearly. Comparing raw fields to observed deltas would produce false-positive WARNs on every legitimate contract completion once strategies are active.
+
+**Why it matters:** today strategy diversion, the reputation curve, and milestone rewards all pass through silently unless something external catches a mismatch (Phase A's legacy migration, or a `PatchFunds: suspicious drawdown` WARN from `KspStatePatcher`). Once #439 (strategy lifecycle capture) lands, strategy-transformed rewards become a first-class concern and the VERBOSE-skip is no longer defensible.
+
+**Fix:** Add a **post-walk reconciliation hook** that runs inside `LedgerOrchestrator.RecalculateAndPatch` after `RecalculationEngine.Recalculate` has populated `TransformedFundsReward` / `TransformedScienceReward` / `TransformedRepReward` and `ReputationModule.EffectiveRep`. The hook iterates actions of the transformed types and compares the POST-walk field to the live observed delta in `GameStateStore` within the same UT window / `TransactionReasons` key used by `ReconcileKscAction`. WARN on mismatch; VERBOSE on match.
+
+Design constraints pulled from Phase D's (#343) plumbing:
+- The post-walk hook must respect `utCutoff` the same way the walk does — if a transformed-type action is past the cutoff it gets filtered out of reconciliation too (otherwise rewind would produce false WARNs for rewards that the walk skipped).
+- Keep the action-type classifier (`ReconcileKscAction.ClassifyAction`) as the authoritative split; "transformed" types get routed to the post-walk path instead of being VERBOSE-skipped. The "untransformed" and "no-op" buckets don't change.
+- Milestone rewards need special care: `MilestoneAchievement.Effective` is set by `MilestonesModule` at walk time; duplicates get `Effective=false` and should NOT reconcile (the live delta reflects the first credit only).
+
+**Scope:** new helper in `LedgerOrchestrator.cs` (~80-120 lines), new tests in `EarningsReconciliationTests.cs` (~10 cases for: contract complete pre-strategy vs post-strategy, rep earning through the curve, milestone + effective duplicate, strategy-diverted reward, cutoff filter). Medium.
+
+**Dependencies:** #439 (strategy capture) should land first so the strategy-diversion cases can be tested end-to-end; otherwise a significant cohort of "transformed" WARNs won't have a test to pin them. Phase D (#343) should land first too so `utCutoff` is threaded correctly. Order: D → #439 → #440.
+
+**Status:** TODO. Priority: medium. Diagnostic-only (like the rest of reconciliation). Not release-blocking.
+
+---
+
+## 439. Strategy lifecycle capture (Phase E1.5 of ledger/lump-sum fix)
+
+**Source:** `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` Phase E1.5, flagged during plan review and re-flagged by Phase B's audit of `GameStateEvent.cs:6-27` — no strategy event types exist. `LedgerOrchestrator.StrategiesModule` consumes `StrategyActivate` / `StrategyDeactivate` actions during the walk (and `StrategiesModule.cs:207-208,235` mutates `TransformedFundsReward` on contract-complete actions), but nothing in the mod captures strategy lifecycle from KSP and nothing emits those action types.
+
+**Why it matters:** any career that activates a KSP strategy (Leadership Initiative, Open-Source Tech Program, etc.) has funds/rep/science flowing through channels the ledger doesn't model. `StrategiesModule` runs but has no input. Strategy payouts become phantom income that `tree.DeltaFunds` captures but the ledger walk doesn't — the exact repro shape of #436 for strategy-active careers. Phase A's legacy migration catches it as an "unknown channel residual" and injects a `LegacyMigration` synthetic on load; going forward, we want the events captured correctly instead of papered over.
+
+**Fix:**
+- Add `GameStateEventType.StrategyActivated` / `StrategyDeactivated` / `StrategyPayout` in `Source/Parsek/GameStateEvent.cs`.
+- New Harmony patch `Source/Parsek/Patches/StrategyLifecyclePatch.cs` on `Strategies.Strategy.Activate` / `Deactivate` and whichever callback KSP uses for strategy payouts. Find exact symbols via `ilspycmd` per `.claude/CLAUDE.md`'s decompilation workflow.
+- Extend `Source/Parsek/GameStateRecorder.cs` to emit the new event types, tagging with the current recording id when in flight (KSC-scope otherwise).
+- Add `FundsEarningSource.Strategy` (and a `ReputationSource.Strategy` if KSP strategies grant rep, which they do for some — verify).
+- `Source/Parsek/GameActions/GameStateEventConverter.cs`: convert the new events into the existing `StrategyActivate` / `StrategyDeactivate` action types, and into a new `StrategyPayout` `FundsEarning`/`ReputationEarning` with source = `Strategy`. `GameActionType` may need a new value for payout if reusing existing earning types is awkward.
+- Wire `ReconcileKscAction.ClassifyAction` to route the new action types correctly (strategy payouts are transformed-type candidates → post-walk reconciliation per #440).
+- New file `Source/Parsek.Tests/StrategyCaptureTests.cs` — capture/replay symmetry for all three events, conversion correctness, end-to-end round-trip through `ParsekScenario` save/load.
+
+**Scope:** medium-large. New Harmony patches + new event types + new enum values + converter + module plumbing + test file. Estimate 2-3 days of focused work.
+
+**Dependencies:** #436 (Phase A) shipped — yes, already merged. Phase F (`ApplyTreeLumpSum` deletion) should NOT land before #439 unless the Phase A legacy-migration safety net is kept in place, because without strategy capture and without the lump sum, strategy income on new saves has nothing crediting it. Recommended ordering: #439 → #440 → Phase F.
+
+**Status:** TODO. Priority: medium. Release-blocking for strategy-using careers in v0.8.3; v0.8.2 ships with strategies unsupported (user-visible effect: `PatchFunds: suspicious drawdown` WARN when a strategy diverts reward). Document the known limitation in CHANGELOG for v0.8.2.
+
+---
+
+## 438. Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+
+**Source:** Phase B (#437, PR #340) deliverable #2 — the channel-coverage audit. Several earning channels have capture code in main but no assertion in `EarningsReconciliationTests.cs` that the capture reconciles cleanly against `GameStateStore` events. Each is a small, self-contained test addition.
+
+**Gaps to close (one PR or a tight series):**
+
+1. **Contract advance at accept.** `GameStateRecorder.OnContractAccepted:253-318` captures the advance. `EarningsReconciliationTests` has no case asserting that `ContractAccept.AdvanceFunds` matches the `FundsChanged(ContractAdvance)` delta within the recording's window.
+2. **Contract fail / cancel penalties.** `ContractFail.FundsPenalty` / `RepPenalty` path exists in both `ReconcileEarningsWindow` and the new `ReconcileKscAction`. No dedicated test for the positive-match case.
+3. **Milestone science reward.** `MilestoneAchievement.MilestoneScienceAwarded` became effective post-#400. Existing milestone test exercises only funds+rep; extend with a science-bearing milestone.
+4. **Standalone `ScienceEarning` happy-path.** Only the mismatch/negative case is pinned today. Add a matching-delta positive case.
+5. **World-first / progress reward.** `Source/Parsek/Patches/ProgressRewardPatch.cs` enriches milestone detail. No test asserts the enriched reward reconciles.
+6. **Facility repair.** `ReconcileKscAction`'s switch handles `FacilityRepair` (key `StructureRepair`) but only `FacilityUpgrade` has a dedicated test case.
+7. **Kerbal hire cost match.** `GameStateRecorderLedgerTests.OnKscSpending_CrewHired_AddsKerbalHireActionWithCost` covers action write. Reconciliation hook match against `FundsChanged(CrewRecruited)` isn't asserted.
+8. **Tree-scoped `+34400` legacy reproducer (deferred during Phase B).** Phase A is merged, so this is unblocked: synthesize a legacy-format save with `tree.DeltaFunds=+34400` and zero ledger coverage, call `LedgerOrchestrator.OnKspLoad`, assert `MigrateLegacyTreeResources` injects the synthetic and `ReconcileEarningsWindow` (or a targeted replay) confirms the final ledger walk matches KSP state. Bridges the unit-level Phase A tests with Phase B's reconciliation invariant.
+
+**Scope:** small per item (~5-10 lines of test each) and they share the existing test scaffolding in `EarningsReconciliationTests.cs`. A single agent can knock the whole backlog out in one PR.
+
+**Dependencies:** none — all targets are on main today. Item 8 specifically needed Phase A merged, which happened.
+
+**Status:** TODO. Priority: low. Each is diagnostic coverage; nothing user-visible breaks if they slip. Worth doing before #439 / #440 because those will add more transformed-type cases and a broader coverage matrix makes the larger work easier to review.
+
+---
+
 ## 435. Multi-recording Gloops trees (main + debris + crew children, no vessel spawn)
 
 **Source:** world-model conversation on #432 (2026-04-17). The aspirational design for Gloops: when the player records a Gloops flight that stages or EVAs, the capture produces a **tree of ghost-only recordings** — main + debris children + crew children — all flagged `IsGhostOnly`, all grouped under a per-flight Gloops parent in the Recordings Manager, and none of them spawning a real vessel at ghost-end. Structurally the same as the normal Parsek recording tree (decouple → debris background recording, EVA → linked crew child), with the ghost-only flag applied uniformly and the vessel-spawn-at-end path skipped.
