@@ -991,24 +991,13 @@ namespace Parsek
 
         private void EnsureStyles()
         {
-            if (sectionHeaderStyle != null) return;
-            sectionHeaderStyle = new GUIStyle(GUI.skin.box)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                fontStyle = FontStyle.Bold,
-                stretchWidth = true
-            };
+            // Section + column header styles are shared across the mod via ParsekUI;
+            // reassign every draw so any ParsekUI-level updates flow through.
+            sectionHeaderStyle = parentUI.GetSectionHeaderStyle();
+            columnHeaderStyle = parentUI.GetColumnHeaderStyle();
+            if (toggleButtonStyle != null) return;
             groupHeaderStyle = new GUIStyle(GUI.skin.label)
             {
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
-            };
-            // Column-header row (bold label in a box). Mirrors RecordingsTableUI
-            // header-row convention so Career State tables scan like the rest of
-            // Parsek's windows.
-            columnHeaderStyle = new GUIStyle(GUI.skin.box)
-            {
-                alignment = TextAnchor.MiddleLeft,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };

@@ -172,16 +172,13 @@ namespace Parsek
 
         private void EnsureStyles()
         {
+            // Section header style is shared across the mod via ParsekUI; reassign
+            // every draw so any ParsekUI-level updates flow through.
+            sectionHeaderStyle = parentUI.GetSectionHeaderStyle();
             if (grayStyle != null) return;
             grayStyle = new GUIStyle(GUI.skin.label)
             {
                 normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
-            };
-            sectionHeaderStyle = new GUIStyle(GUI.skin.box)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                fontStyle = FontStyle.Bold,
-                stretchWidth = true
             };
             groupHeaderStyle = new GUIStyle(GUI.skin.label)
             {

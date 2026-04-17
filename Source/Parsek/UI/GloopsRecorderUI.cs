@@ -189,7 +189,7 @@ namespace Parsek
 
         private void DrawRecordingStatus(ParsekFlight flight)
         {
-            GUILayout.Label("Recording...", GUI.skin.box);
+            GUILayout.Label("Recording...", parentUI.GetSectionHeaderStyle());
 
             var gloopsRecorder = flight.GloopsRecorderForUI;
             if (gloopsRecorder != null)

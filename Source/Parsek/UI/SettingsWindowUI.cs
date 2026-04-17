@@ -247,7 +247,7 @@ namespace Parsek
 
         private void DrawRecordingSettings(ParsekSettings s)
         {
-            GUILayout.Label("Recording", GUI.skin.box);
+            GUILayout.Label("Recording", parentUI.GetSectionHeaderStyle());
             bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
                 new GUIContent(" Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
             if (autoRecordOnLaunch != s.autoRecordOnLaunch)
@@ -275,7 +275,7 @@ namespace Parsek
 
         private void DrawLoopingSettings(ParsekSettings s)
         {
-            GUILayout.Label("Looping", GUI.skin.box);
+            GUILayout.Label("Looping", parentUI.GetSectionHeaderStyle());
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Auto-launch every",
                 "Default launch-to-launch period (seconds) for recordings set to 'auto' unit. Overlap occurs naturally when the period is shorter than the recording duration."),
@@ -328,7 +328,7 @@ namespace Parsek
 
         private void DrawGhostSettings(ParsekSettings s)
         {
-            GUILayout.Label("Ghosts", GUI.skin.box);
+            GUILayout.Label("Ghosts", parentUI.GetSectionHeaderStyle());
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Ghost audio",
@@ -406,7 +406,7 @@ namespace Parsek
 
         private void DrawDiagnosticsSettings(ParsekSettings s)
         {
-            GUILayout.Label("Diagnostics", GUI.skin.box);
+            GUILayout.Label("Diagnostics", parentUI.GetSectionHeaderStyle());
             bool verboseLogging = GUILayout.Toggle(s.verboseLogging, " Verbose logging (development default)");
             if (verboseLogging != s.verboseLogging)
             {
@@ -441,7 +441,7 @@ namespace Parsek
 
         private void DrawSamplingSettings(ParsekSettings s)
         {
-            GUILayout.Label("Recorder Sample Density", GUI.skin.box);
+            GUILayout.Label("Recorder Sample Density", parentUI.GetSectionHeaderStyle());
 
             GUILayout.BeginHorizontal();
             foreach (SamplingDensity level in new[] { SamplingDensity.Low, SamplingDensity.Medium, SamplingDensity.High })
@@ -466,7 +466,7 @@ namespace Parsek
 
         private void DrawDataManagementSettings(ParsekSettings s)
         {
-            GUILayout.Label("Data Management", GUI.skin.box);
+            GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
 
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int milestoneCount = MilestoneStore.Milestones.Count;

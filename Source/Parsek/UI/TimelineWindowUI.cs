@@ -725,7 +725,7 @@ namespace Parsek
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             GUILayout.Space(5);
-            GUILayout.Label("Resources", GUI.skin.box);
+            GUILayout.Label("Resources", parentUI.GetSectionHeaderStyle());
 
             bool anyOverCommitted = false;
             bool isScienceMode = false;

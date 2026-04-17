@@ -22,6 +22,13 @@ namespace Parsek
         // Opaque window style (replaces KSP's semi-transparent default)
         private GUIStyle opaqueWindowStyle;
 
+        // Shared header styles (promoted from CareerStateWindowUI so every window
+        // renders section bars and column headers the same way). Lazy-initialized
+        // via EnsureSharedHeaderStyles because GUIStyle construction requires a
+        // valid GUI.skin — only available during draw.
+        private GUIStyle sharedSectionHeaderStyle;
+        private GUIStyle sharedColumnHeaderStyle;
+
         // Map view markers: icon atlas, fallback texture, label style, hover/sticky
         // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
 
@@ -453,6 +460,51 @@ namespace Parsek
         {
             EnsureOpaqueWindowStyle();
             return opaqueWindowStyle;
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        //  Shared header styles (section bars + column headers)
+        // ════════════════════════════════════════════════════════════════
+
+        private void EnsureSharedHeaderStyles()
+        {
+            if (sharedSectionHeaderStyle != null && sharedColumnHeaderStyle != null) return;
+
+            // Section header - bold label in a box, left-aligned, stretches full width.
+            sharedSectionHeaderStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                stretchWidth = true
+            };
+
+            // Column header - bold label in a box with slightly-lighter textColor.
+            sharedColumnHeaderStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+        }
+
+        /// <summary>
+        /// Shared section-header style: bold label in a box, stretches full width.
+        /// Must be called during draw (requires a valid GUI.skin).
+        /// </summary>
+        public GUIStyle GetSectionHeaderStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedSectionHeaderStyle;
+        }
+
+        /// <summary>
+        /// Shared column-header style: bold label in a box with slightly-lighter textColor.
+        /// Must be called during draw (requires a valid GUI.skin).
+        /// </summary>
+        public GUIStyle GetColumnHeaderStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedColumnHeaderStyle;
         }
 
         // ════════════════════════════════════════════════════════════════

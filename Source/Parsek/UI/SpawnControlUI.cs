@@ -177,7 +177,7 @@ namespace Parsek
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
             DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
             DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
-            GUILayout.Label("State", GUILayout.Width(SpawnColW_State));
+            GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 

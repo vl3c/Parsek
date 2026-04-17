@@ -594,20 +594,21 @@ namespace Parsek
             DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
             DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
+            var colHdr = parentUI.GetColumnHeaderStyle();
             if (showExpandedStats)
             {
-                GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
-                GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
-                GUILayout.Label("Start", GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("End", GUILayout.Width(ColW_EndPos));
+                GUILayout.Label("MaxAlt", colHdr, GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("MaxSpd", colHdr, GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("Dist", colHdr, GUILayout.Width(ColW_Dist));
+                GUILayout.Label("Pts", colHdr, GUILayout.Width(ColW_Pts));
+                GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("End", colHdr, GUILayout.Width(ColW_EndPos));
             }
 
             DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
 
             // Group column header
-            GUILayout.Label("Group", GUILayout.Width(ColW_Group));
+            GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group));
 
             // Select-all loop header + checkbox
             int loopCount = 0;
