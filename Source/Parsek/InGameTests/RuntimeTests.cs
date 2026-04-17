@@ -3285,5 +3285,58 @@ namespace Parsek.InGameTests
                 || manifest.ContainsKey("MonoPropellant") || manifest.ContainsKey("Oxidizer");
             InGameAssert.IsTrue(hasCommonResource, "No common fuel resource found — test vessel needs fuel");
         }
+
+        #region ResourceReconciliation (Phase F)
+
+        [InGameTest(Category = "ResourceReconciliation", Scene = GameScenes.SPACECENTER,
+            Description = "Phase F: ApplyTreeLumpSum / ApplyTreeResourceDeltas / ApplyResourceDeltas " +
+                "are gone — neither method emits its old log shape during normal SPACECENTER lifecycle. " +
+                "Run after revert/rewind to confirm no suspicious-drawdown WARN.")]
+        public IEnumerator NoLumpSumOrStandaloneApplierLogsOnSpacecenterEntry()
+        {
+            // Capture log lines for the duration of the test.
+            var captured = new List<string>();
+            var prevSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => { captured.Add(line); prevSink?.Invoke(line); };
+
+            try
+            {
+                // Yield one frame so any pending Update() ticks have a chance to fire.
+                yield return null;
+                yield return null;
+                yield return null;
+
+                // Phase F: these production log shapes must NEVER appear.
+                foreach (var line in captured)
+                {
+                    InGameAssert.IsFalse(line.Contains("ApplyTreeLumpSum"),
+                        "Phase F: ApplyTreeLumpSum log line must not appear (method is deleted): " + line);
+                    InGameAssert.IsFalse(line.Contains("ApplyTreeResourceDeltas"),
+                        "Phase F: ApplyTreeResourceDeltas log line must not appear (method is deleted): " + line);
+                    InGameAssert.IsFalse(line.Contains("Tree resource lump sum applied"),
+                        "Phase F: lump-sum-applied log line must not appear: " + line);
+                    InGameAssert.IsFalse(line.Contains("Timeline resource:"),
+                        "Phase F: standalone applier log line must not appear (ApplyResourceDeltas is deleted): " + line);
+                }
+
+                // Bonus end-to-end check: a healthy ledger walk must not log
+                // 'PatchFunds: suspicious drawdown' at SPACECENTER entry.
+                foreach (var line in captured)
+                {
+                    InGameAssert.IsFalse(
+                        line.Contains("PatchFunds") && line.Contains("suspicious drawdown"),
+                        "Phase F: PatchFunds suspicious drawdown WARN must not fire on a healthy save: " + line);
+                }
+
+                ParsekLog.Verbose("TestRunner",
+                    $"NoLumpSumOrStandaloneApplierLogsOnSpacecenterEntry: scanned {captured.Count} log line(s) — clean.");
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = prevSink;
+            }
+        }
+
+        #endregion
     }
 }

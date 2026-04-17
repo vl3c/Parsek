@@ -399,7 +399,7 @@ namespace Parsek
         private Dictionary<uint, GhostChain> activeGhostChains;
 
         // Deferred spawn queue moved to ParsekPlaybackPolicy (#132)
-        private bool timelineResourceReplayPausedLogged = false;
+        // Phase F: timelineResourceReplayPausedLogged removed alongside ApplyResourceDeltas.
         private bool wasWarpActive = false; // tracks previous warp state for exit detection
         private double warpStartUT = 0.0;  // UT when warp began — used for facility visual updates
         // Camera follow (watch mode) — extracted to WatchModeController
@@ -5383,11 +5383,9 @@ namespace Parsek
                     ActiveRecordingId = rootRecId
                 };
 
-                activeTree.PreTreeFunds = Funding.Instance != null ? Funding.Instance.Funds : 0;
-                activeTree.PreTreeScience = ResearchAndDevelopment.Instance != null
-                    ? ResearchAndDevelopment.Instance.Science : 0;
-                activeTree.PreTreeReputation = Reputation.Instance != null
-                    ? Reputation.Instance.reputation : 0;
+                // Phase F: PreTree* capture removed. The ledger is now the single
+                // source of truth for funds/science/reputation; trees no longer
+                // snapshot pre-launch career resources for lump-sum reconciliation.
 
                 var rootRec = new Recording
                 {
@@ -6512,15 +6510,12 @@ namespace Parsek
             PruneZeroPointLeaves(tree);
             PruneSinglePointDestroyedDebrisLeaves(tree);
 
-            // Compute tree-level resource delta
-            tree.DeltaFunds = ComputeTreeDeltaFunds(tree);
-            tree.DeltaScience = ComputeTreeDeltaScience(tree);
-            tree.DeltaReputation = ComputeTreeDeltaReputation(tree);
-
+            // Phase F: tree-level resource delta capture removed. The ledger is
+            // the single source of truth for funds/science/reputation; per-recording
+            // ledger actions committed during the tree's lifetime cover the cost.
             ParsekLog.Info("Flight",
-                $"FinalizeTreeRecordings: tree '{tree.TreeName}' resource delta: " +
-                $"funds={tree.DeltaFunds:+0.0;-0.0}, science={tree.DeltaScience:+0.0;-0.0}, " +
-                $"rep={tree.DeltaReputation:+0.0;-0.0}");
+                $"FinalizeTreeRecordings: tree '{tree.TreeName}' finalized " +
+                $"(resource accounting via ledger; no tree-level delta captured).");
         }
 
         /// <summary>
@@ -7094,26 +7089,9 @@ namespace Parsek
             return rec.TrackSections == null || rec.TrackSections.Count == 0;
         }
 
-        internal static double ComputeTreeDeltaFunds(RecordingTree tree)
-        {
-            double currentFunds = 0;
-            try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
-            return currentFunds - tree.PreTreeFunds;
-        }
-
-        internal static double ComputeTreeDeltaScience(RecordingTree tree)
-        {
-            double currentScience = 0;
-            try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
-            return currentScience - tree.PreTreeScience;
-        }
-
-        internal static float ComputeTreeDeltaReputation(RecordingTree tree)
-        {
-            float currentRep = 0;
-            try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
-            return currentRep - tree.PreTreeReputation;
-        }
+        // Phase F: ComputeTreeDeltaFunds/Science/Reputation removed.
+        // Tree-level snapshot reconciliation replaced by per-action ledger walk
+        // (see GameActions/RecalculationEngine + LedgerOrchestrator).
 
         /// <summary>
         /// Spawns all leaf vessels from a committed tree (except the active vessel).
@@ -8834,21 +8812,13 @@ namespace Parsek
             // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
             policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
 
-            // Per-frame resource deltas (policy concern, not engine).
-            // Intentional: deltas accrue for both in-range AND past-end recordings
-            // regardless of whether a ghost is visually active. Resource replay must
-            // track the full timeline even when the ghost is disabled or suppressed,
-            // so career funds/science/reputation stay consistent with recorded history.
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (!rec.ManagesOwnResources) continue; // tree recordings handle resources at tree level
-                if (currentUT > rec.EndUT || (currentUT >= rec.StartUT && currentUT <= rec.EndUT))
-                    ApplyResourceDeltas(rec, currentUT);
-            }
-
-            // Tree-level resource deltas
-            ApplyTreeResourceDeltas(currentUT);
+            // Phase F: per-frame resource delta application removed.
+            // The standalone applier (ApplyResourceDeltas, gated by ManagesOwnResources)
+            // and the tree lump-sum applier (ApplyTreeResourceDeltas/ApplyTreeLumpSum)
+            // were the dual source of truth alongside the ledger. The ledger is now
+            // the single source of truth: GameActions/RecalculationEngine drives
+            // Funding.Instance.Funds, ResearchAndDevelopment.Instance.Science, and
+            // Reputation.Instance.reputation via RecalculateAndPatch.
 
             // Watch-mode ghost validity check
             watchMode.ValidateWatchedGhostStillActive();
@@ -8902,177 +8872,10 @@ namespace Parsek
         /// </summary>
         // UpdateOverlapLoopPlayback removed (T25 Phase 9)
 
-        /// <summary>
-        /// Apply resource deltas (funds, science, reputation) for recorded points
-        /// that we've passed since the last frame. Computes delta between consecutive
-        /// points and adds it to the current career pools.
-        /// </summary>
-        void ApplyResourceDeltas(Recording rec, double currentUT)
-        {
-            if (GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(IsRecording))
-            {
-                if (!timelineResourceReplayPausedLogged)
-                {
-                    Log("Timeline resource replay paused while a manual recording is active");
-                    timelineResourceReplayPausedLogged = true;
-                }
-                return;
-            }
-            if (timelineResourceReplayPausedLogged)
-            {
-                Log("Timeline resource replay resumed after manual recording stopped");
-                timelineResourceReplayPausedLogged = false;
-            }
-
-            var points = rec.Points;
-
-            // Find the highest point index whose UT we've passed
-            int targetIndex = GhostPlaybackLogic.ComputeTargetResourceIndex(points, rec.LastAppliedResourceIndex, currentUT);
-
-            // Apply deltas for each point we've newly passed
-            if (targetIndex > rec.LastAppliedResourceIndex)
-            {
-                int startIdx = Math.Max(rec.LastAppliedResourceIndex, 0);
-                TrajectoryPoint fromPoint = points[startIdx];
-                TrajectoryPoint toPoint = points[targetIndex];
-
-                double fundsDelta = toPoint.funds - fromPoint.funds;
-                float scienceDelta = toPoint.science - fromPoint.science;
-                float repDelta = toPoint.reputation - fromPoint.reputation;
-
-                // Suppress game state recording during replay — these are replayed
-                // deltas from a previous recording, not new player actions
-                using (SuppressionGuard.Resources())
-                {
-                    if (fundsDelta != 0 && Funding.Instance != null)
-                    {
-                        if (fundsDelta < 0 && Funding.Instance.Funds + fundsDelta < 0)
-                            fundsDelta = -Funding.Instance.Funds;
-                        Funding.Instance.AddFunds(fundsDelta, TransactionReasons.None);
-                        Log($"Timeline resource: funds {fundsDelta:+0.0;-0.0}");
-                    }
-
-                    if (scienceDelta != 0 && ResearchAndDevelopment.Instance != null)
-                    {
-                        if (scienceDelta < 0 && ResearchAndDevelopment.Instance.Science + scienceDelta < 0)
-                            scienceDelta = -ResearchAndDevelopment.Instance.Science;
-                        ResearchAndDevelopment.Instance.AddScience(scienceDelta, TransactionReasons.None);
-                        Log($"Timeline resource: science {scienceDelta:+0.0;-0.0}");
-                    }
-
-                    if (repDelta != 0 && Reputation.Instance != null)
-                    {
-                        if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
-                            repDelta = -Reputation.CurrentRep;
-                        Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
-                        Log($"Timeline resource: reputation {repDelta:+0.0;-0.0}");
-                    }
-                }
-
-                rec.LastAppliedResourceIndex = targetIndex;
-
-                // Log summary when all resource deltas have been applied
-                if (targetIndex == points.Count - 1 && startIdx < targetIndex)
-                {
-                    Log($"Resource deltas complete for \"{rec.VesselName}\" (recorded totals): " +
-                        $"funds={toPoint.funds - points[0].funds:+0.0;-0.0}, " +
-                        $"science={toPoint.science - points[0].science:+0.0;-0.0}, " +
-                        $"rep={toPoint.reputation - points[0].reputation:+0.0;-0.0}");
-                }
-            }
-        }
-
-        void ApplyTreeResourceDeltas(double currentUT)
-        {
-            var trees = RecordingStore.CommittedTrees;
-            if (trees.Count == 0) return;
-
-            // Fast path: skip per-tree iteration if all trees are already applied.
-            bool anyPending = false;
-            for (int i = 0; i < trees.Count; i++)
-            {
-                if (!trees[i].ResourcesApplied) { anyPending = true; break; }
-            }
-            if (!anyPending) return;
-
-            for (int i = 0; i < trees.Count; i++)
-            {
-                var tree = trees[i];
-                if (tree.ResourcesApplied)
-                    continue;
-
-                double treeEndUT = tree.ComputeEndUT();
-
-                // Skip degraded trees (all recordings have 0 points — trajectory files missing).
-                // These have stale delta values from metadata but no actual playback data,
-                // so applying their budget would incorrectly charge the player.
-                if (treeEndUT == 0)
-                {
-                    tree.ResourcesApplied = true;
-                    ParsekLog.Info("Flight",
-                        $"ApplyTreeResourceDeltas: skipping degraded tree '{tree.TreeName}' — no trajectory data (0 points)");
-                    continue;
-                }
-
-                if (currentUT <= treeEndUT)
-                {
-                    ParsekLog.VerboseRateLimited("Flight", "tree-res-wait-ut",
-                        $"ApplyTreeResourceDeltas: waiting for tree '{tree.TreeName}' — currentUT={currentUT:F1} treeEndUT={treeEndUT:F1}");
-                    continue;
-                }
-
-                // Apply lump sum delta (sets ResourcesApplied = true internally)
-                ApplyTreeLumpSum(tree);
-            }
-        }
-
-        void ApplyTreeLumpSum(RecordingTree tree)
-        {
-            if (GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(IsRecording))
-                return; // retry next frame
-
-            using (SuppressionGuard.Resources())
-            {
-                if (tree.DeltaFunds != 0 && Funding.Instance != null)
-                {
-                    double delta = tree.DeltaFunds;
-                    double originalFunds = delta;
-                    if (delta < 0 && Funding.Instance.Funds + delta < 0)
-                        delta = -Funding.Instance.Funds;
-                    if (delta != originalFunds)
-                        Log($"ApplyTreeLumpSum: funds clamped for '{tree.TreeName}': original={originalFunds:+0.0;-0.0} → clamped={delta:+0.0;-0.0} (balance={Funding.Instance.Funds:F0})");
-                    Funding.Instance.AddFunds(delta, TransactionReasons.None);
-                    Log($"Tree resource: funds {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
-                }
-
-                if (tree.DeltaScience != 0 && ResearchAndDevelopment.Instance != null)
-                {
-                    double delta = tree.DeltaScience;
-                    double originalScience = delta;
-                    if (delta < 0 && ResearchAndDevelopment.Instance.Science + delta < 0)
-                        delta = -ResearchAndDevelopment.Instance.Science;
-                    if (delta != originalScience)
-                        Log($"ApplyTreeLumpSum: science clamped for '{tree.TreeName}': original={originalScience:+0.0;-0.0} → clamped={delta:+0.0;-0.0} (balance={ResearchAndDevelopment.Instance.Science:F1})");
-                    ResearchAndDevelopment.Instance.AddScience((float)delta, TransactionReasons.None);
-                    Log($"Tree resource: science {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
-                }
-
-                if (tree.DeltaReputation != 0 && Reputation.Instance != null)
-                {
-                    float delta = tree.DeltaReputation;
-                    float originalRep = delta;
-                    if (delta < 0 && Reputation.CurrentRep + delta < 0)
-                        delta = -Reputation.CurrentRep;
-                    if (delta != originalRep)
-                        Log($"ApplyTreeLumpSum: reputation clamped for '{tree.TreeName}': original={originalRep:+0.0;-0.0} → clamped={delta:+0.0;-0.0} (balance={Reputation.CurrentRep:F1})");
-                    Reputation.Instance.AddReputation(delta, TransactionReasons.None);
-                    Log($"Tree resource: reputation {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
-                }
-            }
-
-            tree.ResourcesApplied = true;
-            Log($"Tree resource lump sum applied for '{tree.TreeName}'");
-        }
+        // Phase F: ApplyResourceDeltas, ApplyTreeResourceDeltas, ApplyTreeLumpSum
+        // removed. The ledger (GameActions/RecalculationEngine) is the single source
+        // of truth for funds/science/reputation; per-recording lump-sum replay and
+        // tree-level snapshot reconciliation are no longer used.
 
         RecordingTree FindCommittedTree(string treeId)
         {

@@ -139,11 +139,12 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING_TREE");
             tree.Save(node);
 
+            // Phase F: Save no longer logs the resourcesApplied flag (that field
+            // is no longer persisted). The summary still includes recordings + branchPoints.
             Assert.Contains(capturedLines,
                 line => line.Contains("Save Test")
                      && line.Contains("recordings=2")
-                     && line.Contains("branchPoints=1")
-                     && line.Contains("resourcesApplied=True"));
+                     && line.Contains("branchPoints=1"));
         }
 
         // ============================================================
