@@ -48,6 +48,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.
 - KSC-side ledger writes (part purchases, tech unlocks, facility upgrades/repairs, crew hires, contract advances) now key-match against their paired `FundsChanged`/`ScienceChanged` event in the game-state store and log a WARN when the event is missing or the delta disagrees, surfacing missing earning channels at the point they occur instead of accumulating silently. Transformed reward types (contract rewards, milestone rewards, reputation earnings) are skipped with a VERBOSE line until a post-walk reconciliation hook lands.
 - `#434` KSP's stock crash/mission report (with its Revert buttons) now shows first on vessel destruction; Parsek's merge dialog no longer pre-empts it. Revert to Launch and Revert to VAB/SPH soft-clear the pending recording — sidecar files and captured events stay on disk so a flight quicksave can still be F9'd back into, while the bumped milestone epoch keeps reverted events out of the current ledger.
 - `#434` Fixed a NullReferenceException in `RevertDetector.Subscribe` that aborted `ParsekScenario.OnLoad` before the merge-dialog dispatch path could run, so going back to Space Center after a flight silently auto-committed the pending tree instead of showing the merge/discard dialog.
