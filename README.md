@@ -30,6 +30,7 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 - **Part events** - staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking / undocking are recorded as chain boundaries
 - **Resource tracking** - game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
 - **Rewind** - go back to any earlier point in your timeline; resources reset to baseline, ghost playback re-applies everything at the correct time
+- **Rewind to staging** - go back to any past staging, undock, or EVA event and fly the sibling vessel you did not originally fly - take a spent booster back down for a self-landing recovery, fly the other half of an undock, or return an abandoned EVA kerbal; the previously-committed flight plays as a ghost while the new attempt commits additively alongside it
 - **Multi-vessel recording** - undocking, EVA, and docking are tracked automatically; all vessels in a mission record as a single tree
 - **Career mode integration** - milestones track tech research, part purchases, facility upgrades, and contracts; resource budgeting prevents paradoxes when rewinding
 - **Recordings manager** - browse, sort, loop, and delete individual recordings
@@ -68,12 +69,6 @@ dotnet build
 ```
 
 Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Managed/`.
-
-## In Design
-
-Active design work beyond the current shipped feature set:
-
-- **Rewind to Staging** - go back to a past staging, undock, or EVA event and fly the other half of the mission. Launch an AB stack, stage, take B to orbit and commit it - then rewind to the separation moment and fly A back down as a self-landing booster. Previously-merged siblings play as ghosts of their original flights; the new attempt commits additively without touching the original timeline. Works for any split that produces two or more controllable vessels (stage decouple, undock, EVA). Design doc: [`docs/parsek-rewind-staging-design.md`](docs/parsek-rewind-staging-design.md).
 
 ## Beyond Recording
 
