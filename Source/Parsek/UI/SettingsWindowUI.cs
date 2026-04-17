@@ -56,21 +56,23 @@ namespace Parsek
                 settingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    280, 10);
+                    280, 600);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            // Reset height each frame so GUILayout auto-sizes to content
-            settingsWindowRect.height = 10;
+            // Pass both Width+Height like every other Parsek window so the shared
+            // opaqueWindowStyle padding renders identically (the previous height=10
+            // reset + Width-only call caused the title-bar spacing to look off).
             settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekSettings".GetHashCode(),
                 settingsWindowRect,
                 DrawSettingsWindow,
                 "Parsek - Settings",
                 opaqueWindowStyle,
-                GUILayout.Width(280)
+                GUILayout.Width(settingsWindowRect.width),
+                GUILayout.Height(settingsWindowRect.height)
             );
             parentUI.LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
 
