@@ -45,6 +45,87 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 432. Gloops ghost-only recordings must not capture or apply any game events
+
+**Source:** world-model conversation follow-up to #431. Gloops recordings (the "Gloops - Ghosts Only" group) are manual captures made for pure visual / airshow replays — they're flagged `IsGhostOnly`, auto-loop by default, and never spawn a real vessel at ghost-end. Their intent is decorative: the player records a cinematic flight and wants to see it loop in the background forever. They should have zero career-state footprint: no contracts, no science, no funds deltas, no milestones, no reputation, no tech research, no part purchases — nothing that a Gloops recording does in-flight should leak into the committed career ledger.
+
+Currently `GameStateRecorder` runs regardless of recording type, so events captured during a Gloops flight window end up in `GameStateStore.Events` exactly like they would during a normal recording. Their eventual fate depends on whatever downstream plumbing happens; even if the Gloops recording itself produces zero actions, the raw events still get bundled into milestones and applied to the career ledger. That's wrong by design — a Gloops recording should be invisible to the career.
+
+**The invariant that should hold:**
+
+> While a recording is active AND flagged `IsGhostOnly`, `GameStateRecorder` must not capture any new `GameStateEvent`s into `GameStateStore.Events`. On the apply side (ledger walk, `KspStatePatcher`, etc.), any recording flagged `IsGhostOnly` must contribute zero actions to the ledger regardless of what got captured.
+
+**Desired behavior:**
+
+- `GameStateRecorder` consults the active recording's `IsGhostOnly` flag at event-capture time. When true, the `AddEvent` / `OnContract*` / `OnTechResearched` / `OnPartPurchased` / etc. handlers short-circuit with a Verbose log (`"Gloops recording active — event X suppressed"`) and do not push to the store.
+- Defense-in-depth on the apply side: any `GameAction` tagged with a `RecordingId` belonging to an `IsGhostOnly` recording is skipped by the ledger walk (`Effective = false` with reason `GhostOnly`, or filtered at recording-iterate time).
+- Verify the science pipeline specifically: `GameStateRecorder.PendingScienceSubjects` should not accept subjects captured during a Gloops recording. Stop at the entry gate, same as other events.
+- The flight itself still records trajectory + part events (engine fire, decouples, parachutes, etc.) — Gloops's whole point is the visual replay. Only the career-event side is suppressed.
+
+**Files likely to touch:**
+
+- `Source/Parsek/GameStateRecorder.cs` — every `GameEvents.*` handler that currently writes to `GameStateStore` / `PendingScienceSubjects` gains an early-return guard: `if (ParsekFlight.Instance?.ActiveRecording?.IsGhostOnly == true) { log + return; }`. Pick a helper method or a property accessor to avoid duplicating the guard 20 times.
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs` or `RecalculationEngine` — skip recordings with `IsGhostOnly = true` during the walk. Probably already happens implicitly (they have zero actions today), but codify it explicitly so #431's event-tagging work doesn't accidentally route events through a Gloops recording.
+- `Source/Parsek.Tests/GloopsEventSuppressionTests.cs` (new) — record a synthetic Gloops recording that fires a contract-accept event mid-flight; assert the event never reaches `GameStateStore.Events` and the ledger walk produces no corresponding action.
+- `docs/user-guide.md` Gloops section — add a one-line note: "Gloops recordings have no effect on your career's contracts, science, funds, or milestones — they're purely visual."
+
+**Out of scope for v1 of this fix:**
+
+- Retroactive cleanup of existing saves that have leaked events from past Gloops recordings. Document the limitation; ship a forward-fix.
+- Allowing the player to opt into career capture for a Gloops recording. That would contradict the "decorative-only" design intent; if someone wants career effects they should use a normal recording.
+
+**Status:** TODO. Size: S-M. Pairs naturally with #431 (both enforce "events must share the recording's intent"); ship together or back-to-back.
+
+---
+
+## 431. Events captured during a recording should share the recording's commit/discard fate
+
+**Source:** world-model conversation on #429. Today's epoch mechanic only advances on Revert (`ParsekScenario.cs:970`) and Rewind (`ParsekScenario.cs:1309`), which filters events tagged with the previous epoch out of milestone / ledger walks. But **Discard from the merge dialog** (`MergeDialog.cs:107` → `RecordingStore.DiscardPendingTree` at `RecordingStore.cs:981`) does NOT increment the epoch and only clears `GameStateRecorder.PendingScienceSubjects`. Everything else captured during that flight is still in `GameStateStore.Events` with the current epoch, gets bundled into the next milestone, and stays permanently on the career's ledger — even though the flight that produced it was thrown away.
+
+**The invariant that should hold:**
+
+> A raw `GameStateEvent` captured during the lifetime of a recording should share that recording's commit/discard fate. Commit the recording → event stays. Discard the recording → event is purged (or at minimum, epoch-tagged so it's filtered out of the active career's ledger).
+
+**Concrete player-visible failures this causes:**
+
+- Complete a contract during a Mun landing attempt, then hit Revert-and-Discard. The contract stays Completed on the career's ledger. Funds + rep from the completion stay credited.
+- Achieve `FirstMunFlyby` during a recording, discard it. Milestone is credited permanently even though the mission never happened on the committed timeline.
+- Research a tech node at KSC *during* flight (unlikely but possible via KAC / background events), discard the recording — tech stays researched.
+
+The symmetric-case is fine: Revert already advances the epoch, so those events get filtered out. It's specifically the **no-revert, merge-dialog-Discard** path that leaks.
+
+**Desired behavior:**
+
+- When a recording starts (or when a tree is stashed as pending), stamp subsequent `GameStateEvent`s with a `recordingId` (or `treeName`) indicating which in-flight capture produced them. Events captured at KSC between recordings (no active recording) keep their existing epoch-tag only.
+- When `DiscardPendingTree` runs, walk `GameStateStore.Events` and remove (or permanently-filter) every event whose `recordingId` / `treeName` matches the discarded tree. `PendingScienceSubjects.Clear()` stays as today, but is now one specific case of a broader purge.
+- When a tree is committed via merge, NO filtering is applied — the events naturally flow into the next milestone bundle as today.
+- On Revert the existing epoch-advance still catches events regardless of recording ownership (the safety net for attempts that crashed and never got to the dialog).
+
+**Related edge cases to work through in the plan:**
+
+- Deletion of an **already-committed** recording from the Recordings Manager: should the events it contributed to past milestones be re-evaluated? Today those events have already been rolled into milestone bundles and baked into the ledger. Leaving them alone is probably correct (the recording existed on the committed timeline; deleting the recording metadata doesn't retroactively un-run the events that happened in the game world at the time). But the question should be answered explicitly.
+- EVA-split chains: if the parent recording commits but a child recording is discarded (or vice versa), only the discarded one's events should be purged. Tagging per-recording, not per-tree, likely resolves this — but needs verifying against the tree-merge path.
+- Revert path: keep the epoch-advance as the safety net. Event-purge-on-discard is a strictly stronger guarantee, but redundancy is fine here since revert doesn't hit the merge dialog.
+- Gloops ghost-only recordings (`Gloops - Ghosts Only` group) are covered by #432: they auto-commit on stop with no merge dialog, but the stronger rule there is that they never capture events at all. #431's purge-on-discard logic is a no-op for Gloops because there is nothing to purge.
+
+**Files likely to touch:**
+
+- `Source/Parsek/GameStateEvent.cs` — add a nullable `RecordingId` (or `TreeName`) field, serialize it.
+- `Source/Parsek/GameStateRecorder.cs` — capture `ActiveRecordingId` / `ActiveTreeName` at event-creation time and stamp it on the emitted `GameStateEvent`.
+- `Source/Parsek/GameStateStore.cs` — new helper `PurgeEventsForTree(treeName)` / `PurgeEventsForRecording(recordingId)`; test-covered pure filter.
+- `Source/Parsek/RecordingStore.cs` — `DiscardPendingTree` calls the new purge helper before clearing `pendingTree`.
+- `Source/Parsek.Tests/GameStateStoreExtractedTests.cs` + new scenario tests under `Source/Parsek.Tests/DiscardFateTests.cs` (or similar): verify that a contract-accept event captured during a synthetic recording that is then discarded does not appear in any subsequent milestone.
+- `docs/user-guide.md` — a one-liner note that Discard fully undoes the mission's career effects (contracts, milestones, tech, etc.).
+
+**Out of scope for v1 of this fix:**
+
+- Retroactive purge of past save files that already contain leaked discard-time events. Ship a fresh-save fix; document the limitation for already-affected saves.
+- UI surface for "these events got discarded". The fix is silent; proactive warnings live in #427.
+
+**Status:** TODO. Size: M. **High-priority correctness bug** — the kind of invariant leak that erodes trust in the ledger-as-truth principle because players discover the symptom hours later ("wait, why is this contract already complete?"). Worth doing before the v0.9 cycle.
+
+---
+
 ## 430. "Why is this blocked?" explainer for the committed-action dialog
 
 **Source:** follow-up on the "paradox communication" thread — currently when the player tries to re-research a tech or re-upgrade a facility that's already committed to a future timeline event, `CommittedActionDialog` pops up with a short "Blocked action: X — reason" message. The reason is generic and the player has no way to see *which* committed action is causing the block, or *when* it will play out.
