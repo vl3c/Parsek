@@ -249,7 +249,7 @@ follow-up is validation/tuning work against larger corpora rather than another p
 
 ---
 
-## Rewind to Staging (in design, post-v0.8.2)
+## Rewind to Staging (v0.9, in design)
 
 Go back to a past multi-controllable split event and fly the sibling vessel you did not originally fly. The motivating case is booster recovery: launch an AB stack, stage, take B to orbit and commit - then rewind to the separation moment and fly A back down as a self-landing booster. The same mechanism covers any split that produces two or more controllable entities: stage decouples, undocks, and EVA.
 
@@ -369,7 +369,7 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     │  Observability + ghost LOD + trajectory/snapshot shrink shipped;
     │  remaining follow-up is synthetic stress benchmarking/tuning
     │
-    ├──▶ Rewind to Staging (in design, post-v0.8.2)
+    ├──▶ Rewind to Staging (v0.9, in design)
     │      Rewind Points at multi-controllable splits, Unfinished Flights
     │      group, append-only supersede, narrow v1 scope. Independent of
     │      Phase 12 — both consume Phase 11 resource/inventory/crew manifests.
