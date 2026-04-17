@@ -166,6 +166,12 @@ namespace Parsek
         // the fixed header above the scroll view).
         private GUIStyle tableBodyBoxStyle;
         private GUIStyle boldHeaderInnerLabel;
+        // Container style for boxed header cells that wrap a toggle (merged toggle+#,
+        // Loop, Archive). Same visual as colHdr but with left/right margin zeroed so
+        // each BeginHorizontal container occupies exactly its Width(X) in the parent
+        // horizontal flow. Top/bottom margin preserved (4/4) so the vertical gap
+        // between the header row and the body box remains intact.
+        private GUIStyle colHdrCellContainerStyle;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -390,6 +396,28 @@ namespace Parsek
                 alignment = TextAnchor.MiddleCenter,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
+
+            // Container style for boxed header cells wrapping a toggle. Clones the
+            // shared column-header style but zeroes only LEFT/RIGHT margin so the
+            // BeginHorizontal's footprint is exactly Width(X). Top/bottom margin
+            // (4/4) preserved so the vertical gap between the header row and the
+            // body list is unchanged.
+            colHdrCellContainerStyle = new GUIStyle(parentUI.GetColumnHeaderStyle())
+            {
+                margin = new RectOffset(0, 0, 4, 4)
+            };
+
+            // One-shot diagnostic log of the runtime GUI skin margins — dictates
+            // exactly how much space each cell leaks or collapses in the layout.
+            var colHdrStyle = parentUI.GetColumnHeaderStyle();
+            ParsekLog.Verbose("UI",
+                $"Rec table skin margins: box=L{GUI.skin.box.margin.left}/R{GUI.skin.box.margin.right}/T{GUI.skin.box.margin.top}/B{GUI.skin.box.margin.bottom} " +
+                $"pad=L{GUI.skin.box.padding.left}/R{GUI.skin.box.padding.right} " +
+                $"button.margin=L{GUI.skin.button.margin.left}/R{GUI.skin.button.margin.right} " +
+                $"label.margin=L{GUI.skin.label.margin.left}/R{GUI.skin.label.margin.right} " +
+                $"toggle.margin=L{GUI.skin.toggle.margin.left}/R{GUI.skin.toggle.margin.right} " +
+                $"textField.margin=L{GUI.skin.textField.margin.left}/R{GUI.skin.textField.margin.right} " +
+                $"colHdr.margin=L{colHdrStyle.margin.left}/R{colHdrStyle.margin.right}/T{colHdrStyle.margin.top}/B{colHdrStyle.margin.bottom}");
         }
 
         /// <summary>
@@ -616,8 +644,7 @@ namespace Parsek
                 if (committed[i].PlaybackEnabled) enableCount++;
             bool allEnabled = enableCount == committed.Count;
 
-            var colHdrForFirstCell = parentUI.GetColumnHeaderStyle();
-            GUILayout.BeginHorizontal(colHdrForFirstCell,
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle,
                 GUILayout.Width(ColW_Enable + ColW_Index),
                 GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
@@ -669,7 +696,7 @@ namespace Parsek
                 if (committed[i].LoopPlayback) loopCount++;
 
             bool allLoop = loopCount == committed.Count;
-            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
             bool newAllLoop = GUILayout.Toggle(allLoop, "");
@@ -691,7 +718,7 @@ namespace Parsek
             GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
 
             // Hide column header + toggle
-            GUILayout.BeginHorizontal(colHdr, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
