@@ -168,7 +168,6 @@ namespace Parsek
         private GUIStyle boldHeaderInnerLabel;
         private GUIStyle indexRowStyle;
         private GUIStyle bodyCellLabel;
-        private GUIStyle bodyCellButton;
         // Zero-horizontal-margin button style used inside DrawBodyCenteredButton's
         // BeginHorizontal wrap. With default 4/4 margin, a Space(N)+Button layout
         // overflows the container (margins are "outside" the content width). Zeroing
@@ -191,13 +190,10 @@ namespace Parsek
         // visual text inset produced by the header's colHdr box padding, so body text
         // lands under header text without moving the body cells' layout boundaries.
         private const int BodyCellTextIndent = 5;
-        // Horizontal air on each side of a body button / Period input so the widget
-        // doesn't span the full cell width. Widget is narrower by 2*this and centered
-        // via FlexibleSpace inside a BeginHorizontal(Width=cellW) wrapper.
-        private const float BodyButtonSideInset = 5f;
-        // Left-only inset for DrawBodyCenteredButton: button visible starts this many
-        // px into the cell and extends to the cell's right edge. Bigger than
-        // BodyButtonSideInset because "5 more right" over the centered-symmetric layout.
+        // Left-only inset for DrawBodyCenteredButton and the Period wrap: the button
+        // / Period val visible rect starts this many px into the cell and extends to
+        // the cell's right edge, shifting the rectangle right (asymmetric inset) so
+        // the body button doesn't span edge-to-edge.
         private const float BodyCellButtonLeftInset = 10f;
         // Container style for boxed header cells that wrap a toggle (merged toggle+#,
         // Loop, Archive). Same visual as colHdr but with left/right margin zeroed so
@@ -418,11 +414,6 @@ namespace Parsek
             // phaseStyle* so every left-aligned body label has a consistent text inset
             // matching the header's colHdr box padding.
             bodyCellLabel = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
-            // Body-cell button style: keep default skin padding (symmetric) so MiddleCenter
-            // text in G/X/W/R/FF stays centered in the cell. Adding left-only padding here
-            // pushed the text off-center. Button cells already align with their header
-            // cells via matching Width(ColW_*), so no additional shift is needed.
-            bodyCellButton = new GUIStyle(GUI.skin.button);
             // Zero horizontal margin variant for use inside DrawBodyCenteredButton wrap.
             bodyCellButtonFlush = new GUIStyle(GUI.skin.button)
             {
@@ -703,7 +694,7 @@ namespace Parsek
         }
 
         // One-shot capture of actual header/body cell rects for alignment debugging.
-        // Armed via DumpAlignmentDebug() and cleared after the next full header+row draw.
+        // Armed via ArmAlignmentDebug() and cleared after the next full header+row draw.
         private bool alignmentDebugArmed;
         private readonly System.Text.StringBuilder alignmentDebugHeaderLog = new System.Text.StringBuilder();
         private readonly System.Text.StringBuilder alignmentDebugRowLog = new System.Text.StringBuilder();
@@ -746,6 +737,26 @@ namespace Parsek
         private bool DrawBodyCenteredButton(string text, float cellWidth)
         {
             return DrawBodyCenteredButton(new GUIContent(text), cellWidth);
+        }
+
+        // Twin-button variant used by ghost-only recording rows (G + X) and
+        // canDisband group rows (G + X). Uses the same wrap + left inset + flush
+        // button margin as DrawBodyCenteredButton so the cell footprint matches
+        // the single-button version exactly — otherwise twin-button rows would
+        // have a different fixed-width sum from single-button rows and
+        // Name.ExpandWidth would absorb the difference unevenly.
+        private void DrawBodyCenteredTwoButtons(
+            string firstText, string secondText, float cellWidth,
+            out bool firstClicked, out bool secondClicked)
+        {
+            float innerW = cellWidth - BodyCellButtonLeftInset;
+            float halfInner = (innerW - 4f) * 0.5f;
+            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
+            GUILayout.Space(BodyCellButtonLeftInset);
+            firstClicked = GUILayout.Button(firstText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUILayout.Space(4f);
+            secondClicked = GUILayout.Button(secondText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUILayout.EndHorizontal();
         }
 
         private void DrawRecordingsTableHeader(IReadOnlyList<Recording> committed)
@@ -1301,27 +1312,19 @@ namespace Parsek
             // Group assignment button (split with X delete for ghost-only recordings)
             if (rec.IsGhostOnly)
             {
-                // Wrap-and-inset so the G+X pair has the same cell footprint as the
-                // non-ghost single-G path (DrawBodyCenteredButton) — otherwise the
-                // direct Button margin (4/4) widens this cell by 4 px relative to
-                // the wrap, misaligning Phase onward in ghost-only rows.
-                float innerW = ColW_Group - BodyCellButtonLeftInset;
-                float halfInner = (innerW - 4f) * 0.5f;
-                GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Group));
-                GUILayout.Space(BodyCellButtonLeftInset);
-                if (GUILayout.Button("G", bodyCellButtonFlush, GUILayout.Width(halfInner)))
+                bool ghostGClicked, ghostXClicked;
+                DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out ghostGClicked, out ghostXClicked);
+                if (ghostGClicked)
                 {
                     var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                     groupPicker.OpenForRecording(ri, mousePos);
                     ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
                 }
-                GUILayout.Space(4f);
-                if (GUILayout.Button("X", bodyCellButtonFlush, GUILayout.Width(halfInner)))
+                if (ghostXClicked)
                 {
                     pendingDeleteGhostOnlyIndex = ri;
                     ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} name='{rec.VesselName}'");
                 }
-                GUILayout.EndHorizontal();
             }
             else
             {
@@ -1717,18 +1720,11 @@ namespace Parsek
             // Group management buttons: custom groups get G + X (wrapped to match the
             // single-G footprint of non-disbandable groups); mission-generated tree
             // groups keep only G via DrawBodyCenteredButton.
-            bool grpGClicked = false;
+            bool grpGClicked;
             bool grpXClicked = false;
             if (canDisbandGroup)
             {
-                float innerW = ColW_Group - BodyCellButtonLeftInset;
-                float halfInner = (innerW - 4f) * 0.5f;
-                GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Group));
-                GUILayout.Space(BodyCellButtonLeftInset);
-                grpGClicked = GUILayout.Button("G", bodyCellButtonFlush, GUILayout.Width(halfInner));
-                GUILayout.Space(4f);
-                grpXClicked = GUILayout.Button("X", bodyCellButtonFlush, GUILayout.Width(halfInner));
-                GUILayout.EndHorizontal();
+                DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out grpGClicked, out grpXClicked);
             }
             else
             {
