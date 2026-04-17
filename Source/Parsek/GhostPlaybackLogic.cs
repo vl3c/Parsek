@@ -2923,6 +2923,16 @@ namespace Parsek
         /// career-neutral (visibility toggle) and must drive the policy's spawn
         /// branch; !hasData / externalVesselSuppressed are structural and must
         /// silently skip as before.
+        ///
+        /// Mirrors the visible-path contract in GhostPlaybackEngine at two points:
+        ///   - "has renderable data" matches HasRenderableGhostData (Points OR
+        ///     OrbitSegments OR SurfacePos) so orbit-only and surface-only
+        ///     recordings still complete when hidden.
+        ///   - past-end comparisons are strict (`&gt;`), same as the visible path
+        ///     at GhostPlaybackEngine.cs `pastEnd = ctx.currentUT &gt; traj.EndUT`
+        ///     and `pastEffectiveEnd = ctx.currentUT &gt; f.chainEndUT`, so the
+        ///     toggle does not shift completion timing by a frame.
+        ///
         /// Pure predicate — accepts pre-collected set-membership booleans so the
         /// engine can pass `HashSet.Contains` results without exposing the set.
         /// </summary>
@@ -2936,8 +2946,8 @@ namespace Parsek
             if (traj == null) return false;
             if (completionAlreadyFired || earlyDebrisCompletion) return false;
             if (traj.PlaybackEnabled) return false; // only the visibility-hidden cause
-            if (traj.Points == null || traj.Points.Count == 0) return false;
-            bool pastEnd = currentUT >= traj.EndUT;
+            if (!GhostPlaybackEngine.HasRenderableGhostData(traj)) return false;
+            bool pastEnd = currentUT > traj.EndUT;
             bool pastEffectiveEnd = currentUT > flags.chainEndUT;
             return pastEnd || pastEffectiveEnd;
         }

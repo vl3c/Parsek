@@ -103,10 +103,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldFireHiddenPastEndCompletion_NoPoints_ReturnsFalse()
+        public void ShouldFireHiddenPastEndCompletion_NoRenderableData_ReturnsFalse()
         {
-            // Hidden but no trajectory data — nothing to complete.
-            var traj = new MockTrajectory(); // empty Points
+            // Hidden but no trajectory data at all — nothing to complete.
+            // "Renderable data" matches HasRenderableGhostData: Points OR OrbitSegments
+            // OR SurfacePos. All three absent → silent skip (no completion event).
+            var traj = new MockTrajectory(); // empty Points, no orbits, no SurfacePos
             traj.PlaybackEnabled = false;
 
             var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
@@ -115,6 +117,80 @@ namespace Parsek.Tests
                 completionAlreadyFired: false, earlyDebrisCompletion: false);
 
             Assert.False(fire);
+        }
+
+        [Fact]
+        public void ShouldFireHiddenPastEndCompletion_OrbitOnlyPastEnd_ReturnsTrue()
+        {
+            // Orbit-only recording (no Points, no SurfacePos) still counts as
+            // renderable data per the engine's contract. Hiding it must not
+            // suppress the spawn at end. Bug #433 follow-up.
+            var traj = new MockTrajectory();
+            traj.PlaybackEnabled = false;
+            traj.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 100, endUT = 200 }
+            };
+
+            // EndUT defaults to 0 with no Points; override via a dummy flag to set
+            // the effective-end comparison. The helper uses traj.EndUT for pastEnd
+            // and flags.chainEndUT for pastEffectiveEnd — only one needs to hold.
+            var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
+            bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                traj, flags, currentUT: 250,
+                completionAlreadyFired: false, earlyDebrisCompletion: false);
+
+            Assert.True(fire);
+        }
+
+        [Fact]
+        public void ShouldFireHiddenPastEndCompletion_SurfaceOnlyPastEnd_ReturnsTrue()
+        {
+            // Surface-only recording (no Points, no OrbitSegments) is also
+            // renderable per the engine's contract. Must not silently suppress.
+            var traj = new MockTrajectory();
+            traj.PlaybackEnabled = false;
+            traj.SurfacePos = new SurfacePosition { latitude = 0, longitude = 0, altitude = 0, body = "Kerbin" };
+
+            var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
+            bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                traj, flags, currentUT: 250,
+                completionAlreadyFired: false, earlyDebrisCompletion: false);
+
+            Assert.True(fire);
+        }
+
+        [Fact]
+        public void ShouldFireHiddenPastEndCompletion_AtExactEndUT_ReturnsFalse()
+        {
+            // The visible path uses `currentUT > traj.EndUT` (strict). The hidden
+            // path must match so the toggle does not shift completion timing.
+            // On the terminal frame (currentUT == EndUT) nothing fires yet.
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.PlaybackEnabled = false;
+
+            var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
+            bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                traj, flags, currentUT: 200,
+                completionAlreadyFired: false, earlyDebrisCompletion: false);
+
+            Assert.False(fire);
+        }
+
+        [Fact]
+        public void ShouldFireHiddenPastEndCompletion_JustPastEnd_ReturnsTrue()
+        {
+            // One frame after the terminal frame (currentUT > EndUT), completion
+            // fires — matching the visible path.
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.PlaybackEnabled = false;
+
+            var flags = new TrajectoryPlaybackFlags { chainEndUT = 200, skipGhost = true };
+            bool fire = GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                traj, flags, currentUT: 200.0001,
+                completionAlreadyFired: false, earlyDebrisCompletion: false);
+
+            Assert.True(fire);
         }
 
         [Fact]
