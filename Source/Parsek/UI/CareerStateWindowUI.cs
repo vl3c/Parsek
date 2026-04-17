@@ -1085,7 +1085,11 @@ namespace Parsek
             LogModeRender(vm.Mode, ref lastRenderedMode);
 
             // Tab bar.
-            int newTab = GUILayout.Toolbar(selectedTab, TabLabels);
+            // Use the pressed-style button (see toggleButtonStyle in EnsureStyles) so
+            // the selected tab is visibly pushed in — matches the Timeline window's
+            // filter-toggle idiom. Default Toolbar rendering is too subtle about which
+            // tab is currently selected.
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
             if (newTab != selectedTab)
             {
                 SwitchTab(selectedTab, newTab);
