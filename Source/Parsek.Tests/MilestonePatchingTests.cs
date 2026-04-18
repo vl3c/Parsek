@@ -326,6 +326,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryComputeRepeatableRecordState_WithNoHits_PreservesSubThresholdInitialBandProgress()
+        {
+            var node = new RecordsDepth();
+            const double liveRecord = 3.4;
+
+            bool recognized = KspStatePatcher.TryComputeRepeatableRecordState(
+                node, effectiveCount: 0, currentRecord: liveRecord, out var state);
+
+            Assert.True(recognized);
+            Assert.True(state.Reached);
+            Assert.False(state.Complete);
+            Assert.Equal(liveRecord, state.Record, 6);
+            Assert.True(state.RewardThreshold > liveRecord);
+            Assert.True(state.RewardInterval > 0);
+        }
+
+        [Fact]
+        public void PatchRepeatableRecordNode_SameBranchRecalculation_WithNoHits_PreservesSubThresholdInitialBandProgress()
+        {
+            var node = new RecordsDepth();
+            const double liveRecord = 3.4;
+
+            Assert.True(KspStatePatcher.TryComputeRepeatableRecordState(
+                node, effectiveCount: 0, currentRecord: liveRecord, out var expected));
+
+            SetProgressNodeFlags(node, reached: false, complete: false);
+            SetPrivateField(node, "record", liveRecord);
+            SetPrivateField(node, "rewardThreshold", 0.0);
+            SetPrivateField(node, "rewardInterval", 99);
+            node.OnIterateVessels = null;
+
+            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
+                node, effectiveCount: 0, qualifiedId: "RecordsDepth");
+
+            Assert.True(recognized);
+            Assert.True(node.IsReached);
+            Assert.False(node.IsComplete);
+            Assert.Equal(expected.Record, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(liveRecord, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(expected.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
+            Assert.True(GetPrivateField<double>(node, "rewardThreshold") > liveRecord);
+            Assert.Equal(expected.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
+            Assert.NotNull(node.OnIterateVessels);
+        }
+
+        [Fact]
         public void PatchRepeatableRecordNode_RewindAfterFirstReward_DropsSpeculativeCurrentBestWithinRewardBand()
         {
             var node = new RecordsDistance();

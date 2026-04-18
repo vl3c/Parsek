@@ -657,7 +657,8 @@ namespace Parsek
         /// <summary>
         /// Computes the stock save-state shape for KSP's repeatable record nodes from the
         /// number of effective ledger hits that survived recalculation, while preserving the
-        /// live best-value progress when it still fits inside that reward band.
+        /// live best-value progress when it still fits inside that reward band, including
+        /// the initial unpaid band before the first ledger-backed hit exists.
         /// </summary>
         internal static bool TryComputeRepeatableRecordState(
             ProgressNode node, int effectiveCount, double currentRecord,
@@ -667,8 +668,27 @@ namespace Parsek
             if (!TryGetRepeatableRecordDefinition(node, out double maxRecord, out double roundValue))
                 return false;
 
+            double boundedCurrentRecord = NormalizeRepeatableRecordValue(currentRecord, maxRecord);
             if (effectiveCount <= 0)
             {
+                int initialInterval = 1;
+                double initialThreshold = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
+                    0.0, maxRecord, roundValue, ref initialInterval);
+
+                if (boundedCurrentRecord > RecordStateEpsilon &&
+                    !double.IsInfinity(initialThreshold) &&
+                    !double.IsNaN(initialThreshold) &&
+                    initialThreshold != double.MaxValue &&
+                    boundedCurrentRecord < initialThreshold - RecordStateEpsilon)
+                {
+                    state.Reached = true;
+                    state.Complete = false;
+                    state.Record = boundedCurrentRecord;
+                    state.RewardThreshold = initialThreshold;
+                    state.RewardInterval = initialInterval;
+                    return true;
+                }
+
                 state.Reached = false;
                 state.Complete = false;
                 state.Record = 0.0;
@@ -704,7 +724,6 @@ namespace Parsek
             bool isComplete = nextThreshold == double.MaxValue ||
                 paidRecord >= maxRecord - RecordStateEpsilon;
 
-            double boundedCurrentRecord = NormalizeRepeatableRecordValue(currentRecord, maxRecord);
             double record = paidRecord;
             if (isComplete)
             {
