@@ -18,6 +18,183 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 471. Gloops recordings should not loop by default; commit path should set `LoopPlayback=false` and `LoopIntervalSeconds=0` (auto)
+
+**Source:** user request — "gloops recordings should no longer be looped by default and their loop period should be set to auto when they are created."
+
+**Concern:** `ParsekFlight.CommitGloopsRecorderData` (`Source/Parsek/ParsekFlight.cs:7757`) unconditionally sets `rec.IsGhostOnly = true; rec.LoopPlayback = true;` at `:7776-7777`. The file's doc comment at `:7720` even states "with looping enabled by default" — so the current behaviour is by design, but the design is wrong for the user's workflow: Gloops recordings are for one-off hand-captured moments, not automatic loops, and enabling looping by default spawns unwanted repeating ghosts until the player manually toggles the L button off. Loop interval is not explicitly set, so it defaults to `0` (the "auto" sentinel the playback path maps to `ParsekSettings.autoLoopIntervalSeconds`, see `ParsekFlight.cs:450` and `ParsekKSC.cs:842`).
+
+**Fix:** change `ParsekFlight.cs:7777` from `rec.LoopPlayback = true;` to `rec.LoopPlayback = false;`. Add `rec.LoopIntervalSeconds = 0;` explicitly on the line below so the "auto" intent is visible in code (it is already the default, but a new reader should not have to know that `0` is the auto sentinel). Update the doc comment at `:7719-7720` to reflect the new behaviour (`committed as ghost-only; looping off by default, interval set to auto (0)`). Also update the class-level comment at `UI/GloopsRecorderUI.cs:9` which currently says "auto-committed to the Gloops group with looping enabled by default".
+
+No schema change needed — existing recordings with `LoopPlayback=true` are not touched. Test: xUnit driving `CommitGloopsRecorderData` with a minimal `FlightRecorder`, asserts the committed recording has `LoopPlayback==false` and `LoopIntervalSeconds==0`.
+
+**Files:** `Source/Parsek/ParsekFlight.cs:7776-7777` (setter + doc), `Source/Parsek/UI/GloopsRecorderUI.cs:9` (doc). Test: `Source/Parsek.Tests/` (new or existing Gloops test file).
+
+**Scope:** Trivial. Two-line change + two comment updates + one test.
+
+**Dependencies:** none.
+
+**Status:** TODO. Priority: medium — small user-experience polish, no data-correctness risk.
+
+---
+
+## 470. `Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)
+
+**Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. Top-of-list pattern in the deduplicated WARN/VERBOSE counts:
+
+```
+134 [Parsek][VERBOSE][Funds] FundsSpending: -0, source=Other, affordable=true, runningBalance=N, recordingId=(none)
+```
+
+**Concern:** every `RecalculateAndPatch` sweep (33 of them in this session) fans out to the per-module replay, and each module emits a `FundsSpending: -0` line for zero-delta entries inside the "Other" source bucket. Zero-delta spendings convey nothing a reader would ever act on, and at 4 per recalc × 33 recalcs = 132 lines, they bury the real entries. Adjacent modules already early-return on zero-delta (see the verbose threshold filters in `GameStateRecorder.cs`), so this one is the odd one out.
+
+**Fix:** in the `Funds` subsystem's spending emit path, skip the log entirely when `Math.Abs(delta) < 0.5` (or exact zero — the threshold just needs to exclude `-0` / `+0`). Keep the event itself if any downstream consumer cares about zero-delta entries; only suppress the VERBOSE log. Grep for the `FundsSpending: ` format string in `Source/Parsek/GameActions/` to locate the emit site (most likely `FundsModule.cs` or similar).
+
+**Files:** likely `Source/Parsek/GameActions/FundsModule.cs` (or whichever `.cs` owns the `[Funds]` subsystem tag). Test: log-assertion xUnit that submits a zero-delta spending, asserts no VERBOSE line hits the sink.
+
+**Scope:** Trivial. One-line guard + one test.
+
+**Dependencies:** none.
+
+**Status:** TODO. Priority: low — pure log-hygiene. Bundle with any touch of the Funds module.
+
+---
+
+## 469. Post-walk reconciliation fails to find same-UT FundsChanged events that are demonstrably in the store — "no matching event keyed 'Progression'" warns fire on events that exist
+
+**Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. 176 WARNs of this shape from one career session:
+
+```
+10399: [WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, funds): MilestoneAchievement id=FirstLaunch expected=800.0 but no matching FundsChanged event keyed 'Progression' within 0.1s of ut=57.2 -- missing earning channel or stale event?
+```
+
+**Concern:** the event the reconciliation cannot find is visibly in the store — same session records it explicitly at line 9425: `[GameStateStore] AddEvent: FundsChanged key='Progression' epoch=0 ut=57.2 (total=7)` (and line 9426 `FundsChanged +800 (Progression) → 23395`). So the event was captured with exactly the UT and key the reconcile filters on, yet `CompareLeg` (`Source/Parsek/GameActions/LedgerOrchestrator.cs:4248-4293`) reports `observedCount == 0`. Same-UT ScienceChanged `'ScienceTransmission'` at ut=204.4 fires in a separate subsystem (10260 `Suppressed ScienceChanged event (None) during timeline replay`) — some science WARNs are caused by replay-suppression, but the funds ones are not: they fire against events already committed to the store from pre-replay user play.
+
+`Post-walk reconcile: actions=15, matches=0, mismatches(funds/rep/sci)=9/2/6, cutoffUT=null` at 10416 — 0 of 15 actions matched on this pass. Within a single session, identical actions go from "6 matches" → "0 matches" across recalc invocations 7ms apart, which is what initially suggested the `events` list passed into `CompareLeg` differs between calls.
+
+**Fix:** trace what `events` list `ReconcilePostWalkActions` (around `LedgerOrchestrator.cs:4230`) actually hands to `CompareLeg`. Hypotheses in priority order:
+
+1. **Pre-replay snapshot vs live store.** The post-walk hook may be comparing the post-replay in-memory action list against a pre-replay events snapshot (or vice versa). Verify the `events` parameter at the call site is `GameStateStore.Events` (or equivalent live view), not a captured `IReadOnlyList` taken before the walk began.
+2. **Epoch filter.** `CompareLeg` does not check `e.epoch`. If the store is walked with epoch > 0 while the `FundsChanged` events were stored at `epoch=0`, same-UT same-key events may be silently skipped by an outer filter. Confirm by dumping the events the reconcile sees (add a one-shot VERBOSE just before the inner loop).
+3. **`action.UT` source.** If `action.UT` drifts slightly from the event ut (e.g. the action is tagged with the recalc timestamp instead of the milestone emission ut), `Math.Abs(e.ut - action.UT) > 0.1` can fail. Unlikely here since WARN `ut` matches event `ut` to one decimal, but worth confirming on the full-precision values.
+
+Once root cause is known, fix is local to `CompareLeg` or its call site. Test: xUnit harness that seeds `GameStateStore` with `FundsChanged key='Progression' ut=57.2 +800`, creates a `MilestoneAchievement action.UT=57.2`, invokes `ReconcilePostWalkActions`, asserts no WARN fires and the corresponding `Post-walk match: ...` VERBOSE does.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (`CompareLeg`, `ReconcilePostWalkActions`, caller). Test: `Source/Parsek.Tests/` new file.
+
+**Scope:** Small-to-medium. Investigation first, fix likely one-line once the event-source mismatch is identified.
+
+**Dependencies:** none. Supersedes / subsumes #462 (the previous observation was double-count; this one is zero-count — same reconciliation code, different symptoms; root-cause fix here may close #462 simultaneously — re-test before closing either).
+
+**Status:** TODO. Priority: high — drowns the log in false WARNs every session, erodes trust in the reconciliation subsystem. Related-but-distinct from #466 (suspicious-drawdown patch) and #467 (rep threshold); fix them together if the same investigation surfaces the source-list bug.
+
+---
+
+## 468. `ScienceEarning` reconcile anchor UT is vessel-recovery-time, but `ScienceChanged 'ScienceTransmission'` events are emitted at transmission-time earlier in the flight — the 0.1s window can never match
+
+**Source:** `logs/2026-04-19_0049_career-ledger/KSP.log:10410-10415`.
+
+```
+[WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci): ScienceEarning id=mysteryGoo@KerbinSrfLandedLaunchPad expected=11.0 but no matching ScienceChanged event keyed 'ScienceTransmission' within 0.1s of ut=204.4
+```
+
+Paired with the actual capture sequence earlier in the same session:
+
+```
+9272: [GameStateRecorder] Emit: ScienceChanged key='ScienceTransmission' at ut=39.8
+9273: [GameStateStore] AddEvent: ScienceChanged key='ScienceTransmission' ut=39.8
+9488: [GameStateStore] AddEvent: ScienceChanged key='ScienceTransmission' ut=66.3
+```
+
+**Concern:** the `ScienceEarning` ledger actions created from a committed recording are timestamped to the vessel-recovery UT (here 204.4 — the recovery event), but the KSP `ScienceChanged` events fire whenever stock transmits/completes a science subject, which for an in-flight launch is typically 20-100 seconds into the flight, long before recovery. `CompareLeg`'s `Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds (0.1s)` gate then rejects the only events that could possibly match, and every recovered science subject produces a post-walk WARN.
+
+Independent of #469 (where the event IS at the right UT and the reconcile still fails): this is the case where the event is at the wrong UT *for this particular leg*. Both show up in the same session; fixing one does not fix the other.
+
+**Fix:** two options, pick based on the semantic of `ScienceEarning`:
+
+1. **Anchor the action to transmission UT**, not recovery UT. If the ledger action is meant to reconcile with the per-subject transmission event, the action's UT should track the event's UT. This may require `ScienceModule.cs` (the emit site) to carry the per-subject transmission timestamp forward into the action instead of collapsing to recovery UT.
+2. **Broaden the reconcile window for `ScienceEarning`** to cover the entire recording's UT span (e.g. accept any matching ScienceChanged event between recording start and recovery). Keep the 0.1s window for `MilestoneAchievement` where the instantaneous match is correct.
+
+Option 1 is cleaner but touches the emit path; option 2 is localised to `CompareLeg` / `ReconcilePostWalkActions` in `LedgerOrchestrator.cs`.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (+ possibly `ScienceModule.cs`). Test: xUnit seeding a ScienceEarning at recovery UT and a ScienceChanged at an earlier UT within the same recording span, asserts no post-walk WARN.
+
+**Scope:** Small-to-medium depending on option. Option 2 is ~20 lines; option 1 requires an action-schema nudge.
+
+**Dependencies:** surface with #469 during the same investigation — root-cause signal will tell which option is right.
+
+**Status:** TODO. Priority: medium. Currently produces 126+ WARNs per launch session.
+
+---
+
+## 467. `ReputationChanged` threshold filter rejects stock +1 rep awards — `Math.Abs(delta) < 1.0f` drops `0.9999995` rewards, breaking all records-milestone rep reconciliation
+
+**Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`.
+
+```
+9473: Added 0.9999995 (1) reputation: 'Progression'.
+9476: [Parsek][VERBOSE][GameStateRecorder] Ignored ReputationChanged delta=+1.0 below threshold=1.0
+```
+
+**Concern:** stock KSP awards `0.9999995` reputation for Records* milestones (the `(1)` in the log is the rounded display value; the actual delta is `~1 − 5e-7`). `GameStateRecorder.cs:910` drops the event with `if (Math.Abs(delta) < ReputationThreshold)` where `ReputationThreshold = 1.0f` (`:222`). `0.9999995 < 1.0` is true, so the event never makes it into the store. The post-walk reconcile for the paired `MilestoneAchievement` rep leg then reports "no matching ReputationChanged event keyed 'Progression' within 0.1s" — in this session that produced all 44 rep-mismatch WARNs (`RecordsSpeed`, `RecordsAltitude`, `RecordsDistance` each firing two per recalc pass).
+
+**Fix:** one-line change in `Source/Parsek/GameStateRecorder.cs:910`:
+
+```csharp
+// Before:  if (Math.Abs(delta) < ReputationThreshold)
+// After:   if (Math.Abs(delta) < ReputationThreshold - 0.001f)
+```
+
+Or lower `ReputationThreshold` to `0.5f` (any value strictly below stock's 0.9999995 — `0.5f` leaves headroom for other rounding cases while still filtering sub-integer noise). Pick the second form if you want one named constant doing the semantic work; the epsilon form is narrower but preserves the visible `1.0` threshold.
+
+Similar care needed for `FundsThreshold = 100.0` and `ScienceThreshold = 1.0` — confirm stock never rewards *exactly* threshold values; if it does, apply the same epsilon trim.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs:910` (rep), possibly `:821` (funds) and the ScienceChanged analogue. Test: xUnit calling the onReputationChanged handler with delta `0.9999995f`, asserts the event is captured in the store (not dropped).
+
+**Scope:** Trivial. One-line fix + one test + verify the twin thresholds.
+
+**Dependencies:** none. Fixes the rep-mismatch tail of #469 specifically, though the underlying #469 investigation may also surface non-rep mismatches unrelated to this threshold.
+
+**Status:** TODO. Priority: high — trivial fix, high correctness value, currently produces false-positive reconciliation WARNs every time the player earns a records-class milestone.
+
+---
+
+## 466. `RecalculateAndPatch` runs mid-flight with an incomplete ledger, patches funds DOWN to the pre-milestone target and destroys in-progress earnings
+
+**Source:** `logs/2026-04-19_0049_career-ledger/KSP.log:9993`.
+
+```
+9993: [WARN][KspStatePatcher] PatchFunds: suspicious drawdown delta=-36800.0 from current=57795.0 (>10% of pool, target=20995.0) — earning channel may be missing. HasSeed=True
+9995: [INFO][KspStatePatcher] PatchFunds: 57795.0 -> 20995.0 (delta=-36800.0, target=20995.0)
+```
+
+Two more occurrences at `:12839` (-9300) and `:13581` (-41546.7) within the same 10-minute session, all with identical shape: the live KSP funds are higher than the ledger's computed target because stock KSP has credited milestones the Parsek ledger does not yet know about.
+
+**Concern:** `KspStatePatcher.PatchFunds` logs the `suspicious drawdown` WARN (`KspStatePatcher.cs:160-167`) but deliberately still applies the drawdown — the comment at `:156-159` says "log-only (never aborts the patch) — but a >10% drop alongside a small pool (>1000F) is the shape of missing-earnings bugs". In this session that design is **destructive**: the recalc was triggered mid-launch by an OnLoad at 00:35:27 (just after revert subscribe on `:9957`), at which point the `r0` recording's tree had not yet committed (`Committed tree 'r0'` is at `:10083`, ~4s later). `actionsTotal=4` at that recalc — rollout + initial seed only, no milestones. So the ledger's target of `25000 - 4005 = 20995` ignores the `+800` `+4800` `+4800` `+4800` `+4800` milestone credits stock had already awarded, and `Funding.Instance.AddFunds(delta=-36800, TransactionReasons.None)` silently deletes 36,800F of the player's money.
+
+A subsequent recalc at `:10134` with `actionsTotal=12` (post-commit) computes the full target, but by then the funds have been re-patched several times and the reconcile is in the broken state described in #469. The three drawdowns are not three separate events — they are three recalc passes, each landing before a different tree's commit.
+
+**User-visible:** player earns milestones in flight (visible in game UI), then on scene transition / quickload the funds snap back to a lower value. This is the "ledger/resource recalculation did not really work correctly" the reporter is describing.
+
+**Fix:** two layered fixes, both probably needed:
+
+1. **Gate `RecalculateAndPatch` on "no mid-flight uncommitted tree"**. If a tree is actively accumulating but not yet committed, defer `PatchFunds` / `PatchScience` / `PatchReputation` until commit. Policy: recalc still walks the known-committed ledger (updates in-memory balances), but the KSP patch step is skipped with a VERBOSE log `Deferred patch: uncommitted tree active`. Alternative: include provisional/pending-tree actions in the walk so the target reflects the in-flight work.
+2. **Harden `IsSuspiciousDrawdown` into an abort, not just a log**. When the drawdown exceeds the threshold AND the ledger has a known uncommitted tree (or provisional FundsChanged events within the last recalc window), refuse to patch — no `AddFunds(-36800)` call, just a WARN. This keeps the design flexibility of patching down for legitimate revert/rewind paths (where a stale ledger is *supposed* to reset), but blocks the destructive case.
+
+Fix 1 is preferred — prevention over detection. Fix 2 is a safety net for paths that can't be gated cleanly (OnLoad from save, cross-session resume).
+
+Add a cross-reference: `#439`, `#440`, `#448` and the already-archived post-#307 reconciliation work all touched adjacent logic. Re-read `done/todo-and-known-bugs-v3.md` entries for those before writing the fix — the reason several drawdown WARNs were *kept* log-only was a prior bug where aborting the patch masked a different class of problem. Don't regress that.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs` (patch gate), `Source/Parsek/GameActions/LedgerOrchestrator.cs` (`RecalculateAndPatch` entry check), `Source/Parsek/FlightRecorder.cs` or `ParsekFlight.cs` (uncommitted-tree predicate). Tests: xUnit for the gate (seed a mid-flight state, trigger recalc, assert no `Funding.AddFunds` call); integration-style log-assertion test covering the revert-mid-flight path.
+
+**Scope:** Medium. Touches patch gating + recalc entry + a new predicate. Several test cases to cover revert/rewind/OnLoad/quickload interactions.
+
+**Dependencies:** read the #307/#439/#440 history first. Fix should land before / alongside #469 since the reconcile warnings mostly disappear once the patch gate prevents the stale-target state from ever being written.
+
+**Status:** TODO. Priority: **critical** — silently destroys earned player funds. Reproducible in ~3 minutes in career mode with any launch that completes milestones, as the collected log shows three occurrences in one 10-minute session.
+
+---
+
 ## 465. Ghost engine/RCS audio keeps playing while the KSP pause menu is open outside the flight scene
 
 **Source:** user playtest report. "When paused (game menu open) in KSC view and probably other views, the sound from the rocket ghost is still audible."
