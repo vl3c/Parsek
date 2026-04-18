@@ -441,6 +441,16 @@ namespace Parsek
                 ParsekLog.Info("UI", "Run Diagnostics Report button clicked");
                 DiagnosticsComputation.RunDiagnosticsReport();
             }
+
+            // Phase 14 of Rewind-to-Staging (design §7.28): live rewind-point
+            // disk-usage line. The helper caches for 10s so the per-frame
+            // GUI redraw does not hammer the filesystem.
+            string rpDir = RewindPointDiskUsage.ResolveCurrentSaveDirectory();
+            var rpSnap = RewindPointDiskUsage.GetSnapshot(rpDir);
+            GUILayout.Label(new GUIContent(
+                RewindPointDiskUsage.FormatLine(rpSnap),
+                "Total size of rewind-point quicksaves under saves/<save>/Parsek/RewindPoints/. "
+                + "Refreshed every 10 seconds."));
         }
 
         private void DrawSamplingSettings(ParsekSettings s)
