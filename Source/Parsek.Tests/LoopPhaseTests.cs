@@ -641,10 +641,10 @@ namespace Parsek.Tests
         public void PeriodBelowMin_ClampedToMinThenRaisedToCapFloor()
         {
             // period=1 below MinCycleDuration=5 -> clamped to 5.
-            // duration=164, cap=10 -> ceil(164/10)=17, so effective=max(5,17)=17.
+            // duration=164, cap=10 -> floor=16.4, so effective=max(5,16.4)=16.4.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 1.0, duration: 164.0, maxCycles: 10);
-            Assert.Equal(17.0, effective);
+            Assert.Equal(16.4, effective, 6);
         }
 
         [Fact]
@@ -714,30 +714,30 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase()
         {
-            // Engine side: user period=1, duration=164, cap=10 -> effective=17.
-            // At currentUT=100 with loopStartUT=0: lastCycle=floor(100/17)=5, cycleStartUT=85,
-            // phase=15, loopUT=15.
+            // Engine side: user period=1, duration=164, cap=10 -> effective=16.4.
+            // At currentUT=100 with loopStartUT=0: lastCycle=floor(100/16.4)=6,
+            // cycleStartUT=98.4, phase=1.6, loopUT=1.6.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 1.0, duration: 164.0, maxCycles: 10);
-            Assert.Equal(17.0, effective);
+            Assert.Equal(16.4, effective, 6);
 
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 100.0, loopStartUT: 0.0, duration: 164.0,
-                intervalSeconds: effective, loopCycleIndex: 5);
+                intervalSeconds: effective, loopCycleIndex: 6);
 
-            Assert.Equal(15.0, loopUT, 6);
+            Assert.Equal(1.6, loopUT, 6);
         }
 
         [Fact]
-        public void LearstarA1_ClampFloorMatchesCeilDiv()
+        public void LearstarA1_ClampFloorMatchesExactFloor()
         {
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 5.0, duration: 267.78, maxCycles: 10);
-            Assert.Equal(27.0, effective);
+            Assert.Equal(26.778, effective, 6);
         }
 
         [Fact]
-        public void FormulaFloorEqualsCeilDivMax()
+        public void ExactFloorKeepsConcurrentCyclesWithinCap()
         {
             var cases = new (double period, double duration, int cap)[]
             {
@@ -760,6 +760,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FractionalUserPeriodAlreadyWithinCap_Respected()
+        {
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 10.5, duration: 100.0001, maxCycles: 10);
+            Assert.Equal(10.5, effective, 6);
+        }
+
+        [Fact]
+        public void FractionalFloorAboveUserPeriod_ReturnsExactFloor()
+        {
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 100.0001, maxCycles: 10);
+            Assert.InRange(effective, 10.00001, 10.00002);
+            Assert.True(effective < 11.0);
+        }
+
+        [Fact]
         public void UserPeriodAboveFloor_Respected()
         {
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
@@ -771,7 +788,7 @@ namespace Parsek.Tests
         /// Regression guard: feeding the user-requested period (instead of the effective
         /// cadence) to ComputeOverlapCycleLoopUT produces a diverging phase. The helper
         /// defensively clamps intervalSeconds to MinCycleDuration=5, so for user period=1
-        /// we get cycleDuration=5 — still wrong vs the engine's effective=17, but not 95.
+        /// we get cycleDuration=5 — still wrong vs the engine's effective=16.4, but not 95.
         /// cycleStartUT=0+5*5=25, phase=100-25=75.
         /// </summary>
         [Fact]

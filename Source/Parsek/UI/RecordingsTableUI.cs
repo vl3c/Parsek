@@ -3620,19 +3620,23 @@ namespace Parsek
             if (!preserveSecondResolution)
                 return ParsekUI.FormatLoopValue(displayValue, unit);
 
-            if (unit == LoopTimeUnit.Min)
-                return displayValue.ToString("0.##", CultureInfo.InvariantCulture);
-            if (unit == LoopTimeUnit.Hour)
-                return displayValue.ToString("0.####", CultureInfo.InvariantCulture);
+            if (unit == LoopTimeUnit.Sec)
+                return displayValue.ToString("0.###", CultureInfo.InvariantCulture);
 
-            return ParsekUI.FormatLoopValue(displayValue, unit);
+            return displayValue.ToString("0.######", CultureInfo.InvariantCulture);
         }
 
         internal static string FormatLoopPeriodEditStartText(
             double storedSeconds, LoopTimeUnit unit)
         {
-            return ParsekUI.FormatLoopValue(
-                ParsekUI.ConvertFromSeconds(storedSeconds, unit), unit);
+            double displayValue = ParsekUI.ConvertFromSeconds(storedSeconds, unit);
+            if (double.IsNaN(displayValue) || double.IsInfinity(displayValue))
+                return ParsekUI.FormatLoopValue(
+                    ParsekUI.ConvertFromSeconds(GhostPlaybackLogic.MinCycleDuration, unit), unit);
+            if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
+                return displayValue.ToString("G17", CultureInfo.InvariantCulture);
+
+            return ParsekUI.FormatLoopValue(displayValue, unit);
         }
 
         internal static string BuildLoopPeriodClampTooltip(
@@ -3640,15 +3644,60 @@ namespace Parsek
         {
             if (double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds)
                 || Math.Abs(effectiveSeconds - storedSeconds) <= 1e-6)
-                return string.Empty;
+            {
+                if (!(double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds)))
+                    return string.Empty;
+            }
 
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, duration: {3}s).",
-                effectiveSeconds.ToString("0.##", CultureInfo.InvariantCulture),
-                cap,
-                storedSeconds.ToString("0.##", CultureInfo.InvariantCulture),
-                loopDurationSeconds.ToString("0.##", CultureInfo.InvariantCulture));
+            bool invalidStored = double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds);
+            double minAdjustedSeconds = invalidStored
+                ? GhostPlaybackLogic.MinCycleDuration
+                : Math.Max(storedSeconds, GhostPlaybackLogic.MinCycleDuration);
+            bool minAdjusted = invalidStored
+                || storedSeconds < GhostPlaybackLogic.MinCycleDuration - 1e-6;
+            bool capAdjusted = loopDurationSeconds > 0.0 && cap > 0
+                && effectiveSeconds - minAdjustedSeconds > 1e-6;
+
+            string effectiveText = effectiveSeconds.ToString("0.######", CultureInfo.InvariantCulture);
+            string requestedText = invalidStored
+                ? "invalid"
+                : storedSeconds.ToString("0.######", CultureInfo.InvariantCulture);
+            string durationText = loopDurationSeconds.ToString("0.######", CultureInfo.InvariantCulture);
+            string minText = GhostPlaybackLogic.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
+
+            if (capAdjusted && minAdjusted)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, minimum period: {3}s, duration: {4}s).",
+                    effectiveText, cap, requestedText, minText, durationText);
+            }
+
+            if (capAdjusted)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, duration: {3}s).",
+                    effectiveText, cap, requestedText, durationText);
+            }
+
+            if (minAdjusted)
+            {
+                if (invalidStored)
+                {
+                    return string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Runtime cadence repaired to {0}s from an invalid stored value (minimum period: {1}s).",
+                        effectiveText, minText);
+                }
+
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Runtime cadence raised to {0}s because the minimum period is {1}s (requested: {2}s).",
+                    effectiveText, minText, requestedText);
+            }
+
+            return string.Empty;
         }
 
         private void CommitLoopPeriodEdit(IReadOnlyList<Recording> committed)

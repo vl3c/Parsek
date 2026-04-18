@@ -30,12 +30,12 @@ nothing for players who are not tailing KSP.log.
   `ceil(267.78 / 40) = 7 <= 10`, accept.
 - Effective cadence = 40s. Ghosts spawn every 40s, not 5s.
 - The UI keeps displaying `5`.
-- True minimum valid cadence is `ceil(267.78 / 10) = 27s`; current formula
-  overshoots by ~48%.
+- True minimum valid cadence is `267.78 / 10 = 26.778s`; current formula
+  overshoots by ~49%.
 
 ## Proposed formula change
 
-Replace the doubling iteration with a direct ceiling-division floor:
+Replace the doubling iteration with a direct exact floor:
 
 ```csharp
 internal static double ComputeEffectiveLaunchCadence(
@@ -48,10 +48,11 @@ internal static double ComputeEffectiveLaunchCadence(
         return period;
 
     // Minimum cadence that keeps ceil(duration/cadence) <= maxCycles.
-    // Using Math.Ceiling(duration / maxCycles) gives an exact (within FP)
-    // floor; clamp to MinCycleDuration and the user's requested period as a
-    // lower bound - we never slow the user down further than the cap requires.
-    double floor = Math.Ceiling(duration / maxCycles);
+    // The exact floor is duration / maxCycles; if FP rounds it slightly low,
+    // bump by one ulp until the cycle count fits.
+    double floor = duration / maxCycles;
+    while (Math.Ceiling(duration / floor) > maxCycles)
+        floor = NextUp(floor);
     double effective = Math.Max(period, floor);
     return effective;
 }
@@ -61,24 +62,24 @@ Properties:
 
 - Monotonic: larger `userPeriod` is respected directly; we only ever raise.
 - Exact: `ceil(duration / effective) <= maxCycles` is guaranteed by the
-  ceiling-division floor (modulo one FP ulp; the existing Guard logic in
+  exact `duration / maxCycles` floor plus a one-ulp FP guard; the existing
+  Guard logic in
   `LogOverlapCadenceIfChanged` and `GetActiveCycles` both already tolerate
   this because they re-derive cycle counts with `Math.Ceiling` as well).
 - Deterministic: no safety-bounded loop. No 64-iteration guard needed.
-- Closer to user intent: Learstar A1 example goes from 40s to 27s (or
-  `Math.Ceiling(267.78 / 10) = 27.0`).
+- Closer to user intent: Learstar A1 example goes from 40s to 26.778s.
 - Non-pathological on the `maxCycles >= 10 && userPeriod >= MinCycle` path,
   which is the only path used in practice; also stays sane for
   `maxCycles = 1` (floor becomes the entire duration).
 
-### One subtle case: integer vs floating ceil
+### One subtle case: floating-point exact floor
 
-`Math.Ceiling(267.78 / 10) = 27.0`. But for a recording where
-`duration = 100.0001`, `Math.Ceiling(100.0001 / 10) = 11.0`. That is one
-more than strictly necessary. Acceptable: the engine only needs
-`ceil(duration / cadence) <= maxCycles`, and 11 gives `ceil(100.0001/11) =
-10`. We stay at-or-below the cap either way. Test `FormulaFloorEqualsCeilDivMax`
-below pins this invariant.
+For a recording where `duration = 100.0001`, the exact floor is `10.00001`.
+A user period of `10.5s` already satisfies the cap and must be preserved; an
+integer `11s` snap would over-clamp. The implementation therefore uses
+`duration / maxCycles` directly and nudges it upward by one ulp only if the
+re-derived cycle count still exceeds the cap. Tests below pin both the cap
+invariant and the "already-safe fractional period is preserved" case.
 
 ## Proposed UI change
 
@@ -111,8 +112,8 @@ The input box shows `effective` in these situations:
 2. Focused and the user just committed an edit (Enter or click-outside).
 3. Focused but editing - we keep the raw `loopPeriodEditText` buffer as-is,
    so the user sees exactly what they typed. Auto-update only fires on
-   commit. (Important so typing `27` doesn't get yanked into `30` as you
-   type the last digit.)
+   commit. (Important so typing `26.778` doesn't get yanked into `30` as you
+    type the last digit.)
 
 On commit, if `effective != parsed`, the input-box display for that recording
 immediately switches to `effective` on the next frame - that is the visible
@@ -168,7 +169,7 @@ Pros of store-raw:
 
 Cons considered:
 
-- A user who types 5s, sees 27s displayed, and then lengthens the recording
+- A user who types 5s, sees 26.778s displayed, and then lengthens the recording
   to 600s later on will get a new displayed value of ~60s (still clamped).
   Acceptable because the raw intent is preserved.
 
@@ -188,7 +189,7 @@ The plan reviewer should validate this decision before I code it.
 - `Source/Parsek.Tests/LoopPhaseTests.cs` - update the existing
   `ComputeEffectiveLaunchCadence_Tests` region (lines ~627-735). Five existing
   tests change expected values (they encode the doubling behaviour). Add
-  new tests for the Learstar A1 scenario and the ceil-division floor
+  new tests for the Learstar A1 scenario and the exact floor
   property. The `ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase`
   test continues to pass once its expected effective cadence is updated to
   the new formula.
@@ -230,9 +231,9 @@ effective cadences:
 
 - `WithinCap_ReturnsUserPeriod`: still 30 (duration 60, cap 20 -> floor
   `ceil(60/20) = 3`; effective = max(30, 3) = 30). No change.
-- `PeriodBelowMin_ClampedToMinThenPossiblyDoubled`: period 1 -> clamped to
-  5; duration 164, cap 10 -> floor `ceil(164/10) = 17`; effective =
-  max(5, 17) = **17**. Was 20.
+- `PeriodBelowMin_ClampedToMinThenRaisedToCapFloor`: period 1 -> clamped to
+  5; duration 164, cap 10 -> floor `164/10 = 16.4`; effective =
+  max(5, 16.4) = **16.4**. Was 20.
 - `ExceedsCap_DoubledUntilFits` (rename to
   `ExceedsCap_SnapsToCeilingDivFloor`): period 5, duration 1000, cap 10
   -> floor `ceil(1000/10) = 100`; effective = max(5, 100) = **100**. Was
@@ -249,20 +250,22 @@ effective cadences:
 - `NaNPeriod_FallsBackToMin`: NaN -> 5; duration 60, cap 10 -> floor
   `ceil(60/10) = 6`; effective = **6**. Was 10.
 - `ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase`:
-  update expected effective from 20 to **17** (period 1, duration 164,
-  cap 10 -> floor 17). Recompute expected loopUT. `currentUT=100,
-  loopStartUT=0, effective=17`. `lastCycle = floor(100/17) = 5`.
-  `cycleStartUT = 5*17 = 85`. `phase = min(100-85, 164) = 15`.
-  `loopUT = 0 + 15 = 15`. Update `Assert.Equal(15.0, loopUT, 6)`.
+  update expected effective from 20 to **16.4** (period 1, duration 164,
+  cap 10 -> floor 16.4). Recompute expected loopUT. `currentUT=100,
+  loopStartUT=0, effective=16.4`. `lastCycle = floor(100/16.4) = 6`.
+  `cycleStartUT = 6*16.4 = 98.4`. `phase = min(100-98.4, 164) = 1.6`.
+  `loopUT = 0 + 1.6 = 1.6`. Update `Assert.Equal(1.6, loopUT, 6)`.
 
 ### New tests
 
-- `LearstarA1_ClampFloorMatchesCeilDiv`: period 5, duration 267.78, cap
-  10 -> `ceil(267.78/10) = 27`. `Assert.Equal(27.0, effective)`.
-- `FormulaFloorEqualsCeilDivMax` (property-ish): for a range of
+- `LearstarA1_ClampFloorMatchesExactFloor`: period 5, duration 267.78, cap
+  10 -> `267.78 / 10 = 26.778`. `Assert.Equal(26.778, effective, 6)`.
+- `ExactFloorKeepsConcurrentCyclesWithinCap` (property-ish): for a range of
   `(period, duration, cap)` tuples, assert
   `Math.Ceiling(duration / effective) <= cap` holds whenever `cap > 0 &&
   duration > 0`.
+- `FractionalUserPeriodAlreadyWithinCap_Respected`: period 10.5, duration
+  100.0001, cap 10 -> effective stays 10.5 (no integer snap-to-11).
 - `UserPeriodAboveFloor_Respected`: period 50, duration 100, cap 10 ->
   floor `ceil(100/10) = 10`; effective = max(50, 10) = 50. Guards against
   accidentally raising the cadence when the user is already above the
@@ -278,17 +281,24 @@ effective seconds. Tests:
 - `StoredAboveFloor_NotClamped`: stored=30, duration=60, cap=10. Expect
   (30, false).
 - `StoredBelowFloor_ClampedAndFlagged`: stored=5, duration=267.78, cap=10.
-  Expect (27, true).
+  Expect (~26.778, true).
 - `ZeroDuration_ReturnsStored_NotClamped`: stored=30, duration=0, cap=10.
   Expect (30, false).
-- `FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision`: 27s in
-  `Min` renders as `0.45`, not `0.5`.
-- `FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision`: 27s in
-  `Hour` renders as `0.0075`, not `0.0` / `0.01`.
+- `FormatLoopPeriodDisplayText_ClampedSeconds_ShowsFractionalCadence`:
+  26.778s in `Sec` renders as `26.778`, not `26`.
+- `FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision`: 26.778s in
+  `Min` renders as `0.4463`, not `0.4` / `0.45`.
+- `FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision`: 26.778s in
+  `Hour` renders as `0.007438`, not `0.0` / `0.01`.
 - `FormatLoopPeriodEditStartText_UsesStoredRawValue`: a clamped read-only
   display still seeds the edit buffer with the raw stored request.
+- `FormatLoopPeriodEditStartText_Minutes_RoundTripsStoredRawValue` and
+  `_Hours_...`: no-op focus/commit in `Min` / `Hour` does not mutate raw.
 - `BuildLoopPeriodClampTooltip_ContainsKeyNumbers`: tooltip text includes
-  effective / requested / duration / cap.
+  effective / requested / duration / cap for cap-driven clamps.
+- `BuildLoopPeriodClampTooltip_MinCycleOnly_DoesNotMentionCap`: minimum-period
+  cleanup is described accurately and does not claim the overlap cap was
+  binding.
 
 ## Rollout / risk
 
@@ -301,9 +311,9 @@ effective seconds. Tests:
 - Rollback path: `git revert` the two-line formula change and the UI diff.
   Stored `LoopIntervalSeconds` values remain valid.
 - Manual verification: build DLL, playtest Learstar A1 with loop period 5s,
-  see the Period cell display 27s in amber, hover it to read the footer
+  see the Period cell display 26.778s in amber, hover it to read the footer
   tooltip, focus it and confirm the edit buffer starts from raw `5`, then
-  commit and watch the read-only display snap back to 27s.
+  commit and watch the read-only display snap back to 26.778s.
 
 ## CHANGELOG entry (wording)
 
@@ -316,7 +326,7 @@ Under `## 0.8.2` -> `### Fixes` (or the current working version):
 Under the same heading, a second line for the formula tightening:
 
 ```
-- Effective loop cadence under the ghost-cap clamp is now `ceil(duration / cap)` instead of a power-of-two overshoot - closer to the user's requested period while respecting the cap.
+- Effective loop cadence under the ghost-cap clamp is now the exact minimum cap-safe cadence (with a one-ulp FP guard) instead of a power-of-two overshoot - closer to the user's requested period while respecting the cap.
 ```
 
 ## Diagnostic logging

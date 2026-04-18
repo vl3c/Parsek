@@ -806,7 +806,7 @@ namespace Parsek.Tests
             double effective = RecordingsTableUI.ComputeDisplayedLoopPeriod(
                 storedSeconds: 5.0, loopDurationSeconds: 267.78, cap: 10, out clamped);
 
-            Assert.Equal(27.0, effective);
+            Assert.Equal(26.778, effective, 6);
             Assert.True(clamped);
         }
 
@@ -822,21 +822,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatLoopPeriodDisplayText_ClampedSeconds_ShowsFractionalCadence()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
+                displayedSeconds: 26.778, unit: LoopTimeUnit.Sec, preserveSecondResolution: true);
+
+            Assert.Equal("26.778", text);
+        }
+
+        [Fact]
         public void FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision()
         {
             string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
-                displayedSeconds: 27.0, unit: LoopTimeUnit.Min, preserveSecondResolution: true);
+                displayedSeconds: 26.778, unit: LoopTimeUnit.Min, preserveSecondResolution: true);
 
-            Assert.Equal("0.45", text);
+            Assert.Equal("0.4463", text);
         }
 
         [Fact]
         public void FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision()
         {
             string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
-                displayedSeconds: 27.0, unit: LoopTimeUnit.Hour, preserveSecondResolution: true);
+                displayedSeconds: 26.778, unit: LoopTimeUnit.Hour, preserveSecondResolution: true);
 
-            Assert.Equal("0.0075", text);
+            Assert.Equal("0.007438", text);
         }
 
         [Fact]
@@ -849,16 +858,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatLoopPeriodEditStartText_Minutes_RoundTripsStoredRawValue()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodEditStartText(
+                storedSeconds: 5.0, unit: LoopTimeUnit.Min);
+
+            Assert.True(ParsekUI.TryParseLoopInput(text, LoopTimeUnit.Min, out double parsed));
+            Assert.Equal(5.0, ParsekUI.ConvertToSeconds(parsed, LoopTimeUnit.Min), 9);
+        }
+
+        [Fact]
+        public void FormatLoopPeriodEditStartText_Hours_RoundTripsStoredRawValue()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodEditStartText(
+                storedSeconds: 26.778, unit: LoopTimeUnit.Hour);
+
+            Assert.True(ParsekUI.TryParseLoopInput(text, LoopTimeUnit.Hour, out double parsed));
+            Assert.Equal(26.778, ParsekUI.ConvertToSeconds(parsed, LoopTimeUnit.Hour), 9);
+        }
+
+        [Fact]
         public void BuildLoopPeriodClampTooltip_ContainsKeyNumbers()
         {
             string tooltip = RecordingsTableUI.BuildLoopPeriodClampTooltip(
-                storedSeconds: 5.0, effectiveSeconds: 27.0,
+                storedSeconds: 5.0, effectiveSeconds: 26.778,
                 loopDurationSeconds: 267.78, cap: 10);
 
-            Assert.Contains("27", tooltip);
+            Assert.Contains("26.778", tooltip);
             Assert.Contains("<= 10", tooltip);
             Assert.Contains("requested: 5", tooltip);
             Assert.Contains("duration: 267.78", tooltip);
+        }
+
+        [Fact]
+        public void BuildLoopPeriodClampTooltip_MinCycleOnly_DoesNotMentionCap()
+        {
+            string tooltip = RecordingsTableUI.BuildLoopPeriodClampTooltip(
+                storedSeconds: 1.0, effectiveSeconds: 5.0,
+                loopDurationSeconds: 6.0, cap: 10);
+
+            Assert.Contains("minimum period is 5", tooltip);
+            Assert.DoesNotContain("<= 10", tooltip);
         }
 
         // ── ApplyAutoLoopRange ──

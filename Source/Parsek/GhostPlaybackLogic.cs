@@ -357,11 +357,28 @@ namespace Parsek
                 return period;
 
             // Minimum cadence that keeps ceil(duration / cadence) <= maxCycles.
-            double cadenceFloor = Math.Ceiling(duration / maxCycles);
+            double cadenceFloor = duration / maxCycles;
             if (double.IsNaN(cadenceFloor) || double.IsInfinity(cadenceFloor))
                 return period;
 
+            // Floating-point division can round the exact floor slightly low,
+            // so bump by one ulp until the cycle count fits.
+            int safety = 4;
+            while (safety-- > 0 && Math.Ceiling(duration / cadenceFloor) > maxCycles)
+                cadenceFloor = NextUp(cadenceFloor);
+
             return Math.Max(period, cadenceFloor);
+        }
+
+        private static double NextUp(double value)
+        {
+            if (double.IsNaN(value) || value == double.PositiveInfinity)
+                return value;
+            if (value == 0.0)
+                return double.Epsilon;
+
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            return BitConverter.Int64BitsToDouble(bits + (value > 0.0 ? 1L : -1L));
         }
 
         /// <summary>
