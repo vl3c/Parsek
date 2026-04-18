@@ -274,11 +274,25 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   updated to reflect the new inline-reap semantics (empty-slot RPs in
   those fixtures are now reap-eligible the moment `SessionProvisional`
   flips).
-- **Phase 12 (next)** — revert-during-re-fly dialog (design §6.9 step 1).
-  Handle the player pressing KSP's stock revert during an active re-fly
-  session: surface a Parsek-owned dialog offering "keep re-fly" /
-  "revert and discard session" + wire whichever branch to the existing
-  session/merge lifecycle.
+- ~~**Phase 12** — revert-during-re-fly dialog (design §6.7).~~
+  New `ReFlyRevertDialog` + `RevertInterceptor` (Harmony prefix on
+  `FlightDriver.RevertToLaunch`) block the stock revert flow whenever
+  `ParsekScenario.ActiveReFlySessionMarker` is non-null and show a
+  3-option popup: **Retry** (clear marker, re-invoke `RewindInvoker.StartInvoke`
+  with the same RP + slot and a fresh session id — old provisional
+  becomes a zombie for Phase 13 sweep), **Full Revert** (invoke
+  `TreeDiscardPurge.PurgeTree` for the session's tree, then re-drive
+  stock `RevertToLaunch` with the marker cleared), **Cancel** (log
+  and resume). Log contract per §10.6: every decision emits
+  `[ReFlySession]` tagged lines (`Revert dialog shown`, `End reason=retry`,
+  `End reason=fullRevert`, `Revert dialog cancelled`). 10 unit tests
+  cover the three callback handlers + the prefix gate (active /
+  no-session / no-scenario); in-game `ReFlyRevertDialogTest`
+  verifies the interceptor fires the dialog hook with the marker's
+  session id in FLIGHT scene.
+- **Phase 13 (next)** — load-time sweep: zombie re-fly provisionals,
+  session-provisional RPs, and orphaned supersede/tombstone entries
+  (design §6.9).
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so

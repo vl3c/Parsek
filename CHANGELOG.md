@@ -19,6 +19,7 @@ All notable changes to Parsek are documented here.
 - Phase 9: narrow v1 tombstone scope — only kerbal-death ledger actions (plus bundled rep penalties) are retired on merge; career state stays sticky.
 - Phase 10: merge runs through MergeJournalOrchestrator with 5 crash-recovery checkpoints; on-load finisher resumes from any crash window.
 - Phase 11: rewind points reaped after merge; tree discard purges related rewind points, supersede relations, and tombstones.
+- Phase 12: Revert-during-re-fly dialog (Retry / Full Revert / Cancel) intercepts stock revert while a session is active.
 
 ---
 
