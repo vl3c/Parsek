@@ -98,6 +98,27 @@ namespace Parsek
         internal enum StatusBlock { Recording, Saved, Empty }
 
         /// <summary>
+        /// Snapshot of the button-row state that drives label rendering below it.
+        /// Kept as a tiny value type so tests can exercise the production refresh
+        /// and logging helper without needing a live IMGUI context.
+        /// </summary>
+        internal struct StatusSnapshot
+        {
+            internal readonly bool IsRecording;
+            internal readonly bool HasLastRecording;
+            internal readonly bool IsPreviewing;
+
+            internal StatusSnapshot(bool isRecording, bool hasLastRecording, bool isPreviewing)
+            {
+                IsRecording = isRecording;
+                HasLastRecording = hasLastRecording;
+                IsPreviewing = isPreviewing;
+            }
+
+            internal StatusBlock Block => SelectStatusBlock(IsRecording, HasLastRecording);
+        }
+
+        /// <summary>
         /// Pure decision: which status block applies for the current button-row
         /// boolean state. Extracted for direct unit testing of the stale-local
         /// NRE guard (#446) — see Bug446GloopsDiscardNreTests.
@@ -109,18 +130,47 @@ namespace Parsek
             return StatusBlock.Empty;
         }
 
+        internal static StatusSnapshot CaptureStatusSnapshot(
+            bool isRecording, bool hasLastRecording, bool isPreviewing)
+        {
+            return new StatusSnapshot(isRecording, hasLastRecording, isPreviewing);
+        }
+
+        internal static StatusSnapshot RefreshStatusSnapshot(
+            StatusSnapshot previous,
+            bool isRecording,
+            bool hasLastRecording,
+            bool isPreviewing,
+            bool buttonFired)
+        {
+            var current = CaptureStatusSnapshot(isRecording, hasLastRecording, isPreviewing);
+            bool stateChanged = previous.IsRecording != current.IsRecording
+                || previous.HasLastRecording != current.HasLastRecording
+                || previous.IsPreviewing != current.IsPreviewing;
+            if (buttonFired && stateChanged)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Gloops state changed mid-DrawWindow: " +
+                    $"isRecording {previous.IsRecording}->{current.IsRecording} " +
+                    $"hasLastRecording {previous.HasLastRecording}->{current.HasLastRecording} " +
+                    $"isPreviewing {previous.IsPreviewing}->{current.IsPreviewing}");
+            }
+            return current;
+        }
+
         private void DrawWindow(int windowID, ParsekFlight flight)
         {
             GUILayout.BeginVertical();
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
 
-            bool isRecording = flight.IsGloopsRecording;
-            bool hasLastRecording = flight.LastGloopsRecording != null;
-            bool isPreviewing = flight.IsPlaying;
+            var status = CaptureStatusSnapshot(
+                flight.IsGloopsRecording,
+                flight.LastGloopsRecording != null,
+                flight.IsPlaying);
 
-            // Set true whenever a state-mutating button branch (Discard, Stop
-            // Recording, Stop Preview) fires this frame; gates the
+            // Set true whenever a button handler that may mutate the Gloops UI
+            // state fires this frame; gates the
             // post-button-block diagnostic log so we only emit it when we
             // actually triggered a mutation, not on every frame where state
             // happened to differ from the cached snapshot for some other
@@ -131,36 +181,36 @@ namespace Parsek
             // with text and enablement driven by state. Status labels render below
             // so button positions never shift between states.
 
-            string primaryLabel = isRecording
+            string primaryLabel = status.IsRecording
                 ? "Stop Recording"
-                : (hasLastRecording ? "Start New Recording" : "Start Recording");
+                : (status.HasLastRecording ? "Start New Recording" : "Start Recording");
 
             if (GUILayout.Button(primaryLabel))
             {
                 ParsekLog.Verbose("UI", "Gloops " + primaryLabel + " clicked");
-                if (isRecording)
+                buttonFired = true;
+                if (status.IsRecording)
                 {
                     flight.StopGloopsRecording();
-                    buttonFired = true;
                 }
                 else
                 {
-                    if (isPreviewing)
+                    if (status.IsPreviewing)
                         flight.StopPlayback();
                     flight.StartGloopsRecording();
                 }
             }
 
-            bool previewEnabled = hasLastRecording && !isRecording;
-            string previewLabel = isPreviewing ? "Stop Preview" : "Preview";
+            bool previewEnabled = status.HasLastRecording && !status.IsRecording;
+            string previewLabel = status.IsPreviewing ? "Stop Preview" : "Preview";
             GUI.enabled = previewEnabled;
             if (GUILayout.Button(previewLabel))
             {
                 ParsekLog.Verbose("UI", "Gloops " + previewLabel + " clicked");
-                if (isPreviewing)
+                buttonFired = true;
+                if (status.IsPreviewing)
                 {
                     flight.StopPlayback();
-                    buttonFired = true;
                 }
                 else
                 {
@@ -171,22 +221,22 @@ namespace Parsek
 
             GUILayout.Space(6f);
 
-            bool discardEnabled = isRecording || hasLastRecording;
+            bool discardEnabled = status.IsRecording || status.HasLastRecording;
             GUI.enabled = discardEnabled;
             if (GUILayout.Button("Discard Recording"))
             {
                 ParsekLog.Verbose("UI", "Gloops Discard Recording clicked");
-                if (isRecording)
+                buttonFired = true;
+                if (status.IsRecording)
                 {
                     flight.DiscardGloopsInProgress();
                 }
                 else
                 {
-                    if (isPreviewing)
+                    if (status.IsPreviewing)
                         flight.StopPlayback();
                     flight.DiscardLastGloopsRecording();
                 }
-                buttonFired = true;
             }
             GUI.enabled = true;
 
@@ -196,26 +246,18 @@ namespace Parsek
             // IMGUI runs handlers inline during the MouseUp pass (no early return
             // from DrawWindow), so any cached locals captured at the top of the
             // method are stale by the time this status-label ladder runs.
-            // Discard nulls LastGloopsRecording — without re-reading we'd
-            // dereference null in the Saved branch (#446 NRE). Re-read all three
-            // booleans for symmetry against the same pattern in Stop Recording
-            // and Stop Preview.
-            bool prevHasLastRecording = hasLastRecording;
-            bool prevIsRecording = isRecording;
-            bool prevIsPreviewing = isPreviewing;
-            isRecording = flight.IsGloopsRecording;
-            hasLastRecording = flight.LastGloopsRecording != null;
-            isPreviewing = flight.IsPlaying;
-            if (buttonFired)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Gloops state changed mid-DrawWindow: " +
-                    $"isRecording {prevIsRecording}->{isRecording} " +
-                    $"hasLastRecording {prevHasLastRecording}->{hasLastRecording} " +
-                    $"isPreviewing {prevIsPreviewing}->{isPreviewing}");
-            }
+            // Discard and Start New Recording can both null LastGloopsRecording
+            // mid-dispatch — without re-reading we'd dereference null in the
+            // Saved branch (#446 NRE). Re-read all three booleans so every
+            // button-driven transition uses fresh state for the status ladder.
+            status = RefreshStatusSnapshot(
+                status,
+                flight.IsGloopsRecording,
+                flight.LastGloopsRecording != null,
+                flight.IsPlaying,
+                buttonFired);
 
-            switch (SelectStatusBlock(isRecording, hasLastRecording))
+            switch (status.Block)
             {
                 case StatusBlock.Recording:
                     DrawRecordingStatus(flight);

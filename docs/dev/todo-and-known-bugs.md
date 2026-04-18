@@ -254,9 +254,9 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Files:** `Source/Parsek/UI/GloopsRecorderUI.cs:97-195` (re-evaluate locals after button blocks; optionally extract status-label helper), `Source/Parsek.Tests/` (new test), `CHANGELOG.md`.
 
-**Scope:** Small. Single-file fix, one small test.
+**Scope:** Small. Single-file fix, targeted unit tests.
 
-**Status:** ~~Fixed~~ — `DrawWindow` now re-reads `isRecording`, `hasLastRecording`, `isPreviewing` from `flight` after the button-row handlers run and before the status-label ladder, and the ladder dispatches through a new `internal static SelectStatusBlock` helper unit-tested in `Bug446GloopsDiscardNreTests`. A `buttonFired` local set inside the Discard / Stop Recording / Stop Preview branches gates a verbose `Gloops state changed mid-DrawWindow` log so a future stale-local situation is visible in `KSP.log` without spurious noise from unrelated frames.
+**Status:** ~~Fixed~~ — `DrawWindow` now snapshots the button-row state into a `StatusSnapshot`, refreshes it from `flight` after the handlers run via `RefreshStatusSnapshot`, and dispatches the status ladder from that fresh snapshot before any saved-recording dereference. `Bug446GloopsDiscardNreTests` now calls the production helpers directly, covering both the original discard path and the same stale-local transition when Start New Recording clears a previously saved capture. The verbose `Gloops state changed mid-DrawWindow` log is emitted only when a button handler actually changed the tracked booleans, so the diagnostic stays high-signal in `KSP.log`.
 
 ---
 
