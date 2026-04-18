@@ -58,6 +58,32 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 460. Playback budget exceeded on mainLoop-dominated frames with `0 ghosts` — one-shot latches miss the attribution
+
+**Source:** post-B3 playtest `logs/2026-04-18_1947_450-b3-playtest/KSP.log`. After the #414 and #450 Phase A one-shot latches consumed on the first spike (a spawn-driven 12.2 ms frame at line 14355-14499), three more budget-exceeded WARNs fired at `0 ghosts, warp=1x` with no accompanying breakdown because both latches were already burnt:
+
+```
+28224 19:45:37  Playback frame budget exceeded: 24.8ms (0 ghosts, warp: 1x) | suppressed=12
+31864 19:46:21  Playback frame budget exceeded: 17.7ms (0 ghosts, warp: 1x) | suppressed=3
+96325 19:46:54  Playback frame budget exceeded: 18.8ms (0 ghosts, warp: 1x)
+```
+
+Zero-ghost means zero spawn/destroy work — mainLoop dispatch (per-trajectory iteration) plus maybe deferred events is the only possible culprit. The pre-B3 smoke-test breakdown (2026-04-18_0221, also 0 ghosts) attributed `mainLoop=8.55 ms` across `trajectories=289` (~30 µs per trajectory). Scaling that to the post-B3 22-ish-ms spikes suggests ~75 µs per trajectory on those frames — high enough to matter.
+
+**Concern:** without a new breakdown WARN the attribution is guesswork. Candidates: OnGhostDistance computation, lazy-reentry pending-flag scan across all ghosts, overlap cycle bookkeeping, deferred event drain. Without per-phase data we can't rule them in or out.
+
+**Fix (diagnostic first):** add a third one-shot latch gated on `ghosts=0 AND mainLoopMicroseconds > N ms` that captures a separate breakdown WARN for the mainLoop-dominated case. Alternatively, extend the existing #450 latch to fire on the first non-spawn-dominated spike too — a single-latch-per-spike-class policy. Either way, a playtest after the diagnostic lands will tell us which phase inside the main loop owns the cost.
+
+**Files:** `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new latch + condition), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (optional: per-main-loop-phase sub-fields if the simple total-mainloop latch isn't actionable enough), `Source/Parsek.Tests/Bug460MainLoopBreakdownTests.cs` (new).
+
+**Scope:** Small (diagnostic-only). Fix shape depends on the post-diagnostic data.
+
+**Dependencies:** #414 + #450 Phase A shipped.
+
+**Status:** TODO. Priority: medium. Not release-blocking for v0.8.2 but should be diagnosed before v0.8.3 perf claims. Observed on the `test career` save during the B3 playtest; reproducibility across saves unknown.
+
+---
+
 ## ~~459.~~ `Run All` cleanup destroys the watched ghost before watch mode exits, flooding `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` with NullReferenceExceptions
 
 **Source:** Playtest `2026-04-18_1947_450-b3-playtest/KSP.log`. At `19:46:21.679`, `InGameTestRunner.PerformBetweenRunCleanup("run-all")` started its teardown in FLIGHT and immediately called `ParsekFlight.DestroyAllTimelineGhosts()` while watch mode was still active on a ghost. The watched `state.ghost.transform` then became a destroyed Unity wrapper, but stock camera state still held it via `PlanetariumCamera.target` / `ScaledMovement.tgtRef`; on the next frame, stock `Sun.LateUpdate` and `FlightGlobals.UpdateInformation` started throwing every frame (about 8,750 exceptions over 60 seconds) until the player alt+F4'd.
@@ -219,10 +245,13 @@ entering atmosphere. Pure decision logic lives in
 Unity. See `docs/dev/plan-450-b3-lazy-reentry.md`.
 
 **Phase B2 (next): coroutine split of `BuildTimelineGhostFromSnapshot`.**
-Targets the dominant 15.90 ms timeline bucket. Not yet planned in detail;
-gated on confirmation from a post-B3 playtest that the `heaviestSpawn[reentry=…]`
-field has indeed dropped toward zero and the `timeline` field is the
-remaining problem.
+Targets the dominant 15.90 ms timeline bucket. Post-B3 playtest
+(`logs/2026-04-18_1947_450-b3-playtest/KSP.log:14474`) confirmed the
+gating: heaviestSpawn reentry dropped to `0.00 ms`, timeline now 93 %
+of the single-spawn cost (`17.59 / 18.91 ms`), and the diagnostics
+health line reports `deferred 4 buildsAvoided 3` — three trajectories
+saved the full build entirely by never entering atmosphere. Ready to
+be planned and implemented.
 
 **Phase B1 (not planned):** the 15 ms latch threshold means #450's
 diagnostic only fires on bimodal cases, so the "spread across many
@@ -236,7 +265,8 @@ helper + per-frame cap, spawn-path defer, widened loop-pause call-site
 guard, test seams), `Source/Parsek/GhostPlaybackLogic.cs` (new pure
 `ShouldBuildLazyReentryFx` helper), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs`
 (new `reentryFxDeferredThisSession` counter), `Source/Parsek.Tests/Bug450B3LazyReentryTests.cs`
-(16 new tests), `docs/dev/plan-450-b3-lazy-reentry.md` (new).
+(20 xUnit tests), `Source/Parsek/InGameTests/RuntimeTests.cs` (2 in-game
+tests for the live-Unity lazy-build path), `docs/dev/plan-450-b3-lazy-reentry.md` (new).
 
 **Files (A — shipped previously):** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs`, `docs/dev/plan-450-build-breakdown.md`.
 
@@ -244,7 +274,7 @@ guard, test seams), `Source/Parsek/GhostPlaybackLogic.cs` (new pure
 
 **Dependencies:** #414 shipped, Phase A shipped.
 
-**Status:** Phase A + Phase B3 shipped. Phase B2 TODO, gated on next playtest confirming `heaviestSpawn[reentry=…]` has dropped. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Status:** Phase A + Phase B3 shipped. Phase B2 TODO — gating confirmed by the 2026-04-18_1947 playtest; ready to plan. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
 
 ---
 
