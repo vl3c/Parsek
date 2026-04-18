@@ -353,33 +353,23 @@ Design constraints pulled from Phase D's (#343) plumbing:
 
 ## ~~439.~~ Strategy lifecycle capture (Phase E1.5 of ledger/lump-sum fix)
 
-**Status:** Phase A (v0.8.2) fixed in `feat/439-strategy-lifecycle-capture`. Phase B (multi-resource reconciliation for Science and Reputation setup costs) deferred as a follow-up, see #439B below.
+**Status:** Fixed in `feat/439B-strategy-setup-multi-resource`. Phase A (v0.8.2) shipped strategy lifecycle capture, and this follow-up completes the multi-resource StrategyActivate setup-cost handling for Funds, Science, and Reputation.
 
-**Summary of Phase A fix:** added `GameStateEventType.StrategyActivated` / `StrategyDeactivated` (enum ids 20/21, append-only). New `Source/Parsek/Patches/StrategyLifecyclePatch.cs` installs Harmony postfixes on `Strategies.Strategy.Activate` / `Deactivate`, filtering on `__result == true` and honoring `GameStateRecorder.IsReplayingActions`. Recorder emits new events with pure-static detail builders (`BuildStrategyActivateDetail` / `BuildStrategyDeactivateDetail`) formatted with InvariantCulture "R". `GameStateEventConverter` routes the new events to the existing `StrategyActivate` / `StrategyDeactivate` `GameAction`s. `LedgerOrchestrator.ClassifyAction` now returns `Untransformed` with `ExpectedReasonKey="StrategySetup"` / `ExpectedDelta=-SetupCost` so the funds setup cost reconciles against the `FundsChanged(StrategySetup)` event KSP fires inside `Strategy.Activate()`. `StrategiesModule.TransformContractReward` was made a documented identity no-op: KSP's `CurrencyModifierQuery` already transformed contract rewards before `onContractCompleted` fires (see decompile trace in `docs/dev/plans/fix-439-strategy-lifecycle-capture.md` section 3.5), so applying Commitment a second time would double-divert. `activeStrategies` is still populated for slot accounting and Actions-window display.
-
-**NOT included in Phase A (deferred to Phase B, filed below):** multi-resource `KscActionExpectation` + Sci/Rep setup cost reconciliation. Strategies with non-zero `InitialCostScience` or `InitialCostReputation` still emit false-positive KSC-reconciliation WARNs on those resource legs. Stock Admin-tier-1 strategies are funds-only, so most new careers never trip it.
+**Summary of fix:** added `GameStateEventType.StrategyActivated` / `StrategyDeactivated` (enum ids 20/21, append-only). New `Source/Parsek/Patches/StrategyLifecyclePatch.cs` installs Harmony postfixes on `Strategies.Strategy.Activate` / `Deactivate`, filtering on `__result == true` and honoring `GameStateRecorder.IsReplayingActions`. Recorder emits new events with pure-static detail builders (`BuildStrategyActivateDetail` / `BuildStrategyDeactivateDetail`) formatted with InvariantCulture "R". `GameStateEventConverter` routes the new events to the existing `StrategyActivate` / `StrategyDeactivate` `GameAction`s. `StrategyActivate` now carries setup costs for Funds, Science, and Reputation, `LedgerOrchestrator.ClassifyAction` emits up to three reconciliation legs keyed `StrategySetup`, and the science/reputation modules apply the additional setup costs during the walk. `StrategiesModule.TransformContractReward` remains a documented identity no-op: KSP's `CurrencyModifierQuery` already transformed contract rewards before `onContractCompleted` fires (see decompile trace in `docs/dev/plans/fix-439-strategy-lifecycle-capture.md` section 3.5), so applying Commitment a second time would double-divert. `activeStrategies` is still populated for slot accounting and Actions-window display.
 
 **NOT included (deferred further):** a `StrategyPayout` fallback emitter for mod-compat strategies that bypass the `OnCurrencyModifierQuery` path. No current stock or major mod needs it; add when a concrete requirement arises.
 
 ---
 
-## 439B. Strategy setup cost reconciliation for Science and Reputation legs (#439 follow-up)
+## ~~439B.~~ Strategy setup cost reconciliation for Science and Reputation legs (#439 follow-up)
 
-**Source:** #439 Phase A shipped a single-resource `KscActionExpectation` (Funds leg only). Strategies with non-zero `InitialCostScience` or `InitialCostReputation` still emit false-positive KSC-reconciliation WARNs on the Science/Rep legs because `ClassifyAction` only returns one (`EventType`, `ExpectedReasonKey`, `ExpectedDelta`) tuple.
+**Status:** Fixed in `feat/439B-strategy-setup-multi-resource`.
 
-**Why it matters:** stock Administration-building tier-1 strategies are funds-only, so most new careers never trip it. Admin-tier-2 and some modded strategies (Strategia, Contract Configurator + Strategy) charge Science or Reputation on activation and will produce one WARN per resource leg per activation. Log noise, not a correctness bug.
+**Source:** #439 Phase A shipped a single-resource `KscActionExpectation` (Funds leg only). Strategies with non-zero `InitialCostScience` or `InitialCostReputation` emitted false-positive KSC-reconciliation WARNs on the Science/Rep legs because `ClassifyAction` only returned one (`EventType`, `ExpectedReasonKey`, `ExpectedDelta`) tuple.
 
-**Fix (rough):**
-- Extend `LedgerOrchestrator.KscActionExpectation` from a single tuple to a list of expectation tuples (or a small struct-of-arrays).
-- `ReconcileKscAction` iterates over each expectation and key-matches in turn.
-- `ClassifyAction` for `StrategyActivate` returns expectations for the Funds / Science / Reputation setup costs that are non-zero.
-- Add test coverage to `StrategyCaptureTests` for a Science-setup-cost strategy and a Rep-setup-cost strategy.
-
-**Scope:** small, ~200 lines including tests. Fast-follow candidate.
+**Fix:** `LedgerOrchestrator.KscActionExpectation` now carries up to three per-resource legs, `ReconcileKscAction` iterates them independently, and `StrategyActivate` emits Funds / Science / Reputation setup-cost legs keyed `StrategySetup`. `GameAction` / `GameStateEventConverter` now preserve `setupSci` and `setupRep`, and the science/reputation modules consume those setup costs during the recalculation walk.
 
 **Dependencies:** #439 Phase A (shipped).
-
-**Status:** TODO. Priority: low. Not release-blocking.
 
 ---
 

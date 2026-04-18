@@ -53,7 +53,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
+- Fix #439B: strategy activate setup cost reconciliation now covers Funds, Science, and Reputation legs, closing the known limitation that shipped with #439.
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
 - `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.
@@ -108,10 +108,6 @@ All notable changes to Parsek are documented here.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 - Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestones or other post-rewind events. Contract deadlines that expired between the last pre-cutoff action and the rewind target now correctly fail, and tech-research affordability checks use current UT so post-rewind unlocks cannot read future science.
-
-### Known Limitations
-
-- KSP career strategies with non-zero Science or Reputation setup costs still produce a single KSC reconciliation WARN line per activation on the Science or Reputation leg. Stock Admin-tier-1 strategies are funds-only and unaffected; the follow-up is tracked as `#439B` (multi-resource `KscActionExpectation`).
 
 ### Maintenance
 

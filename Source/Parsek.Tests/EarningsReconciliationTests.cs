@@ -289,6 +289,18 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameStateEvent MakeKeyedRepChanged(double ut, double before, double after, string reason)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = reason,
+                valueBefore = before,
+                valueAfter = after
+            };
+        }
+
         // ---------- Key-match positive (no WARN on correct pair) ----------
 
         [Fact]
@@ -419,6 +431,92 @@ namespace Parsek.Tests
             ReconcileKsc(events, ledger, action, 412.9);
 
             Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_StrategyActivate_AllThreeResourceEventsPresent_NoWarn()
+        {
+            float repBefore = 500f;
+            var repResult = ReputationModule.ApplyReputationCurve(-10f, repBefore);
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1500, 100000, 90000, "StrategySetup"),
+                MakeKeyedScienceChanged(1500, 40, 35, "StrategySetup"),
+                MakeKeyedRepChanged(1500, repBefore, repBefore + repResult.actualDelta, "StrategySetup")
+            };
+            var action = new GameAction
+            {
+                UT = 1500,
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 10000f,
+                SetupScienceCost = 5f,
+                SetupReputationCost = 10f
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1500);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_StrategyActivate_MissingRepEvent_OnlyRepWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1500, 100000, 90000, "StrategySetup"),
+                MakeKeyedScienceChanged(1500, 40, 35, "StrategySetup")
+            };
+            var action = new GameAction
+            {
+                UT = 1500,
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 10000f,
+                SetupScienceCost = 5f,
+                SetupReputationCost = 10f
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1500);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("KSC reconciliation (rep)") &&
+                l.Contains("StrategyActivate") &&
+                l.Contains("StrategySetup") &&
+                l.Contains("no matching"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (sci)"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_StrategyActivate_MissingSciEvent_OnlySciWarn()
+        {
+            float repBefore = 500f;
+            var repResult = ReputationModule.ApplyReputationCurve(-10f, repBefore);
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1500, 100000, 90000, "StrategySetup"),
+                MakeKeyedRepChanged(1500, repBefore, repBefore + repResult.actualDelta, "StrategySetup")
+            };
+            var action = new GameAction
+            {
+                UT = 1500,
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 10000f,
+                SetupScienceCost = 5f,
+                SetupReputationCost = 10f
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1500);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("KSC reconciliation (sci)") &&
+                l.Contains("StrategyActivate") &&
+                l.Contains("StrategySetup") &&
+                l.Contains("no matching"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (rep)"));
         }
 
         // ---------- Key-match negative (type-correct, key-mismatch → WARN) ----------
@@ -902,9 +1000,12 @@ namespace Parsek.Tests
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
-            Assert.Equal("RnDPartPurchase", exp.ExpectedReasonKey);
-            Assert.Equal(-600, exp.ExpectedDelta);
+            Assert.Equal(1, exp.LegCount);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+            Assert.Equal("RnDPartPurchase", exp.FundsLeg.ExpectedReasonKey);
+            Assert.Equal(-600, exp.FundsLeg.ExpectedDelta);
+            Assert.Empty(logLines);
         }
 
         [Fact]
@@ -930,11 +1031,8 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyAction_StrategyActivate_Untransformed_PairsWithStrategySetup()
+        public void ClassifyAction_StrategyActivate_FundsLegPresent()
         {
-            // #439 Phase A: StrategyActivate now pairs its SetupCost against the
-            // FundsChanged(StrategySetup) event KSP fires inside Strategy.Activate()
-            // when InitialCostFunds is non-zero.
             var a = new GameAction
             {
                 Type = GameActionType.StrategyActivate,
@@ -942,27 +1040,80 @@ namespace Parsek.Tests
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
-            Assert.Equal("StrategySetup", exp.ExpectedReasonKey);
-            Assert.Equal(-100000.0, exp.ExpectedDelta);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+            Assert.Equal("StrategySetup", exp.FundsLeg.ExpectedReasonKey);
+            Assert.Equal(-100000.0, exp.FundsLeg.ExpectedDelta);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void ClassifyAction_StrategyActivate_ThreeResourceSetupCost_ThreeLegs()
+        {
+            var a = new GameAction
+            {
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 100000f,
+                SetupScienceCost = 5f,
+                SetupReputationCost = 10f
+            };
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(3, exp.LegCount);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.True(exp.ScienceLeg.IsPresent);
+            Assert.True(exp.ReputationLeg.IsPresent);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+            Assert.Equal(GameStateEventType.ScienceChanged, exp.ScienceLeg.EventType);
+            Assert.Equal(GameStateEventType.ReputationChanged, exp.ReputationLeg.EventType);
+            Assert.Equal("StrategySetup", exp.FundsLeg.ExpectedReasonKey);
+            Assert.Equal("StrategySetup", exp.ScienceLeg.ExpectedReasonKey);
+            Assert.Equal("StrategySetup", exp.ReputationLeg.ExpectedReasonKey);
+            Assert.Equal(-100000.0, exp.FundsLeg.ExpectedDelta);
+            Assert.Equal(-5.0, exp.ScienceLeg.ExpectedDelta);
+            Assert.Equal(-10.0, exp.ReputationLeg.ExpectedDelta);
+            Assert.Equal(LedgerOrchestrator.KscExpectationLegMode.ReputationCurve, exp.ReputationLeg.Mode);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void ClassifyAction_StrategyActivate_FundsOnly_OneLeg()
+        {
+            var a = new GameAction
+            {
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 25000f,
+                SetupScienceCost = 0f,
+                SetupReputationCost = 0f
+            };
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(1, exp.LegCount);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.False(exp.ScienceLeg.IsPresent);
+            Assert.False(exp.ReputationLeg.IsPresent);
+            Assert.Equal(-25000.0, exp.FundsLeg.ExpectedDelta);
+            Assert.Empty(logLines);
         }
 
         [Fact]
         public void ClassifyAction_StrategyActivate_ZeroSetupCost_ShortCircuits()
         {
-            // Free-to-activate strategies (e.g. mod strategies with all InitialCost* = 0)
-            // stay on the Untransformed classification but hit the zero-expected-delta
-            // early return in ReconcileKscAction — no paired event needed.
             var a = new GameAction
             {
                 Type = GameActionType.StrategyActivate,
-                SetupCost = 0f
+                SetupCost = 0f,
+                SetupScienceCost = 0f,
+                SetupReputationCost = 0f
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(0.0, exp.ExpectedDelta);
+            Assert.Equal(0, exp.LegCount);
 
-            // Drive the reconcile path to confirm it stays silent on zero delta.
             var events = new List<GameStateEvent>();
             var ledger = new List<GameAction> { a };
             ReconcileKsc(events, ledger, a, 500.0);
@@ -1018,9 +1169,10 @@ namespace Parsek.Tests
                 var exp = LedgerOrchestrator.ClassifyAction(a);
 
                 Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-                Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
-                Assert.Equal("RnDPartPurchase", exp.ExpectedReasonKey);
-                Assert.Equal(-600, exp.ExpectedDelta);
+                Assert.True(exp.FundsLeg.IsPresent);
+                Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+                Assert.Equal("RnDPartPurchase", exp.FundsLeg.ExpectedReasonKey);
+                Assert.Equal(-600, exp.FundsLeg.ExpectedDelta);
             }
             finally
             {
