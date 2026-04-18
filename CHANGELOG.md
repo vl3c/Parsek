@@ -53,6 +53,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fix #440: post-walk reconciliation now covers strategy-transformed and curve-applied reward types (contract complete/fail/cancel, milestone, reputation earning/penalty, KSC-path funds/science earning), emitting a warning when post-walk derived values diverge from observed KSP deltas. Does not close #439B.
 - Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.

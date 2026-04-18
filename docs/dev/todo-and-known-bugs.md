@@ -330,24 +330,23 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 440. Post-walk reconciliation for strategy-transformed and curve-applied reward types
+## ~~440.~~ Post-walk reconciliation for strategy-transformed and curve-applied reward types
 
-**Source:** Phase B (#437, PR #340) explicitly excluded these from KSC-side reconciliation. `LedgerOrchestrator.ReconcileKscAction.ClassifyAction` routes `ContractComplete` / `ContractFail` / `ContractCancel` / `MilestoneAchievement` / `ReputationEarning` / `ReputationPenalty` / direct KSC-path `FundsEarning` / `ScienceEarning` into the "transformed — skip with VERBOSE" bucket because their raw action fields (e.g. `FundsReward`, `NominalRep`) diverge from the live KSP balance delta by the time the walk runs: `StrategiesModule` mutates `TransformedFundsReward` during the walk, and `ReputationModule.ApplyReputationCurve` transforms rep earnings/penalties non-linearly. Comparing raw fields to observed deltas would produce false-positive WARNs on every legitimate contract completion once strategies are active.
+**Status:** Fixed (Phase E2, v0.8.2) in feat/440-post-walk-reconciliation.
 
-**Why it matters:** today strategy diversion, the reputation curve, and milestone rewards all pass through silently unless something external catches a mismatch (Phase A's legacy migration, or a `PatchFunds: suspicious drawdown` WARN from `KspStatePatcher`). Once #439 (strategy lifecycle capture) lands, strategy-transformed rewards become a first-class concern and the VERBOSE-skip is no longer defensible.
+**Fix summary:** `LedgerOrchestrator.RecalculateAndPatch` now calls a new `ReconcilePostWalk` helper after `RecalculationEngine.Recalculate` populates the derived `Transformed*Reward`, `EffectiveRep`, and `EffectiveScience` fields. The hook iterates actions in ledger order, respects `utCutoff` (mirrors the walk's filter; seed types always pass), and for each of the eight Transformed-bucket action types (ContractComplete, ContractFail, ContractCancel, MilestoneAchievement, ReputationEarning, ReputationPenalty, KSC-path FundsEarning, ScienceEarning) compares the post-walk derived value against the sum of matching `GameStateStore` events within 0.1 s of the action's UT. WARN per leg on divergence (tolerances: funds 1.0, rep 0.1, sci 0.1); rate-limited VERBOSE on match; single INFO summary per walk. Reviewer-corrected event keys: `ContractComplete` uses `ContractReward` (not `Contracts`), `ContractFail`/`ContractCancel` use `ContractPenalty` (not `ContractDecline`), `MilestoneAchievement` uses `Progression` via the generic resource-event path (the MilestoneAchieved event's detail is NOT parsed). Reputation earning/penalty actions map by their source enum; synthetic sources (`Other`, `LegacyMigration`) return `Reconcile=false`. Tests: 14 unit tests in `EarningsReconciliationTests.cs` including a gate-zero `PostWalk_ReputationCurveMatchesKsp` regression that pins `ApplyReputationCurve` against Spike A's KSP decompile within 0.1 tolerance, plus 3 integration tests in `PostWalkReconciliationIntegrationTests.cs`.
 
-**Fix:** Add a **post-walk reconciliation hook** that runs inside `LedgerOrchestrator.RecalculateAndPatch` after `RecalculationEngine.Recalculate` has populated `TransformedFundsReward` / `TransformedScienceReward` / `TransformedRepReward` and `ReputationModule.EffectiveRep`. The hook iterates actions of the transformed types and compares the POST-walk field to the live observed delta in `GameStateStore` within the same UT window / `TransactionReasons` key used by `ReconcileKscAction`. WARN on mismatch; VERBOSE on match.
+---
 
-Design constraints pulled from Phase D's (#343) plumbing:
-- The post-walk hook must respect `utCutoff` the same way the walk does — if a transformed-type action is past the cutoff it gets filtered out of reconciliation too (otherwise rewind would produce false WARNs for rewards that the walk skipped).
-- Keep the action-type classifier (`ReconcileKscAction.ClassifyAction`) as the authoritative split; "transformed" types get routed to the post-walk path instead of being VERBOSE-skipped. The "untransformed" and "no-op" buckets don't change.
-- Milestone rewards need special care: `MilestoneAchievement.Effective` is set by `MilestonesModule` at walk time; duplicates get `Effective=false` and should NOT reconcile (the live delta reflects the first credit only).
+## 440B. Switch `ReconcileEarningsWindow` from raw to Transformed* rewards (follow-up after #440)
 
-**Scope:** new helper in `LedgerOrchestrator.cs` (~80-120 lines), new tests in `EarningsReconciliationTests.cs` (~10 cases for: contract complete pre-strategy vs post-strategy, rep earning through the curve, milestone + effective duplicate, strategy-diverted reward, cutoff filter). Medium.
+**Source:** #440 (v0.8.2) review flagged a latent double-WARN risk. `LedgerOrchestrator.ReconcileEarningsWindow` (commit path) currently sums raw `FundsReward`/`RepReward`/`ScienceReward` into `emittedFundsDelta`/etc., not `Transformed*Reward`. Today this is equivalent because `StrategiesModule.TransformContractReward` is an identity no-op (see #439 Phase A). If a future mod introduces a non-identity transform (e.g. a strategy effect that diverts rewards), both `ReconcileEarningsWindow` on commit AND `ReconcilePostWalk` will WARN for the same action with different signs.
 
-**Dependencies:** #439 (strategy capture) should land first so the strategy-diversion cases can be tested end-to-end; otherwise a significant cohort of "transformed" WARNs won't have a test to pin them. Phase D (#343) shipped — `utCutoff` is already threaded through `RecalculateAndPatch`. Order: #439 → #440.
+**Fix:** switch the relevant switch cases in `ReconcileEarningsWindow` to `TransformedFundsReward` / `TransformedRepReward` / `TransformedScienceReward`. Small, purely additive. Add a unit test that pins the double-WARN scenario.
 
-**Status:** TODO. Priority: medium. Diagnostic-only (like the rest of reconciliation). Not release-blocking.
+**Status:** TODO. Priority: low. Does not bite today.
+
+---
 
 ---
 
