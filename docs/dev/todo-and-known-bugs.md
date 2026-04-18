@@ -69,8 +69,22 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `Vessel.persistentId` without touching `RecordingStore.CommittedRecordings`.
   Three in-game tests (`CaptureRPOnStaging`, `SavePathRootThenMove`,
   `WarpZeroedDuringSave`) cover the end-to-end flow.
-- **Phase 5 (next)** — Unfinished Flights UI (read-only; rewind buttons
-  disabled). §5 of the design doc.
+- ~~**Phase 5** — Unfinished Flights UI (read-only; rewind buttons
+  disabled). §5 of the design doc.~~ `UnfinishedFlightsGroup.ComputeMembers`
+  derives membership from ERS filtered through `EffectiveState.IsUnfinishedFlight`;
+  `RecordingsTableUI` renders the virtual group row after user-defined groups
+  (skips render when empty). `GroupHierarchyStore.CanHide` /
+  `IsDropTargetAllowed` gate the system group out of the hide checkbox
+  (§7.30) and out of manual drop targets (§7.25); `GroupPickerUI.CanAddToUserGroup`
+  is consulted in every `ApplyGroupPopupChanges` branch (single-rec, multi-rec,
+  chain) and rejects with a `[UnfinishedFlights]` Verbose log + ScreenMessages
+  toast. 22 unit tests (membership / drag reject / cannot-hide) plus one
+  observational in-game test (`UnfinishedFlightsRenderingAndNoHideTest`).
+  **Feature-preview cutoff reached**: rewind points capture on split, the
+  virtual group surfaces unfinished flights to the player, but there is no
+  rewind button yet — observable, not actionable.
+- **Phase 6 (next)** — wire the rewind invocation (button per Unfinished Flights
+  row → `RewindPointLoader` → revert-to-RP pipeline). §6 of the design doc.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so

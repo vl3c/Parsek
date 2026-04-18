@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 - Phase 2: ERS/ELS effective-state helper (no user-visible behavior yet).
 - Phase 3: raw recording/ledger readers routed through ERS/ELS helpers; CI grep-audit gate added.
 - Phase 4: rewind points captured at multi-controllable splits; quicksave deferred to next frame.
+- Phase 5: Unfinished Flights UI group (feature-preview cutoff; rewind invocation comes in Phase 6).
 
 ---
 
