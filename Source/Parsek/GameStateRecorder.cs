@@ -590,7 +590,7 @@ namespace Parsek
         /// </summary>
         internal static float ComputePartPurchaseFundsSpent(float entryCost)
         {
-            return LedgerOrchestrator.IsBypassEntryPurchaseAfterResearch() ? 0f : entryCost;
+            return IsBypassEntryPurchaseAfterResearch() ? 0f : entryCost;
         }
 
         #endregion
