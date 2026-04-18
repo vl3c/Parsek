@@ -236,10 +236,14 @@ namespace Parsek.Tests
             Assert.Null(provisional.SupersedeTargetId);
             Assert.Equal(2, scenario.RecordingSupersedes.Count);
 
-            // Session-provisional RP promoted to persistent.
-            var rp = scenario.RewindPoints.First(r => r.RewindPointId == "rp_session_1");
-            Assert.False(rp.SessionProvisional);
-            Assert.Null(rp.CreatingSessionId);
+            // Phase 11: the session-provisional RP gets tagged (flag flipped)
+            // and then reaped in the same RpReap checkpoint window because
+            // its ChildSlots list is empty (no open re-fly target). The
+            // pre-existing persistent RP (also empty slots) is reaped too.
+            Assert.DoesNotContain(scenario.RewindPoints,
+                r => r.RewindPointId == "rp_session_1");
+            Assert.DoesNotContain(scenario.RewindPoints,
+                r => r.RewindPointId == "rp_persistent");
 
             // All 3 durable saves fired in order.
             Assert.Equal(new[] { "durable1", "durable2", "durable3" },
@@ -406,9 +410,12 @@ namespace Parsek.Tests
 
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            // RPs got tagged during finisher completion.
-            var rp = scenario.RewindPoints.First(r => r.RewindPointId == "rp_session_1");
-            Assert.False(rp.SessionProvisional);
+            // Phase 11: RPs tagged + reaped during finisher completion.
+            // Both rp_session_1 and rp_persistent have empty ChildSlots, so
+            // they become reap-eligible the moment SessionProvisional flips
+            // and the reaper drops them.
+            Assert.DoesNotContain(scenario.RewindPoints,
+                r => r.RewindPointId == "rp_session_1");
 
             // All three durable saves eventually fire (the pre-crash
             // durable1 + the finisher's durable2 + durable3).

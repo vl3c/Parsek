@@ -300,7 +300,10 @@ namespace Parsek.Tests
 
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.False(scenario.RewindPoints[0].SessionProvisional);
+            // Phase 11: the session-provisional RP had empty ChildSlots so
+            // the reaper pass at the RpReap checkpoint drops it entirely
+            // after the tag step flips SessionProvisional=false.
+            Assert.Empty(scenario.RewindPoints);
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Equal(2, scenario.RecordingSupersedes.Count);
             Assert.Single(scenario.LedgerTombstones);
@@ -321,8 +324,9 @@ namespace Parsek.Tests
             RunUntil(MergeJournalOrchestrator.Phase.RpReap, scenario, provisional);
 
             Assert.Equal(MergeJournal.Phases.RpReap, scenario.ActiveMergeJournal.Phase);
-            // RP tag step already ran pre-crash.
-            Assert.False(scenario.RewindPoints[0].SessionProvisional);
+            // Phase 11: RP tag + reap step both ran pre-crash. The fixture
+            // RP has empty slots so it was already reaped from the scenario.
+            Assert.Empty(scenario.RewindPoints);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
             Assert.DoesNotContain("finisher-durable2", durableSaveCheckpoints);
 
