@@ -175,32 +175,39 @@ still works as designed, and the 45-frame safety is preserved.
 
 ## Test plan
 
-Existing `WatchModeControllerTests.cs` uses reflection to seed private
-fields (confirmed via review). All four new tests follow that pattern and
-assert on `ParsekLog.TestSinkForTesting` output. None need real
-`FlightCamera` or Unity GameObjects.
+Initial intent was to invoke `HandleOverlapCameraAction` via reflection and
+assert on `ParsekLog.TestSinkForTesting` output. That approach hit a
+test-infrastructure wall: the method body references `FlightCamera.fetch`
+(in the KSP `Assembly-CSharp`) and `UnityEngine.GameObject`, and the xUnit
+Unity stub throws `SecurityException: ECall methods must be packaged into
+a system module` when .NET JIT-prepares the method for reflective invocation
+— even when the guard branch returns before executing those references.
 
-1. `HandleOverlapCameraAction_ExplosionHoldStart_NonWatchedCycle_NoOp`
-   - Arrange: reflection-set `watchedRecordingIndex = 0`,
-     `watchedOverlapCycleIndex = 5`.
-   - Act: dispatch `CameraActionEvent { Index = 0, Action = ExplosionHoldStart,
-     NewCycleIndex = 3, AnchorPosition = Vector3.zero, HoldUntilUT = 100 }`.
-   - Assert: log contains `"hold start for #0 cycle=3 ignored (watching cycle=5)"`;
-     `watchedOverlapCycleIndex` unchanged (still 5); `overlapRetargetAfterUT`
-     unchanged.
-2. `HandleOverlapCameraAction_ExplosionHoldEnd_NonWatchedCycle_NoOp`
-   - Mirror of #1 with `ExplosionHoldEnd`. Assert cycle index unchanged and
-     the `"hold end ... ignored"` log emitted.
-3. `HandleOverlapCameraAction_ExplosionHoldStart_WatchedCycle_ProcessesNormally`
-   - Arrange: `watchedOverlapCycleIndex = 5`.
-   - Act: dispatch `ExplosionHoldStart { NewCycleIndex = 5, HoldUntilUT = 200 }`.
-   - Assert: log `"holding at explosion for #0 cycle=5"` emitted; cycle
-     index set to `-2`; `overlapRetargetAfterUT == 200`.
-4. `HandleOverlapCameraAction_ExplosionHoldEnd_WatchedCycle_ProcessesNormally`
-   - Arrange: `watchedOverlapCycleIndex = 5`.
-   - Act: dispatch `ExplosionHoldEnd { NewCycleIndex = 5 }`.
-   - Assert: log `"bridged at quiet expiry"` emitted; cycle index set to
-     `-1`; `overlapRetargetAfterUT == -1`.
+Workaround: extract the guard predicate as
+`internal static WatchModeController.ShouldIgnoreOverlapCycleEvent(
+long eventCycleIndex, long watchedCycleIndex)` and test it directly.
+This matches the repo convention documented in `.claude/CLAUDE.md`
+("Pure/static methods should be `internal static` for direct testability").
+The live handler calls the predicate; the tests pin its contract.
+
+Four new tests:
+
+1. `ShouldIgnoreOverlapCycleEvent_NonWatchedCycle_Ignored`
+   — asserts `(eventCycle=3, watchedCycle=5) -> true`.
+2. `ShouldIgnoreOverlapCycleEvent_WatchedCycle_NotIgnored`
+   — asserts `(eventCycle=5, watchedCycle=5) -> false`.
+3. `ShouldIgnoreOverlapCycleEvent_ReadyForNextSentinel_IgnoresRealEvent`
+   — `watchedCycle = -1` (post-bridge ready-for-next): any real
+   non-negative event cycle is ignored, so the bridge resolver state
+   machine can't be re-entered mid-flight.
+4. `ShouldIgnoreOverlapCycleEvent_HoldingSentinel_IgnoresRealEvent`
+   — `watchedCycle = -2` (holding after explosion): another overlap
+   cycle expiring must not interrupt the hold.
+
+Watched-cycle guard-passes path (cycle=-2/-1 mutations,
+`overlapRetargetAfterUT` update, log lines, bridge anchor creation) is
+NOT unit-tested because the full-body path JIT-loads KSP types — in-game
+verification is the coverage.
 
 In-game manual verification (catches what unit tests cannot):
 

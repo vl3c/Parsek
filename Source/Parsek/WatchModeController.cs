@@ -253,7 +253,11 @@ namespace Parsek
         /// should be ignored because it concerns a cycle the user is not watching.
         /// Real cycle indices are >= 0; sentinel values (-1 ready-for-next, -2 holding)
         /// never match a real event cycle index, so they too are ignored and cannot be
-        /// clobbered mid-flight.
+        /// clobbered mid-flight. This relies on the invariant that every overlap emission
+        /// site in <c>GhostPlaybackEngine</c> populates <c>NewCycleIndex</c> with a
+        /// non-negative loop-cycle counter value (verified at
+        /// <c>UpdateOverlapPlayback</c> line ~1089 and <c>UpdateExpireAndPositionOverlaps</c>
+        /// line ~1186); a hypothetical negative emission would silently match a sentinel.
         /// </summary>
         internal static bool ShouldIgnoreOverlapCycleEvent(long eventCycleIndex, long watchedCycleIndex)
         {
@@ -740,7 +744,7 @@ namespace Parsek
                     if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
                     {
                         ParsekLog.VerboseRateLimited("CameraFollow",
-                            $"overlap-hold-start-skip-{evt.Index}",
+                            $"overlap-hold-start-skip-{evt.Index}-{evt.NewCycleIndex}",
                             $"Overlap: hold start for #{evt.Index} cycle={evt.NewCycleIndex} " +
                             $"ignored (watching cycle={watchedOverlapCycleIndex})");
                         break;
@@ -762,7 +766,7 @@ namespace Parsek
                     if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
                     {
                         ParsekLog.VerboseRateLimited("CameraFollow",
-                            $"overlap-hold-end-skip-{evt.Index}",
+                            $"overlap-hold-end-skip-{evt.Index}-{evt.NewCycleIndex}",
                             $"Overlap: hold end for #{evt.Index} cycle={evt.NewCycleIndex} " +
                             $"ignored (watching cycle={watchedOverlapCycleIndex})");
                         break;
