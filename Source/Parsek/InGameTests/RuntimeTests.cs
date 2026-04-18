@@ -1825,6 +1825,210 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #456: orphan placement name-hit fallback places stand-in when snapshot pid=100000 (synthetic showcase) doesn't match any live part pid")]
+        public void Bug456_OrphanPlacement_NameHitFallback_PlacesStandin()
+        {
+            // End-to-end integration test for bug #456. The playtest symptom was:
+            //   [CrewReservation] Orphan placement: no matching part with free seat
+            //   in active vessel for 'Bill Kerman' → 'Urdun Kerman'
+            //   (snapshot pid=100000 name='mk1pod.v2')
+            //
+            // The snapshot carries a SYNTHETIC pid (100000, the canonical first
+            // AddPart-assigned value for showcase ghosts — see `.claude/CLAUDE.md`
+            // "Ghost event ↔ snapshot PID" gotcha) so tier-1 pid match always
+            // misses against a live vessel whose KSP-assigned part pid is a
+            // different random value. This test builds that exact shape — a
+            // snapshot with pid=100000 name=<live part name>, finds a free seat
+            // on the live vessel, then verifies PlaceOrphanedReplacements
+            // succeeds via the name-hit fallback tier and the summary log line
+            // increments `nameHitFallbacks`.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with a free seat to use as the placement target.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Sanity: the synthetic pid we will stamp into the snapshot must NOT
+            // coincide with the target part's live pid (otherwise the test would
+            // exercise the pid-hit tier instead of the name-hit fallback).
+            const uint SyntheticShowcasePid = 100000u;
+            if (target.persistentId == SyntheticShowcasePid)
+            {
+                InGameAssert.Skip("Target part's live pid coincides with the synthetic test pid — cannot exercise name-hit fallback");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            string fakeOriginal = "Bug456Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            // Save state for rollback.
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
+            int beforeCrewCount = target.protoModuleCrew.Count;
+
+            Recording syntheticRecording = null;
+            bool addedToCommitted = false;
+            bool placedCrew = false;
+
+            // Capture log output so we can assert on the name-fallback INFO line
+            // and the summary counter.
+            var logLines = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+
+                // Build a snapshot that DELIBERATELY uses a pid that does NOT
+                // match the live target — this forces tier-1 to miss and tier-2
+                // (name-hit) to carry the placement. The part NAME must match
+                // the live target's partInfo.name.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", target.partInfo.name);
+                partNode.AddValue("persistentId", SyntheticShowcasePid.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-orphan-456-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "Bug456TestVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+
+                RecordingStore.AddCommittedInternal(syntheticRecording);
+                addedToCommitted = true;
+
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+
+                InGameAssert.IsGreaterThan(placed, 0,
+                    $"PlaceOrphanedReplacements should have placed at least 1 stand-in via name-fallback (placed={placed})");
+                placedCrew = target.protoModuleCrew.Contains(standIn);
+                InGameAssert.IsTrue(placedCrew,
+                    $"Stand-in '{standIn.name}' should be in target part '{target.partInfo.title}' after name-hit fallback");
+                InGameAssert.AreEqual(beforeCrewCount + 1, target.protoModuleCrew.Count,
+                    $"Target part crew count should have increased by 1 " +
+                    $"(before={beforeCrewCount}, after={target.protoModuleCrew.Count})");
+
+                // Log-assertion: the dedicated "match=name-fallback" INFO line
+                // must have fired so future playtests can grep for it.
+                bool sawNameFallbackLog = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("match=name-fallback"))
+                    {
+                        sawNameFallbackLog = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawNameFallbackLog,
+                    "Expected a [CrewReservation] INFO line with 'match=name-fallback' — name-hit fallback path did not log its success");
+
+                // Log-assertion: the summary line must increment nameHitFallbacks.
+                bool sawNameHitCounter = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("Orphan placement pass:")
+                        && line.Contains("nameHitFallbacks=1"))
+                    {
+                        sawNameHitCounter = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawNameHitCounter,
+                    "Expected summary log with 'nameHitFallbacks=1' — counter did not increment on successful fallback");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug456 end-to-end: name-hit fallback placed '{standIn.name}' " +
+                    $"in '{target.partInfo.title}' from synthetic pid={SyntheticShowcasePid} snapshot");
+            }
+            finally
+            {
+                // Restore log sink first so cleanup doesn't pollute the captured lines.
+                ParsekLog.TestSinkForTesting = priorSink;
+
+                if (placedCrew && target.protoModuleCrew.Contains(standIn))
+                    target.RemoveCrewmember(standIn);
+
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+
+                if (addedToCommitted)
+                    RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: target part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
+                InGameAssert.AreEqual(savedCommittedCount, RecordingStore.CommittedRecordings.Count,
+                    $"Rollback failed: CommittedRecordings count not restored " +
+                    $"(expected={savedCommittedCount}, actual={RecordingStore.CommittedRecordings.Count})");
+                InGameAssert.AreEqual(savedReplacements.Count, CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
+            }
+        }
+
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.SPACECENTER,
             Description = "#308 CrewAutoAssignPatch.ApplyCrewAssignmentSwaps replaces reserved crew with stand-ins in a VesselCrewManifest")]
         public void CrewAutoAssignPatch_SwapsReservedCrew()

@@ -54,6 +54,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.
+- `#455` `PatchMilestones` no longer spams thousands of `repeatable node '<Body>/<Name>' is missing stock record fields` WARNs on every recalculation; one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …) now correctly fall through to the one-shot patch path instead of being short-circuited by the repeatable-record branch.
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
 - `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.
