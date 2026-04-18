@@ -713,6 +713,34 @@ namespace Parsek
         internal const long BuildBreakdownMinHeaviestSpawnMicroseconds = 15_000;
 
         /// <summary>
+        /// Bug #460: minimum <c>mainLoopMicroseconds</c> required for the mainLoop
+        /// breakdown one-shot WARN to consume its latch. Set to 10 ms so the gate
+        /// sits above (a) the 8 ms budget threshold (otherwise every exceeded frame
+        /// would qualify) and (b) the pre-B3 smoke's already-captured 8.55 ms mainLoop
+        /// sample, but below the 17-25 ms range observed in the post-B3 playtest
+        /// (so all three known spikes would have tripped).
+        /// </summary>
+        internal const long MainLoopBreakdownMinMainLoopMicroseconds = 10_000;
+
+        /// <summary>
+        /// Bug #460: maximum <c>spawnMicroseconds</c> allowed before the #460 latch
+        /// declines to fire. A frame whose hitch includes any non-trivial spawn work
+        /// (&gt;= 1 ms) belongs to #414's / #450's per-ghost territory even if
+        /// <c>ghostsProcessed == 0</c> (e.g. a trajectory whose state was null at
+        /// frame start spawned and was destroyed same-frame without ever incrementing
+        /// the counter). Keeps the #460 latch reserved for spikes that no per-ghost
+        /// instrumentation explains.
+        /// </summary>
+        internal const long MainLoopBreakdownMaxSpawnMicroseconds = 1_000;
+
+        /// <summary>
+        /// Bug #460: mirror of <see cref="MainLoopBreakdownMaxSpawnMicroseconds"/> for
+        /// the destroy stopwatch. Symmetric suppression so a same-frame destroy on a
+        /// ghost that never became active does not burn the #460 latch.
+        /// </summary>
+        internal const long MainLoopBreakdownMaxDestroyMicroseconds = 1_000;
+
+        /// <summary>
         /// One-shot latch for the bug #414 per-phase breakdown log. Flipped true the first
         /// time a playback-budget-exceeded warning fires in the session; once latched, the
         /// breakdown is never re-emitted even on subsequent spikes. This keeps the steady-state
@@ -727,6 +755,20 @@ namespace Parsek
         /// when the session's first budget-exceeded frame already consumed #414's latch.
         /// </summary>
         private static bool s_buildBreakdownOneShotFired;
+
+        /// <summary>
+        /// Bug #460: independent latch for the mainLoop-dominated zero-ghost breakdown WARN.
+        /// Separate from the #414 / #450 latches so a mid-session rollout of #460 still
+        /// captures the next qualifying spike even if the session's first budget-exceeded
+        /// frame(s) already consumed either predecessor latch. Fires at most once per session,
+        /// only when every gate in
+        /// <see cref="CheckPlaybackBudgetThresholdWithBreakdown"/>'s #460 branch holds: budget
+        /// exceeded, <c>ghostsProcessed == 0</c>, <c>spawn &amp; destroy &lt; 1 ms</c>,
+        /// <c>mainLoop &gt;= 10 ms</c>, and mainLoop is strictly the largest non-spawn/destroy
+        /// phase. The single WARN it emits is diagnostic plumbing — no user-observable
+        /// behaviour changes.
+        /// </summary>
+        private static bool s_mainLoopBreakdownOneShotFired;
 
         /// <summary>
         /// Checks the playback budget and emits a rate-limited WARN if exceeded.
@@ -830,18 +872,89 @@ namespace Parsek
                             + phases.heaviestSpawnReentryFxMicroseconds
                             + phases.heaviestSpawnOtherMicroseconds) / 1000.0).ToString("F2", Inv)));
             }
+
+            // Bug #460: mainLoop-dominated zero-ghost breakdown. Independent of #414 and #450
+            // latches. Fires on the next frame that is NOT explained by any per-ghost
+            // instrumentation (neither ongoing rendering nor a same-frame spawn/destroy) and
+            // whose mainLoop phase is strictly the largest non-spawn/destroy contributor.
+            // See plan-460-mainloop-breakdown.md for the gating rationale (7 conditions,
+            // each of which would otherwise let the latch burn on the wrong kind of spike).
+            // Dominance check: mainLoop must exceed every OTHER non-spawn/destroy
+            // bucket. Deferred events are summed as a single "deferred" phase
+            // because a Phase B fix that targets deferred-event processing would
+            // attack both halves together — a spike where mainLoop=11ms but
+            // deferredCreated+deferredCompleted=14ms is really a deferred-events
+            // spike, not a mainLoop one, even though no single deferred bucket
+            // exceeds mainLoop. Observability capture and explosion cleanup stay
+            // per-bucket because they are independent code paths.
+            long deferredEventsTotalMicroseconds =
+                phases.deferredCreatedEventsMicroseconds + phases.deferredCompletedEventsMicroseconds;
+            if (!s_mainLoopBreakdownOneShotFired
+                && ghostsProcessed == 0
+                && phases.spawnMicroseconds < MainLoopBreakdownMaxSpawnMicroseconds
+                && phases.destroyMicroseconds < MainLoopBreakdownMaxDestroyMicroseconds
+                && phases.mainLoopMicroseconds >= MainLoopBreakdownMinMainLoopMicroseconds
+                && phases.mainLoopMicroseconds > deferredEventsTotalMicroseconds
+                && phases.mainLoopMicroseconds > phases.observabilityCaptureMicroseconds
+                && phases.mainLoopMicroseconds > phases.explosionCleanupMicroseconds)
+            {
+                s_mainLoopBreakdownOneShotFired = true;
+
+                // Per-dispatch means. Render "n/a" sentinels for zero-divisor cases so a
+                // pathological frame that somehow spent 10+ ms in the main loop with zero
+                // trajectories / overlap iterations surfaces visibly instead of reporting a
+                // misleading zero. Integer divide is safe: denominators above zero are
+                // checked explicitly.
+                long dispatchCount = (long)phases.trajectoriesIterated
+                    + (long)phases.overlapGhostIterationCount;
+                string meanPerTrajStr = phases.trajectoriesIterated > 0
+                    ? ((double)phases.mainLoopMicroseconds / phases.trajectoriesIterated)
+                        .ToString("F2", Inv) + "us"
+                    : "n/a";
+                string meanPerDispatchStr = dispatchCount > 0
+                    ? ((double)phases.mainLoopMicroseconds / dispatchCount)
+                        .ToString("F2", Inv) + "us"
+                    : "n/a";
+
+                ParsekLog.Warn("Diagnostics",
+                    string.Format(Inv,
+                        "Playback mainLoop breakdown (one-shot, first mainLoop-dominated spike):"
+                        + " total={0}ms mainLoop={1}ms trajectories={2} overlapIterations={3}"
+                        + " meanPerTraj={4} meanPerDispatch={5}"
+                        + " deferredCreated={6}ms ({7} evts) deferredCompleted={8}ms ({9} evts)"
+                        + " observabilityCapture={10}ms explosionCleanup={11}ms"
+                        + " spawn={12}ms destroy={13}ms ghosts={14} warp={15}x",
+                        totalMs.ToString("F1", Inv),
+                        (phases.mainLoopMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.trajectoriesIterated,
+                        phases.overlapGhostIterationCount,
+                        meanPerTrajStr,
+                        meanPerDispatchStr,
+                        (phases.deferredCreatedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.createdEventsFired,
+                        (phases.deferredCompletedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.completedEventsFired,
+                        (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.explosionCleanupMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.spawnMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.destroyMicroseconds / 1000.0).ToString("F2", Inv),
+                        ghostsProcessed,
+                        warpRate.ToString("F0", Inv)));
+            }
         }
 
 
         /// <summary>
-        /// Test-only: reset the bug #414 and #450 one-shot breakdown latches so each test
-        /// starts clean. Use <see cref="SetBug414BreakdownLatchFiredForTesting"/> when a
-        /// test needs to pre-consume just the #414 latch.
+        /// Test-only: reset the bug #414, #450, and #460 one-shot breakdown latches so each
+        /// test starts clean. Use <see cref="SetBug414BreakdownLatchFiredForTesting"/> /
+        /// <see cref="SetBug450BreakdownLatchFiredForTesting"/> when a test needs to
+        /// pre-consume a specific prior latch without touching the others.
         /// </summary>
         internal static void ResetPlaybackBreakdownOneShotForTesting()
         {
             s_playbackBreakdownOneShotFired = false;
             s_buildBreakdownOneShotFired = false;
+            s_mainLoopBreakdownOneShotFired = false;
         }
 
         /// <summary>
@@ -854,6 +967,17 @@ namespace Parsek
         internal static void SetBug414BreakdownLatchFiredForTesting()
         {
             s_playbackBreakdownOneShotFired = true;
+        }
+
+        /// <summary>
+        /// Added by #460: test seam that pre-fires the #450 spawn-build-breakdown
+        /// latch without touching the #414 or #460 latches, so a three-way independence
+        /// test can verify the #460 branch does not share state with #450 either.
+        /// Companion to <see cref="SetBug414BreakdownLatchFiredForTesting"/>.
+        /// </summary>
+        internal static void SetBug450BreakdownLatchFiredForTesting()
+        {
+            s_buildBreakdownOneShotFired = true;
         }
 
         /// <summary>
@@ -919,6 +1043,7 @@ namespace Parsek
             ClockSource = null;
             s_playbackBreakdownOneShotFired = false;
             s_buildBreakdownOneShotFired = false;
+            s_mainLoopBreakdownOneShotFired = false;
         }
     }
 }

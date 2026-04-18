@@ -87,6 +87,15 @@ namespace Parsek
         // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
         // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
         private int frameSpawnDeferred;
+        // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
+        // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
+        // continue / remove), so it reflects total overlap dispatch work regardless of whether
+        // the iteration expired the ghost, repositioned it, or removed a null entry. Reset each
+        // frame alongside the other frame counters so the mainLoop breakdown WARN (#460 latch)
+        // can report `meanPerDispatch = mainLoop / (trajectoriesIterated + overlapIterations)`
+        // alongside `meanPerTraj`, distinguishing "slow per-trajectory dispatch" from "many
+        // overlap ghosts per trajectory" when the WARN fires on the next qualifying spike.
+        private int frameOverlapGhostIterationCount;
         // Bug #414: largest single BuildGhostVisualsWithMetrics cost (in Stopwatch ticks) seen
         // this frame. Reset each frame; surfaced via PlaybackBudgetPhases.spawnMaxMicroseconds
         // so the breakdown WARN reveals whether one ghost alone is blowing the budget.
@@ -355,6 +364,9 @@ namespace Parsek
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
+            // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
+            // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
+            frameOverlapGhostIterationCount = 0;
             // Bug #450 B3: reset lazy-reentry-build per-frame counters each tick so the
             // cap applies within a single UpdatePlayback call.
             frameLazyReentryBuildCount = 0;
@@ -679,6 +691,9 @@ namespace Parsek
                 deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 trajectoriesIterated = trajectoriesIterated,
+                // Bug #460: total overlap-ghost iterations this frame so the mainLoop
+                // breakdown WARN can compute `meanPerDispatch` alongside `meanPerTraj`.
+                overlapGhostIterationCount = frameOverlapGhostIterationCount,
                 createdEventsFired = createdEventsFired,
                 completedEventsFired = completedEventsFired,
                 spawnsAttempted = frameSpawnCount,
@@ -1322,6 +1337,14 @@ namespace Parsek
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
+                // Bug #460: count every overlap-ghost iteration (including null-entry
+                // cleanup) before any continue / remove, so the mainLoop breakdown WARN's
+                // `overlapGhostIterationCount` reflects the full overlap dispatch work
+                // that `mainLoopMicroseconds` covers. Matters for distinguishing
+                // "slow per-trajectory dispatch" from "many overlap ghosts per trajectory"
+                // on the next post-#460 playtest spike.
+                frameOverlapGhostIterationCount++;
+
                 var ovState = overlaps[i];
                 if (ovState == null)
                 {
@@ -2628,7 +2651,13 @@ namespace Parsek
             // Bug #450 B3: mirror the production reset so tests see a clean cap each call.
             frameLazyReentryBuildCount = 0;
             frameLazyReentryBuildDeferred = 0;
+            // Bug #460: mirror the production reset for the overlap-iteration counter so
+            // tests that read FrameOverlapGhostIterationCountForTesting (or otherwise drive
+            // multiple synthetic frames) see a clean counter each call.
+            frameOverlapGhostIterationCount = 0;
         }
+
+        internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
 
         private bool TryPopulateGhostVisuals(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,

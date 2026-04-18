@@ -76,7 +76,7 @@ are fixed in the same PR branch with additional commits:
 
 ---
 
-## 460. Playback budget exceeded on mainLoop-dominated frames with `0 ghosts` — one-shot latches miss the attribution
+## ~~460.~~ Playback budget exceeded on mainLoop-dominated frames with `0 ghosts` — one-shot latches miss the attribution
 
 **Source:** post-B3 playtest `logs/2026-04-18_1947_450-b3-playtest/KSP.log`. After the #414 and #450 Phase A one-shot latches consumed on the first spike (a spawn-driven 12.2 ms frame at line 14355-14499), three more budget-exceeded WARNs fired at `0 ghosts, warp=1x` with no accompanying breakdown because both latches were already burnt:
 
@@ -86,19 +86,19 @@ are fixed in the same PR branch with additional commits:
 96325 19:46:54  Playback frame budget exceeded: 18.8ms (0 ghosts, warp: 1x)
 ```
 
-Zero-ghost means zero spawn/destroy work — mainLoop dispatch (per-trajectory iteration) plus maybe deferred events is the only possible culprit. The pre-B3 smoke-test breakdown (2026-04-18_0221, also 0 ghosts) attributed `mainLoop=8.55 ms` across `trajectories=289` (~30 µs per trajectory). Scaling that to the post-B3 22-ish-ms spikes suggests ~75 µs per trajectory on those frames — high enough to matter.
+All three post-B3 spikes also reported `spawn=0 destroy=0`, so per-ghost spawn/destroy work is not the culprit — mainLoop dispatch (per-trajectory iteration including overlap-ghost iteration) plus maybe deferred events is. (The original hypothesis "zero ghosts means zero spawn/destroy work" is not literally true: `ghostsProcessed` counts ghosts active at frame start, and the same frame can still spawn and destroy a brand-new ghost without incrementing the counter. The implementation's gates 3+4 — `spawnMicroseconds < 1 ms` AND `destroyMicroseconds < 1 ms` — enforce the real classifier.) The pre-B3 smoke-test breakdown (2026-04-18_0221, also 0 ghosts) attributed `mainLoop=8.55 ms` across `trajectories=289` (~30 µs per trajectory). Scaling that to the post-B3 22-ish-ms spikes suggests ~75 µs per trajectory on those frames — high enough to matter.
 
 **Concern:** without a new breakdown WARN the attribution is guesswork. Candidates: OnGhostDistance computation, lazy-reentry pending-flag scan across all ghosts, overlap cycle bookkeeping, deferred event drain. Without per-phase data we can't rule them in or out.
 
-**Fix (diagnostic first):** add a third one-shot latch gated on `ghosts=0 AND mainLoopMicroseconds > N ms` that captures a separate breakdown WARN for the mainLoop-dominated case. Alternatively, extend the existing #450 latch to fire on the first non-spawn-dominated spike too — a single-latch-per-spike-class policy. Either way, a playtest after the diagnostic lands will tell us which phase inside the main loop owns the cost.
+**Fix:** added a third one-shot latch (`s_mainLoopBreakdownOneShotFired`) in `DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown`, independent of the #414 and #450 latches. Fires on the next frame where the budget is exceeded AND `ghostsProcessed == 0` AND `spawnMicroseconds < 1 ms` AND `destroyMicroseconds < 1 ms` AND `mainLoopMicroseconds >= 10 ms` AND mainLoop is strictly the largest non-spawn/destroy phase (dominance check against deferredCreated, deferredCompleted, observabilityCapture, explosionCleanup). Emits a single WARN with per-phase ms, trajectory/overlap counts, and two per-dispatch means: `meanPerTraj = mainLoop / trajectoriesIterated` and `meanPerDispatch = mainLoop / (trajectoriesIterated + overlapGhostIterationCount)`. The dual means let a Phase B reader distinguish "slow top-level dispatch" from "overlap fan-out" as two different fix directions. Zero-divisor cases render as `n/a` so degenerate frames surface visibly instead of printing a misleading zero. `PlaybackBudgetPhases` gains one new field (`overlapGhostIterationCount`), populated by incrementing `frameOverlapGhostIterationCount` inside `GhostPlaybackEngine.UpdateExpireAndPositionOverlaps` (once per iteration, before any continue). Three threshold constants (`MainLoopBreakdownMinMainLoopMicroseconds=10_000`, `MainLoopBreakdownMaxSpawnMicroseconds=1_000`, `MainLoopBreakdownMaxDestroyMicroseconds=1_000`) encode the gating. New test seam `SetBug450BreakdownLatchFiredForTesting` (companion to the existing `SetBug414BreakdownLatchFiredForTesting`) enables three-way pairwise latch-independence tests. Plan + design rationale live in `docs/dev/plan-460-mainloop-breakdown.md`.
 
-**Files:** `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new latch + condition), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (optional: per-main-loop-phase sub-fields if the simple total-mainloop latch isn't actionable enough), `Source/Parsek.Tests/Bug460MainLoopBreakdownTests.cs` (new).
+**Files:** `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (3 new const thresholds, `s_mainLoopBreakdownOneShotFired` latch, new third branch in `CheckPlaybackBudgetThresholdWithBreakdown`, `SetBug450BreakdownLatchFiredForTesting` seam, extended `ResetForTesting` / `ResetPlaybackBreakdownOneShotForTesting`), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `overlapGhostIterationCount` field on `PlaybackBudgetPhases`), `Source/Parsek/GhostPlaybackEngine.cs` (new `frameOverlapGhostIterationCount` field + reset in `UpdatePlayback` + increment in `UpdateExpireAndPositionOverlaps` + population of new struct field + `FrameOverlapGhostIterationCountForTesting` accessor mirrored in `ResetPerFrameCountersForTesting`), `Source/Parsek.Tests/Bug460MainLoopBreakdownTests.cs` (new, 21 regression tests covering every gate — including boundary tests for gate 3/4/5/6 — three-way latch independence, and format rendering).
 
-**Scope:** Small (diagnostic-only). Fix shape depends on the post-diagnostic data.
+**Scope:** Small (diagnostic-only). Phase B fix shape is gated on the next playtest's #460 WARN output. No user-observable behaviour change; no CHANGELOG entry (per `feedback_changelog_style`).
 
 **Dependencies:** #414 + #450 Phase A shipped.
 
-**Status:** TODO. Priority: medium. Not release-blocking for v0.8.2 but should be diagnosed before v0.8.3 perf claims. Observed on the `test career` save during the B3 playtest; reproducibility across saves unknown.
+**Status:** ~~Fixed~~ (diagnostic only). Plan: `docs/dev/plan-460-mainloop-breakdown.md`. `dotnet build` passes 0/0; targeted `dotnet test --filter Bug460MainLoopBreakdownTests` passes 21/21. In-game verification is deferred to the next playtest bundle — success criterion is a single `Playback mainLoop breakdown` WARN line in `KSP.log` the first time a zero-ghost, mainLoop-dominated budget-exceeded frame occurs.
 
 ---
 
