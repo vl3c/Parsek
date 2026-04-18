@@ -27,6 +27,7 @@ All notable changes to Parsek are documented here.
 - Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
 - `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose.
 - `#378` Added a rate-limited warn when on-save monotonicity rebuild exceeds 5 ms on a single recording, so save-time stutter is visible in `KSP.log`.
+- `#449` Merger boundary-discontinuity warnings now include the inter-section time gap, the velocity-implied expected gap, and a `cause=` tag (`unrecorded-gap` / `sample-skip` / `frame-mismatch`) so quickload-resume gaps are immediately distinguishable from real recorder bugs in `KSP.log`.
 - `#376` Documented the dual-storage invariant for auto-assigned standalone group names.
 - Gloops Flight Recorder window now has a Close button at the bottom, matching other Parsek windows.
 - Recordings window opens wider by default (1280 px) so more columns fit without a horizontal scroll; the Info-expanded width scales up to match.
@@ -53,6 +54,9 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#423` Ghost playback for the stock IX-6315 "Dawn" ion engine no longer plays silent or spam an "AudioClip not found" warning — the missing stock `sound_IonEngine` lookup is substituted with `sound_rocket_mini`, and ion / ElectricCharge ghost engines keep the existing quiet loop-volume curve so the fallback stays subtle instead of sounding rocket-loud.
+- Ghost playback with short loop periods no longer stacks multiple ghosts near the launch pad. Minimum loop period is now 5 s (was 1 s). When the requested period would produce more simultaneously-live ghosts than the per-recording cap, the engine automatically halves the launch cadence (doubles the period) until the cycles fit — so ghosts spread visibly across the whole trajectory instead of being silently culled. A one-line log explains the adjustment per recording.
+- Watch camera no longer jumps to the newest iteration when an unrelated overlap cycle of the watched Gloops recording expires; camera stays with the ghost you're watching until that ghost's own cycle ends, then hands off to the most-recently-launched iteration.
+- Default "Auto-launch every" setting is now 30 s (was 10 s). Existing saves keep the value the user had; only fresh installs and the Settings reset path pick up the new default.
 - `#441` Legacy flights whose net science or reputation was negative now reconcile cleanly on load instead of being skipped — the load-time migration injects a spending-side synthetic and the ledger purges it with the tree on discard. Long missions that overlap unrelated KSC activity (contract accept, part purchase) no longer silently drop their persisted residuals, and optimizer merges that absorb a tree's root recording retag any ledger synthetics to the new root so they survive subsequent reconcile passes.
 - Every non-revert tree-commit path (post-revert merge dialog, scene-exit auto-merge, Esc > Abort Mission auto-commit, and the OnSave safety-net auto-commit) now disarms the legacy lump-sum replay path on the just-committed tree, matching the in-flight Commit Flight behavior so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
 - Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.
