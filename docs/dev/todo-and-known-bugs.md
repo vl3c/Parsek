@@ -64,9 +64,9 @@ are fixed in the same PR branch with additional commits:
 
 **Source:** Playtest `logs/2026-04-18_1859_450-phase-a-playtest/KSP.log` produced 3,136 WARN lines across 392 unique node IDs of the shape `repeatable node 'Bop/Orbit' is missing stock record fields (record=False, rewardThreshold=False, rewardInterval=False) — skipping`. Root cause: `PatchProgressNodeTree` dispatches every node through `PatchRepeatableRecordNode`, which probed for the three record-specific fields and WARN'd + returned `true` (short-circuiting the caller's one-shot branch) when they were missing. Every non-record progress node (`Orbit`, `Landing`, `Flyby`, `Flight`, …) tripped that path on every recalculation.
 
-**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs` (new `IsRepeatableRecordType` helper + early-return guard in `PatchRepeatableRecordNode`), `Source/Parsek.Tests/KspStatePatcherTests.cs` (5 regression tests + 6 synthetic `ProgressNode` subclasses exercising both branches).
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs` (new `IsRepeatableRecordType` helper + early-return guard in `PatchRepeatableRecordNode`), `Source/Parsek.Tests/KspStatePatcherTests.cs` (6 regression tests + 6 synthetic `ProgressNode` subclasses exercising both branches).
 
-**Scope:** Small. One production helper, one guarded early return, five unit tests. The one-shot patch path for the 392 body sub-achievements is now reachable — previously `return true` from the records branch silently suppressed it.
+**Scope:** Small. One production helper, one guarded early return, six unit tests. The one-shot patch path for the 392 body sub-achievements is now reachable — previously `return true` from the records branch silently suppressed it.
 
 ---
 
