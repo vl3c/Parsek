@@ -123,3 +123,11 @@ Source/Parsek/MergeJournalOrchestrator.cs
 # NotCommitted provisional, which ERS filters out; the reaper MUST see
 # that state to decide "retain" vs "reap." No ELS reads.
 Source/Parsek/RewindPointReaper.cs
+
+# TreeDiscardPurge.PurgeTree builds the tree's recording-id set from the
+# tree's own Recordings dictionary (tree-local, no ERS routing needed)
+# and walks raw Ledger.Actions to classify tombstones by their target
+# action's RecordingId (design §6.10 / §3.5 invariant 7). Routing
+# through ELS would be circular (tombstones we are about to remove are
+# exactly what ELS uses to hide actions).
+Source/Parsek/TreeDiscardPurge.cs
