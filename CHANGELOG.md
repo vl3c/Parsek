@@ -111,6 +111,7 @@ All notable changes to Parsek are documented here.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 - Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestones or other post-rewind events. Contract deadlines that expired between the last pre-cutoff action and the rewind target now correctly fail, and tech-research affordability checks use current UT so post-rewind unlocks cannot read future science.
+- `InjectAllRecordings` now refuses to purge `Parsek/Recordings/` while KSP is actively holding `KSP.log`, and `scripts/collect-logs.py` snapshots live recording sidecars by default with a `--skip-recordings` opt-out.
 
 ### Known Limitations
 

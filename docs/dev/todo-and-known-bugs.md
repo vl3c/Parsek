@@ -2397,6 +2397,8 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 
 **Reinjection gotcha:** running `dotnet test --filter InjectAllRecordings` from a sibling git worktree silently short-circuits (xUnit reports Passed in ~100 ms) because `ResolveKspRoot()` probes relative to `ProjectRoot` and does not find `Kerbal Space Program/` outside the worktree. The MSBuild `-p:KSPDir=...` property only wires up DLL references at build time. To actually reinject, set the `KSPDIR` environment variable for the test process: `KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program" dotnet test --filter InjectAllRecordings -p:KSPDir=...`.
 
+**Live-save hazard:** `InjectAllRecordings` purges `saves/<save>/Parsek/Recordings/` before rewriting fixtures, so never aim it at the same `KSPDIR`/save a live KSP session is using; the helper now probes `KSP.log` and refuses the purge when KSP appears active, but reinjection should still be treated as a closed-KSP operation.
+
 ---
 
 ## ~~383. Ghost engine flames visibly undersized compared to stock~~

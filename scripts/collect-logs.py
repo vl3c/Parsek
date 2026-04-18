@@ -1,7 +1,9 @@
 """
-collect-logs.py - Gather KSP/Parsek logs, saves, and test results for debugging.
+collect-logs.py - Gather KSP/Parsek logs, save snapshots, recordings sidecars,
+and test results for debugging.
 
 Usage:  python scripts/collect-logs.py [label] [--save NAME] [--skip-validation]
+                                      [--skip-recordings]
 Output: logs/YYYY-MM-DD_HHMM[_label]/
 
 KSP directory resolution (first match wins):
@@ -77,7 +79,15 @@ def human_size(nbytes):
 
 
 def dir_size(path):
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    total = 0
+    for f in path.rglob("*"):
+        if not f.is_file():
+            continue
+        try:
+            total += f.stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def copy_file(src, dst_dir):
@@ -87,9 +97,13 @@ def copy_file(src, dst_dir):
         return False
     dst_dir = Path(dst_dir)
     dst_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst_dir / src.name)
-    print(f"  {src.name}  ({human_size(src.stat().st_size)})")
-    return True
+    try:
+        shutil.copy2(src, dst_dir / src.name)
+        print(f"  {src.name}  ({human_size(src.stat().st_size)})")
+        return True
+    except (OSError, shutil.Error) as exc:
+        print(f"  {src.name}  (copy failed: {exc})")
+        return False
 
 
 def copy_tree(src, dst):
@@ -97,16 +111,32 @@ def copy_tree(src, dst):
     src, dst = Path(src), Path(dst)
     if not src.is_dir():
         return False
-    files = list(src.iterdir())
-    if not files:
+
+    copied_any = False
+    copied_files = 0
+    copied_bytes = 0
+
+    for root, _dirs, files in os.walk(src):
+        root_path = Path(root)
+        rel_root = root_path.relative_to(src)
+
+        for name in files:
+            src_file = root_path / name
+            dst_file = dst / rel_root / name
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(src_file, dst_file)
+                copied_any = True
+                copied_files += 1
+                copied_bytes += src_file.stat().st_size
+            except (OSError, shutil.Error) as exc:
+                rel_path = src_file.relative_to(src)
+                print(f"  {src.name}/  (copy failed: {rel_path} - {exc})")
+
+    if not copied_any:
         return False
-    dst.mkdir(parents=True, exist_ok=True)
-    for item in files:
-        if item.is_file():
-            shutil.copy2(item, dst / item.name)
-        elif item.is_dir():
-            shutil.copytree(item, dst / item.name)
-    print(f"  {src.name}/  ({human_size(dir_size(src))})")
+
+    print(f"  {src.name}/  ({human_size(copied_bytes)}, {copied_files} files)")
     return True
 
 
@@ -206,6 +236,7 @@ def main():
     parser.add_argument("--ksp-dir", default=None, help="Path to KSP installation (default: auto-detect)")
     parser.add_argument("--output-dir", default=None, help="Output base directory (default: <repo>/logs/)")
     parser.add_argument("--skip-validation", action="store_true", help="Skip KSP.log contract validation")
+    parser.add_argument("--skip-recordings", action="store_true", help="Skip copying Parsek/Recordings sidecars")
     args = parser.parse_args()
 
     # Resolve KSP directory
@@ -254,22 +285,26 @@ def main():
     print()
 
     # Save games
-    print(f"Save games ({save_name}):")
-    saves_out = out_dir / "saves"
-    copy_file(save_dir / "persistent.sfs", saves_out)
-    copy_file(save_dir / "quicksave.sfs", saves_out)
+    print(f"Save snapshot ({save_name}):")
+    save_out = out_dir / "saves" / save_name
+    copy_file(save_dir / "persistent.sfs", save_out)
+    copy_file(save_dir / "quicksave.sfs", save_out)
     loadmetas = list(save_dir.glob("*.loadmeta"))
     if loadmetas:
-        saves_out.mkdir(parents=True, exist_ok=True)
+        copied_loadmetas = 0
         for lm in loadmetas:
-            shutil.copy2(lm, saves_out / lm.name)
-        print(f"  {len(loadmetas)} .loadmeta files")
+            if copy_file(lm, save_out):
+                copied_loadmetas += 1
+        print(f"  {copied_loadmetas}/{len(loadmetas)} .loadmeta files")
+    if args.skip_recordings:
+        print("  Parsek/Recordings/  (skipped)")
+    else:
+        copy_tree(save_dir / "Parsek" / "Recordings", save_out / "Parsek" / "Recordings")
     print()
 
     # Parsek data
     print("Parsek data:")
     parsek_out = out_dir / "parsek"
-    copy_tree(save_dir / "Parsek" / "Recordings", parsek_out / "Recordings")
     copy_tree(save_dir / "Parsek" / "GameState", parsek_out / "GameState")
     copy_tree(save_dir / "Parsek" / "Saves", parsek_out / "Saves")
     print()

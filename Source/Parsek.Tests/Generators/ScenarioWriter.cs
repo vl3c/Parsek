@@ -291,6 +291,59 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Guarded purge used by InjectAllRecordings. Refuses to delete the live
+        /// sidecar directory when a running KSP instance still has KSP.log open,
+        /// which would race the game and wipe its current Recordings snapshot.
+        /// </summary>
+        public bool TryPurgeRecordingSidecarsForInject(
+            string saveDir,
+            string kspLogPath,
+            out string refusalMessage)
+        {
+            refusalMessage = null;
+            if (string.IsNullOrEmpty(saveDir))
+                return true;
+
+            string lockedLogPath;
+            if (IsExclusiveReadWriteProbeBlocked(kspLogPath, out lockedLogPath))
+            {
+                string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+                refusalMessage =
+                    $"InjectAllRecordings refused to purge '{recordingsDir}' because KSP.log '{lockedLogPath}' is locked by another process. Close KSP or point KSPDIR at a different install/save before rerunning.";
+                ParsekLog.Error("SyntheticInjector", refusalMessage);
+                return false;
+            }
+
+            PurgeRecordingSidecars(saveDir);
+            return true;
+        }
+
+        internal static bool IsExclusiveReadWriteProbeBlocked(string path, out string normalizedPath)
+        {
+            normalizedPath = null;
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            normalizedPath = Path.GetFullPath(path);
+            if (!File.Exists(normalizedPath))
+                return false;
+
+            try
+            {
+                using (File.Open(normalizedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    return false;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Writes recording sidecar files for all v3 recordings to the
         /// Parsek/Recordings/ subdirectory relative to the given save directory.
         /// Uses RecordingStore's test-facing save path so generated corpora
