@@ -153,22 +153,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OnKscSpending_PartPurchased_ZeroCost_AddsZeroCostFundsSpendingAction()
+        public void OnKscSpending_PartPurchased_UsesCostTokenWhenEntryCostAlsoPresent()
         {
-            var evt = GameStateRecorder.CreatePartPurchasedEvent(
-                "mk1pod",
-                entryCost: 600f,
-                bypassEntryPurchaseAfterResearch: true,
-                ut: 501.0,
-                currentFunds: 10000);
+            // #451: post-fix events may persist the raw stock entry price for diagnostics,
+            // but the ledger must honor the actual charged amount from `cost=`. This
+            // guards the stock-default bypass=true shape (`cost=0;entryCost=<raw>`).
+            var evt = new GameStateEvent
+            {
+                ut = 550.0,
+                eventType = GameStateEventType.PartPurchased,
+                key = "solidBooster.v2",
+                detail = "cost=0;entryCost=800"
+            };
 
             LedgerOrchestrator.OnKscSpending(evt);
 
             var match = Ledger.Actions.FirstOrDefault(a =>
-                a.Type == GameActionType.FundsSpending && a.DedupKey == "mk1pod");
+                a.Type == GameActionType.FundsSpending && a.DedupKey == "solidBooster.v2");
             Assert.NotNull(match);
-            Assert.Equal(FundsSpendingSource.Other, match.FundsSpendingSource);
             Assert.Equal(0f, match.FundsSpent);
+        }
+
+        [Fact]
+        public void ComputePartPurchaseFundsSpent_BypassOn_ReturnsZero()
+        {
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+                Assert.Equal(0f, GameStateRecorder.ComputePartPurchaseFundsSpent(800f));
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ComputePartPurchaseFundsSpent_BypassOff_ReturnsEntryCost()
+        {
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                Assert.Equal(800f, GameStateRecorder.ComputePartPurchaseFundsSpent(800f));
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
         }
 
         [Fact]

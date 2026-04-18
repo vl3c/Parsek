@@ -58,7 +58,7 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 454. Refactor `GameStateRecorder.Emit` and `GameStateStore.AddEvent` to take `ref GameStateEvent` to eliminate value-type field-mirror footguns
+## ~~451.~~ `OnPartPurchased` writes `part.cost` instead of `part.entryCost` — ledger over-debits R&D unlocks under bypass=off
 
 **Source:** PR #443 review. The #443 root cause was that `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local copy. The cached pending entry kept `epoch=0` while the stored slot carried the live epoch, and `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed silently. The fix mirrors `MilestoneStore.CurrentEpoch` (and now also `recordingId`) onto the cached entry by hand inside `RegisterPendingMilestoneEvent`.
 
@@ -68,57 +68,19 @@ are fixed in the same PR branch with additional commits:
 
 **Files:** `Source/Parsek/GameStateRecorder.cs` (`Emit` signature + 12+ call sites), `Source/Parsek/GameStateStore.cs` (`AddEvent` signature), `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs` and other tests that call `AddEvent` directly (~20 sites across the test project).
 
-**Scope:** Medium. Not behavior-changing if done correctly, but mechanical and broad — every `AddEvent`/`Emit` caller updates. Worth a dedicated PR rather than tacking onto a behavioral fix.
+**Fix:** compute the authoritative charged amount in `GameStateRecorder.OnPartPurchased`: `0` when `BypassEntryPurchaseAfterResearch=true`, otherwise `part.entryCost`. Then:
+- persist `cost=<chargedCost>` as the authoritative funds delta and `entryCost=<part.entryCost>` as raw-price context;
+- use `chargedCost` for `valueBefore`/`valueAfter` so future consumers that diff those fields see the real debit instead of resurrecting the bypass=true bug;
+- keep `ConvertPartPurchased` and `ResourceBudget.ParseCostFromDetail` keyed to `cost=` first, with `entryCost=` only as a fallback when `cost=` is absent;
+- add a load-time compatibility rewrite for the immediately previous bad save shape: if a `PartPurchased` row carries `cost=<entryCost>;entryCost=<entryCost>`, matches the same-epoch `TechResearched(parts=...)` auto-unlock, and lacks a same-epoch paired `FundsChanged(RnDPartPurchase)` debit, rewrite it to `cost=0` so predecessor bypass=true saves do not reload as paid unlocks / reserved funds.
 
-**Status:** TODO. Priority: low. Defense-in-depth refactor; current bug surfaces (#443) are all patched explicitly. Surfacing this as a separate item so the next person who edits `Emit`/`AddEvent` doesn't have to rediscover the value-type trap.
+**Files:** `Source/Parsek/GameStateRecorder.cs:480-509` (derive charged cost from difficulty, persist both tokens), `Source/Parsek/GameStateEvent.cs` (load-time predecessor-shape migration helper), `Source/Parsek/GameStateStore.cs` and `Source/Parsek/Milestone.cs` (run the migration over loaded live events and committed milestone events), `Source/Parsek/GameActions/GameStateEventConverter.cs` (`ConvertPartPurchased` treats `cost=` as authoritative with `entryCost=` fallback), `Source/Parsek/ResourceBudget.cs` (`ParseCostFromDetail` mirrors the same priority for `MilestoneCommittedFunds`), `Source/Parsek.Tests/GameStateEventTests.cs`, `Source/Parsek.Tests/MilestoneTests.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `Source/Parsek.Tests/GameStateEventConverterTests.cs`, `Source/Parsek.Tests/EarningsReconciliationTests.cs`, and `Source/Parsek.Tests/ResourceBudgetTests.cs` (regression coverage for the load migration, bypass-aware charged cost, dual-token parsing, and bypass=off reconcile).
 
----
+**Scope:** Small. Existing field swap plus a narrow load-time compatibility migration and focused regression coverage. Format-compat note: pre-#451 single-token `cost=` saves still load unchanged, and the immediately previous bad dual-token auto-unlock shape is healed on load.
 
 ## 452. Cancelled-rollout ledger entries should label the vessel name (or flag as "cancelled rollout")
 
-**Source:** review pass on PR `fix/445-rollout-cost-leak`. After #445, a cancelled-rollout `FundsSpending(VesselBuild)` action correctly persists in the ledger so the funds total stays in sync with KSP's deduction. However the Ledger / Actions UI currently renders the entry as a generic `"Vessel build"` label with no recording link — there's no way for the player to see which vessel the cost belonged to or that it was a cancellation. Cross-reference #445.
-
-**Fix:** When rendering a `FundsSpending(VesselBuild)` action whose `RecordingId == null` and `DedupKey` starts with `"rollout:"`, surface either the vessel name (would require capturing it in `OnVesselRolloutSpending` — KSP's `FundsChanged` event doesn't expose it directly, may need a `VesselRolloutEvent` Harmony patch on `EditorLogic.OnLaunchBtnClicked` or `LaunchPad.Launch`) or at minimum a "(cancelled rollout)" suffix on the existing label so the entry is distinguishable from an adopted (recording-tagged) build cost.
-
-**Files:** Likely `Source/Parsek/UI/ActionsWindowUI.cs` (or wherever `FundsSpending(VesselBuild)` is rendered); possibly `Source/Parsek/GameStateRecorder.cs` and `Source/Parsek/GameActions/LedgerOrchestrator.cs:OnVesselRolloutSpending` for vessel-name capture.
-
-**Status:** TODO. Priority: low (cosmetic — funds total is correct; only the human-readable description is generic).
-
----
-
-## ~~451. `OnPartPurchased` encoded the wrong funds charge for R&D unlocks~~
-
-**Status:** ~~Fixed~~ — `GameStateRecorder.OnPartPurchased` now mirrors stock KSP's real debit rule: `cost=0` when `Difficulty.BypassEntryPurchaseAfterResearch=true`, otherwise `cost=part.entryCost`. The event still uses the legacy `cost=` token for save-format compatibility, but the value behind that key is now the amount KSP actually charged. Load-time compatibility rewrites existing version-1 `PartPurchased` events / `FundsSpending(Other)` ledger rows only when the saved history still contains either an unambiguous `FundsChanged(RnDPartPurchase)` delta for that unlock or the known legacy bypass-only shape (one stale `PartPurchased` row, no paired funds event, and a loaded save that still reports `BypassEntryPurchaseAfterResearch=true`); ambiguous/coalesced windows are preserved instead of being guessed from current difficulty or part metadata. This closes both failure modes discovered during #448 review:
-- stock-default careers no longer hide a real funds over-debit behind reconciliation suppression, because bypass-mode purchases now land as zero-cost actions;
-- harder no-bypass careers no longer debit rollout `part.cost` and now match the real `FundsChanged(RnDPartPurchase)` delta of `-entryCost`.
-
-Tests cover the pure event synthesis (`GameStateRecorderPartPurchaseTests`), zero-cost KSC ledger writes (`GameStateRecorderLedgerTests`), and the reconciliation no-WARN zero-delta path (`EarningsReconciliationTests`).
-
----
-
-## ~~453. Watch camera horizon log occasionally shows `playbackVel=(0,0,0) rawAlignment=fallback` for one frame~~
-
-**Source:** post-#361 log audit `2026-04-18` (`logs/2026-04-18_1106_ghosts-stuck-at-pad/KSP.log` lines 15020, 16853, 17507, 18080). Flagged as "possibly other bugs" during investigation of the stuck-at-pad report; root cause traced here after #361 shipped.
-
-**Symptom:** one-frame events in the "Watch horizon basis" INFO log where `playbackVel=(0.0,0.0,0.0)` and `rawAlignment=fallback`, while the ghost is clearly flying (non-zero `alt`, non-zero `bodyVel`). The frame immediately before and after shows non-zero playback velocity.
-
-**Cause:** the two sampled trajectory bracket points sometimes have near-opposite stored velocities (a sub-second direction reversal — decoupler fire, bounce landing, `rb_velocity` flip at an atmosphere boundary). Linear interpolation at `ParsekFlight.cs:9967-9970` (point path) and `:10706-10708` (relative-frame path) computes `Vector3.Lerp(before.velocity, after.velocity, t)`; near `t = 0.5` the magnitude collapses below the 0.01 fallback threshold used by `WatchModeController.DescribeHorizonAlignment` (line ~2800), so the log line tags the alignment "fallback" and the horizon basis briefly falls through to `HorizonForwardSource.LastForwardFallback`.
-
-**Impact — cosmetic only:**
-
-- Ghost positioning uses the stored `position` field, not the interpolated velocity, so the ghost's motion is continuous through the affected frame.
-- `LastForwardFallback` reuses the previous frame's forward vector, so the CAMERA does not snap visibly — the direction smoothly carries across the one-frame transient.
-- Net effect: one line of "fallback" in the log that looks like a bug during a KSP.log audit but isn't. Diagnostic noise, not a gameplay defect.
-
-**Decision — leave as-is.** Candidate code fixes (documented in `docs/dev/plan-fix-zero-playback-velocity.md` on branch `fix/zero-playback-velocity-fallback`) all carry tradeoffs that outweigh the benefit:
-
-- Snap to the nearer bracket's velocity on reversal detection: changes the semantics of interpolated velocity for every consumer, not just the camera log.
-- EMA smoothing for the log line only: hides real sub-second transients from future audits.
-- Numerical-differentiation fallback: changes the meaning of "velocity at time t" away from the Lerp'd value every other caller assumes.
-
-The severity does not justify the code churn or the regression risk. This entry exists so the next log auditor recognises the line on sight and moves on.
-
-**Status:** ~~Known, not fixed~~ (diagnostic artifact, accepted).
+**Status:** ~~Fixed~~ in this PR. `GameStateRecorder.OnPartPurchased` now computes the actual charged amount per difficulty (`0` under bypass=on, `entryCost` under bypass=off), persists it in `cost=`, and keeps `entryCost=` as raw-price context. `ConvertPartPurchased` and `ResourceBudget.ParseCostFromDetail` treat `cost=` as authoritative with `entryCost=` fallback only when `cost=` is absent, and load now heals the immediately previous bad bypass=true save shape by rewriting `cost=<entryCost>;entryCost=<entryCost>` auto-unlock rows back to `cost=0` only when the same candidate epoch contains the matching tech unlock and no `RnDPartPurchase` funds debit. Regression coverage: `GameStateEventTests.NormalizeLegacyPartPurchaseCostsForLoad_FreeAutoUnlock_RewritesCostToZero`/`_MatchingFundsDebit_KeepsPaidPurchase`/`_WithoutMatchingTechUnlock_SkipsMigration`/`_MatchingTechInDifferentEpoch_SkipsMigration`/`_DifferentEpochFundsDebit_DoesNotBlockMigration`, `MilestoneTests.Milestone_DeserializeFrom_MigratesLegacyFreePartUnlockShape`/`_IgnoresDifferentEpochFundsDebitWhenMigratingLegacyFreePartUnlockShape`, `GameStateRecorderLedgerTests.ComputePartPurchaseFundsSpent_BypassOn_ReturnsZero`/`_BypassOff_ReturnsEntryCost`/`OnKscSpending_PartPurchased_UsesCostTokenWhenEntryCostAlsoPresent`, `GameStateEventConverterTests.ConvertEvent_PartPurchased_UsesCostToken_WhenEntryCostAlsoPresent`/`_CostOnly_StillParses`/`_EntryCostOnly_FallsBackWhenCostMissing`, `EarningsReconciliationTests.ReconcileKsc_PartPurchase_BypassOff_EntryCostMatched_NoWarn`/`_LegacyCostMismatch_WarnsDelta`, and `ResourceBudgetTests.ParseCostFromDetail_UsesCostWhenEntryCostAlsoPresent`/`_EntryCostOnly_FallsBackWhenCostMissing`/`_CostWinsEvenWhenEntryCostAppearsFirst`. Priority was medium; player-visible on the harder no-bypass difficulty and, in this branch's initial implementation, on stock-default bypass careers after reload.
 
 ---
 

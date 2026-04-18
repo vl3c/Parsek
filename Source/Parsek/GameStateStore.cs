@@ -931,6 +931,9 @@ namespace Parsek
                         events.Add(GameStateEvent.DeserializeFrom(en));
                 }
 
+                int migratedPartPurchases =
+                    GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(events, "events.pgse");
+
                 ConfigNode[] snapNodes = rootNode.GetNodes("CONTRACT_SNAPSHOT");
                 if (snapNodes != null)
                 {
@@ -942,7 +945,8 @@ namespace Parsek
 
                 ParsekLog.Info("GameStateStore",
                     $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
-                    $"{committedScienceSubjects.Count} science subjects from {path}");
+                    $"{committedScienceSubjects.Count} science subjects from {path} " +
+                    $"(partPurchaseCompatMigrations={migratedPartPurchases})");
 
                 // Log event type distribution for diagnostics
                 if (events.Count > 0)

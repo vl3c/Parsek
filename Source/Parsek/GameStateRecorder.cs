@@ -548,29 +548,49 @@ namespace Parsek
             }
             if (part == null) return;
             var partName = part.name ?? "";
-            double ut = Planetarium.GetUniversalTime();
-            double currentFunds = Funding.Instance != null ? Funding.Instance.Funds : 0;
-            bool bypassEntryPurchaseAfterResearch = IsBypassEntryPurchaseAfterResearch();
+            // InvariantCulture-safe: plain interpolation serializes floats with the
+            // system locale decimal separator, and ConvertPartPurchased parses with IC.
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             float entryCost = part.entryCost;
-            var evt = CreatePartPurchasedEvent(
-                partName,
-                entryCost,
-                bypassEntryPurchaseAfterResearch,
-                ut,
-                currentFunds);
-            double chargedCost = evt.valueBefore - evt.valueAfter;
+            float chargedCost = ComputePartPurchaseFundsSpent(entryCost);
+
+            // #451: `cost=` stays authoritative for save/load and UI because it must
+            // reflect the ACTUAL funds debit: 0 when BypassEntryPurchaseAfterResearch is
+            // on, entryCost when the harder no-bypass difficulty is active. Persist the
+            // raw stock entry price separately for diagnostics and future tooling.
+            var detail = "cost=" + chargedCost.ToString("R", ic) +
+                         ";entryCost=" + entryCost.ToString("R", ic);
+
+            // Keep before/after in sync with the charged amount so future consumers that
+            // derive deltas from the numeric fields do not resurrect the bypass=true bug.
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.PartPurchased,
+                key = partName,
+                detail = detail,
+                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + chargedCost : 0,
+                valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
+            };
             Emit(evt, "PartPurchased");
             ParsekLog.Info("GameStateRecorder",
-                $"Game state: PartPurchased '{partName}' " +
-                $"(charged={chargedCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                $"entryCost={entryCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                $"bypass={bypassEntryPurchaseAfterResearch})");
+                $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
             // #431 gate: see OnContractAccepted.
             if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Returns the actual funds debit for an R&D part purchase. Stock KSP still
+        /// fires OnPartPurchased when BypassEntryPurchaseAfterResearch is enabled, but
+        /// the purchase is free in that mode.
+        /// </summary>
+        internal static float ComputePartPurchaseFundsSpent(float entryCost)
+        {
+            return LedgerOrchestrator.IsBypassEntryPurchaseAfterResearch() ? 0f : entryCost;
         }
 
         #endregion

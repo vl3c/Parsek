@@ -668,6 +668,28 @@ namespace Parsek.Tests
             Assert.Equal(300, ResourceBudget.ParseCostFromDetail("type=tech;cost=300;node=basic"));
         }
 
+        // ---------- #451: charged cost is authoritative; entryCost is fallback-only ----------
+
+        [Fact]
+        public void ParseCostFromDetail_UsesCostWhenEntryCostAlsoPresent()
+        {
+            // Mirrors GameStateEventConverter.ConvertPartPurchased: `cost=` is the
+            // authoritative charged amount, and `entryCost=` is only raw-price context.
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("cost=0;entryCost=800"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_EntryCostOnly_FallsBackWhenCostMissing()
+        {
+            Assert.Equal(1200, ResourceBudget.ParseCostFromDetail("entryCost=1200"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_CostWinsEvenWhenEntryCostAppearsFirst()
+        {
+            Assert.Equal(450, ResourceBudget.ParseCostFromDetail("entryCost=800;cost=450"));
+        }
+
         #endregion
 
         #region PreLaunch Field Propagation
