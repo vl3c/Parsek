@@ -426,12 +426,14 @@ namespace Parsek.InGameTests
 
         #region MapView icons (#387)
 
-        // Verify that MapMarkerRenderer's icon UVs match the live MapNode.iconSprites
-        // atlas for every vessel type in StockIconIndexByVesselType. Regressions here
-        // would mean ghost icons show a different vessel type's symbol (the symptom
-        // users reported before #387).
+        // Verify that MapMarkerRenderer's per-type icon entries match the live
+        // MapNode.iconSprites array for every vessel type in
+        // StockIconIndexByVesselType. Regressions here would mean ghost icons
+        // show a different vessel type's symbol (the symptom users reported
+        // before #387) OR — for the multi-atlas vessel types added by the
+        // #387 follow-up — fall back to the diamond instead of the stock icon.
         [InGameTest(Category = "MapView",
-            Description = "MapMarkerRenderer UVs match live MapNode.iconSprites for every stock vessel type (#387)")]
+            Description = "MapMarkerRenderer per-type atlas+UV entries match live MapNode.iconSprites (#387 + multi-atlas follow-up)")]
         public void MapMarkerIconsMatchStockAtlas()
         {
             InGameAssert.IsNotNull(MapView.fetch,
@@ -455,47 +457,51 @@ namespace Parsek.InGameTests
             // (InGameTestRunner coroutines don't always execute during OnGUI).
             MapMarkerRenderer.ForceInitForTesting();
 
-            Texture2D atlas = MapMarkerRenderer.VesselIconAtlasForTesting;
-            InGameAssert.IsNotNull(atlas,
-                "MapMarkerRenderer atlas should be resolved after a draw call");
-
-            var uvs = MapMarkerRenderer.VesselIconUVsForTesting;
-            InGameAssert.IsNotNull(uvs, "MapMarkerRenderer UV dict should be built");
+            var entries = MapMarkerRenderer.VesselIconEntriesForTesting;
+            InGameAssert.IsNotNull(entries, "MapMarkerRenderer icon entry dict should be built");
 
             int verified = 0, missing = 0;
             foreach (var kv in MapMarkerRenderer.StockIconIndexByVesselType)
             {
                 int idx = kv.Value;
+                // Under the per-type-atlas model (#387 follow-up) only
+                // structural gaps in the stock atlas should skip an entry.
                 if (idx < 0 || idx >= sprites.Length || sprites[idx] == null
-                    || sprites[idx].texture != atlas)
+                    || sprites[idx].texture == null)
                 {
-                    // Expected — renderer also skips these. Log and continue.
                     missing++;
                     ParsekLog.Verbose("TestRunner",
-                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite/atlas mismatch)");
+                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite or texture missing)");
                     continue;
                 }
 
+                Texture2D spriteTex = sprites[idx].texture;
                 Rect expectedRect = sprites[idx].textureRect;
                 Rect expectedUv = new Rect(
-                    expectedRect.x / atlas.width, expectedRect.y / atlas.height,
-                    expectedRect.width / atlas.width, expectedRect.height / atlas.height);
+                    expectedRect.x / spriteTex.width, expectedRect.y / spriteTex.height,
+                    expectedRect.width / spriteTex.width, expectedRect.height / spriteTex.height);
 
-                InGameAssert.IsTrue(uvs.TryGetValue(kv.Key, out Rect actualUv),
-                    $"UV dict missing entry for {kv.Key}");
+                InGameAssert.IsTrue(entries.TryGetValue(kv.Key, out MapMarkerRenderer.VesselIconEntry actual),
+                    $"Icon dict missing entry for {kv.Key}");
 
-                InGameAssert.ApproxEqual(expectedUv.x, actualUv.x);
-                InGameAssert.ApproxEqual(expectedUv.y, actualUv.y);
-                InGameAssert.ApproxEqual(expectedUv.width, actualUv.width);
-                InGameAssert.ApproxEqual(expectedUv.height, actualUv.height);
+                // Each type must carry its OWN texture reference — the multi-atlas
+                // vessel types (DeployedScienceController, DeployedGroundPart)
+                // used to be skipped because the renderer forced a single atlas.
+                InGameAssert.IsTrue(object.ReferenceEquals(actual.Atlas, spriteTex),
+                    $"Atlas for {kv.Key} should match sprites[{idx}].texture (got name='{(actual.Atlas != null ? actual.Atlas.name : "null")}' expected='{spriteTex.name}')");
+
+                InGameAssert.ApproxEqual(expectedUv.x, actual.UV.x);
+                InGameAssert.ApproxEqual(expectedUv.y, actual.UV.y);
+                InGameAssert.ApproxEqual(expectedUv.width, actual.UV.width);
+                InGameAssert.ApproxEqual(expectedUv.height, actual.UV.height);
 
                 verified++;
                 ParsekLog.Verbose("TestRunner",
-                    $"MapView icon {kv.Key} idx={idx} UV=({actualUv.x:F3},{actualUv.y:F3},{actualUv.width:F3},{actualUv.height:F3}) OK");
+                    $"MapView icon {kv.Key} idx={idx} tex={spriteTex.name} UV=({actual.UV.x:F3},{actual.UV.y:F3},{actual.UV.width:F3},{actual.UV.height:F3}) OK");
             }
 
             InGameAssert.IsTrue(verified > 0,
-                $"Expected at least one matching icon UV; verified={verified} missing={missing}");
+                $"Expected at least one matching icon entry; verified={verified} missing={missing}");
             ParsekLog.Info("TestRunner",
                 $"MapMarkerIconsMatchStockAtlas: verified={verified} missing={missing} total={MapMarkerRenderer.StockIconIndexByVesselType.Count}");
         }
