@@ -652,5 +652,77 @@ namespace Parsek.Tests
         {
             Assert.Null(RewindPointAuthor.ResolveSlotVesselPid(Slot(0, ""), recId => 1u));
         }
+
+        // --- Coroutine scene re-check ---------------------------------------
+
+        /// <summary>
+        /// §6.1 + §7.27: the deferred coroutine re-checks <see cref="HighLogic.LoadedScene"/>
+        /// after the one-frame defer. If the player quit to KSC / reverted between
+        /// <see cref="RewindPointAuthor.Begin"/> and the deferred resumption, the
+        /// coroutine must roll back the synchronous wiring (remove the RP from
+        /// <c>ParsekScenario.RewindPoints</c>, clear <c>BranchPoint.RewindPointId</c>)
+        /// and emit a Warn log. We drive <see cref="RewindPointAuthor.RunDeferred"/>
+        /// manually via its <see cref="System.Collections.IEnumerator"/> so no Unity
+        /// coroutine scheduler is needed: pull the first yield, flip the scene, then
+        /// resume — the next <c>MoveNext</c> runs the re-check.
+        /// </summary>
+        [Fact]
+        public void RunDeferred_SceneChangedMidCoroutine_RollsBack()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            var scenario = MakeScenario();
+            var bp = MakeBp("bp_scene_flip");
+            var slots = new List<ChildSlot> { Slot(0, "recA"), Slot(1, "recB") };
+
+            // Install SyncRunForTesting = no-op so Begin does not actually schedule
+            // a coroutine; capture the RP + ctx for the manual RunDeferred drive.
+            RewindPointAuthorContext capturedCtx = null;
+            RewindPoint capturedRp = null;
+            RewindPointAuthor.SyncRunForTesting = (rp, ctx) =>
+            {
+                capturedRp = rp;
+                capturedCtx = ctx;
+            };
+            RewindPoint rpOut;
+            try
+            {
+                rpOut = RewindPointAuthor.Begin(bp, slots, new List<uint> { 1u, 2u });
+            }
+            finally { RewindPointAuthor.SyncRunForTesting = null; }
+
+            Assert.NotNull(rpOut);
+            Assert.Same(rpOut, capturedRp);
+            Assert.Equal(rpOut.RewindPointId, bp.RewindPointId);
+            Assert.Single(scenario.RewindPoints);
+
+            try
+            {
+                // Drive the coroutine by hand. The first MoveNext returns true and
+                // stops at `yield return null` (the one-frame defer). We then flip
+                // the scene and call MoveNext again — the re-check must trip and
+                // the coroutine must yield-break after rolling back.
+                var coroutine = RewindPointAuthor.RunDeferred(capturedRp, bp, capturedCtx);
+                Assert.True(coroutine.MoveNext()); // hits `yield return null`
+
+                HighLogic.LoadedScene = GameScenes.SPACECENTER;
+
+                bool continued = coroutine.MoveNext(); // runs the re-check + yield break
+                Assert.False(continued);
+
+                // Rollback observable: RP removed, BranchPoint.RewindPointId cleared.
+                Assert.Empty(scenario.RewindPoints);
+                Assert.Null(bp.RewindPointId);
+
+                // Log-assertion per §10.1: Warn line names the new scene.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[WARN]") && l.Contains("[RewindSave]")
+                    && l.Contains("Aborted mid-coroutine") && l.Contains("scene=SPACECENTER"));
+            }
+            finally
+            {
+                HighLogic.LoadedScene = GameScenes.LOADING;
+            }
+        }
+
     }
 }
