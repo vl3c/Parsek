@@ -251,16 +251,19 @@ namespace Parsek
             // Rebuild cache if dirty
             if (timelineDirty || cachedTimeline == null)
             {
+                // [Phase 3] ERS+ELS-routed: timeline view feeds from visible
+                // recordings and non-tombstoned ledger actions only (design §3.4).
                 cachedTimeline = TimelineBuilder.Build(
-                    RecordingStore.CommittedRecordings,
-                    Ledger.Actions,
+                    EffectiveState.ComputeERS(),
+                    EffectiveState.ComputeELS(),
                     MilestoneStore.Milestones,
                     MilestoneStore.CurrentEpoch);
                 timelineDirty = false;
                 filterDirty = true;
 
-                // Rebuild recording lookup cache
-                var recordings = RecordingStore.CommittedRecordings;
+                // Rebuild recording lookup cache (ERS-scoped so cross-link
+                // navigation only resolves to visible recordings).
+                var recordings = EffectiveState.ComputeERS();
                 recordingById = new Dictionary<string, Recording>(recordings.Count);
                 for (int i = 0; i < recordings.Count; i++)
                 {
@@ -387,7 +390,9 @@ namespace Parsek
         private void DrawTimeRangeFilterBar()
         {
             var filter = parentUI.TimeRangeFilter;
-            var committed = RecordingStore.CommittedRecordings;
+            // [Phase 3] ERS-routed: time-range slider bounds are computed from
+            // visible recordings only.
+            var committed = EffectiveState.ComputeERS();
             double currentUT = 0;
             try { currentUT = Planetarium.GetUniversalTime(); } catch { }
 

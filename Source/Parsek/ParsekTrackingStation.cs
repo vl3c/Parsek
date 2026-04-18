@@ -11,6 +11,13 @@ namespace Parsek
     /// OnGUI draws icons for atmospheric phases (no ProtoVessel — direct rendering
     /// from trajectory data, same approach as ParsekUI.DrawMapMarkers in flight).
     /// </summary>
+    // [ERS-exempt — Phase 3] ParsekTrackingStation pairs with GhostMapPresence
+    // which keys ghost vessels by committed recording index. The count-change
+    // detection + atmospheric-marker pass in this file use the same raw index
+    // space; converting to EffectiveState.ComputeERS() would decouple marker
+    // positions from the underlying ghost lifecycle bookkeeping.
+    // TODO(phase 6+): migrate atmosCachedIndices + GhostMapPresence to
+    // recording-id keying and route this file through ComputeERS().
     [KSPAddon(KSPAddon.Startup.TrackingStation, false)]
     public class ParsekTrackingStation : MonoBehaviour
     {

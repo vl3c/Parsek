@@ -42,6 +42,13 @@ namespace Parsek
     /// through loop/overlap cycle transitions, and restoring the camera
     /// to the active vessel on exit.
     /// </summary>
+    // [ERS-exempt — Phase 3] WatchModeController tracks watchedRecordingIndex /
+    // lineageProtectionRecordingIndex as indices into RecordingStore.CommittedRecordings
+    // and passes the raw list to GhostPlaybackLogic helpers that bounds-check
+    // against the same index space. Routing through EffectiveState.ComputeERS()
+    // here would de-align indices and break camera lineage protection across
+    // warp and chain transitions.
+    // TODO(phase 6+): migrate WatchModeController to recording-id-keyed lineage tracking.
     internal class WatchModeController
     {
         private readonly ParsekFlight host;

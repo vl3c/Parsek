@@ -182,7 +182,10 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
             }
 
-            int committedCount = RecordingStore.CommittedRecordings.Count;
+            // [Phase 3] ERS-routed: top-level Recordings button shows the
+            // user-facing effective count (hides NotCommitted / superseded /
+            // session-suppressed).
+            int committedCount = EffectiveState.ComputeERS().Count;
             if (GUILayout.Button($"Recordings ({committedCount})"))
             {
                 recordingsTableUI.IsOpen = !recordingsTableUI.IsOpen;
@@ -239,7 +242,9 @@ namespace Parsek
                     }
                 }
                 int endStateRows = 0;
-                var recs = RecordingStore.CommittedRecordings;
+                // [Phase 3] ERS-routed: kerbals label counts end-state rows from
+                // the visible recording set only.
+                var recs = EffectiveState.ComputeERS();
                 if (recs != null)
                 {
                     for (int i = 0; i < recs.Count; i++)
@@ -523,6 +528,10 @@ namespace Parsek
                     HighLogic.UISkin,
                     new DialogGUIButton("Wipe All", () =>
                     {
+                        // [ERS-exempt] reason: wholesale wipe of every stored
+                        // recording (including NotCommitted / superseded) must
+                        // unreserve every snapshot's crew — ERS would skip hidden
+                        // entries and leak crew reservations.
                         foreach (var rec in RecordingStore.CommittedRecordings)
                             CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                         CrewReservationManager.ClearReplacements();
@@ -788,6 +797,10 @@ namespace Parsek
             // (the native KSP vessel icon replaces this marker and tracks the correct orbital position).
             // Deduplicate per chain: during warp, multiple chain segments can be active
             // simultaneously. Only draw the marker for the highest-index (latest) ghost per chain.
+            // [ERS-exempt] reason: ghostStates dict is keyed by CommittedRecordings
+            // index; markers must be looked up by the same index space. Converting
+            // would mis-align the index -> recording mapping.
+            // TODO(phase 6+): migrate ghostStates to recording-id keyed storage.
             var committed = RecordingStore.CommittedRecordings;
 
             // First pass: find the highest active index per chain

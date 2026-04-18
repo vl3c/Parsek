@@ -1359,7 +1359,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(rec.RecordingId)) return null;
 
             HashSet<string> excludeCrew = null;
-            var committed = RecordingStore.CommittedRecordings;
+            // [Phase 3] ERS-routed: chain-aware crew-exclusion walk must respect
+            // effective recording visibility so that hidden / superseded chain
+            // siblings do not spuriously exclude their crew.
+            var committed = EffectiveState.ComputeERS();
 
             // Chain-aware: exclude EVA crew who are still on EVA at the end of the chain
             // (no subsequent vessel segment). Crew who boarded back are NOT excluded.

@@ -449,15 +449,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Find the tip recording by ID from committed recordings.
+        /// Find the tip recording by ID from the Effective Recording Set.
+        /// [Phase 3] ERS-routed: chain-tip lookups ignore NotCommitted /
+        /// superseded / session-suppressed recordings, so a stale chain
+        /// reference to a hidden tip returns null instead of resurrecting it.
         /// </summary>
         private static Recording FindTipRecording(string tipId)
         {
-            var committedRecordings = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            var effective = EffectiveState.ComputeERS();
+            for (int i = 0; i < effective.Count; i++)
             {
-                if (committedRecordings[i].RecordingId == tipId)
-                    return committedRecordings[i];
+                if (effective[i].RecordingId == tipId)
+                    return effective[i];
             }
             return null;
         }

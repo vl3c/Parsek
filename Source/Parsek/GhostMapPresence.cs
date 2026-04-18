@@ -15,6 +15,13 @@ namespace Parsek
     /// Every FlightGlobals.Vessels iteration and vessel GameEvent handler in Parsek
     /// must check this before processing a vessel.
     /// </summary>
+    // [ERS-exempt — Phase 3] GhostMapPresence keys its ghost-vessel dictionaries
+    // (vesselsByRecordingIndex, vesselPidToRecordingIndex) by committed recording
+    // index; callers pass raw indices through this contract. Routing through
+    // EffectiveState.ComputeERS() here would de-align the index space and break
+    // every consumer. The file stays on the grep-audit allowlist pending a
+    // recording-id-keyed refactor.
+    // TODO(phase 6+): migrate GhostMapPresence to recording-id-keyed storage.
     internal static class GhostMapPresence
     {
         private const string Tag = "GhostMap";

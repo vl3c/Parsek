@@ -81,6 +81,10 @@ namespace Parsek
             }
 
             int ghostCount = 0;
+            // [ERS-exempt] reason: ParsekKSC keys ghost dictionaries by committed
+            // recording index (kscGhosts[i]); converting to ERS here would break
+            // the index<->ghost correspondence.
+            // TODO(phase 6+): migrate ParsekKSC to EffectiveRecordingId-keyed ghost dicts.
             var committed = RecordingStore.CommittedRecordings;
             for (int i = 0; i < committed.Count; i++)
             {
@@ -125,6 +129,8 @@ namespace Parsek
             // to prevent future ghosts and premature vessel spawns.
             if (RecordingStore.RewindUTAdjustmentPending) return;
 
+            // [ERS-exempt] reason: same as constructor — ParsekKSC keys ghost
+            // state by committed recording index. See TODO(phase 6+) above.
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
 
