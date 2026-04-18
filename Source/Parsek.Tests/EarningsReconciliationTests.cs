@@ -277,7 +277,8 @@ namespace Parsek.Tests
             LedgerOrchestrator.ReconcileKscAction(events, ledger, action, ut);
         }
 
-        private static GameStateEvent MakeKeyedFundsChanged(double ut, double before, double after, string reason)
+        private static GameStateEvent MakeKeyedFundsChanged(
+            double ut, double before, double after, string reason, string recordingId = "")
         {
             return new GameStateEvent
             {
@@ -285,11 +286,13 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.FundsChanged,
                 key = reason,
                 valueBefore = before,
-                valueAfter = after
+                valueAfter = after,
+                recordingId = recordingId
             };
         }
 
-        private static GameStateEvent MakeKeyedScienceChanged(double ut, double before, double after, string reason)
+        private static GameStateEvent MakeKeyedScienceChanged(
+            double ut, double before, double after, string reason, string recordingId = "")
         {
             return new GameStateEvent
             {
@@ -297,11 +300,13 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.ScienceChanged,
                 key = reason,
                 valueBefore = before,
-                valueAfter = after
+                valueAfter = after,
+                recordingId = recordingId
             };
         }
 
-        private static GameStateEvent MakeKeyedRepChanged(double ut, double before, double after, string reason)
+        private static GameStateEvent MakeKeyedRepChanged(
+            double ut, double before, double after, string reason, string recordingId = "")
         {
             return new GameStateEvent
             {
@@ -309,7 +314,8 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.ReputationChanged,
                 key = reason,
                 valueBefore = before,
-                valueAfter = after
+                valueAfter = after,
+                recordingId = recordingId
             };
         }
 
@@ -1651,6 +1657,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PostWalk_MilestoneAchievement_OtherRecordingProgressionIgnored_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 22880, "Progression", recordingId: "rec-parent"),
+                MakeKeyedFundsChanged(600, 22880, 23360, "Progression", recordingId: "rec-child")
+            };
+            var action = new GameAction
+            {
+                UT = 600,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = "rec-parent",
+                MilestoneId = "RecordsSpeed",
+                Effective = true,
+                MilestoneFundsAwarded = 2880f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_ContractComplete_NullTaggedAction_MatchesTaggedEvent_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 20000, 24700, "ContractReward", recordingId: "rec-parent")
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                RecordingId = null,
+                ContractId = "c-recovered",
+                Effective = true,
+                TransformedFundsReward = 4700f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
         public void PostWalk_MilestoneAchievement_EffectiveFalseDuplicate_Skipped_NoWarn()
         {
             // Two milestone actions with the same id. The second is Effective=false
@@ -2367,6 +2420,41 @@ namespace Parsek.Tests
                 startUT: 100, endUT: 200);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_MilestoneAchievement_OtherRecordingProgressionIgnored_Silent()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(150, 50000, 52880, "Progression", recordingId: "rec-parent"),
+                MakeKeyedFundsChanged(150, 52880, 53360, "Progression", recordingId: "rec-child")
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = "rec-parent",
+                    MilestoneId = "RecordsSpeed",
+                    Effective = true,
+                    MilestoneFundsAwarded = 2880f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(
+                events,
+                newActions,
+                startUT: 100,
+                endUT: 200,
+                recordingId: "rec-parent");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("ReconcileEarningsWindow: skipped 1 event(s) tagged to other recordings") &&
+                l.Contains("scope='rec-parent'"));
         }
 
         [Fact]
