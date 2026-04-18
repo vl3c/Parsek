@@ -54,8 +54,9 @@ namespace Parsek
         // the flight scene. Per-frame cost scales with this value (mesh
         // renderers, FX, audio, positioner). Combined with
         // GhostPlaybackLogic.ComputeEffectiveLaunchCadence the cap is
-        // strictly observed — cadence is doubled until ceil(duration/cadence)
-        // fits, so no cycle is ever silently culled mid-trajectory.
+        // strictly observed — cadence is raised to the minimum value that
+        // keeps ceil(duration/cadence) within the cap, so no cycle is ever
+        // silently culled mid-trajectory.
         internal const int MaxOverlapGhostsPerRecording = 10;
         internal const double OverlapExplosionHoldSeconds = 3.0;
         internal const int MaxActiveExplosions = 30;
@@ -219,7 +220,7 @@ namespace Parsek
         /// effectiveCadence, duration) tuple. Re-emits only when one of the
         /// inputs changes — so a dense overlap recording is silent steady-state
         /// after its cadence stabilises. Surfaces the user-visible consequence
-        /// of cap-driven cadence doubling so the adjustment is never silent.
+        /// of the cap-driven cadence adjustment so the change is never silent.
         /// </summary>
         private void LogOverlapCadenceIfChanged(
             int index, IPlaybackTrajectory traj,
@@ -1178,11 +1179,12 @@ namespace Parsek
 
             // #443: Compute the effective launch cadence. If the user-configured
             // period would produce more simultaneously-live cycles than the cap,
-            // cadence is doubled until ceil(duration/cadence) <= cap. The user's
-            // stored period is unchanged — only the runtime spawn rate adjusts.
-            // This replaces the pre-fix behaviour of silently culling older
-            // cycles via GetActiveCycles's newest-cycle clamp (which stacked
-            // ghosts near launch under short user periods).
+            // cadence is raised to the minimum value that makes
+            // ceil(duration/cadence) <= cap. The user's stored period is
+            // unchanged — only the runtime spawn rate adjusts. This replaces
+            // the pre-fix behaviour of silently culling older cycles via
+            // GetActiveCycles's newest-cycle clamp (which stacked ghosts near
+            // launch under short user periods).
             double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 intervalSeconds, duration, MaxOverlapGhostsPerRecording);
             LogOverlapCadenceIfChanged(index, traj, intervalSeconds, effectiveCadence, duration);

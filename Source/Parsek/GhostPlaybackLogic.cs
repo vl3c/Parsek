@@ -340,11 +340,12 @@ namespace Parsek
         /// that the number of simultaneously-live cycles (ceil(duration/cadence))
         /// never exceeds <paramref name="maxCycles"/>. Starts from the
         /// user-requested period (clamped to <see cref="MinCycleDuration"/>) and
-        /// doubles it until the cycle count fits. Returns the effective cadence
-        /// in seconds; the user's stored loop period is unchanged — only the
-        /// runtime spawn rate is adjusted. Guarantees the per-recording ghost
-        /// clone count stays within the cap without silently culling cycles
-        /// mid-trajectory (the pre-fix behaviour stacked ghosts near launch).
+        /// raises it only as far as needed for the cap to fit. Returns the
+        /// effective cadence in seconds; the user's stored loop period is
+        /// unchanged — only the runtime spawn rate is adjusted. Guarantees the
+        /// per-recording ghost clone count stays within the cap without silently
+        /// culling cycles mid-trajectory (the pre-fix behaviour stacked ghosts
+        /// near launch).
         /// </summary>
         internal static double ComputeEffectiveLaunchCadence(
             double userPeriod, double duration, int maxCycles)
@@ -355,19 +356,12 @@ namespace Parsek
             if (duration <= 0 || maxCycles <= 0)
                 return period;
 
-            // Defensive ceiling: the doubling loop always terminates because
-            // each iteration halves the theoretical cycle count, but cap the
-            // iteration count at 64 to guard against pathological inputs.
-            int safety = 64;
-            while (safety-- > 0 && CeilingDivPositive(duration, period) > maxCycles)
-                period *= 2.0;
-            return period;
-        }
+            // Minimum cadence that keeps ceil(duration / cadence) <= maxCycles.
+            double cadenceFloor = Math.Ceiling(duration / maxCycles);
+            if (double.IsNaN(cadenceFloor) || double.IsInfinity(cadenceFloor))
+                return period;
 
-        private static long CeilingDivPositive(double numerator, double denominator)
-        {
-            if (denominator <= 0) return long.MaxValue;
-            return (long)Math.Ceiling(numerator / denominator);
+            return Math.Max(period, cadenceFloor);
         }
 
         /// <summary>

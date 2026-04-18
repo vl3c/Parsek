@@ -788,6 +788,79 @@ namespace Parsek.Tests
             Assert.Equal(LoopTimeUnit.Sec, u);
         }
 
+        [Fact]
+        public void ComputeDisplayedLoopPeriod_StoredAboveFloor_NotClamped()
+        {
+            bool clamped;
+            double effective = RecordingsTableUI.ComputeDisplayedLoopPeriod(
+                storedSeconds: 30.0, loopDurationSeconds: 60.0, cap: 10, out clamped);
+
+            Assert.Equal(30.0, effective);
+            Assert.False(clamped);
+        }
+
+        [Fact]
+        public void ComputeDisplayedLoopPeriod_StoredBelowFloor_ClampedAndFlagged()
+        {
+            bool clamped;
+            double effective = RecordingsTableUI.ComputeDisplayedLoopPeriod(
+                storedSeconds: 5.0, loopDurationSeconds: 267.78, cap: 10, out clamped);
+
+            Assert.Equal(27.0, effective);
+            Assert.True(clamped);
+        }
+
+        [Fact]
+        public void ComputeDisplayedLoopPeriod_ZeroDuration_ReturnsStored_NotClamped()
+        {
+            bool clamped;
+            double effective = RecordingsTableUI.ComputeDisplayedLoopPeriod(
+                storedSeconds: 30.0, loopDurationSeconds: 0.0, cap: 10, out clamped);
+
+            Assert.Equal(30.0, effective);
+            Assert.False(clamped);
+        }
+
+        [Fact]
+        public void FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
+                displayedSeconds: 27.0, unit: LoopTimeUnit.Min, preserveSecondResolution: true);
+
+            Assert.Equal("0.45", text);
+        }
+
+        [Fact]
+        public void FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
+                displayedSeconds: 27.0, unit: LoopTimeUnit.Hour, preserveSecondResolution: true);
+
+            Assert.Equal("0.0075", text);
+        }
+
+        [Fact]
+        public void FormatLoopPeriodEditStartText_UsesStoredRawValue()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodEditStartText(
+                storedSeconds: 5.0, unit: LoopTimeUnit.Sec);
+
+            Assert.Equal("5", text);
+        }
+
+        [Fact]
+        public void BuildLoopPeriodClampTooltip_ContainsKeyNumbers()
+        {
+            string tooltip = RecordingsTableUI.BuildLoopPeriodClampTooltip(
+                storedSeconds: 5.0, effectiveSeconds: 27.0,
+                loopDurationSeconds: 267.78, cap: 10);
+
+            Assert.Contains("27", tooltip);
+            Assert.Contains("<= 10", tooltip);
+            Assert.Contains("requested: 5", tooltip);
+            Assert.Contains("duration: 267.78", tooltip);
+        }
+
         // ── ApplyAutoLoopRange ──
 
         [Fact]

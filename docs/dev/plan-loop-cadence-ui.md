@@ -94,8 +94,13 @@ EffectiveLoopDuration(rec), MaxOverlapGhostsPerRecording)`.
 
 - Use `GhostPlaybackEngine.EffectiveLoopDuration(rec)` so a narrowed loop
   range (LoopStartUT/LoopEndUT) uses the same duration the engine will use.
-- Display `effective` converted into `rec.LoopTimeUnit`, via the existing
-  `ParsekUI.ConvertFromSeconds` + `ParsekUI.FormatLoopValue` helpers.
+- Only apply the derived display to the enabled/manual path. Disabled rows and
+  Auto mode keep their existing display rules.
+- Display `effective` converted into `rec.LoopTimeUnit`. Reuse the existing
+  conversion helper, but do not blindly reuse the old formatter:
+  `Sec` keeps integer display, clamped `Min` values use up to 2 decimals, and
+  clamped `Hour` values use up to 4 decimals so the effective cadence is not
+  rounded away.
 - Stored value on `Recording.LoopIntervalSeconds` is unchanged.
 
 ### Auto-update trigger
@@ -113,6 +118,17 @@ On commit, if `effective != parsed`, the input-box display for that recording
 immediately switches to `effective` on the next frame - that is the visible
 "auto-update" the user sees. The user's stored value is still `parsed`.
 
+### Focus-start rule
+
+When a clamped read-only cell gains focus, do **not** seed the edit buffer from
+the rendered text. Seed it from the stored raw value:
+
+- `loopPeriodEditText = FormatLoopPeriodEditStartText(rec.LoopIntervalSeconds,
+  rec.LoopTimeUnit)`
+- This preserves the user's original request and fixes the no-op
+  focus/Enter/click-away path that would otherwise overwrite raw with
+  effective.
+
 ### Hint that the clamp is active
 
 Add a subtle indicator when `effective != rec.LoopIntervalSeconds`:
@@ -120,9 +136,13 @@ Add a subtle indicator when `effective != rec.LoopIntervalSeconds`:
 - The input text colour goes a subtle orange/amber (`new Color(1.0f, 0.8f,
   0.4f)`). Existing cell style is reused - only `GUI.contentColor` is flipped
   inside a try/finally.
-- The cell tooltip (hover) shows:
-  `"Clamped to Xs to keep concurrent cycles <= 10 (requested: Ys, duration:
-  Zs)."`
+- The recordings window grows a real tooltip host in its footer (same
+  zero-height/wrapped-label pattern as Settings/Test Runner). The clamped
+  Period cell sets an override tooltip on hover:
+  `"Runtime cadence clamped to Xs to keep concurrent cycles <= 10 (requested:
+  Ys, duration: Zs)."`
+- While the user is actively editing, do not colour or tooltip the raw buffer;
+  clamp affordances apply to the derived read-only display only.
 
 If `effective == rec.LoopIntervalSeconds` (the common case), the display is
 identical to today.
@@ -159,12 +179,12 @@ The plan reviewer should validate this decision before I code it.
 - `Source/Parsek/GhostPlaybackLogic.cs` - replace
   `ComputeEffectiveLaunchCadence` body (lines ~315-331).
 - `Source/Parsek/UI/RecordingsTableUI.cs` - `DrawLoopPeriodCell` display
-  logic (lines ~3471-3570). Add a small helper `ComputeDisplayedLoopPeriod`
-  that returns `(effective, clamped)`. Update tooltip and content colour.
-  No change to `CommitLoopPeriodEdit`.
-- `Source/Parsek/UI/RecordingsTableUI.cs` - the existing "Loop period"
-  column tooltip (`UI/RecordingsTableUI.cs:855`) stays; per-row tooltip is
-  added only on the clamped state.
+  logic (lines ~3471-3570). Add small helpers:
+  `ComputeDisplayedLoopPeriod`, `FormatLoopPeriodDisplayText`,
+  `FormatLoopPeriodEditStartText`, and `BuildLoopPeriodClampTooltip`.
+  `CommitLoopPeriodEdit` keeps its existing raw-store semantics.
+- `Source/Parsek/UI/RecordingsTableUI.cs` - add a footer tooltip host for the
+  recordings window so clamped Period hover text is actually rendered.
 - `Source/Parsek.Tests/LoopPhaseTests.cs` - update the existing
   `ComputeEffectiveLaunchCadence_Tests` region (lines ~627-735). Five existing
   tests change expected values (they encode the doubling behaviour). Add
@@ -172,7 +192,8 @@ The plan reviewer should validate this decision before I code it.
   property. The `ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase`
   test continues to pass once its expected effective cadence is updated to
   the new formula.
-- New tests for the UI display helper (pure static, testable without IMGUI).
+- `Source/Parsek.Tests/RecordingsTableUITests.cs` - pure tests for the UI
+  display/edit/tooltip helpers (no IMGUI needed).
 - `CHANGELOG.md` - one line under `## Unreleased` or the active working
   version.
 - `docs/dev/todo-and-known-bugs.md` - note the fix if the bug was listed; it
@@ -260,18 +281,14 @@ effective seconds. Tests:
   Expect (27, true).
 - `ZeroDuration_ReturnsStored_NotClamped`: stored=30, duration=0, cap=10.
   Expect (30, false).
-- `NegativeOrNaNStored_ReturnsMinClamped`: stored=NaN, duration=60,
-  cap=10. Expect (6, true) (NaN -> MinCycleDuration=5, floor=6).
-
-### Log assertion tests
-
-A log assertion test for the UI path that confirms the clamp emits a log
-when CommitLoopPeriodEdit observes `stored != effective`. Use
-`ParsekLog.TestSinkForTesting` per `.claude/CLAUDE.md:180-184`. Covered in
-`RecordingsTableLoopCadenceDisplayTests.cs` (new file).
-
-The existing engine-side `LogOverlapCadenceIfChanged` has no dedicated test
-today. We will not add one here - out of scope for this task.
+- `FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision`: 27s in
+  `Min` renders as `0.45`, not `0.5`.
+- `FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision`: 27s in
+  `Hour` renders as `0.0075`, not `0.0` / `0.01`.
+- `FormatLoopPeriodEditStartText_UsesStoredRawValue`: a clamped read-only
+  display still seeds the edit buffer with the raw stored request.
+- `BuildLoopPeriodClampTooltip_ContainsKeyNumbers`: tooltip text includes
+  effective / requested / duration / cap.
 
 ## Rollout / risk
 
@@ -283,9 +300,10 @@ today. We will not add one here - out of scope for this task.
   migration.
 - Rollback path: `git revert` the two-line formula change and the UI diff.
   Stored `LoopIntervalSeconds` values remain valid.
-- Manual verification: build DLL, verify UTF-16 string
-  `clamped-display-hint`, playtest Learstar A1 with loop period 5s, see
-  input box display 27s with amber colour and tooltip.
+- Manual verification: build DLL, playtest Learstar A1 with loop period 5s,
+  see the Period cell display 27s in amber, hover it to read the footer
+  tooltip, focus it and confirm the edit buffer starts from raw `5`, then
+  commit and watch the read-only display snap back to 27s.
 
 ## CHANGELOG entry (wording)
 
@@ -307,14 +325,9 @@ Existing:
 
 - `GhostPlaybackEngine.LogOverlapCadenceIfChanged` - unchanged. Still logs
   `requested`/`duration`/`cap`/`effective` on any input change.
-
-New:
-
-- `RecordingsTableUI.CommitLoopPeriodEdit` - if `effective != parsed` after
-  commit, emit:
-  `ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop period commit: stored={parsed}s effective={effective}s cap={MaxOverlapGhostsPerRecording} duration={loopDuration}s (displayed value clamped)")`.
-- Per-row display is not logged (would spam every frame). The
-  content-colour change is already a visible signal.
+- No new UI log is required for this fix. Per-row display is not logged
+  because it would spam every frame; the amber state plus tooltip are the
+  intended user-facing signal.
 
 ## Out of scope (explicit)
 

@@ -638,34 +638,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PeriodBelowMin_ClampedToMinThenPossiblyDoubled()
+        public void PeriodBelowMin_ClampedToMinThenRaisedToCapFloor()
         {
             // period=1 below MinCycleDuration=5 -> clamped to 5.
-            // duration=164, cap=10 -> ceil(164/5)=33 > 10 -> double to 10:
-            // ceil(164/10)=17 > 10 -> double to 20: ceil(164/20)=9 <= 10 -> stop.
+            // duration=164, cap=10 -> ceil(164/10)=17, so effective=max(5,17)=17.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 1.0, duration: 164.0, maxCycles: 10);
-            Assert.Equal(20.0, effective);
+            Assert.Equal(17.0, effective);
         }
 
         [Fact]
-        public void ExceedsCap_DoubledUntilFits()
+        public void ExceedsCap_SnapsToCeilingDivFloor()
         {
-            // period=5, duration=1000, cap=10.
-            // 5 -> 10 -> 20 -> 40 -> 80: ceil(1000/80)=13 > 10. -> 160: ceil(1000/160)=7 <= 10.
+            // period=5, duration=1000, cap=10 -> ceil(1000/10)=100.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 5.0, duration: 1000.0, maxCycles: 10);
-            Assert.Equal(160.0, effective);
+            Assert.Equal(100.0, effective);
         }
 
         [Fact]
-        public void CapOneDegenerate_DoublesUntilWholeTrajectoryFits()
+        public void CapOneDegenerate_ReturnsWholeTrajectoryDuration()
         {
-            // cap=1 means only a single cycle allowed. Must double until ceil(100/cadence)=1,
-            // i.e. cadence >= 100. 5 -> 10 -> 20 -> 40 -> 80 -> 160 (160 >= 100, ceil=1).
+            // cap=1 means only a single cycle is allowed, so effective cadence must be >= duration.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 5.0, duration: 100.0, maxCycles: 1);
-            Assert.Equal(160.0, effective);
+            Assert.Equal(100.0, effective);
         }
 
         [Fact]
@@ -686,16 +683,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void HugeDuration_TerminatesInBoundedIterations()
+        public void HugeDuration_ReturnsLargeButFinite()
         {
-            // Pathological large duration must not loop forever. Must fit in the
-            // 64-iteration safety cap and return a finite cadence.
+            // Pathological large duration should return the direct cap floor and stay finite.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 5.0, duration: 1e12, maxCycles: 10);
-            Assert.True(effective >= 5.0);
+            Assert.Equal(1e11, effective);
             Assert.False(double.IsNaN(effective));
             Assert.False(double.IsInfinity(effective));
-            // ceil(1e12 / effective) must be <= 10 if we got here.
             Assert.True(System.Math.Ceiling(1e12 / effective) <= 10);
         }
 
@@ -704,13 +699,13 @@ namespace Parsek.Tests
         {
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: double.NaN, duration: 60.0, maxCycles: 10);
-            // NaN -> clamped to MinCycleDuration=5. 5 -> ceil(60/5)=12 > 10 -> 10: ceil(60/10)=6 <= 10.
-            Assert.Equal(10.0, effective);
+            // NaN -> clamped to MinCycleDuration=5. ceil(60/10)=6, so effective=max(5,6)=6.
+            Assert.Equal(6.0, effective);
         }
 
         /// <summary>
         /// #443 P1 regression: the engine assigns loopCycleIndex using the EFFECTIVE cadence
-        /// (after cadence-doubling), but WatchModeController.ResolveWatchPlaybackUT was passing
+        /// (after cadence adjustment), but WatchModeController.ResolveWatchPlaybackUT was passing
         /// the user-requested period to ComputeOverlapCycleLoopUT. Under any cadence-adjusted
         /// recording this produced the wrong cycleStartUT and jumped the watched ghost to the
         /// wrong phase. This test pins the invariant: with the effective cadence, the phase
@@ -719,25 +714,64 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase()
         {
-            // Engine side: user period=1, duration=164, cap=10 -> effective=20.
-            // At currentUT=100 with loopStartUT=0: lastCycle=floor(100/20)=5. The engine
-            // positions the primary at phase=currentUT - lastCycle*effective = 0, loopUT=loopStart.
+            // Engine side: user period=1, duration=164, cap=10 -> effective=17.
+            // At currentUT=100 with loopStartUT=0: lastCycle=floor(100/17)=5, cycleStartUT=85,
+            // phase=15, loopUT=15.
             double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 userPeriod: 1.0, duration: 164.0, maxCycles: 10);
-            Assert.Equal(20.0, effective);
+            Assert.Equal(17.0, effective);
 
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 100.0, loopStartUT: 0.0, duration: 164.0,
                 intervalSeconds: effective, loopCycleIndex: 5);
 
-            Assert.Equal(0.0, loopUT, 6);
+            Assert.Equal(15.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void LearstarA1_ClampFloorMatchesCeilDiv()
+        {
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 267.78, maxCycles: 10);
+            Assert.Equal(27.0, effective);
+        }
+
+        [Fact]
+        public void FormulaFloorEqualsCeilDivMax()
+        {
+            var cases = new (double period, double duration, int cap)[]
+            {
+                (5.0, 267.78, 10),
+                (1.0, 164.0, 10),
+                (5.0, 1000.0, 10),
+                (50.0, 100.0, 10),
+                (5.0, 100.0001, 10),
+            };
+
+            for (int i = 0; i < cases.Length; i++)
+            {
+                var testCase = cases[i];
+                double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                    testCase.period, testCase.duration, testCase.cap);
+                Assert.True(
+                    System.Math.Ceiling(testCase.duration / effective) <= testCase.cap,
+                    $"Case {i} violated cap: duration={testCase.duration} effective={effective} cap={testCase.cap}");
+            }
+        }
+
+        [Fact]
+        public void UserPeriodAboveFloor_Respected()
+        {
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 50.0, duration: 100.0, maxCycles: 10);
+            Assert.Equal(50.0, effective);
         }
 
         /// <summary>
         /// Regression guard: feeding the user-requested period (instead of the effective
         /// cadence) to ComputeOverlapCycleLoopUT produces a diverging phase. The helper
         /// defensively clamps intervalSeconds to MinCycleDuration=5, so for user period=1
-        /// we get cycleDuration=5 — still wrong vs the engine's effective=20, but not 95.
+        /// we get cycleDuration=5 — still wrong vs the engine's effective=17, but not 95.
         /// cycleStartUT=0+5*5=25, phase=100-25=75.
         /// </summary>
         [Fact]
