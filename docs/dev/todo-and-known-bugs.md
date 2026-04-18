@@ -60,7 +60,9 @@ are fixed in the same PR branch with additional commits:
 
 ## 454. `Emit`/`AddEvent` ref refactor — eliminate value-type field-mirror bug class
 
-**Source:** PR #443 review. The #443 root cause was that `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local copy. The cached pending entry kept `epoch=0` while the stored slot carried the live epoch, and `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed silently. The fix mirrors `MilestoneStore.CurrentEpoch` (and now also `recordingId`) onto the cached entry by hand inside `RegisterPendingMilestoneEvent`.
+**Problem:** `GameStateEvent` is a struct, and `GameStateStore.AddEvent` / `GameStateRecorder.Emit` stamp fields (`epoch`, `recordingId`) on the appended slot without those mutations propagating back to the caller's local copy. Any caller that caches its own `evt` after `Emit` therefore holds a stale value, and any later lookup keyed on the stamped fields silently misses.
+
+**Source:** surfaced by PR #443 review. The #443 root cause was that `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local copy. The cached pending entry kept `epoch=0` while the stored slot carried the live epoch, and `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed silently. The fix mirrors `MilestoneStore.CurrentEpoch` (and now also `recordingId`) onto the cached entry by hand inside `RegisterPendingMilestoneEvent`.
 
 **Concern:** the same shape exists for every other field that `Emit`/`AddEvent` mutates on its local copy: `recordingId` is stamped by `Emit` (`GameStateRecorder.cs:60-62`) but the caller's copy doesn't see it; today no consumer reads `recordingId` off a cached event after `Emit`, but any future code that does will repeat #443's silent-failure shape. The current fix mirrors `epoch` and `recordingId` explicitly with a defense-in-depth comment, but the structural fix is to change the signatures so the language enforces propagation.
 
