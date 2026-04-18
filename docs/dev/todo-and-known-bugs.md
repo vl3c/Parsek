@@ -142,13 +142,14 @@ ut=4004.92 vessel='r0' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=
 
 Both halves are correctly tagged `Active` because they came from the same source semantically — there is no scene-source distinction to add. The user-visible "teleport" is real but unavoidable: the resume point cannot retroactively interpolate motion that wasn't recorded.
 
-**Fix shipped:** `SessionMerger.LogMergeDiagnostics` now classifies each discontinuity using the inter-section time gap and the previous section's last-frame velocity. The WARN line carries `dt=`, `expectedFromVel=`, and `cause=` (`unrecorded-gap` / `sample-skip` / `frame-mismatch`) so future occurrences are immediately classifiable from `KSP.log` alone, without log-archaeology around the boundary UT.
+**Fix shipped:** `SessionMerger.LogMergeDiagnostics` now classifies each discontinuity using the inter-section time gap and the previous section's last-frame velocity. The WARN line carries `dt=`, `expectedFromVel=`, and `cause=` (`unrecorded-gap` / `sample-skip` / `frame-mismatch`, plus `invalid-data` when the boundary UT or prior tail velocity is non-finite) so future occurrences are immediately classifiable from `KSP.log` alone, without log-archaeology around the boundary UT.
 
 - `unrecorded-gap` — discontinuity is consistent with `|prev.velocity| × dt` (with a 5 m floor + 2× margin); benign quickload-resume / scene-reload / frame-budget spike.
 - `sample-skip` — discontinuity exceeds the velocity-implied gap; points at a real dropped-sample / drift / src-tag bug.
 - `frame-mismatch` — `dt < 0.05 s` but a position jump; points at an interpolation/source-frame bug at the same boundary UT.
+- `invalid-data` — boundary timing or prior tail velocity is non-finite; do not treat the warning as a benign motion gap.
 
-**Files:** `Source/Parsek/SessionMerger.cs` (classifier + WARN format), `Source/Parsek.Tests/SessionMergerTests.cs` (7 classifier unit tests covering no-prev / zero-dt / velocity-matched / sample-skip / floor / NaN / Infinity, plus a parameterised WARN-format assertion that checks the exact `cause=` value across all three buckets).
+**Files:** `Source/Parsek/SessionMerger.cs` (classifier + WARN format), `Source/Parsek.Tests/SessionMergerTests.cs` (8 classifier unit tests covering no-prev / zero-dt / velocity-matched / sample-skip / floor / NaN / Infinity / non-finite UT, plus WARN-format assertions that check the exact `cause=` value across the normal buckets and the `invalid-data` guard).
 
 ---
 
