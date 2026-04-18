@@ -41,3 +41,12 @@ Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
 Source/Parsek/UI/SettingsWindowUI.cs
+
+# --- Phase 4 ERS-exempt files ---
+# RewindPointAuthor captures PidSlotMap / RootPartPidMap at a multi-controllable
+# split (design §5.1). The author correlates each ChildSlot to a live vessel by
+# raw Vessel.persistentId -- supersede visibility is not meaningful at
+# speculative-RP creation time, before any session merge can produce a
+# RecordingSupersede relation (§6.6). Documented at the call site with an
+# inline [ERS-exempt] comment.
+Source/Parsek/RewindPointAuthor.cs
