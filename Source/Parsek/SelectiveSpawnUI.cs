@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -59,17 +60,39 @@ namespace Parsek
 
         /// <summary>
         /// Pure: determine whether a ghost qualifies as a spawn candidate.
-        /// True when endUT is in the future, spawn is needed, not suppressed, and within range.
+        /// True when endUT is in the future, spawn is needed, not suppressed,
+        /// within range, and the surface-frame relative speed is within tolerance.
         /// </summary>
         internal static bool IsSpawnCandidate(
             double endUT, double currentUT,
             bool needsSpawn, bool chainSuppressed,
-            double distance, double proximityRadius)
+            double distance, double proximityRadius,
+            double relativeSpeed, double maxRelativeSpeed)
         {
             return endUT > currentUT
                 && needsSpawn
                 && !chainSuppressed
-                && distance <= proximityRadius;
+                && distance <= proximityRadius
+                && relativeSpeed <= maxRelativeSpeed;
+        }
+
+        /// <summary>
+        /// Pure: derive the relative speed (m/s) between active vessel and ghost from two
+        /// position samples taken `dt` seconds apart. Frame-agnostic: any uniform shift
+        /// (floating-origin, krakensbane) cancels in the per-sample relative vector.
+        /// Returns +infinity when dt is outside [minDt, maxDt] — the sample is either
+        /// jitter-dominated (too short) or stale (time warp / scene change).
+        /// </summary>
+        internal static double ComputeRelativeSpeed(
+            Vector3d activePos, Vector3d ghostPos,
+            Vector3d prevActivePos, Vector3d prevGhostPos,
+            float dt, float minDt, float maxDt)
+        {
+            if (dt < minDt || dt > maxDt)
+                return double.PositiveInfinity;
+            Vector3d nowRel = activePos - ghostPos;
+            Vector3d prevRel = prevActivePos - prevGhostPos;
+            return (nowRel - prevRel).magnitude / dt;
         }
 
         /// <summary>
