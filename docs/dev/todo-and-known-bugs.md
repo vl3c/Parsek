@@ -18,6 +18,52 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 465. Ghost engine/RCS audio keeps playing while the KSP pause menu is open outside the flight scene
+
+**Source:** user playtest report. "When paused (game menu open) in KSC view and probably other views, the sound from the rocket ghost is still audible."
+
+**Concern:** ghost `AudioSource` components (engine loops, RCS, ambient clips) don't respond to KSP's global pause like stock vessels' audio does. In the flight scene this is already handled: `ParsekFlight.cs:657` subscribes to `GameEvents.onGamePause`/`onGameUnpause` and the handlers at `ParsekFlight.cs:4302-4315` delegate to `engine.PauseAllGhostAudio()` / `engine.UnpauseAllGhostAudio()`, which loop over active ghost states and call `AudioSource.Pause()`/`UnPause()` (see `GhostPlaybackLogic.cs:2358` for the helpers). No equivalent subscription exists in `ParsekKSC.cs` — nothing in that file touches `onGamePause` or `PauseAllGhostAudio`. Same likely true for tracking station / other non-flight scenes that run ghost playback via the KSC code path. Result: ESC menu in KSC silences stock audio but ghost engine loops keep roaring until the menu closes.
+
+**Fix:** mirror the flight handler in `ParsekKSC.cs` — subscribe to `GameEvents.onGamePause` / `onGameUnpause` in `Awake`/`Start` (matching the `ParsekFlight.cs:657/1124` add/remove pair), unsubscribe in `OnDestroy`, and forward to the same `engine.PauseAllGhostAudio()` / `engine.UnpauseAllGhostAudio()` helpers the flight scene uses. The helpers already iterate `engine.ghostStates` so they work regardless of which scene is active. Verify the same fires from the tracking station scene if Parsek runs ghost audio there (grep for any `AudioSource` activation outside the flight/KSC paths). Add a log-assertion unit test that drives the pause handler and asserts `AudioSource.Pause` was called on the engine's state set (covered via the existing `GhostPlaybackEngine` test seams used in the pause/unpause flight tests).
+
+**Files:** `Source/Parsek/ParsekKSC.cs` (new subscription + handlers); possibly `Source/Parsek/Patches/GhostTrackingStation.cs` (tracking-station ghosts, if they carry `AudioSource`s at all); test in `Source/Parsek.Tests/`.
+
+**Scope:** Small. ~10 lines in ParsekKSC mirroring the flight code, one test.
+
+**Dependencies:** none — `PauseAllGhostAudio` / `UnpauseAllGhostAudio` already exist and are scene-agnostic.
+
+**Status:** TODO. Priority: medium — audible UX bug, trivial to reproduce (ESC at KSC while any loop ghost is playing).
+
+---
+
+## 464. Timeline Details tab duplicates milestone / strategy entries — gray `GameStateEvent` line shadows the green `GameAction` reward line
+
+**Source:** user playtest report. "From the Timeline Details tab list, remove the 'Milestone … achieved' messages and leave only the green ones, they're kind of duplicates; same for Strategy: activate / deactivate, duplicates."
+
+**Concern:** for each milestone or strategy lifecycle event, the Timeline Details list renders two rows:
+
+- the green `GameAction` row — rendered by `TimelineEntryDisplay.cs:296-308` for `GameActionType.MilestoneAchievement` and carries the user-meaningful data (milestone name + `+960 funds` / `+0.5 rep`). The strategy-activation variant is rendered in the same file for `GameActionType.StrategyActivate` / `StrategyDeactivate` (setup cost legs).
+- the gray `GameStateEvent` row — rendered by `GameStateEvent.GetDisplayDescription` at `GameStateEvent.cs:398-399` (`"{key}" achieved`) and `:405-413` (`"{title}" activated` / `"{title}" deactivated`). These are emitted by the `GameStateRecorder` path for audit completeness but add no information beyond what the green GameAction row already shows.
+
+Net effect: every milestone / strategy event shows up twice in the Timeline Details tab — first as the green reward summary, then as the plain gray confirmation. Players read this as redundant.
+
+**Fix:** filter the duplicate `GameStateEventType.MilestoneAchieved`, `StrategyActivated`, and `StrategyDeactivated` rows out of the Timeline Details rendering when a matching green `GameActionType.MilestoneAchievement` / `StrategyActivate` / `StrategyDeactivate` already exists for the same UT + key. Two equally valid places to apply the filter:
+
+1. In the timeline-details collator (wherever `GameStateEvent`s are merged into the per-recording display list — likely `ParsekUI` / `RecordingsTableUI` or a shared `TimelineBuilder` helper). Preferred — drops them at assembly time so the display path stays simple.
+2. In `TimelineEntryDisplay` via a post-hoc "if a preceding entry for this UT already carries the milestone id / strategy title, skip this one" dedup. Works but leaks the dedup logic into the display layer.
+
+Keep the gray rows emitted at the data layer — they're still useful for the raw event log / debugging. Only filter at the Timeline Details renderer level. Add a setting/toggle only if users actually want the duplicates back (unlikely given the report).
+
+**Files:** `Source/Parsek/Timeline/TimelineEntryDisplay.cs` (or upstream of it — grep for whatever builds the Details list); `Source/Parsek/GameStateEvent.cs` only if the "achieved"/"activated" format strings themselves need to change (they don't for this bug — the fix is filtering, not rewording). Test: xUnit building a timeline with both a MilestoneAchievement GameAction and a matching MilestoneAchieved GameStateEvent at the same UT, asserts the rendered list contains exactly one row for that milestone (the green one).
+
+**Scope:** Small. Single collator/filter site + one test. No schema or recording-format change.
+
+**Dependencies:** none.
+
+**Status:** TODO. Priority: low-medium — UI polish, no functional impact. Batch with any next UI pass.
+
+---
+
 ## 463. Deferred-spawn flush skips FlagEvents — flags planted mid-recording never materialise when warp carries the active vessel past a non-watched recording's end
 
 **Source:** user playtest `logs/2026-04-19_0014_investigate/KSP.log`. Reproducer:
