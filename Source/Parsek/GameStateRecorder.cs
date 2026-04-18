@@ -119,6 +119,77 @@ namespace Parsek
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
             IsReplayingActions = false;
+            BypassEntryPurchaseAfterResearchProviderForTesting = null;
+        }
+
+        /// <summary>
+        /// Test-only seam for the stock R&amp;D-part-purchase difficulty toggle. Production
+        /// reads <c>HighLogic.CurrentGame.Parameters.Difficulty.BypassEntryPurchaseAfterResearch</c>
+        /// directly; tests install a provider to drive both branches without a live KSP game.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
+
+        /// <summary>
+        /// Returns whether the stock R&amp;D difficulty toggle is available and, if so,
+        /// whether KSP bypasses one-time part entry purchases after research.
+        /// </summary>
+        internal static bool TryGetBypassEntryPurchaseAfterResearch(out bool bypassEntryPurchaseAfterResearch)
+        {
+            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
+            if (provider != null)
+            {
+                bypassEntryPurchaseAfterResearch = provider();
+                return true;
+            }
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
+            {
+                bypassEntryPurchaseAfterResearch = false;
+                return false;
+            }
+
+            bypassEntryPurchaseAfterResearch =
+                game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
+        /// Defensive: returns false when no live game exists.
+        /// </summary>
+        internal static bool IsBypassEntryPurchaseAfterResearch()
+        {
+            bool bypassEntryPurchaseAfterResearch;
+            return TryGetBypassEntryPurchaseAfterResearch(out bypassEntryPurchaseAfterResearch)
+                && bypassEntryPurchaseAfterResearch;
+        }
+
+        /// <summary>
+        /// Builds the canonical PartPurchased event payload from stock KSP semantics:
+        /// when bypass is on, the player pays 0; when bypass is off, the player pays
+        /// the part's <c>entryCost</c> (not its rollout/build <c>cost</c>).
+        /// Internal static for unit test coverage.
+        /// </summary>
+        internal static GameStateEvent CreatePartPurchasedEvent(
+            string partName,
+            float entryCost,
+            bool bypassEntryPurchaseAfterResearch,
+            double ut,
+            double currentFunds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float chargedCost = bypassEntryPurchaseAfterResearch ? 0f : entryCost;
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartPurchased,
+                key = partName ?? "",
+                detail = "cost=" + chargedCost.ToString("R", ic),
+                valueBefore = currentFunds + chargedCost,
+                valueAfter = currentFunds
+            };
         }
 
         private bool subscribed = false;
@@ -474,22 +545,23 @@ namespace Parsek
             }
             if (part == null) return;
             var partName = part.name ?? "";
-            // InvariantCulture-safe: plain interpolation serializes floats with the
-            // system locale decimal separator, and ConvertPartPurchased parses with IC.
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            float cost = part.cost;
-
-            var evt = new GameStateEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                eventType = GameStateEventType.PartPurchased,
-                key = partName,
-                detail = "cost=" + cost.ToString("R", ic),
-                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + cost : 0,
-                valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
-            };
+            double ut = Planetarium.GetUniversalTime();
+            double currentFunds = Funding.Instance != null ? Funding.Instance.Funds : 0;
+            bool bypassEntryPurchaseAfterResearch = IsBypassEntryPurchaseAfterResearch();
+            float entryCost = part.entryCost;
+            var evt = CreatePartPurchasedEvent(
+                partName,
+                entryCost,
+                bypassEntryPurchaseAfterResearch,
+                ut,
+                currentFunds);
+            double chargedCost = evt.valueBefore - evt.valueAfter;
             Emit(evt, "PartPurchased");
-            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={cost})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: PartPurchased '{partName}' " +
+                $"(charged={chargedCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"entryCost={entryCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"bypass={bypassEntryPurchaseAfterResearch})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
@@ -1004,6 +1076,71 @@ namespace Parsek
 
             ParsekLog.Info("GameStateRecorder",
                 $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+        }
+
+        /// <summary>
+        /// #442: emits a fully-populated <see cref="GameStateEventType.MilestoneAchieved"/>
+        /// event for progress nodes whose subclass calls <c>AwardProgress</c> directly
+        /// without going through <c>OnProgressComplete</c> (e.g. <c>RecordsSpeed</c>,
+        /// <c>RecordsAltitude</c>, <c>RecordsDistance</c>, <c>RecordsDepth</c>). Without
+        /// this path the world-record FundsChanged(Progression) deltas are dropped wholesale
+        /// by <see cref="GameStateEventConverter"/>'s drop-rule and the rewards never reach
+        /// the ledger.
+        ///
+        /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c> only when
+        /// no entry exists in <see cref="PendingMilestoneEventByNode"/> — i.e. when the
+        /// usual two-phase emit-then-enrich path did not run. Bypasses the enrichment-map
+        /// indirection entirely: rewards arrive as method parameters and are baked into
+        /// the event detail directly.
+        ///
+        /// <paramref name="ut"/> is supplied by the caller — production passes
+        /// <see cref="Planetarium.GetUniversalTime"/> from the patch site (which has Unity
+        /// statics live), unit tests pass a literal so they don't NRE on Planetarium.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void EmitStandaloneProgressReward(
+            ProgressNode node, double funds, float rep, double sci, double ut)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: suppressed during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: null node — skipped");
+                return;
+            }
+
+            string milestoneId = QualifyMilestoneId(node);
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: empty node Id — skipped");
+                return;
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = BuildMilestoneDetail(funds, rep, sci)
+            };
+            Emit(evt, "MilestoneAchievedStandalone");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
+                $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+
+            // Mirror the OnProgressComplete KSC-forwarding path so world-record rewards
+            // earned outside flight (rare, but possible — e.g. RecordsAltitude on a sub-
+            // orbital craft already reverted) still reach the ledger immediately.
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         /// <summary>
