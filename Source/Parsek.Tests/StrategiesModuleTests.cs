@@ -95,42 +95,44 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void BasicTransform_WithinWindow()
+        public void BasicTransform_WithinWindow_IdentityAfterPhaseE1_5()
         {
-            // Strategy "Unpaid Research" activated at UT=300 (10% REP->SCIENCE, setup cost: -5 rep).
-            // UT=400: Contract reward +40k funds, +50 rep. -> transformed: +45 rep, +5 science.
-            // UT=600: Contract reward +30k funds, +30 rep. -> transformed: +27 rep, +3 science.
-            // UT=700: Strategy deactivated.
-            // UT=800: Contract reward +20k funds, +40 rep. (no transform - outside window)
-
+            // #439 Phase A (Option B): TransformContractReward is now an identity no-op
+            // because KSP's CurrencyModifierQuery already transformed the reward before
+            // the FundsChanged / ReputationChanged / ScienceChanged events fired, which
+            // is what feeds ContractComplete's reward fields. Applying Commitment a
+            // second time would double-divert. See plan section 3.5 for the full
+            // rationale. activeStrategies is still populated for slot-accounting and
+            // Actions window display.
             var activate = MakeActivate("UnpaidResearch", 300.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f, setupCost: 5f);
             module.ProcessAction(activate);
+            Assert.True(module.IsStrategyActive("UnpaidResearch"));
 
-            // UT=400: inside window
+            // UT=400: inside window — identity, transformed fields equal raw rewards.
             var contract1 = MakeContractComplete("c1", 400.0,
                 fundsReward: 40000f, repReward: 50f, scienceReward: 0f);
             module.ProcessAction(contract1);
 
             Assert.Equal(40000f, contract1.TransformedFundsReward);
-            AssertFloatEqual(45f, contract1.TransformedRepReward);
-            AssertFloatEqual(5f, contract1.TransformedScienceReward);
+            Assert.Equal(50f, contract1.TransformedRepReward);
+            Assert.Equal(0f, contract1.TransformedScienceReward);
 
-            // UT=600: inside window
+            // UT=600: still identity.
             var contract2 = MakeContractComplete("c2", 600.0,
                 fundsReward: 30000f, repReward: 30f, scienceReward: 0f);
             module.ProcessAction(contract2);
 
             Assert.Equal(30000f, contract2.TransformedFundsReward);
-            AssertFloatEqual(27f, contract2.TransformedRepReward);
-            AssertFloatEqual(3f, contract2.TransformedScienceReward);
+            Assert.Equal(30f, contract2.TransformedRepReward);
+            Assert.Equal(0f, contract2.TransformedScienceReward);
 
-            // UT=700: deactivate
+            // UT=700: deactivate — slot frees, but contract rewards remain identity.
             var deactivate = MakeDeactivate("UnpaidResearch", 700.0);
             module.ProcessAction(deactivate);
+            Assert.False(module.IsStrategyActive("UnpaidResearch"));
 
-            // UT=800: outside window (strategy deactivated)
             var contract3 = MakeContractComplete("c3", 800.0,
                 fundsReward: 20000f, repReward: 40f, scienceReward: 0f);
             module.ProcessAction(contract3);
@@ -147,21 +149,17 @@ namespace Parsek.Tests
         [Fact]
         public void RetroactiveCommit_OutsideWindow()
         {
-            // Strategy active UT=200 to UT=600.
-            // Contract completed at UT=100 (BEFORE window). No transform.
-            // The contract's Effective flag was set by ContractsModule in first tier.
-
+            // #439 Phase A: identity no-op regardless of whether the contract falls
+            // inside or outside the strategy activation window.
             var activate = MakeActivate("UnpaidResearch", 200.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f);
             module.ProcessAction(activate);
 
-            // UT=100: before activation window, effective=true
             var contract = MakeContractComplete("orbit-mun", 100.0,
                 fundsReward: 50000f, repReward: 50f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            // No transform — contract UT < strategy ActivateUT
             Assert.Equal(50000f, contract.TransformedFundsReward);
             Assert.Equal(50f, contract.TransformedRepReward);
             Assert.Equal(0f, contract.TransformedScienceReward);
@@ -308,10 +306,14 @@ namespace Parsek.Tests
         // Transform tests — source/target resource mapping
         // ================================================================
 
+        // #439 Phase A: TransformContractReward is an identity no-op — KSP's
+        // CurrencyModifierQuery already transformed the reward before our event-side
+        // capture saw it. The tests below pin the identity invariant for the three
+        // resource source axes and the min/max commitment values.
+
         [Fact]
-        public void Transform_FundsToReputation()
+        public void Transform_FundsSource_IsIdentityNoOp()
         {
-            // Strategy: 20% of Funds -> Reputation
             module.ProcessAction(MakeActivate("FundsToRep", 100.0,
                 StrategyResource.Funds, StrategyResource.Reputation,
                 commitment: 0.20f));
@@ -320,16 +322,14 @@ namespace Parsek.Tests
                 fundsReward: 10000f, repReward: 10f, scienceReward: 5f);
             module.ProcessAction(contract);
 
-            // 20% of 10000 funds diverted = 2000
-            AssertFloatEqual(8000f, contract.TransformedFundsReward);
-            AssertFloatEqual(2010f, contract.TransformedRepReward);  // 10 + 2000
-            AssertFloatEqual(5f, contract.TransformedScienceReward);  // unchanged
+            Assert.Equal(10000f, contract.TransformedFundsReward);
+            Assert.Equal(10f, contract.TransformedRepReward);
+            Assert.Equal(5f, contract.TransformedScienceReward);
         }
 
         [Fact]
-        public void Transform_ScienceToFunds()
+        public void Transform_ScienceSource_IsIdentityNoOp()
         {
-            // Strategy: 25% of Science -> Funds
             module.ProcessAction(MakeActivate("SciToFunds", 100.0,
                 StrategyResource.Science, StrategyResource.Funds,
                 commitment: 0.25f));
@@ -338,16 +338,14 @@ namespace Parsek.Tests
                 fundsReward: 1000f, repReward: 0f, scienceReward: 40f);
             module.ProcessAction(contract);
 
-            // 25% of 40 science diverted = 10
-            AssertFloatEqual(1010f, contract.TransformedFundsReward);   // 1000 + 10
-            AssertFloatEqual(0f, contract.TransformedRepReward);
-            AssertFloatEqual(30f, contract.TransformedScienceReward);   // 40 - 10
+            Assert.Equal(1000f, contract.TransformedFundsReward);
+            Assert.Equal(0f, contract.TransformedRepReward);
+            Assert.Equal(40f, contract.TransformedScienceReward);
         }
 
         [Fact]
-        public void Transform_ReputationToFunds()
+        public void Transform_ReputationSource_IsIdentityNoOp()
         {
-            // Strategy: 15% of Reputation -> Funds
             module.ProcessAction(MakeActivate("RepToFunds", 100.0,
                 StrategyResource.Reputation, StrategyResource.Funds,
                 commitment: 0.15f));
@@ -356,18 +354,17 @@ namespace Parsek.Tests
                 fundsReward: 5000f, repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            // 15% of 100 rep diverted = 15
-            AssertFloatEqual(5015f, contract.TransformedFundsReward);   // 5000 + 15
-            AssertFloatEqual(85f, contract.TransformedRepReward);        // 100 - 15
-            AssertFloatEqual(0f, contract.TransformedScienceReward);
+            Assert.Equal(5000f, contract.TransformedFundsReward);
+            Assert.Equal(100f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         // ================================================================
-        // Transform tests — commitment percentage
+        // Transform tests — commitment percentage (identity invariant)
         // ================================================================
 
         [Fact]
-        public void Transform_MinCommitment_OnePercent()
+        public void Transform_MinCommitment_StillIdentity()
         {
             module.ProcessAction(MakeActivate("MinCommit", 100.0,
                 StrategyResource.Reputation, StrategyResource.Science,
@@ -377,12 +374,12 @@ namespace Parsek.Tests
                 repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            AssertFloatEqual(99f, contract.TransformedRepReward);
-            AssertFloatEqual(1f, contract.TransformedScienceReward);
+            Assert.Equal(100f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         [Fact]
-        public void Transform_MaxCommitment_TwentyFivePercent()
+        public void Transform_MaxCommitment_StillIdentity()
         {
             module.ProcessAction(MakeActivate("MaxCommit", 100.0,
                 StrategyResource.Funds, StrategyResource.Science,
@@ -392,8 +389,33 @@ namespace Parsek.Tests
                 fundsReward: 40000f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            AssertFloatEqual(30000f, contract.TransformedFundsReward);
-            AssertFloatEqual(10000f, contract.TransformedScienceReward);
+            Assert.Equal(40000f, contract.TransformedFundsReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
+        }
+
+        [Fact]
+        public void TransformContractReward_IsIdentityNoOp_AfterPhaseE1_5()
+        {
+            // Pin the Phase A invariant: even with an active strategy whose source
+            // resource matches the reward field, TransformedFundsReward stays equal to
+            // FundsReward. Plan section 3.5 option B — KSP pre-transforms rewards
+            // through the modifier query before the FundsChanged event fires, so the
+            // raw-side double-transform this module used to do would double-divert.
+            module.ProcessAction(MakeActivate("UnpaidResearch", 100.0,
+                StrategyResource.Funds, StrategyResource.Science,
+                commitment: 0.25f));
+
+            var contract = MakeContractComplete("c1", 200.0,
+                fundsReward: 80000f, repReward: 10f, scienceReward: 0f);
+            module.ProcessAction(contract);
+
+            Assert.Equal(contract.FundsReward, contract.TransformedFundsReward);
+            Assert.Equal(contract.RepReward, contract.TransformedRepReward);
+            Assert.Equal(contract.ScienceReward, contract.TransformedScienceReward);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("identity no-op") &&
+                l.Contains("CurrencyModifierQuery"));
         }
 
         // ================================================================
@@ -403,17 +425,18 @@ namespace Parsek.Tests
         [Fact]
         public void Transform_NonEffectiveContract_NotTransformed()
         {
+            // #439 Phase A: identity no-op applies to both effective and non-effective
+            // contracts; the module no longer short-circuits on Effective=false because
+            // there is nothing to short-circuit against.
             module.ProcessAction(MakeActivate("UnpaidResearch", 100.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f));
 
-            // Non-effective (duplicate completion zeroed by ContractsModule)
             var contract = MakeContractComplete("c1", 200.0,
                 fundsReward: 10000f, repReward: 50f, scienceReward: 0f,
                 effective: false);
             module.ProcessAction(contract);
 
-            // No transform
             Assert.Equal(10000f, contract.TransformedFundsReward);
             Assert.Equal(50f, contract.TransformedRepReward);
             Assert.Equal(0f, contract.TransformedScienceReward);
@@ -442,12 +465,12 @@ namespace Parsek.Tests
         [Fact]
         public void Transform_ContractBeforeActivationUT_NotTransformed()
         {
-            // Strategy activates at UT=500
+            // #439 Phase A: identity no-op applies regardless of UT relationship
+            // between strategy and contract.
             module.ProcessAction(MakeActivate("LateStrat", 500.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f));
 
-            // Contract at UT=300 (before activation)
             var contract = MakeContractComplete("c1", 300.0,
                 repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
@@ -489,16 +512,16 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void Transform_MultipleStrategies_BothApply()
+        public void Transform_MultipleStrategies_IdentityNoOp()
         {
+            // #439 Phase A: multiple active strategies still yield identity transformed
+            // fields. activeStrategies is populated for slot accounting, but the reward
+            // transform itself stays at zero applications.
             module.SetMaxSlots(3);
 
-            // Strategy 1: 10% Rep -> Science
             module.ProcessAction(MakeActivate("RepToSci", 100.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f));
-
-            // Strategy 2: 20% Funds -> Reputation
             module.ProcessAction(MakeActivate("FundsToRep", 100.0,
                 StrategyResource.Funds, StrategyResource.Reputation,
                 commitment: 0.20f));
@@ -507,13 +530,10 @@ namespace Parsek.Tests
                 fundsReward: 10000f, repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            // Both strategies apply. Since they touch different source resources,
-            // order does not matter:
-            // Rep -> Sci: 10% of 100 = 10 diverted. Rep = 90, Sci = 10.
-            // Funds -> Rep: 20% of 10000 = 2000 diverted. Funds = 8000, Rep = 90 + 2000 = 2090.
-            AssertFloatEqual(8000f, contract.TransformedFundsReward);
-            AssertFloatEqual(2090f, contract.TransformedRepReward);
-            AssertFloatEqual(10f, contract.TransformedScienceReward);
+            Assert.Equal(10000f, contract.TransformedFundsReward);
+            Assert.Equal(100f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
+            Assert.Equal(2, module.GetActiveStrategyCount());
         }
 
         // ================================================================
@@ -546,8 +566,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Transform_LogsDiversionDetails()
+        public void Transform_LogsIdentityNoOp()
         {
+            // #439 Phase A: the diversion log was replaced by a single VERBOSE line
+            // per call announcing the identity no-op. Pin it here so future readers
+            // looking for the old diversion text in the log find the migration note.
             module.ProcessAction(MakeActivate("RepToSci", 100.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f));
@@ -558,9 +581,8 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Strategies]") &&
-                l.Contains("Transform") &&
-                l.Contains("RepToSci") &&
-                l.Contains("diverted"));
+                l.Contains("identity no-op") &&
+                l.Contains("c1"));
         }
 
         [Fact]
@@ -583,8 +605,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Transform_NonEffective_LogsSkip()
+        public void Transform_NonEffective_LogsIdentityNoOp()
         {
+            // #439 Phase A: the not-effective skip line was replaced with the single
+            // identity-no-op line. Transformed fields still match raw values.
             module.ProcessAction(MakeActivate("RepToSci", 100.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f));
@@ -597,42 +621,24 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Strategies]") &&
-                l.Contains("skipped (not effective)") &&
+                l.Contains("identity no-op") &&
                 l.Contains("c1"));
         }
 
         [Fact]
-        public void Transform_BeforeActivationUT_LogsSkip()
+        public void Transform_NoActiveStrategies_LogsIdentityNoOp()
         {
-            module.ProcessAction(MakeActivate("LateStrat", 500.0,
-                StrategyResource.Reputation, StrategyResource.Science,
-                commitment: 0.10f));
-
-            logLines.Clear();
-
-            var contract = MakeContractComplete("c1", 300.0,
-                repReward: 100f, scienceReward: 0f);
-            module.ProcessAction(contract);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Strategies]") &&
-                l.Contains("skipped for") &&
-                l.Contains("LateStrat") &&
-                l.Contains("c1"));
-        }
-
-        [Fact]
-        public void Transform_NoActiveStrategies_LogsSkip()
-        {
-            // No strategies activated — transform should log skip
+            // #439 Phase A: even without active strategies, the module logs the
+            // identity-no-op line so the call is observable.
             var contract = MakeContractComplete("c1", 200.0,
                 fundsReward: 10000f, repReward: 50f, scienceReward: 0f);
             module.ProcessAction(contract);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Strategies]") &&
-                l.Contains("skipped (no active strategies)") &&
-                l.Contains("c1"));
+                l.Contains("identity no-op") &&
+                l.Contains("c1") &&
+                l.Contains("activeStrategies=0"));
         }
 
         [Fact]
@@ -668,8 +674,12 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void Integration_EngineDispatchesStrategyActions()
+        public void Integration_EngineDispatchesStrategyActions_IdentityRewards()
         {
+            // #439 Phase A: activate/deactivate flow still dispatches through the engine,
+            // and the module still tracks active strategies for slot accounting. Rewards
+            // on ContractComplete stay identity in both windows because KSP pre-applies
+            // the transform through the modifier query.
             RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.Strategy);
 
             var actions = new List<GameAction>
@@ -686,11 +696,8 @@ namespace Parsek.Tests
 
             RecalculationEngine.Recalculate(actions);
 
-            // c1 at UT=400 inside strategy window: rep 50->45, sci 0->5
-            AssertFloatEqual(45f, actions[1].TransformedRepReward);
-            AssertFloatEqual(5f, actions[1].TransformedScienceReward);
-
-            // c2 at UT=800 outside strategy window: no transform
+            Assert.Equal(50f, actions[1].TransformedRepReward);
+            Assert.Equal(0f, actions[1].TransformedScienceReward);
             Assert.Equal(40f, actions[3].TransformedRepReward);
             Assert.Equal(0f, actions[3].TransformedScienceReward);
         }
@@ -702,23 +709,26 @@ namespace Parsek.Tests
         [Fact]
         public void Activate_SameStrategyTwice_OverwritesPrevious()
         {
+            // #439 Phase A: overwriting semantics still hold for the activeStrategies
+            // dict (used for slot accounting and display). Transformed reward fields
+            // stay identity regardless of commitment.
             module.ProcessAction(MakeActivate("S1", 100.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.10f));
 
-            // Activate again with different commitment — overwrites
             module.ProcessAction(MakeActivate("S1", 200.0,
                 StrategyResource.Reputation, StrategyResource.Science,
                 commitment: 0.20f));
 
             Assert.Equal(1, module.GetActiveStrategyCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") && l.Contains("already active") && l.Contains("S1"));
 
-            // Verify the new commitment applies
             var contract = MakeContractComplete("c1", 300.0, repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            AssertFloatEqual(80f, contract.TransformedRepReward);    // 20% diverted
-            AssertFloatEqual(20f, contract.TransformedScienceReward);
+            Assert.Equal(100f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         [Fact]

@@ -58,6 +58,30 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~459.~~ `Run All` cleanup destroys the watched ghost before watch mode exits, flooding `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` with NullReferenceExceptions
+
+**Source:** Playtest `2026-04-18_1947_450-b3-playtest/KSP.log`. At `19:46:21.679`, `InGameTestRunner.PerformBetweenRunCleanup("run-all")` started its teardown in FLIGHT and immediately called `ParsekFlight.DestroyAllTimelineGhosts()` while watch mode was still active on a ghost. The watched `state.ghost.transform` then became a destroyed Unity wrapper, but stock camera state still held it via `PlanetariumCamera.target` / `ScaledMovement.tgtRef`; on the next frame, stock `Sun.LateUpdate` and `FlightGlobals.UpdateInformation` started throwing every frame (about 8,750 exceptions over 60 seconds) until the player alt+F4'd.
+
+**Fix:** extracted `ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(...)` as the shared seam for this ordering guard. `InGameTestRunner.PerformBetweenRunCleanup` now calls it at the top of the `flight != null` block, before reading ghost counts or destroying anything. The helper first retargets stock camera state off the watched ghost without restoring the saved watch camera orbit: `FlightCamera` is rebound to the active vessel, and when map view is open `PlanetariumCamera` is rebound to the active vessel's `mapObject`, so stock `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` no longer retain the destroyed ghost transform. Only after that retarget does it call `ExitWatchMode(skipCameraRestore:true)` to clear Parsek's internal watch state without trying to restore the old camera pose. `ParsekFlight.DestroyAllTimelineGhosts()` also calls the same helper first so rewind and any future caller cannot destroy timeline ghosts while stock watch/camera state still points at one. Added `Patches/SunLateUpdateGuardPatch.cs` as symptom containment: Harmony prefix on `Sun.LateUpdate` returns early when `Sun.target` is null/destroyed and emits a one-shot `[CameraFollow]` WARN so regressions still leave a breadcrumb instead of a per-frame exception storm. Unit coverage in `WatchModeCleanupRegressionTests` now asserts the detach callback runs before the exit callback and that the `[CameraFollow] Exiting watch mode before timeline ghost cleanup` log precedes `[Engine] DestroyAllGhosts`; runtime coverage adds `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` plus `GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs` to watch the exact cleanup path and the adjacent low-altitude Kerbin spawn path for stock exception spam.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/Patches/SunLateUpdateGuardPatch.cs`, `Source/Parsek.Tests/WatchModeCleanupRegressionTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. `dotnet build` passes, `dotnet test --filter WatchModeCleanupRegressionTests` passes (3/3), and full `dotnet test` passes (7195/7196 with 1 pre-existing skipped Unity-runtime test). In-game runtime verification remains pending for the next playtest.
+
+---
+
+## ~~458.~~ Binary `.prec` flat-fallback loads skip the malformed-prefix healer
+
+**Source:** playtest `2026-04-18 1947`. `RuntimeTests.CommittedRecordingsHaveValidData` failed on recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) with `point 13 UT 155.840000000006 < previous 170.920000000014`. Hex-decoding the `.prec` confirmed the top-level flat point list duplicated the authoritative 13-frame prefix and then appended a terminal endpoint, while `TrackSection[0]` itself held the correct monotonically increasing frames. Root cause: commit `4474ba97` added `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`, but only the text `ConfigNode` load path (`DeserializeTrajectoryFrom`) called it. Real committed recordings hydrate through `TrajectorySidecarBinary.Read`, so the bad binary shape bypassed the healer entirely.
+
+**Fix:** `TrajectorySidecarBinary.Read` now runs the same healer in the non-section-authoritative branch after `ReadTrackSections`, with `allowRelativeSections: true` to match the text load path. The existing `ReadBinaryTrajectoryFile ... used flat fallback path` VERBOSE line now includes `healed=true/false` plus `prePoints/postPoints` and `preOrbitSegments/postOrbitSegments`, making it obvious in `KSP.log` whether a malformed flat fallback was rewritten on read. The healer already calls `rec.MarkFilesDirty()`, so a healed sidecar now flushes back out automatically on the next save. `RuntimeTests.CommittedRecordingsHaveValidData` also reports `trackSections=`, `prefixMatchCount=`, and `firstPostPrefixSource=` for any future monotonicity failure so the next playtest points directly at duplicated track-section payload vs flat-only tail data.
+
+**Files:** `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Bug458BinaryFlatFallbackHealTests.cs`.
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter Bug458BinaryFlatFallbackHealTests` (1/1). In-game verification is pending the next playtest bundle.
+
+---
+
 ## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
 
 **Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
@@ -421,51 +445,51 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 440. Post-walk reconciliation for strategy-transformed and curve-applied reward types
+## ~~440.~~ Post-walk reconciliation for strategy-transformed and curve-applied reward types
 
-**Source:** Phase B (#437, PR #340) explicitly excluded these from KSC-side reconciliation. `LedgerOrchestrator.ReconcileKscAction.ClassifyAction` routes `ContractComplete` / `ContractFail` / `ContractCancel` / `MilestoneAchievement` / `ReputationEarning` / `ReputationPenalty` / direct KSC-path `FundsEarning` / `ScienceEarning` into the "transformed — skip with VERBOSE" bucket because their raw action fields (e.g. `FundsReward`, `NominalRep`) diverge from the live KSP balance delta by the time the walk runs: `StrategiesModule` mutates `TransformedFundsReward` during the walk, and `ReputationModule.ApplyReputationCurve` transforms rep earnings/penalties non-linearly. Comparing raw fields to observed deltas would produce false-positive WARNs on every legitimate contract completion once strategies are active.
+**Status:** Fixed (Phase E2, v0.8.2) in feat/440-post-walk-reconciliation.
 
-**Why it matters:** today strategy diversion, the reputation curve, and milestone rewards all pass through silently unless something external catches a mismatch (Phase A's legacy migration, or a `PatchFunds: suspicious drawdown` WARN from `KspStatePatcher`). Once #439 (strategy lifecycle capture) lands, strategy-transformed rewards become a first-class concern and the VERBOSE-skip is no longer defensible.
-
-**Fix:** Add a **post-walk reconciliation hook** that runs inside `LedgerOrchestrator.RecalculateAndPatch` after `RecalculationEngine.Recalculate` has populated `TransformedFundsReward` / `TransformedScienceReward` / `TransformedRepReward` and `ReputationModule.EffectiveRep`. The hook iterates actions of the transformed types and compares the POST-walk field to the live observed delta in `GameStateStore` within the same UT window / `TransactionReasons` key used by `ReconcileKscAction`. WARN on mismatch; VERBOSE on match.
-
-Design constraints pulled from Phase D's (#343) plumbing:
-- The post-walk hook must respect `utCutoff` the same way the walk does — if a transformed-type action is past the cutoff it gets filtered out of reconciliation too (otherwise rewind would produce false WARNs for rewards that the walk skipped).
-- Keep the action-type classifier (`ReconcileKscAction.ClassifyAction`) as the authoritative split; "transformed" types get routed to the post-walk path instead of being VERBOSE-skipped. The "untransformed" and "no-op" buckets don't change.
-- Milestone rewards need special care: `MilestoneAchievement.Effective` is set by `MilestonesModule` at walk time; duplicates get `Effective=false` and should NOT reconcile (the live delta reflects the first credit only).
-
-**Scope:** new helper in `LedgerOrchestrator.cs` (~80-120 lines), new tests in `EarningsReconciliationTests.cs` (~10 cases for: contract complete pre-strategy vs post-strategy, rep earning through the curve, milestone + effective duplicate, strategy-diverted reward, cutoff filter). Medium.
-
-**Dependencies:** #439 (strategy capture) should land first so the strategy-diversion cases can be tested end-to-end; otherwise a significant cohort of "transformed" WARNs won't have a test to pin them. Phase D (#343) shipped — `utCutoff` is already threaded through `RecalculateAndPatch`. Order: #439 → #440.
-
-**Status:** TODO. Priority: medium. Diagnostic-only (like the rest of reconciliation). Not release-blocking.
+**Fix summary:** `LedgerOrchestrator.RecalculateAndPatch` now calls a new `ReconcilePostWalk` helper after `RecalculationEngine.Recalculate` populates the derived `Transformed*Reward`, `EffectiveRep`, and `EffectiveScience` fields. The hook iterates actions in ledger order, respects `utCutoff` (mirrors the walk's filter; seed types always pass), and for each of the eight Transformed-bucket action types (ContractComplete, ContractFail, ContractCancel, MilestoneAchievement, ReputationEarning, ReputationPenalty, KSC-path FundsEarning, ScienceEarning) compares the post-walk derived value against the sum of matching `GameStateStore` events within 0.1 s of the action's UT. WARN per leg on divergence (tolerances: funds 1.0, rep 0.1, sci 0.1); rate-limited VERBOSE on match; single INFO summary per walk. Reviewer-corrected event keys: `ContractComplete` uses `ContractReward` (not `Contracts`), `ContractFail`/`ContractCancel` use `ContractPenalty` (not `ContractDecline`), `MilestoneAchievement` uses `Progression` via the generic resource-event path (the MilestoneAchieved event's detail is NOT parsed). Reputation earning/penalty actions map by their source enum; synthetic sources (`Other`, `LegacyMigration`) return `Reconcile=false`. Tests: 14 unit tests in `EarningsReconciliationTests.cs` including a gate-zero `PostWalk_ReputationCurveMatchesKsp` regression that pins `ApplyReputationCurve` against Spike A's KSP decompile within 0.1 tolerance, plus 3 integration tests in `PostWalkReconciliationIntegrationTests.cs`.
 
 ---
 
-## 439. Strategy lifecycle capture (Phase E1.5 of ledger/lump-sum fix)
+## 440B. Switch `ReconcileEarningsWindow` from raw to Transformed* rewards (follow-up after #440)
 
-**Source:** `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` Phase E1.5, flagged during plan review and re-flagged by Phase B's audit of `GameStateEvent.cs:6-27` — no strategy event types exist. `LedgerOrchestrator.StrategiesModule` consumes `StrategyActivate` / `StrategyDeactivate` actions during the walk (and `StrategiesModule.cs:207-208,235` mutates `TransformedFundsReward` on contract-complete actions), but nothing in the mod captures strategy lifecycle from KSP and nothing emits those action types.
+**Source:** #440 (v0.8.2) review flagged a latent double-WARN risk. `LedgerOrchestrator.ReconcileEarningsWindow` (commit path) currently sums raw `FundsReward`/`RepReward`/`ScienceReward` into `emittedFundsDelta`/etc., not `Transformed*Reward`. Today this is equivalent because `StrategiesModule.TransformContractReward` is an identity no-op (see #439 Phase A). If a future mod introduces a non-identity transform (e.g. a strategy effect that diverts rewards), both `ReconcileEarningsWindow` on commit AND `ReconcilePostWalk` will WARN for the same action with different signs.
 
-**Why it matters:** any career that activates a KSP strategy (Leadership Initiative, Open-Source Tech Program, etc.) has funds/rep/science flowing through channels the ledger doesn't model. `StrategiesModule` runs but has no input. Strategy payouts become phantom income that `tree.DeltaFunds` captures but the ledger walk doesn't — the exact repro shape of #436 for strategy-active careers. Phase A's legacy migration catches it as an "unknown channel residual" and injects a `LegacyMigration` synthetic on load; going forward, we want the events captured correctly instead of papered over.
+**Fix:** switch the relevant switch cases in `ReconcileEarningsWindow` to `TransformedFundsReward` / `TransformedRepReward` / `TransformedScienceReward`. Small, purely additive. Add a unit test that pins the double-WARN scenario.
 
-**Fix:**
-- Add `GameStateEventType.StrategyActivated` / `StrategyDeactivated` / `StrategyPayout` in `Source/Parsek/GameStateEvent.cs`.
-- New Harmony patch `Source/Parsek/Patches/StrategyLifecyclePatch.cs` on `Strategies.Strategy.Activate` / `Deactivate` and whichever callback KSP uses for strategy payouts. Find exact symbols via `ilspycmd` per `.claude/CLAUDE.md`'s decompilation workflow.
-- Extend `Source/Parsek/GameStateRecorder.cs` to emit the new event types, tagging with the current recording id when in flight (KSC-scope otherwise).
-- Add `FundsEarningSource.Strategy` (and a `ReputationSource.Strategy` if KSP strategies grant rep, which they do for some — verify).
-- `Source/Parsek/GameActions/GameStateEventConverter.cs`: convert the new events into the existing `StrategyActivate` / `StrategyDeactivate` action types, and into a new `StrategyPayout` `FundsEarning`/`ReputationEarning` with source = `Strategy`. `GameActionType` may need a new value for payout if reusing existing earning types is awkward.
-- Wire `ReconcileKscAction.ClassifyAction` to route the new action types correctly (strategy payouts are transformed-type candidates → post-walk reconciliation per #440).
-- New file `Source/Parsek.Tests/StrategyCaptureTests.cs` — capture/replay symmetry for all three events, conversion correctness, end-to-end round-trip through `ParsekScenario` save/load.
-
-**Scope:** medium-large. New Harmony patches + new event types + new enum values + converter + module plumbing + test file. Estimate 2-3 days of focused work.
-
-**Dependencies:** #436 (Phase A), Phase B (#437), Phase C, Phase D (#343), Phase F, #441 all shipped. Strategy income on new saves is currently uncredited in the ledger walk — Phase A's legacy-migration path does NOT fire for new-save trees because they don't have persisted `tree.DeltaFunds` to migrate. A KSC-active strategy on a brand-new career will produce a `PatchFunds: suspicious drawdown` WARN until #439 lands. Recommended ordering: #439 → #440.
-
-**Status:** TODO. Priority: medium. Release-blocking for strategy-using careers in v0.8.3; v0.8.2 ships with strategies unsupported (user-visible effect: `PatchFunds: suspicious drawdown` WARN when a strategy diverts reward). Documented as a known limitation in CHANGELOG for v0.8.2.
+**Status:** TODO. Priority: low. Does not bite today.
 
 ---
 
-## 438. Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+---
+
+## ~~439.~~ Strategy lifecycle capture (Phase E1.5 of ledger/lump-sum fix)
+
+**Status:** Fixed in `feat/439B-strategy-setup-multi-resource`. Phase A (v0.8.2) shipped strategy lifecycle capture, and this follow-up completes the multi-resource StrategyActivate setup-cost handling for Funds, Science, and Reputation.
+
+**Summary of fix:** added `GameStateEventType.StrategyActivated` / `StrategyDeactivated` (enum ids 20/21, append-only). New `Source/Parsek/Patches/StrategyLifecyclePatch.cs` installs Harmony postfixes on `Strategies.Strategy.Activate` / `Deactivate`, filtering on `__result == true` and honoring `GameStateRecorder.IsReplayingActions`. Recorder emits new events with pure-static detail builders (`BuildStrategyActivateDetail` / `BuildStrategyDeactivateDetail`) formatted with InvariantCulture "R". `GameStateEventConverter` routes the new events to the existing `StrategyActivate` / `StrategyDeactivate` `GameAction`s. `StrategyActivate` now carries setup costs for Funds, Science, and Reputation, `LedgerOrchestrator.ClassifyAction` emits up to three reconciliation legs keyed `StrategySetup`, and the science/reputation modules apply the additional setup costs during the walk. `StrategiesModule.TransformContractReward` remains a documented identity no-op: KSP's `CurrencyModifierQuery` already transformed contract rewards before `onContractCompleted` fires (see decompile trace in `docs/dev/plans/fix-439-strategy-lifecycle-capture.md` section 3.5), so applying Commitment a second time would double-divert. `activeStrategies` is still populated for slot accounting and Actions-window display.
+
+**NOT included (deferred further):** a `StrategyPayout` fallback emitter for mod-compat strategies that bypass the `OnCurrencyModifierQuery` path. No current stock or major mod needs it; add when a concrete requirement arises.
+
+---
+
+## ~~439B.~~ Strategy setup cost reconciliation for Science and Reputation legs (#439 follow-up)
+
+**Status:** Fixed in `feat/439B-strategy-setup-multi-resource`.
+
+**Source:** #439 Phase A shipped a single-resource `KscActionExpectation` (Funds leg only). Strategies with non-zero `InitialCostScience` or `InitialCostReputation` emitted false-positive KSC-reconciliation WARNs on the Science/Rep legs because `ClassifyAction` only returned one (`EventType`, `ExpectedReasonKey`, `ExpectedDelta`) tuple.
+
+**Fix:** `LedgerOrchestrator.KscActionExpectation` now carries up to three per-resource legs, `ReconcileKscAction` iterates them independently, and `StrategyActivate` emits Funds / Science / Reputation setup-cost legs keyed `StrategySetup`. `GameAction` / `GameStateEventConverter` now preserve `setupSci` and `setupRep`, and the science/reputation modules consume those setup costs during the recalculation walk.
+
+**Dependencies:** #439 Phase A (shipped).
+
+---
+
+## ~~438.~~ Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+
+**Status:** Fixed. Production gap in `LedgerOrchestrator.ReconcileEarningsWindow` closed (three missing switch cases: `ContractAccept`, `FacilityUpgrade`, `FacilityRepair`). 7 positive-match tests added to `EarningsReconciliationTests.cs` covering gaps 1-4 and 6, 1 converter-side test in `GameStateEventConverterTests.cs` for gap 5, 1 end-to-end test in the new `EarningsReconciliationEndToEndTests.cs` for gap 7, and 2 legacy-tree end-to-end tests in the new `LegacyTreeReconciliationRepro438Tests.cs` for gap 8.
 
 **Source:** Phase B (#437, PR #340) deliverable #2 — the channel-coverage audit. Several earning channels have capture code in main but no assertion in `EarningsReconciliationTests.cs` that the capture reconciles cleanly against `GameStateStore` events. Each is a small, self-contained test addition.
 
@@ -1072,7 +1096,7 @@ Added `ParsekSettings.CurrentOverrideForTesting` hook so unit tests can exercise
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Recording 393b82ccb697492bb7b35c6c621f9d07: point 13 UT 155.840000000006 < previous 170.920000000014`.
 
-**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the on-disk `.prec` sidecar from `logs/2026-04-14_1801_orbital-spawn-bug/parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt` showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
+**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the save-scoped `.prec` sidecar from the collected bundle (`logs/2026-04-14_1801_orbital-spawn-bug/saves/<save>/Parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt`; the script also emits a legacy `parsek/Recordings/` compatibility copy) showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
 
 **Concern:** Consumers that assume monotonic UTs (binary-search lookups, interpolation, playback cursor advance) behave unpredictably on the non-monotonic pair.
 
@@ -2442,6 +2466,8 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 **Status:** DONE (PR #304). Size: S. Required a small runtime code change: `AddRealCareerRecordings` was extended to iterate `scenarioNode.GetNodes("RECORDING_TREE")` and forward trees via `ScenarioWriter.AddTree` (previously only standalone RECORDINGs were read, and standalone format is blocked by the T56 filter). All 5 Learstar recordings retained (root `1bbb50cf98654a23a60b3248848b0301` + 4 debris children) along with the `parsek_rw_0a74d6.sfs` rewind save placed under the new `DefaultCareer/Parsek/Saves/` subdirectory (the existing `CopyRealRecordingFiles` loop reads rewind saves from `sourceCareerDir/Parsek/Saves/`, not from the fixture root). `InjectAllRecordings` gained three assertions (`vesselName = Learstar A1`, `vesselName = Learstar A1 Debris`, `treeName = Learstar A1`). Fixture size: 1.1M → 1.7M (`du -sh`; +577098 bytes, dominated by the 385 KB rewind save and the 74 KB root `.prec`). Follow-up: nested the `Learstar A1 / Debris` group under the main `Learstar A1` group by adding a `GROUP_HIERARCHY` node to the fixture ParsekScenario and extending `ScenarioWriter` with `AddGroupHierarchyEntry(child, parent)` + emission in `BuildScenarioNode`; `AddRealCareerRecordings` now forwards every `GROUP_HIERARCHY/ENTRY` from the fixture so the UI shows debris as a collapsible sub-group of the main mission group instead of a flat sibling.
 
 **Reinjection gotcha:** running `dotnet test --filter InjectAllRecordings` from a sibling git worktree silently short-circuits (xUnit reports Passed in ~100 ms) because `ResolveKspRoot()` probes relative to `ProjectRoot` and does not find `Kerbal Space Program/` outside the worktree. The MSBuild `-p:KSPDir=...` property only wires up DLL references at build time. To actually reinject, set the `KSPDIR` environment variable for the test process: `KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program" dotnet test --filter InjectAllRecordings -p:KSPDir=...`.
+
+**Live-save hazard:** `InjectAllRecordings` rewrites the target save and its `Parsek/Recordings/` sidecars, so never aim it at the same `KSPDIR`/save a live KSP session is using; the preflight helper now probes `KSP.log` and refuses the inject when KSP appears active, but reinjection should still be treated as a closed-KSP operation.
 
 ---
 

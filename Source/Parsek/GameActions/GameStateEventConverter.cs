@@ -118,6 +118,12 @@ namespace Parsek
                 case GameStateEventType.KerbalRescued:
                     return ConvertKerbalRescued(evt, recordingId);
 
+                case GameStateEventType.StrategyActivated:
+                    return ConvertStrategyActivated(evt, recordingId);
+
+                case GameStateEventType.StrategyDeactivated:
+                    return ConvertStrategyDeactivated(evt, recordingId);
+
                 // Skipped event types — no GameAction equivalent.
                 //
                 // DO NOT try to "fix" this by re-emitting FundsChanged/ScienceChanged/
@@ -542,6 +548,62 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// StrategyActivated -> StrategyActivate. <c>StrategyId</c> comes from
+        /// <c>evt.key</c> (strategy config Name). <c>Commitment</c> parses the
+        /// <c>factor</c> detail field; <c>SourceResource</c> / <c>TargetResource</c>
+        /// parse the recorder-emitted <c>source</c> / <c>target</c> detail fields so
+        /// the Actions/Timeline/Career State UI preserves the real strategy flow.
+        /// Setup costs parse from <c>setupFunds</c>, <c>setupSci</c>, and
+        /// <c>setupRep</c> so the action carries all three setup resources through
+        /// conversion, save/load, recalculation, and KSC reconciliation.
+        /// Internal static for testability.
+        /// </summary>
+        internal static GameAction ConvertStrategyActivated(GameStateEvent evt, string recordingId)
+        {
+            float factor = ParseDetailFloat(evt.detail, "factor");
+            StrategyResource sourceResource = ParseStrategyResource(
+                ExtractDetail(evt.detail, "source"),
+                StrategyResource.Funds);
+            StrategyResource targetResource = ParseStrategyResource(
+                ExtractDetail(evt.detail, "target"),
+                StrategyResource.Funds);
+            float setupFunds = ParseDetailFloat(evt.detail, "setupFunds");
+            float setupSci = ParseDetailFloat(evt.detail, "setupSci");
+            float setupRep = ParseDetailFloat(evt.detail, "setupRep");
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.StrategyActivate,
+                RecordingId = recordingId,
+                StrategyId = evt.key,
+                SourceResource = sourceResource,
+                TargetResource = targetResource,
+                Commitment = factor,
+                SetupCost = setupFunds,
+                SetupScienceCost = setupSci,
+                SetupReputationCost = setupRep
+            };
+        }
+
+        /// <summary>
+        /// StrategyDeactivated -> StrategyDeactivate (#439 Phase A). Carries only the
+        /// StrategyId; the deactivate action has no resource flow and the classifier
+        /// maps it to <see cref="LedgerOrchestrator.KscReconcileClass.NoResourceImpact"/>.
+        /// Internal static for testability.
+        /// </summary>
+        internal static GameAction ConvertStrategyDeactivated(GameStateEvent evt, string recordingId)
+        {
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.StrategyDeactivate,
+                RecordingId = recordingId,
+                StrategyId = evt.key
+            };
+        }
+
         // ================================================================
         // Detail extraction helper
         // ================================================================
@@ -555,6 +617,35 @@ namespace Parsek
         private static string ExtractDetail(string detail, string key)
         {
             return GameStateEventDisplay.ExtractDetailField(detail, key);
+        }
+
+        private static float ParseDetailFloat(string detail, string key)
+        {
+            float value = 0f;
+            string raw = ExtractDetail(detail, key);
+            if (raw != null)
+                float.TryParse(raw, NumberStyles.Float, IC, out value);
+            return value;
+        }
+
+        private static StrategyResource ParseStrategyResource(
+            string rawValue,
+            StrategyResource fallback)
+        {
+            StrategyResource resource;
+            if (string.IsNullOrEmpty(rawValue))
+                return fallback;
+
+            if (Enum.TryParse(rawValue, true, out resource)
+                && Enum.IsDefined(typeof(StrategyResource), resource))
+                return resource;
+
+            int numericValue;
+            if (int.TryParse(rawValue, NumberStyles.Integer, IC, out numericValue)
+                && Enum.IsDefined(typeof(StrategyResource), numericValue))
+                return (StrategyResource)numericValue;
+
+            return fallback;
         }
     }
 }

@@ -96,8 +96,8 @@ namespace Parsek
         /// <summary>
         /// Processes a single game action during the recalculation walk.
         /// Handles ScienceEarning, ScienceSpending, ContractComplete (science reward),
-        /// MilestoneAchievement (science reward), and ScienceInitial (mid-career seed);
-        /// ignores all other action types.
+        /// MilestoneAchievement (science reward), StrategyActivate (science setup cost),
+        /// and ScienceInitial (mid-career seed); ignores all other action types.
         /// </summary>
         public void ProcessAction(GameAction action)
         {
@@ -117,6 +117,9 @@ namespace Parsek
                     break;
                 case GameActionType.MilestoneAchievement:
                     ProcessMilestoneScienceReward(action);
+                    break;
+                case GameActionType.StrategyActivate:
+                    ProcessStrategySetupScienceCost(action);
                     break;
                 case GameActionType.ScienceInitial:
                     ProcessScienceInitial(action);
@@ -146,17 +149,28 @@ namespace Parsek
             }
 
             int spendingCount = 0;
+            int strategySetupCount = 0;
             for (int i = 0; i < actions.Count; i++)
             {
-                if (actions[i] != null && actions[i].Type == GameActionType.ScienceSpending)
+                var action = actions[i];
+                if (action == null)
+                    continue;
+
+                if (action.Type == GameActionType.ScienceSpending)
                 {
-                    totalCommittedSpendings += (double)actions[i].Cost;
+                    totalCommittedSpendings += (double)action.Cost;
                     spendingCount++;
+                }
+                else if (action.Type == GameActionType.StrategyActivate)
+                {
+                    totalCommittedSpendings += (double)action.SetupScienceCost;
+                    strategySetupCount++;
                 }
             }
 
             ParsekLog.Verbose("ScienceModule",
                 $"ComputeTotalSpendings: spendingCount={spendingCount}, " +
+                $"strategySetupCount={strategySetupCount}, " +
                 $"totalCommittedSpendings={totalCommittedSpendings.ToString("R", IC)}");
         }
 
@@ -258,6 +272,33 @@ namespace Parsek
                 ParsekLog.Warn("ScienceModule",
                     $"Spending NOT affordable: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)} — possible bug or data corruption");
+            }
+        }
+
+        /// <summary>
+        /// Processes a StrategyActivate action's science setup cost. The action already
+        /// carries the exact configured science charge from the strategy detail.
+        /// </summary>
+        internal void ProcessStrategySetupScienceCost(GameAction action)
+        {
+            double cost = (double)action.SetupScienceCost;
+            if (cost <= 0.0)
+                return;
+
+            bool affordable = runningScience >= cost;
+            runningScience -= cost;
+
+            if (affordable)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"StrategyActivate science: strategyId={action.StrategyId ?? "(none)"}, " +
+                    $"cost={cost.ToString("R", IC)}, runningScience={runningScience.ToString("R", IC)}");
+            }
+            else
+            {
+                ParsekLog.Warn("ScienceModule",
+                    $"StrategyActivate science NOT affordable: strategyId={action.StrategyId ?? "(none)"}, " +
+                    $"cost={cost.ToString("R", IC)}, runningScience={runningScience.ToString("R", IC)}");
             }
         }
 

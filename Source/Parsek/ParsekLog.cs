@@ -63,6 +63,7 @@ namespace Parsek
 
         internal static void ResetTestOverrides()
         {
+            SuppressLogging = false;
             ClockOverrideForTesting = null;
             TestSinkForTesting = null;
             VerboseOverrideForTesting = null;

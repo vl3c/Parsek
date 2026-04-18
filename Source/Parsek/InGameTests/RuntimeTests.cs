@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -41,6 +42,7 @@ namespace Parsek.InGameTests
             }
 
             int valid = 0, skippedRoots = 0;
+            var monotonicFailures = new List<string>();
             foreach (var rec in recordings)
             {
                 InGameAssert.IsNotNull(rec.RecordingId, $"Recording has null ID");
@@ -55,15 +57,89 @@ namespace Parsek.InGameTests
                 }
 
                 // Time should be monotonically non-decreasing
+                bool monotonic = true;
                 for (int i = 1; i < rec.Points.Count; i++)
                 {
-                    InGameAssert.IsTrue(rec.Points[i].ut >= rec.Points[i - 1].ut,
-                        $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut} < previous {rec.Points[i - 1].ut}");
+                    if (rec.Points[i].ut < rec.Points[i - 1].ut)
+                    {
+                        int prefixMatchCount = CountTrackSectionPrefixMatches(rec);
+                        string firstPostPrefixSource = DescribeFirstPostPrefixPointSource(rec, prefixMatchCount);
+                        monotonicFailures.Add(
+                            $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"< previous {rec.Points[i - 1].ut.ToString("R", CultureInfo.InvariantCulture)}; " +
+                            $"trackSections={rec.TrackSections?.Count ?? 0} prefixMatchCount={prefixMatchCount} " +
+                            $"firstPostPrefixSource={firstPostPrefixSource}");
+                        monotonic = false;
+                        break;
+                    }
                 }
-                valid++;
+
+                if (monotonic)
+                    valid++;
             }
+
+            InGameAssert.IsTrue(monotonicFailures.Count == 0, string.Join(System.Environment.NewLine, monotonicFailures.ToArray()));
             ParsekLog.Verbose("TestRunner",
                 $"Validated {valid} committed recordings, {skippedRoots} tree root(s) skipped");
+
+            int CountTrackSectionPrefixMatches(Recording rec)
+            {
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                    return 0;
+
+                var rebuiltPoints = new List<TrajectoryPoint>();
+                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                int max = System.Math.Min(rebuiltPoints.Count, rec.Points.Count);
+                int prefixMatchCount = 0;
+                while (prefixMatchCount < max &&
+                    TrajectoryPointsEqual(rebuiltPoints[prefixMatchCount], rec.Points[prefixMatchCount]))
+                {
+                    prefixMatchCount++;
+                }
+
+                return prefixMatchCount;
+            }
+
+            string DescribeFirstPostPrefixPointSource(Recording rec, int prefixMatchCount)
+            {
+                if (rec.Points == null || prefixMatchCount < 0 || prefixMatchCount >= rec.Points.Count)
+                    return "none";
+
+                TrajectoryPoint target = rec.Points[prefixMatchCount];
+                for (int sectionIndex = 0; sectionIndex < rec.TrackSections.Count; sectionIndex++)
+                {
+                    List<TrajectoryPoint> frames = rec.TrackSections[sectionIndex].frames;
+                    if (frames == null)
+                        continue;
+
+                    for (int frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+                    {
+                        if (TrajectoryPointsEqual(frames[frameIndex], target))
+                            return $"section[{sectionIndex}] source={rec.TrackSections[sectionIndex].source} frame[{frameIndex}]";
+                    }
+                }
+
+                return "flat-only";
+            }
+
+            bool TrajectoryPointsEqual(TrajectoryPoint a, TrajectoryPoint b)
+            {
+                return a.ut == b.ut
+                    && a.latitude == b.latitude
+                    && a.longitude == b.longitude
+                    && a.altitude == b.altitude
+                    && a.rotation.x == b.rotation.x
+                    && a.rotation.y == b.rotation.y
+                    && a.rotation.z == b.rotation.z
+                    && a.rotation.w == b.rotation.w
+                    && a.velocity.x == b.velocity.x
+                    && a.velocity.y == b.velocity.y
+                    && a.velocity.z == b.velocity.z
+                    && a.bodyName == b.bodyName
+                    && a.funds == b.funds
+                    && a.science == b.science
+                    && a.reputation == b.reputation;
+            }
         }
 
         #endregion
@@ -838,6 +914,121 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one, which mutates the current FLIGHT session.",
+            Description = "Run All cleanup exits watch mode before ghost teardown so Sun.LateUpdate stays exception-free")]
+        public IEnumerator RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("no ActiveVessel");
+            if (FlightCamera.fetch == null)
+                InGameAssert.Skip("no FlightCamera");
+
+            int index;
+            GhostPlaybackState watchedState;
+            if (!TryFindWatchableSameBodyGhost(flight, out index, out watchedState))
+                InGameAssert.Skip("no same-body ghost available for watch-cleanup regression");
+
+            var captured = new List<string>();
+            Application.LogCallback callback = (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                    captured.Add(condition + "\n" + stackTrace);
+            };
+
+            flight.EnterWatchMode(index);
+            yield return null;
+
+            try
+            {
+                InGameAssert.IsTrue(flight.IsWatchingGhost, "should be in watch mode before cleanup");
+                InGameAssert.AreEqual(index, flight.WatchedRecordingIndex, "watching wrong index before cleanup");
+
+                Application.logMessageReceived += callback;
+                runner.PerformBetweenRunCleanup("ingame-watch-cleanup-regression");
+                yield return new WaitForSeconds(0.5f);
+
+                AssertNoSunOrFlightGlobalsExceptions(
+                    captured,
+                    $"watch-cleanup regression index={index} body={watchedState.lastInterpolatedBodyName}");
+                InGameAssert.IsFalse(flight.IsWatchingGhost,
+                    "cleanup should have exited watch mode before ghost teardown");
+            }
+            finally
+            {
+                Application.logMessageReceived -= callback;
+                if (flight.IsWatchingGhost)
+                    flight.ExitWatchMode();
+            }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Ghost creation near a Kerbin ~46 km playback point stays free of Sun.LateUpdate / FlightGlobals.UpdateInformation exception spam")]
+        public IEnumerator GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+
+            var engine = flight.Engine;
+            if (engine == null)
+                InGameAssert.Skip("no GhostPlaybackEngine");
+
+            var committed = RecordingStore.CommittedRecordings;
+            Recording rec;
+            int recordingIndex;
+            double primingUT;
+            double matchedAltitude;
+            if (!TryFindKerbinLowAltitudeRecording(committed, out rec, out recordingIndex, out primingUT, out matchedAltitude))
+                InGameAssert.Skip("needs a committed recording with a Kerbin point near 46 km");
+
+            int sentinelIndex = committed.Count + 1001;
+            if (engine.ghostStates.ContainsKey(sentinelIndex))
+                InGameAssert.Skip("sentinel index collision");
+
+            GhostPlaybackState state = null;
+            var captured = new List<string>();
+            Application.LogCallback callback = (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                    captured.Add(condition + "\n" + stackTrace);
+            };
+
+            Application.logMessageReceived += callback;
+            try
+            {
+                engine.SpawnGhost(sentinelIndex, rec as IPlaybackTrajectory, primingUT);
+                yield return null;
+                yield return null;
+                yield return new WaitForSeconds(0.5f);
+
+                bool found = engine.ghostStates.TryGetValue(sentinelIndex, out state);
+                InGameAssert.IsTrue(found,
+                    $"ghostStates should contain sentinel index {sentinelIndex} after SpawnGhost");
+                InGameAssert.IsNotNull(state, "state should not be null after SpawnGhost");
+                InGameAssert.IsNotNull(state.ghost, "state.ghost should not be null after SpawnGhost");
+
+                AssertNoSunOrFlightGlobalsExceptions(
+                    captured,
+                    $"low-altitude spawn recordingIndex={recordingIndex} vessel=\"{rec.VesselName}\" altitude={matchedAltitude:F1} ut={primingUT:F1}");
+
+                ParsekLog.Info("TestRunner",
+                    $"GhostSpawn_Kerbin46KmPoint: recordingIndex={recordingIndex} vessel=\"{rec.VesselName}\" " +
+                    $"matchedAltitude={matchedAltitude:F1} primingUT={primingUT:F1}");
+            }
+            finally
+            {
+                Application.logMessageReceived -= callback;
+                engine.ghostStates.Remove(sentinelIndex);
+                if (state != null && state.ghost != null)
+                    runner.TrackForCleanup(state.ghost);
+            }
+        }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "EnterWatchMode on a same-body ghost applies canonical fresh-entry angles, not the active vessel's camera state (PR #288 regression)")]
         public IEnumerator WatchEntry_SameBody_PreservesFreshEntryAngles()
@@ -924,6 +1115,99 @@ namespace Parsek.InGameTests
             }
 
             InGameAssert.IsFalse(ParsekFlight.Instance.IsWatchingGhost, "should have exited watch mode");
+        }
+
+        private static void AssertNoSunOrFlightGlobalsExceptions(
+            IEnumerable<string> captured,
+            string context)
+        {
+            foreach (var line in captured)
+            {
+                InGameAssert.IsFalse(line.Contains("Sun.LateUpdate"),
+                    $"expected zero Sun.LateUpdate exceptions during {context}, saw: {line}");
+                InGameAssert.IsFalse(line.Contains("FlightGlobals.UpdateInformation"),
+                    $"expected zero FlightGlobals.UpdateInformation exceptions during {context}, saw: {line}");
+            }
+        }
+
+        private static bool TryFindWatchableSameBodyGhost(
+            ParsekFlight flight,
+            out int index,
+            out GhostPlaybackState state)
+        {
+            index = -1;
+            state = null;
+
+            if (flight == null || flight.Engine == null || FlightGlobals.ActiveVessel == null)
+                return false;
+
+            var committed = RecordingStore.CommittedRecordings;
+            string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+
+            foreach (var kvp in flight.Engine.ghostStates)
+            {
+                var gs = kvp.Value;
+                if (gs == null) continue;
+                if (gs.lastInterpolatedBodyName != activeBodyName) continue;
+                if (gs.ghost == null) continue;
+                if (kvp.Key >= committed.Count) continue;
+                if (gs.lastDistance <= 0.0) continue;
+                if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
+
+                index = kvp.Key;
+                state = gs;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryFindKerbinLowAltitudeRecording(
+            IReadOnlyList<Recording> committed,
+            out Recording recording,
+            out int recordingIndex,
+            out double primingUT,
+            out double matchedAltitude)
+        {
+            recording = null;
+            recordingIndex = -1;
+            primingUT = 0.0;
+            matchedAltitude = 0.0;
+
+            if (committed == null)
+                return false;
+
+            double bestDelta = double.PositiveInfinity;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var candidate = committed[i];
+                if (candidate == null
+                    || candidate.GhostVisualSnapshot == null
+                    || candidate.Points == null
+                    || candidate.Points.Count < 2)
+                {
+                    continue;
+                }
+
+                foreach (var point in candidate.Points)
+                {
+                    if (!string.Equals(point.bodyName, "Kerbin")) continue;
+                    if (double.IsNaN(point.altitude) || double.IsInfinity(point.altitude)) continue;
+
+                    double delta = System.Math.Abs(point.altitude - 46000.0);
+                    if (delta >= bestDelta)
+                        continue;
+
+                    bestDelta = delta;
+                    recording = candidate;
+                    recordingIndex = i;
+                    primingUT = point.ut;
+                    matchedAltitude = point.altitude;
+                }
+            }
+
+            return recording != null;
         }
     }
 

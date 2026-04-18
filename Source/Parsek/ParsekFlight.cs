@@ -481,6 +481,123 @@ namespace Parsek
         internal string DescribeWatchEligibilityForLogs(int index) => watchMode != null
             ? watchMode.DescribeWatchEligibilityForLogs(index)
             : $"watchEval(rec=#{index} unavailable=watchMode-null)";
+        internal bool ExitWatchModeBeforeTimelineGhostCleanup(string context)
+        {
+            bool isWatchingGhost = watchMode != null && watchMode.IsWatchingGhost;
+            string focus = watchMode != null
+                ? watchMode.DescribeWatchFocusForLogs()
+                : "watch=uninitialized";
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                watchMode != null
+                    ? new Action<bool>(skipCameraRestore => watchMode.ExitWatchMode(skipCameraRestore))
+                    : null,
+                isWatchingGhost
+                    ? new Action(() => RetargetStockCamerasBeforeTimelineGhostCleanup(context, focus))
+                    : null,
+                context,
+                focus);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action exitWatchMode,
+            Action detachStockCameraTarget,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                exitWatchMode != null
+                    ? new Action<bool>(_ => exitWatchMode())
+                    : null,
+                detachStockCameraTarget,
+                context,
+                watchFocusForLogs);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action<bool> exitWatchMode,
+            Action detachStockCameraTarget,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+
+            if (!isWatchingGhost)
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: no active watch mode before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            if (exitWatchMode == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: active watch mode could not be exited before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            ParsekLog.Info("CameraFollow",
+                $"Exiting watch mode before timeline ghost cleanup: context={cleanupContext} skipCameraRestore=true {focus}");
+            detachStockCameraTarget?.Invoke();
+            exitWatchMode(true);
+            return true;
+        }
+
+        private void RetargetStockCamerasBeforeTimelineGhostCleanup(
+            string context,
+            string watchFocusForLogs)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+            FlightCamera flightCamera = FlightCamera.fetch;
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+
+            if (flightCamera != null
+                && activeVessel != null
+                && activeVessel.gameObject != null)
+            {
+                flightCamera.SetTargetVessel(activeVessel);
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: FlightCamera retargeted to active vessel '{activeVessel.vesselName}' before {cleanupContext} ({focus})");
+            }
+            else
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: could not retarget FlightCamera before {cleanupContext} ({focus}) " +
+                    $"camera={(flightCamera != null)} activeVessel={(activeVessel != null)} " +
+                    $"activeVesselGo={(activeVessel != null && activeVessel.gameObject != null)}");
+            }
+
+            if (!MapView.MapIsEnabled)
+                return;
+
+            if (PlanetariumCamera.fetch != null
+                && activeVessel != null
+                && activeVessel.mapObject != null)
+            {
+                PlanetariumCamera.fetch.SetTarget(activeVessel.mapObject);
+                ParsekLog.Verbose("GhostMap",
+                    $"Watch cleanup guard: PlanetariumCamera retargeted to active vessel '{activeVessel.vesselName}' before {cleanupContext}");
+                return;
+            }
+
+            ParsekLog.Verbose("GhostMap",
+                $"Watch cleanup guard: skipped PlanetariumCamera retarget before {cleanupContext} " +
+                $"map={MapView.MapIsEnabled} camera={(PlanetariumCamera.fetch != null)} " +
+                $"activeVessel={(activeVessel != null)} mapObject={(activeVessel != null && activeVessel.mapObject != null)}");
+        }
 
         #endregion
 
@@ -9028,6 +9145,8 @@ namespace Parsek
 
         public void DestroyAllTimelineGhosts()
         {
+            ExitWatchModeBeforeTimelineGhostCleanup("DestroyAllTimelineGhosts");
+
             // Remove ghost map ProtoVessels before engine cleanup
             GhostMapPresence.RemoveAllGhostVessels("rewind");
 
