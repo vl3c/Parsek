@@ -910,6 +910,18 @@ namespace Parsek
             // ut+eventType+key+epoch lookup misses on any save where CurrentEpoch != 0
             // (i.e. every save with at least one revert in its history).
             evt.epoch = MilestoneStore.CurrentEpoch;
+            // #443 review: Emit also mutates evt.recordingId on its local copy when the
+            // caller didn't pre-populate it (see Emit's `if (string.IsNullOrEmpty(...))`
+            // branch). No consumer reads recordingId off the cached pending entry today,
+            // but mirroring it here closes the same value-type field-mirror footgun
+            // proactively — if a future caller ever consults evt.recordingId after enrich,
+            // it sees the same string the stored slot carries. Mirrors Emit's stamp logic
+            // (only fill when blank) so we don't overwrite a caller-supplied tag. The
+            // proper structural fix is to refactor Emit/AddEvent to take `ref
+            // GameStateEvent` so all field mutations propagate to the caller in one place;
+            // tracked as bug #453 in docs/dev/todo-and-known-bugs.md.
+            if (string.IsNullOrEmpty(evt.recordingId))
+                evt.recordingId = ResolveCurrentRecordingTag() ?? "";
 
             // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
             // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
@@ -1012,7 +1024,11 @@ namespace Parsek
             {
                 // #443: defensive — UpdateEventDetail returning false used to be silent.
                 // Surface it so a future regression in the cached-vs-stored slot match
-                // (epoch, ut, key) is diagnosable from a default-level log.
+                // (epoch, ut, key) is diagnosable from a default-level log. The trailing
+                // happy-path "Milestone enriched" Info is intentionally suppressed in this
+                // branch (logged inside the `else` below) so an operator never sees the
+                // contradicting "store had no matching event" Warn and "Milestone enriched"
+                // Info for the same call.
                 ParsekLog.Warn("GameStateRecorder",
                     $"EnrichPendingMilestoneRewards: store had no matching event for " +
                     $"'{evt.key}' ut={evt.ut:F1} epoch={evt.epoch} — detail not patched");
@@ -1043,8 +1059,22 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Info("GameStateRecorder",
-                $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+            // #443 review: only print the happy-path Info when the store side actually
+            // got patched. The earlier shape printed it unconditionally, so on a
+            // store-miss the operator saw a contradicting Warn + Info pair for the same
+            // call. On the miss branch we leave the Warn above as the sole signal and
+            // demote the in-memory-only success line to Verbose for full-fidelity replay.
+            if (storeUpdated)
+            {
+                ParsekLog.Info("GameStateRecorder",
+                    $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+            }
+            else
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Milestone enriched (ledger only, store skipped): '{evt.key}' " +
+                    $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+            }
         }
 
         /// <summary>
