@@ -20,7 +20,9 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of GameStateEvents into GameActions, filtering to the given UT range
-        /// and skipping non-convertible event types. Returns only non-null conversions.
+        /// and skipping non-convertible event types. When <paramref name="recordingId"/> is
+        /// supplied, only events tagged to that recording are converted. Returns only non-null
+        /// conversions.
         /// </summary>
         /// <param name="events">Source events (may contain non-convertible types).</param>
         /// <param name="recordingId">Recording that produced these events.</param>
@@ -52,6 +54,12 @@ namespace Parsek
                     continue;
                 }
 
+                if (!EventMatchesRecordingScope(evt, recordingId))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 var action = ConvertEvent(evt, recordingId);
                 if (action != null)
                 {
@@ -70,6 +78,15 @@ namespace Parsek
                 $"total={events.Count}, recordingId={recordingId ?? "(none)"}");
 
             return result;
+        }
+
+        private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return true;
+
+            string eventRecordingId = evt.recordingId ?? "";
+            return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
         }
 
         /// <summary>
