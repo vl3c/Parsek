@@ -21,7 +21,8 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
-- `#386` Ghost map and tracking station icons now hide their label by default, show on hover, and pin on click — matching stock KSP.
+- Map view ghost icon right-click now pins the label (stock behavior) instead of opening the Parsek menu. Left-click still opens the menu.
+- `#386` Ghost map and tracking station icons now hide their label by default and toggle it with a left click on the icon; hover no longer reveals the label, and non-left clicks pass through to stock handlers.
 - Gloops Flight Recorder window keeps its three buttons (Start/Stop, Preview, Discard) in fixed positions across states, graying out unavailable actions instead of rearranging them.
 - `#416` Recordings table header and body columns now line up across recording, group, and chain rows. Row index numbers sit under the `#` character, buttons (G/W/FF/R) and the Period input are 10 px inset from the cell left, and body text indents 5 px to match header text.
 - Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
@@ -36,6 +37,8 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `T68` Added cleanup-order unit coverage for watch-mode exit-before-destroy, plus in-game regressions for watch-cleanup and low-altitude Kerbin ghost spawn exception containment.
+- `#458` Added a binary sidecar regression test for duplicated flat-prefix loads and expanded the in-game committed-recording monotonicity failure to report track-section prefix/source diagnostics.
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test plus an assertion that the optimizer rejects orbital-phase pairs.
 - `#384` Added the Learstar A1 S16 mission to the `DefaultCareer` fixture so `InjectAllRecordings` covers a far-away / map-view recording.
 - `#399` Regression tests for `ScienceModule.ComputeTotalSpendings` at duplicate UTs.
@@ -54,6 +57,13 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
+- `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
+- `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
+- `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.
+- `#455` `PatchMilestones` no longer spams thousands of `repeatable node '<Body>/<Name>' is missing stock record fields` WARNs on every recalculation; one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …) now correctly fall through to the one-shot patch path instead of being short-circuited by the repeatable-record branch.
+- `#387` Ghost map icons for `DeployedScienceController` and `DeployedGroundPart` now render the stock icon instead of the generic diamond fallback; their sprites live on separate atlas textures that the single-atlas init path used to silently reject.
+- Loop period cells now show the runtime-effective overlap cadence when the 10-ghost cap raises a recording's launch cadence; clamped rows render in amber, explain the clamp in the Recordings window tooltip area, and still preserve the raw stored value when you start editing.
+- Overlap cadence clamping now snaps directly to the minimum cap-safe cadence instead of overshooting in powers of two.
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
 - `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.
@@ -108,6 +118,7 @@ All notable changes to Parsek are documented here.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 - Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestones or other post-rewind events. Contract deadlines that expired between the last pre-cutoff action and the rewind target now correctly fail, and tech-research affordability checks use current UT so post-rewind unlocks cannot read future science.
+- `InjectAllRecordings` now refuses live-save injection while KSP is actively holding `KSP.log`, and `scripts/collect-logs.py` snapshots live recording sidecars by default under the save bundle while preserving the legacy `parsek/Recordings` copy; `--skip-recordings` still opts out.
 
 ### Known Limitations
 

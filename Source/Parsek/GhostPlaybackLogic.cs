@@ -72,6 +72,40 @@ namespace Parsek
             return spawnsThisFrame >= maxPerFrame;
         }
 
+        /// <summary>
+        /// Bug #450 B3: decides whether a deferred reentry-FX build should fire on the
+        /// current frame. Returns true when the ghost is inside a body's atmosphere AND
+        /// moving fast enough for reentry visuals to be imminent (speed ≥ the
+        /// <c>ReentryPotentialSpeedFloor</c> = 400 m/s ≈ Mach 1.2 at sea-level Kerbin —
+        /// the floor shared with <c>TrajectoryMath.HasReentryPotential</c>).
+        ///
+        /// The speed gate prevents launch recordings (pad → ascent) from triggering the
+        /// build on the very first playback frame: those ghosts are at 0 m/s at ground
+        /// level on frame 1 and only cross the 400 m/s floor several seconds later, so
+        /// the 7 ms build shifts off the spawn hitch by design. Atmospheric-start
+        /// recordings where the ghost is already above 400 m/s (mid-reentry saves) still
+        /// fire on frame 1 — that is correct because we legitimately need FX right away.
+        ///
+        /// Pure helper so the condition is unit-testable without Unity or FlightGlobals.
+        /// </summary>
+        internal static bool ShouldBuildLazyReentryFx(
+            bool pendingFlag, string bodyName, bool bodyHasAtmosphere,
+            double altitudeMeters, double atmosphereDepthMeters,
+            float surfaceSpeedMetersPerSecond, float speedFloorMetersPerSecond)
+        {
+            if (!pendingFlag) return false;
+            if (string.IsNullOrEmpty(bodyName)) return false;
+            if (!bodyHasAtmosphere) return false;
+            // Strict `<`: at exactly atmosphereDepth the existing UpdateReentryFx path
+            // already calls DriveReentryToZero, so firing the build here would only pay
+            // the cost for a frame that produces zero-intensity output anyway.
+            if (altitudeMeters >= atmosphereDepthMeters) return false;
+            // Speed gate — see XML doc above. NaN/negative compares false by IEEE rules,
+            // so a malformed velocity correctly suppresses the build rather than leaking it.
+            if (!(surfaceSpeedMetersPerSecond >= speedFloorMetersPerSecond)) return false;
+            return true;
+        }
+
         internal static bool ShouldSuppressVisualFx(float currentWarpRate)
         {
             return currentWarpRate > FxSuppressWarpThreshold;
@@ -306,11 +340,12 @@ namespace Parsek
         /// that the number of simultaneously-live cycles (ceil(duration/cadence))
         /// never exceeds <paramref name="maxCycles"/>. Starts from the
         /// user-requested period (clamped to <see cref="MinCycleDuration"/>) and
-        /// doubles it until the cycle count fits. Returns the effective cadence
-        /// in seconds; the user's stored loop period is unchanged — only the
-        /// runtime spawn rate is adjusted. Guarantees the per-recording ghost
-        /// clone count stays within the cap without silently culling cycles
-        /// mid-trajectory (the pre-fix behaviour stacked ghosts near launch).
+        /// raises it only as far as needed for the cap to fit. Returns the
+        /// effective cadence in seconds; the user's stored loop period is
+        /// unchanged — only the runtime spawn rate is adjusted. Guarantees the
+        /// per-recording ghost clone count stays within the cap without silently
+        /// culling cycles mid-trajectory (the pre-fix behaviour stacked ghosts
+        /// near launch).
         /// </summary>
         internal static double ComputeEffectiveLaunchCadence(
             double userPeriod, double duration, int maxCycles)
@@ -321,19 +356,29 @@ namespace Parsek
             if (duration <= 0 || maxCycles <= 0)
                 return period;
 
-            // Defensive ceiling: the doubling loop always terminates because
-            // each iteration halves the theoretical cycle count, but cap the
-            // iteration count at 64 to guard against pathological inputs.
-            int safety = 64;
-            while (safety-- > 0 && CeilingDivPositive(duration, period) > maxCycles)
-                period *= 2.0;
-            return period;
+            // Minimum cadence that keeps ceil(duration / cadence) <= maxCycles.
+            double cadenceFloor = duration / maxCycles;
+            if (double.IsNaN(cadenceFloor) || double.IsInfinity(cadenceFloor))
+                return period;
+
+            // Floating-point division can round the exact floor slightly low,
+            // so bump by one ulp until the cycle count fits.
+            int safety = 4;
+            while (safety-- > 0 && Math.Ceiling(duration / cadenceFloor) > maxCycles)
+                cadenceFloor = NextUp(cadenceFloor);
+
+            return Math.Max(period, cadenceFloor);
         }
 
-        private static long CeilingDivPositive(double numerator, double denominator)
+        private static double NextUp(double value)
         {
-            if (denominator <= 0) return long.MaxValue;
-            return (long)Math.Ceiling(numerator / denominator);
+            if (double.IsNaN(value) || value == double.PositiveInfinity)
+                return value;
+            if (value == 0.0)
+                return double.Epsilon;
+
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            return BitConverter.Int64BitsToDouble(bits + (value > 0.0 ? 1L : -1L));
         }
 
         /// <summary>
