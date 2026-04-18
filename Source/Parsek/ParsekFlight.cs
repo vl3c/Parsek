@@ -7125,31 +7125,26 @@ namespace Parsek
 
         internal static bool IsSinglePointDebrisLeaf(Recording rec)
         {
+            return IsSinglePointDebrisLeafForState(rec, IsTerminalSinglePointDebrisStubState);
+        }
+
+        internal static bool IsStopMetricsExemptSinglePointDebrisLeaf(Recording rec)
+        {
+            return IsSinglePointDebrisLeafForState(rec, IsPreservedSinglePointInFlightDebrisState);
+        }
+
+        private static bool IsSinglePointDebrisLeafForState(
+            Recording rec, Func<TerminalState, bool> statePredicate)
+        {
             if (rec == null || rec.ChildBranchPointId != null) return false;
             if (rec.SidecarLoadFailed) return false;
             if (!rec.IsDebris) return false;
             if (rec.Points.Count != 1) return false;
             if (!rec.TerminalStateValue.HasValue
-                || !IsTerminalSinglePointDebrisStubState(rec.TerminalStateValue.Value))
+                || !statePredicate(rec.TerminalStateValue.Value))
                 return false;
             if (rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue) return false;
-            // #447: also accept section-backed single-point debris (1 TrackSection whose only
-            // payload is the same single frame and no orbit checkpoints). These appear when a
-            // Breakup leaf seeded from CrashCoalescer.GetPreCapturedTrajectoryPoint lands or
-            // TTL-expires before any additional background sample is appended; the section
-            // wrapper is empty data even though its presence used to keep the leaf alive.
-            //
-            // Keep the section-backed widening narrow: the lone section must literally be the
-            // mirrored seed point from the flat trajectory. A different single frame is a
-            // second sample and must not be pruned under #447.
-            if (rec.TrackSections == null || rec.TrackSections.Count == 0) return true;
-            if (rec.TrackSections.Count > 1) return false;
-            var section = rec.TrackSections[0];
-            int frames = section.frames?.Count ?? 0;
-            int checkpoints = section.checkpoints?.Count ?? 0;
-            return checkpoints == 0
-                && frames == 1
-                && TrajectoryPointEquals(section.frames[0], rec.Points[0]);
+            return HasOnlyMirroredSinglePointTrackSection(rec);
         }
 
         private static bool IsTerminalSinglePointDebrisStubState(TerminalState state)
@@ -7164,6 +7159,33 @@ namespace Parsek
                 default:
                     return false;
             }
+        }
+
+        private static bool IsPreservedSinglePointInFlightDebrisState(TerminalState state)
+        {
+            switch (state)
+            {
+                case TerminalState.SubOrbital:
+                case TerminalState.Orbiting:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool HasOnlyMirroredSinglePointTrackSection(Recording rec)
+        {
+            // #447: accept section-backed single-point debris only when the section is just
+            // the mirrored seed point with no checkpoints. Anything richer than that is real
+            // data and must stay visible to either pruning or REC-002.
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0) return true;
+            if (rec.TrackSections.Count > 1) return false;
+            var section = rec.TrackSections[0];
+            int frames = section.frames?.Count ?? 0;
+            int checkpoints = section.checkpoints?.Count ?? 0;
+            return checkpoints == 0
+                && frames == 1
+                && TrajectoryPointEquals(section.frames[0], rec.Points[0]);
         }
 
         private static bool TrajectoryPointEquals(TrajectoryPoint a, TrajectoryPoint b)

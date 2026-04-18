@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Parsek.InGameTests;
 using Xunit;
 
 namespace Parsek.Tests
@@ -691,6 +692,72 @@ namespace Parsek.Tests
             ParsekFlight.PruneSinglePointDebrisLeaves(tree);
 
             Assert.True(tree.Recordings.ContainsKey("suborbital-debris"));
+        }
+
+        [Fact]
+        public void ShouldSkipStopMetricsValidation_SubOrbitalSinglePointDebrisLeaf_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "suborbital-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 175.0,
+                ExplicitEndUT = 175.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.SubOrbital
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 175.0, altitude = 1500.0 });
+
+            Assert.True(LogContractTests.ShouldSkipStopMetricsValidation(rec));
+        }
+
+        [Fact]
+        public void ShouldSkipStopMetricsValidation_OrbitingSectionBackedSinglePointDebrisLeaf_ReturnsTrue()
+        {
+            var point = new TrajectoryPoint { ut = 225.0, altitude = 80000.0, bodyName = "Kerbin" };
+            var rec = new Recording
+            {
+                RecordingId = "orbiting-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 225.0,
+                ExplicitEndUT = 225.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Orbiting,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 225.0,
+                        endUT = 225.0,
+                        frames = new List<TrajectoryPoint> { point },
+                        checkpoints = null,
+                        source = TrackSectionSource.Background
+                    }
+                }
+            };
+            rec.Points.Add(point);
+
+            Assert.True(LogContractTests.ShouldSkipStopMetricsValidation(rec));
+        }
+
+        [Fact]
+        public void ShouldSkipStopMetricsValidation_TerminalDebrisStub_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "landed-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 250.0,
+                ExplicitEndUT = 250.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 250.0 });
+
+            Assert.False(LogContractTests.ShouldSkipStopMetricsValidation(rec));
         }
 
         // #447 review item 2: Splashed variant for symmetry with the other terminal states
