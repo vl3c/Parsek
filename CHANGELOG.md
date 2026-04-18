@@ -57,6 +57,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
+- `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
 - `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
 - `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
 - `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.

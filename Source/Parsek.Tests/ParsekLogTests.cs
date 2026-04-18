@@ -62,5 +62,15 @@ namespace Parsek.Tests
             Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[0]);
             Assert.Equal("[Parsek][VERBOSE][UnitTest] tick | suppressed=2", lines[1]);
         }
+
+        [Fact]
+        public void ResetTestOverrides_ClearsSuppressLogging()
+        {
+            ParsekLog.SuppressLogging = true;
+
+            ParsekLog.ResetTestOverrides();
+
+            Assert.False(ParsekLog.SuppressLogging);
+        }
     }
 }

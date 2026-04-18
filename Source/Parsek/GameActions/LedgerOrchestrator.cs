@@ -308,6 +308,12 @@ namespace Parsek
             double emittedFundsDelta = 0;
             double emittedRepDelta = 0;
             double emittedSciDelta = 0;
+            // #438 batch counters for the three newly-added cases — a single Verbose
+            // summary is emitted below so the reconciliation path's handling of these
+            // action types is visible per project logging rules without per-item spam.
+            int contractAcceptCount = 0;
+            int facilityUpgradeCount = 0;
+            int facilityRepairCount = 0;
 
             // newActions already contains vesselCostActions + scienceActions (merged by
             // OnRecordingCommitted before this runs), so a single walk suffices.
@@ -340,6 +346,26 @@ namespace Parsek
                             emittedFundsDelta -= a.FundsPenalty;
                             emittedRepDelta -= a.RepPenalty;
                             break;
+                        case GameActionType.ContractAccept:
+                            // #438 gap #1: without this case the advance payment's
+                            // FundsChanged(ContractAdvance) delta had no emitted-side
+                            // counterpart and every accepted contract whose UT fell
+                            // inside a commit window produced a spurious funds WARN.
+                            emittedFundsDelta += a.AdvanceFunds;
+                            contractAcceptCount++;
+                            break;
+                        case GameActionType.FacilityUpgrade:
+                            // #438 gap #6: symmetric to the KSC-side ReconcileKscAction
+                            // path — a facility spend inside a recording's commit window
+                            // must subtract from the emitted delta to match the store's
+                            // negative FundsChanged.
+                            emittedFundsDelta -= a.FacilityCost;
+                            facilityUpgradeCount++;
+                            break;
+                        case GameActionType.FacilityRepair:
+                            emittedFundsDelta -= a.FacilityCost;
+                            facilityRepairCount++;
+                            break;
                         case GameActionType.MilestoneAchievement:
                             emittedFundsDelta += a.MilestoneFundsAwarded;
                             emittedRepDelta += a.MilestoneRepAwarded;
@@ -353,6 +379,17 @@ namespace Parsek
                             break;
                     }
                 }
+            }
+
+            // #438: single Verbose summary covering the three newly-handled action
+            // types so their contribution to emittedFundsDelta is visible in KSP.log
+            // without emitting one log line per loop iteration.
+            if (contractAcceptCount > 0 || facilityUpgradeCount > 0 || facilityRepairCount > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReconcileEarningsWindow: summed {contractAcceptCount} ContractAccept, " +
+                    $"{facilityUpgradeCount} FacilityUpgrade, {facilityRepairCount} FacilityRepair " +
+                    $"into emittedFundsDelta window=[{startUT:F1},{endUT:F1}]");
             }
 
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding

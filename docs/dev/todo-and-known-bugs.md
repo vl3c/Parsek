@@ -498,7 +498,9 @@ Design constraints pulled from Phase D's (#343) plumbing:
 
 ---
 
-## 438. Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+## ~~438.~~ Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+
+**Status:** Fixed. Production gap in `LedgerOrchestrator.ReconcileEarningsWindow` closed (three missing switch cases: `ContractAccept`, `FacilityUpgrade`, `FacilityRepair`). 7 positive-match tests added to `EarningsReconciliationTests.cs` covering gaps 1-4 and 6, 1 converter-side test in `GameStateEventConverterTests.cs` for gap 5, 1 end-to-end test in the new `EarningsReconciliationEndToEndTests.cs` for gap 7, and 2 legacy-tree end-to-end tests in the new `LegacyTreeReconciliationRepro438Tests.cs` for gap 8.
 
 **Source:** Phase B (#437, PR #340) deliverable #2 — the channel-coverage audit. Several earning channels have capture code in main but no assertion in `EarningsReconciliationTests.cs` that the capture reconciles cleanly against `GameStateStore` events. Each is a small, self-contained test addition.
 
