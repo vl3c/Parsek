@@ -3915,6 +3915,110 @@ namespace Parsek.InGameTests
                 "One m/s below the speed floor, the build must NOT fire");
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#406 follow-up: ReusePrimaryGhostAcrossCycle preserves the ghost GameObject identity, the camera pivot, and reentryFxInfo across a loop-cycle boundary instead of destroy+spawn. The session spawn counter does not bump; the reuse counter does.")]
+        public void Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity()
+        {
+            // Build a minimal live-Unity ghost root + cameraPivot child so the
+            // reuse helper's Transform walks execute against a real hierarchy.
+            // This is the integration counterpart to the pure-helper xUnit
+            // coverage in `Bug406GhostReuseLoopCycleTests.cs` — it exercises
+            // the engine entry point on a state with a non-null ghost.
+            //
+            // Why this matters: the xUnit tests can only drive the `ghost == null`
+            // defensive branch (no Unity available). A refactor that swaps the
+            // reuse path to destroy+spawn under the hood would pass every xUnit
+            // test and only fail here — where we observe the GameObject
+            // reference identity across the call.
+            var ghostRoot = new GameObject("ParsekTestGhost_Bug406Reuse");
+            runner.TrackForCleanup(ghostRoot);
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(ghostRoot.transform, false);
+
+            // Two visible child "parts" — one will be deactivated to simulate
+            // a prior-cycle decouple, which the reuse path must reactivate.
+            var part1 = new GameObject("part1");
+            part1.transform.SetParent(ghostRoot.transform, false);
+            var part2 = new GameObject("part2");
+            part2.transform.SetParent(ghostRoot.transform, false);
+            part2.SetActive(false);  // simulate decoupled
+
+            // Pre-built reentryFxInfo stand-in so the reuse path's preservation
+            // invariant is observable. The field is preserved by reference;
+            // destroying/rebuilding it would swap to a new instance.
+            var reentryInfoMarker = new ReentryFxInfo();
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestReuse",
+                ghost = ghostRoot,
+                cameraPivot = cameraPivotObj.transform,
+                loopCycleIndex = 4,
+                playbackIndex = 50,
+                partEventIndex = 10,
+                explosionFired = true,
+                pauseHidden = true,
+                reentryFxInfo = reentryInfoMarker,
+                reentryFxPendingBuild = false,
+                heatInfos = new System.Collections.Generic.Dictionary<uint, HeatGhostInfo>(),
+            };
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            int spawnsBefore = DiagnosticsState.health.ghostBuildsThisSession;
+            int reusesBefore = DiagnosticsState.health.ghostReusedAcrossCycleThisSession;
+            int destroysBefore = DiagnosticsState.health.ghostDestroysThisSession;
+
+            engine.ReusePrimaryGhostAcrossCycle(
+                index: 99, traj: null, flags: default, state,
+                playbackUT: 0.0, newCycleIndex: 5);
+
+            // Identity invariants: the ghost GameObject and the cameraPivot
+            // Transform are the SAME instances they were before. The
+            // reentryFxInfo reference is preserved.
+            InGameAssert.IsTrue(ReferenceEquals(ghostRoot, state.ghost),
+                "ReusePrimaryGhostAcrossCycle must NOT replace state.ghost — identity preservation is the whole optimisation");
+            InGameAssert.IsTrue(ReferenceEquals(cameraPivotObj.transform, state.cameraPivot),
+                "cameraPivot Transform identity must survive the reuse — WatchModeController/FlightCamera hold refs through the retarget");
+            InGameAssert.IsTrue(ReferenceEquals(reentryInfoMarker, state.reentryFxInfo),
+                "reentryFxInfo must be preserved by reference; destroy+rebuild would swap this to null then a new instance");
+
+            // Hierarchy invariants: part2 (the simulated decoupled part) is
+            // now active again, matching the snapshot baseline for the new cycle.
+            InGameAssert.IsTrue(part1.activeSelf, "part1 was active; must remain active after reuse");
+            InGameAssert.IsTrue(part2.activeSelf,
+                "part2 was deactivated to simulate prior-cycle decouple; reuse must re-activate it");
+
+            // State invariants: iterators rewound, per-cycle flags reset,
+            // new cycle index applied.
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "playbackIndex must reset to 0 for the new cycle");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "partEventIndex must reset to 0 for the new cycle");
+            InGameAssert.AreEqual(5L, state.loopCycleIndex,
+                "loopCycleIndex must advance to the new cycle");
+            InGameAssert.IsFalse(state.explosionFired,
+                "explosionFired must reset so the new cycle can re-decide");
+            InGameAssert.IsFalse(state.pauseHidden,
+                "pauseHidden must reset so the new cycle re-evaluates pause-window");
+
+            // Counter invariants (#414 and #450 B3): reuse does not consume a
+            // spawn slot and does not bump the lazy-reentry-build cap. The
+            // reuse counter IS bumped so diagnostics can count cycles.
+            int spawnsAfter = DiagnosticsState.health.ghostBuildsThisSession;
+            int reusesAfter = DiagnosticsState.health.ghostReusedAcrossCycleThisSession;
+            int destroysAfter = DiagnosticsState.health.ghostDestroysThisSession;
+            InGameAssert.AreEqual(spawnsBefore, spawnsAfter,
+                "ghostBuildsThisSession must NOT bump on reuse — reuse is not a spawn (#414 invariant)");
+            InGameAssert.AreEqual(reusesBefore + 1, reusesAfter,
+                "ghostReusedAcrossCycleThisSession must bump exactly once per reuse");
+            InGameAssert.AreEqual(destroysBefore, destroysAfter,
+                "ghostDestroysThisSession must NOT bump on reuse — the ghost was never destroyed");
+            InGameAssert.AreEqual(0, engine.FrameSpawnCountForTesting,
+                "frameSpawnCount must NOT bump on reuse (#414 spawn throttle must not be consumed)");
+            InGameAssert.AreEqual(0, engine.FrameLazyReentryBuildCountForTesting,
+                "frameLazyReentryBuildCount must NOT bump on reuse itself (the NEXT frame's UpdateReentryFx may build, but that is the B3 path, not reuse)");
+        }
+
         #endregion
     }
 }

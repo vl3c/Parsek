@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
+- `#406 follow-up` Looping ghosts now reuse the same ghost GameObject across loop-cycle boundaries instead of destroying and rebuilding, eliminating the remaining ~21 ms per-cycle hitch on flight recordings with reentry FX.
 - `#450 B3` Ghost spawn hitch reduced on reentry-capable recordings: the reentry-FX build is now deferred until the ghost actually enters atmosphere above Mach 1.2. Orbital-only and sub-Mach-1.2 trajectories skip the build entirely; a per-session `deferred / buildsAvoided` counter in the diagnostics health line shows how often the deferral saved real build work.
 - Map view ghost icon right-click now pins the label (stock behavior) instead of opening the Parsek menu. Left-click still opens the menu.
 - `#386` Ghost map and tracking station icons now hide their label by default and toggle it with a left click on the icon; hover no longer reveals the label, and non-left clicks pass through to stock handlers.

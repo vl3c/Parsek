@@ -1121,6 +1121,86 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// #406 follow-up: re-activates every part GameObject under the ghost root
+        /// so the next loop cycle plays back from the snapshot baseline. Call
+        /// sites: loop-cycle-reuse path in <c>GhostPlaybackEngine</c>. Skips the
+        /// camera pivot (FlightCamera holds a ref to it during watch-mode).
+        /// Returns the number of parts re-activated — used by the Verbose log
+        /// line at the reuse call site.
+        /// </summary>
+        internal static int ReactivateGhostPartHierarchyForLoopRewind(GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null) return 0;
+            var t = state.ghost.transform;
+            var pivotT = state.cameraPivot;
+            int reactivated = 0;
+            for (int c = 0; c < t.childCount; c++)
+            {
+                var child = t.GetChild(c);
+                if (pivotT != null && child == pivotT) continue;
+                if (!child.gameObject.activeSelf)
+                {
+                    child.gameObject.SetActive(true);
+                    reactivated++;
+                }
+            }
+            return reactivated;
+        }
+
+        /// <summary>
+        /// #406 follow-up: per-cycle state reset for the loop-cycle ghost reuse
+        /// path. Mirrors the spawn-time baseline for iterators and per-cycle
+        /// flags while PRESERVING snapshot-derived dictionaries, the ghost
+        /// GameObject, the reentry FX info, and the reentry-FX pending-build
+        /// flag (#450 B3 — clearing it would re-pay the ~7 ms build every
+        /// cycle). See <c>docs/dev/plan-406-ghost-reuse-loop-cycles.md</c> for
+        /// the field-by-field preservation table.
+        /// </summary>
+        internal static void ResetForLoopCycle(GhostPlaybackState state, long newCycleIndex)
+        {
+            if (state == null) return;
+
+            // Playback iterators rewind to cycle start.
+            state.playbackIndex = 0;
+            state.partEventIndex = 0;
+            state.flagEventIndex = 0;
+            state.appearanceCount = 0;
+            state.hadVisibleRenderersLastFrame = false;
+            state.loopCycleIndex = newCycleIndex;
+
+            // Per-cycle flags reset to spawn baseline — the new cycle re-decides.
+            state.explosionFired = false;
+            state.pauseHidden = false;
+
+            // RCS emissions: restore before clearing the suppressed flag so
+            // any suppressed KSP emitters get their renderers/audio back.
+            // RestoreAllRcsEmissions itself flips rcsSuppressed to false when
+            // it runs; the belt-and-braces assignment below handles the
+            // no-rcsInfos fast path where it early-returns without touching
+            // the flag.
+            RestoreAllRcsEmissions(state);
+            state.rcsSuppressed = false;
+
+            // Audio state machine: next frame's atmosphere/mute pipeline
+            // re-decides. Atmosphere factor resets to 1 (matches spawn).
+            state.audioMuted = false;
+            state.atmosphereFactor = 1f;
+
+            // Per-part runtime state accrued from events (light blink state,
+            // decoupled-canopy stubs, logical-pid presence set). Events on
+            // the new cycle repopulate these; `logicalPartIds` is restored
+            // by the reuse orchestrator via BuildSnapshotPartIdSet because
+            // that helper requires the snapshot ConfigNode which this pure
+            // static doesn't have access to.
+            state.lightPlaybackStates?.Clear();
+            DestroyAllFakeCanopies(state);
+
+            // Reset fresh-spawn visibility deferral so the first positioned
+            // frame activates the ghost the same way a fresh spawn would.
+            state.deferVisibilityUntilPlaybackSync = true;
+        }
+
         internal static bool RefreshCompoundPartVisibility(GhostPlaybackState state)
         {
             if (state == null || state.ghost == null || state.compoundPartInfos == null
