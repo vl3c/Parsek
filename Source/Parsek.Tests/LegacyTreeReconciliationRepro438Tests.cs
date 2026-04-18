@@ -78,18 +78,22 @@ namespace Parsek.Tests
                 rec.Points.Add(new TrajectoryPoint { ut = endUT });
             }
 
+            // Phase F removed the public tree-level resource delta fields; legacy
+            // residuals now live on a transient seam exposed via
+            // SetLegacyResidualForTesting. This mirrors LegacyTreeMigrationTests.MakeTree.
             var tree = new RecordingTree
             {
                 Id = treeId,
                 TreeName = "TestTree",
                 RootRecordingId = rootRecordingId,
-                ActiveRecordingId = rootRecordingId,
-                DeltaFunds = deltaFunds,
-                DeltaScience = deltaScience,
-                DeltaReputation = deltaRep,
-                ResourcesApplied = resourcesApplied
+                ActiveRecordingId = rootRecordingId
             };
             tree.Recordings[rec.RecordingId] = rec;
+            tree.SetLegacyResidualForTesting(
+                deltaFunds: deltaFunds,
+                deltaScience: deltaScience,
+                deltaReputation: deltaRep,
+                resourcesApplied: resourcesApplied);
             return tree;
         }
 
@@ -116,7 +120,14 @@ namespace Parsek.Tests
             Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
             Assert.Equal("rec-root", synth.RecordingId);
             Assert.Equal(200.0, synth.UT);
-            Assert.True(tree.ResourcesApplied);
+            // Phase F: "resources applied" is now expressed as all recordings having
+            // LastAppliedResourceIndex set to the tail (mirrors
+            // LegacyTreeMigrationTests.AssertTreeRecordingsFullyApplied).
+            foreach (var rec in tree.Recordings.Values)
+            {
+                int expected = rec.Points.Count > 0 ? rec.Points.Count - 1 : -1;
+                Assert.Equal(expected, rec.LastAppliedResourceIndex);
+            }
 
             // The migration logs a per-tree INFO summary with the residuals.
             // Pin that log-capture path for regression coverage.
@@ -156,9 +167,13 @@ namespace Parsek.Tests
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
             Assert.NotNull(synth);
             Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
-            Assert.True(tree.ResourcesApplied);
+            foreach (var rec in tree.Recordings.Values)
+            {
+                int expected = rec.Points.Count > 0 ? rec.Points.Count - 1 : -1;
+                Assert.Equal(expected, rec.LastAppliedResourceIndex);
+            }
 
-            // Both sides sum to +34400 — silent.
+            // Both sides sum to +34400 -- silent.
             var syntheticsForWindow = Ledger.Actions
                 .Where(a => a.Type == GameActionType.FundsEarning
                             && a.FundsSource == FundsEarningSource.LegacyMigration

@@ -178,7 +178,14 @@ namespace Parsek.Tests
                     Type = GameActionType.ContractComplete,
                     FundsReward = 5000f,
                     RepReward = 10f,
-                    ContractId = "c1"
+                    ContractId = "c1",
+                    // #440B: ReconcileEarningsWindow now reads post-walk derived fields.
+                    // Under identity transforms these match the raw values; seed them
+                    // explicitly since this test bypasses RecalculateAndPatch.
+                    Effective = true,
+                    TransformedFundsReward = 5000f,
+                    EffectiveRep = 10f,
+                    TransformedScienceReward = 0f
                 }
             };
 
@@ -210,7 +217,10 @@ namespace Parsek.Tests
                     Type = GameActionType.MilestoneAchievement,
                     MilestoneFundsAwarded = 3000f,
                     MilestoneRepAwarded = 5f,
-                    MilestoneId = "Mun/Landing"
+                    MilestoneId = "Mun/Landing",
+                    // #440B: rep leg now reads EffectiveRep; seed to curve-identity value.
+                    Effective = true,
+                    EffectiveRep = 5f
                 }
             };
 
@@ -2002,7 +2012,9 @@ namespace Parsek.Tests
                     Type = GameActionType.ContractFail,
                     ContractId = "cf1",
                     FundsPenalty = 1000f,
-                    RepPenalty = 5f
+                    RepPenalty = 5f,
+                    // #440B: rep penalty leg now reads EffectiveRep (signed negative).
+                    EffectiveRep = -5f
                 }
             };
 
@@ -2036,7 +2048,9 @@ namespace Parsek.Tests
                     Type = GameActionType.ContractCancel,
                     ContractId = "cc1",
                     FundsPenalty = 1000f,
-                    RepPenalty = 5f
+                    RepPenalty = 5f,
+                    // #440B: rep penalty leg now reads EffectiveRep (signed negative).
+                    EffectiveRep = -5f
                 }
             };
 
@@ -2077,7 +2091,10 @@ namespace Parsek.Tests
                     MilestoneId = "Mun/Landing",
                     MilestoneFundsAwarded = 3000f,
                     MilestoneRepAwarded = 5f,
-                    MilestoneScienceAwarded = 20f
+                    MilestoneScienceAwarded = 20f,
+                    // #440B: rep leg reads EffectiveRep; under identity curve matches raw.
+                    Effective = true,
+                    EffectiveRep = 5f
                 }
             };
 
@@ -2109,7 +2126,11 @@ namespace Parsek.Tests
                     UT = 150,
                     Type = GameActionType.ScienceEarning,
                     SubjectId = "surfaceSample@Mun",
-                    ScienceAwarded = 16.44f
+                    ScienceAwarded = 16.44f,
+                    // #440B: reads EffectiveScience (post-subject-cap). Under identity
+                    // (subject not capped) EffectiveScience equals ScienceAwarded.
+                    Effective = true,
+                    EffectiveScience = 16.44f
                 }
             };
 
@@ -2146,7 +2167,10 @@ namespace Parsek.Tests
                     MilestoneId = "RecordsSpeed/Kerbin",
                     MilestoneFundsAwarded = 4800f,
                     MilestoneRepAwarded = 2f,
-                    MilestoneScienceAwarded = 0f
+                    MilestoneScienceAwarded = 0f,
+                    // #440B: rep leg reads EffectiveRep; identity curve -> matches raw.
+                    Effective = true,
+                    EffectiveRep = 2f
                 }
             };
 
@@ -2208,6 +2232,300 @@ namespace Parsek.Tests
                 startUT: 100, endUT: 200);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        // ================================================================
+        // #440B -- switch from raw to post-walk Transformed*/EffectiveRep/
+        // EffectiveScience reads. These tests pin the swap at each swapped
+        // switch leg, the Effective gates, the subject-cap behavior change,
+        // the headline double-WARN closure, and the timing invariant.
+        // ================================================================
+
+        [Fact]
+        public void Reconcile_ContractComplete_TransformedFundsReward_Silent()
+        {
+            // #440B positive: the switch reads TransformedFundsReward, not FundsReward.
+            // Raw is 1000 (simulating a future non-identity transform), but the walk
+            // produced 800 and KSP actually credited 800. No WARN.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 0, 800)
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractComplete,
+                    ContractId = "c1",
+                    Effective = true,
+                    FundsReward = 1000f,              // raw (pre-transform)
+                    TransformedFundsReward = 800f,    // walk output
+                    RepReward = 0f,
+                    EffectiveRep = 0f,
+                    ScienceReward = 0f,
+                    TransformedScienceReward = 0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+            // Log-assertion: a commit-time summary log should not warn; verify the
+            // action type was processed (no false positive on the swapped leg).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (funds)") && l.Contains("1000"));
+        }
+
+        [Fact]
+        public void Reconcile_ContractComplete_TransformedFundsReward_RawDelta_Warns()
+        {
+            // #440B inverse pin: store-side observed a raw-shaped delta (+1000) while
+            // the walk produced TransformedFundsReward=800. The switch reads 800 and
+            // WARNs because store (+1000) != emitted (+800).
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 0, 1000)   // raw-aligned
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractComplete,
+                    ContractId = "c1",
+                    Effective = true,
+                    FundsReward = 1000f,
+                    TransformedFundsReward = 800f,
+                    RepReward = 0f,
+                    EffectiveRep = 0f,
+                    ScienceReward = 0f,
+                    TransformedScienceReward = 0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Earnings reconciliation (funds)") &&
+                l.Contains("1000") && l.Contains("800"));
+        }
+
+        [Fact]
+        public void Reconcile_ContractComplete_NotEffective_SkipsEmitted_Silent()
+        {
+            // #440B gate: Effective=false (duplicate completion). The switch must skip
+            // the entire ContractComplete case so raw FundsReward does not leak into
+            // emittedFundsDelta. Store reflects zero (no real credit fired). No WARN.
+            var events = new List<GameStateEvent>();   // no FundsChanged
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractComplete,
+                    ContractId = "c-dup",
+                    Effective = false,                 // duplicate -- walk skips credit
+                    FundsReward = 5000f,               // raw non-zero (would leak without gate)
+                    TransformedFundsReward = 0f,
+                    EffectiveRep = 0f,
+                    TransformedScienceReward = 0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_MilestoneAchievement_NotEffective_SkipsEmitted_Silent()
+        {
+            // #440B gate: duplicate milestone (Effective=false) must not leak raw
+            // MilestoneFundsAwarded into emittedFundsDelta. Mirrors ReconcilePostWalk.
+            var events = new List<GameStateEvent>();
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.MilestoneAchievement,
+                    MilestoneId = "FirstLaunch",
+                    Effective = false,
+                    MilestoneFundsAwarded = 3000f,
+                    MilestoneRepAwarded = 5f,
+                    MilestoneScienceAwarded = 20f,
+                    EffectiveRep = 0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_ScienceEarning_AtSubjectCap_EffectiveScienceZero_Silent()
+        {
+            // #440B on-main behaviour change: a capped subject has ScienceAwarded > 0
+            // but EffectiveScience = 0 (ScienceModule applied the per-subject cap).
+            // Store does not fire ScienceChanged for a zero credit, so under the raw
+            // read the pre-fix switch would WARN (emitted +16.44 vs store 0). Post-fix
+            // reads EffectiveScience = 0 and stays silent. See plan risk R4.
+            var events = new List<GameStateEvent>();   // no ScienceChanged fired
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "crewReport@KerbinSrfLanded",
+                    Effective = true,
+                    ScienceAwarded = 16.44f,           // raw pre-cap
+                    EffectiveScience = 0f              // subject at cap
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_DoubleWarn_BothHooksReadSameDerivedValue_SingleWarn()
+        {
+            // #440B headline regression guard. Both ReconcileEarningsWindow (commit-path)
+            // and ReconcilePostWalk (rewind-path) must read the SAME derived value for a
+            // ContractComplete funds leg. Before #440B the commit-path read raw
+            // FundsReward and the post-walk read TransformedFundsReward; on a non-identity
+            // transform they WARNed with opposing shapes (one saying 1000 vs 800, the
+            // other 800 vs 1000). Post-fix: both agree on 800 always.
+
+            // Case 1: transformed matches KSP. Both hooks must stay silent.
+            var events1 = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 0, 800, "ContractReward")
+            };
+            var action1 = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c-dbl-1",
+                Effective = true,
+                FundsReward = 1000f,
+                TransformedFundsReward = 800f,
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f
+            };
+            var actions1 = new List<GameAction> { action1 };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events1, actions1,
+                startUT: 450, endUT: 550);
+            LedgerOrchestrator.ReconcilePostWalk(events1, actions1, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, funds)"));
+
+            // Case 2: transformed diverges from KSP. Both hooks WARN with the SAME
+            // expected=800 and observed=1000 (not opposing 1000-vs-800 / 800-vs-1000).
+            logLines.Clear();
+            var events2 = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 0, 1000, "ContractReward")
+            };
+            var action2 = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c-dbl-2",
+                Effective = true,
+                FundsReward = 1000f,
+                TransformedFundsReward = 800f,
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f
+            };
+            var actions2 = new List<GameAction> { action2 };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events2, actions2,
+                startUT: 450, endUT: 550);
+            LedgerOrchestrator.ReconcilePostWalk(events2, actions2, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (funds)") && l.Contains("800"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") && l.Contains("800"));
+
+            // Case 3: the exact double-WARN scenario the #440B TODO flagged.
+            // Transformed matches KSP (800 vs 800), raw is stale at 1000.
+            // Pre-fix the commit-path would WARN (1000 vs 800) while post-walk was silent.
+            // Post-fix: both silent. This closes the divergence.
+            logLines.Clear();
+            var events3 = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 0, 800, "ContractReward")
+            };
+            var action3 = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c-dbl-3",
+                Effective = true,
+                FundsReward = 1000f,                // stale raw
+                TransformedFundsReward = 800f,      // walk output matches KSP
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f
+            };
+            var actions3 = new List<GameAction> { action3 };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events3, actions3,
+                startUT: 450, endUT: 550);
+            LedgerOrchestrator.ReconcilePostWalk(events3, actions3, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, funds)"));
+        }
+
+        [Fact]
+        public void Reconcile_CalledBeforeRecalculate_ReadsZeroDerived_WarnsVisibly()
+        {
+            // #440B timing invariant I2. Documents the failure mode when the production
+            // caller reorders ReconcileEarningsWindow to run BEFORE RecalculateAndPatch:
+            // TransformedFundsReward defaults to 0, so the switch reads 0 and WARNs on
+            // every ContractComplete. If this test ever stops firing, someone silently
+            // re-broke the ordering contract.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 0, 5000)
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractComplete,
+                    ContractId = "c-pre-walk",
+                    Effective = true,
+                    FundsReward = 5000f,
+                    // TransformedFundsReward intentionally left as 0f default
+                    // (simulates pre-walk state).
+                    EffectiveRep = 0f,
+                    TransformedScienceReward = 0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Earnings reconciliation (funds)") &&
+                l.Contains("5000") && l.Contains("0"));
         }
 
     }
