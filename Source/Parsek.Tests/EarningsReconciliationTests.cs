@@ -1109,5 +1109,271 @@ namespace Parsek.Tests
             }
         }
 
+        // ================================================================
+        // #438 phase E1 — commit-window coverage for action types the switch
+        // previously missed (ContractAccept, FacilityUpgrade, FacilityRepair)
+        // plus positive-match coverage for types the switch already handled
+        // (ContractFail/Cancel penalties, milestone science, ScienceEarning).
+        // ================================================================
+
+        [Fact]
+        public void Reconcile_ContractAcceptAdvance_MatchesStore_Silent()
+        {
+            // #438 gap #1: ContractAccept inside a commit window emits a
+            // FundsChanged(ContractAdvance) delta of +AdvanceFunds. Without the
+            // production fix this test would warn (emitted=0 vs store=+2000).
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 20000, 22000)  // +2000
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractAccept,
+                    ContractId = "c-adv",
+                    AdvanceFunds = 2000f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_ContractFailPenalty_MatchesStore_Silent()
+        {
+            // #438 gap #2: ContractFail penalties already handled by the switch;
+            // pin the positive-match case so future refactors cannot silently
+            // drop the FundsPenalty/RepPenalty subtraction.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 20000, 19000),  // -1000
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ReputationChanged,
+                    valueBefore = 10, valueAfter = 5
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractFail,
+                    ContractId = "cf1",
+                    FundsPenalty = 1000f,
+                    RepPenalty = 5f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_ContractCancelPenalty_MatchesStore_Silent()
+        {
+            // #438 gap #2: symmetric pin for ContractCancel — same switch case as
+            // ContractFail but a distinct GameActionType, so the positive-match
+            // case deserves its own test.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 20000, 19000),  // -1000
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ReputationChanged,
+                    valueBefore = 10, valueAfter = 5
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ContractCancel,
+                    ContractId = "cc1",
+                    FundsPenalty = 1000f,
+                    RepPenalty = 5f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_MilestoneAchievementWithScience_MatchesStore_Silent()
+        {
+            // #438 gap #3: extend the existing milestone test with a science-bearing
+            // milestone. The switch already sums MilestoneScienceAwarded into
+            // emittedSciDelta; this pins the three-channel positive match.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 0, 3000),
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ReputationChanged,
+                    valueBefore = 0, valueAfter = 5
+                },
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ScienceChanged,
+                    valueBefore = 0, valueAfter = 20
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.MilestoneAchievement,
+                    MilestoneId = "Mun/Landing",
+                    MilestoneFundsAwarded = 3000f,
+                    MilestoneRepAwarded = 5f,
+                    MilestoneScienceAwarded = 20f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_ScienceEarningMatchesStore_Silent()
+        {
+            // #438 gap #4: only the mismatch/negative shape is pinned today
+            // (Reconcile_ScienceMismatch_LogsWarn). Pin the symmetric positive
+            // case for a standalone ScienceEarning inside the window.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ScienceChanged,
+                    valueBefore = 0, valueAfter = 16.44
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "surfaceSample@Mun",
+                    ScienceAwarded = 16.44f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_WorldFirstProgressReward_MatchesStore_Silent()
+        {
+            // #438 gap #5 (reconcile-side half): feed a MilestoneAchievement shaped
+            // exactly like what GameStateEventConverter.ConvertMilestoneAchieved
+            // produces from a world-first progress-reward detail string and assert
+            // the three store deltas reconcile silently. The zero-science channel
+            // is represented by omitting the ScienceChanged event (delta=0 side).
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(100, 0, 4800),
+                new GameStateEvent
+                {
+                    ut = 100,
+                    eventType = GameStateEventType.ReputationChanged,
+                    valueBefore = 0, valueAfter = 2
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.MilestoneAchievement,
+                    MilestoneId = "RecordsSpeed/Kerbin",
+                    MilestoneFundsAwarded = 4800f,
+                    MilestoneRepAwarded = 2f,
+                    MilestoneScienceAwarded = 0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 50, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_FacilityUpgrade_MatchesStore_Silent()
+        {
+            // #438 gap #6 (upgrade half): without the production fix the store
+            // sees -75000 and the emitted side sees 0, producing a false
+            // "Earnings reconciliation (funds)" WARN. Post-fix: silent.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 200000, 125000)  // -75000
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.FacilityUpgrade,
+                    FacilityId = "VehicleAssemblyBuilding",
+                    ToLevel = 2,
+                    FacilityCost = 75000f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_FacilityRepair_MatchesStore_Silent()
+        {
+            // #438 gap #6 (repair half): same production fix covers both the
+            // upgrade and repair branches so the symmetric pair is pinned.
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 100000, 88000)  // -12000
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.FacilityRepair,
+                    FacilityId = "LaunchPad",
+                    FacilityCost = 12000f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
     }
 }
