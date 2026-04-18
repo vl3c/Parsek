@@ -37,6 +37,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `T68` Added cleanup-order unit coverage for watch-mode exit-before-destroy, plus in-game regressions for watch-cleanup and low-altitude Kerbin ghost spawn exception containment.
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test plus an assertion that the optimizer rejects orbital-phase pairs.
 - `#384` Added the Learstar A1 S16 mission to the `DefaultCareer` fixture so `InjectAllRecordings` covers a far-away / map-view recording.
 - `#399` Regression tests for `ScienceModule.ComputeTotalSpendings` at duplicate UTs.
@@ -54,6 +55,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#458` Between-run timeline ghost cleanup now exits watch mode before any ghost teardown, and `Sun.LateUpdate` defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
 - `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.
 - `#455` `PatchMilestones` no longer spams thousands of `repeatable node '<Body>/<Name>' is missing stock record fields` WARNs on every recalculation; one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …) now correctly fall through to the one-shot patch path instead of being short-circuited by the repeatable-record branch.
 - `#387` Ghost map icons for `DeployedScienceController` and `DeployedGroundPart` now render the stock icon instead of the generic diamond fallback; their sprites live on separate atlas textures that the single-atlas init path used to silently reject.

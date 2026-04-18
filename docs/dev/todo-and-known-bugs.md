@@ -58,6 +58,18 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~458.~~ `Run All` cleanup destroys the watched ghost before watch mode exits, flooding `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` with NullReferenceExceptions
+
+**Source:** Playtest `2026-04-18_1947_450-b3-playtest/KSP.log`. At `19:46:21.679`, `InGameTestRunner.PerformBetweenRunCleanup("run-all")` started its teardown in FLIGHT and immediately called `ParsekFlight.DestroyAllTimelineGhosts()` while watch mode was still active on a ghost. The watched `state.ghost.transform` then became a destroyed Unity wrapper, but stock camera state still held it via `PlanetariumCamera.target` / `ScaledMovement.tgtRef`; on the next frame, stock `Sun.LateUpdate` and `FlightGlobals.UpdateInformation` started throwing every frame (about 8,750 exceptions over 60 seconds) until the player alt+F4'd.
+
+**Fix:** extracted `ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(...)` as the shared seam for this ordering guard. `InGameTestRunner.PerformBetweenRunCleanup` now calls it at the top of the `flight != null` block, before reading ghost counts or destroying anything, always with `skipCameraRestore=true` because the watched transforms are about to be invalidated anyway. `ParsekFlight.DestroyAllTimelineGhosts()` also calls the same helper first so rewind and any future caller cannot destroy timeline ghosts while stock watch/camera state still points at one. Added `Patches/SunLateUpdateGuardPatch.cs` as symptom containment: Harmony prefix on `Sun.LateUpdate` returns early when `Sun.target` is null/destroyed and emits a one-shot `[CameraFollow]` WARN so regressions still leave a breadcrumb instead of a per-frame exception storm. Unit coverage in `WatchModeCleanupRegressionTests` asserts the `[CameraFollow] Exiting watch mode before timeline ghost cleanup` log precedes `[Engine] DestroyAllGhosts`, and runtime coverage adds `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` plus `GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs` to watch the exact cleanup path and the adjacent low-altitude Kerbin spawn path for stock exception spam.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/Patches/SunLateUpdateGuardPatch.cs`, `Source/Parsek.Tests/WatchModeCleanupRegressionTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. `dotnet build` passes, `dotnet test --filter WatchModeCleanupRegressionTests` passes (3/3), and full `dotnet test` passes (7195/7196 with 1 pre-existing skipped Unity-runtime test). In-game runtime verification remains pending for the next playtest.
+
+---
+
 ## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
 
 **Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.

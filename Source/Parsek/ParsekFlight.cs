@@ -481,6 +481,67 @@ namespace Parsek
         internal string DescribeWatchEligibilityForLogs(int index) => watchMode != null
             ? watchMode.DescribeWatchEligibilityForLogs(index)
             : $"watchEval(rec=#{index} unavailable=watchMode-null)";
+        internal bool ExitWatchModeBeforeTimelineGhostCleanup(string context)
+        {
+            string focus = watchMode != null
+                ? watchMode.DescribeWatchFocusForLogs()
+                : "watch=uninitialized";
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                watchMode != null && watchMode.IsWatchingGhost,
+                watchMode != null
+                    ? new Action<bool>(skipCameraRestore => watchMode.ExitWatchMode(skipCameraRestore))
+                    : null,
+                context,
+                focus);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action exitWatchMode,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                exitWatchMode != null
+                    ? new Action<bool>(_ => exitWatchMode())
+                    : null,
+                context,
+                watchFocusForLogs);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action<bool> exitWatchMode,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+
+            if (!isWatchingGhost)
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: no active watch mode before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            if (exitWatchMode == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: active watch mode could not be exited before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            ParsekLog.Info("CameraFollow",
+                $"Exiting watch mode before timeline ghost cleanup: context={cleanupContext} skipCameraRestore=true {focus}");
+            exitWatchMode(true);
+            return true;
+        }
 
         #endregion
 
@@ -9028,6 +9089,8 @@ namespace Parsek
 
         public void DestroyAllTimelineGhosts()
         {
+            ExitWatchModeBeforeTimelineGhostCleanup("DestroyAllTimelineGhosts");
+
             // Remove ghost map ProtoVessels before engine cleanup
             GhostMapPresence.RemoveAllGhostVessels("rewind");
 
