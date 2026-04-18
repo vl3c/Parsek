@@ -59,6 +59,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Looping recordings whose ghost never built (missing vessel snapshot) no longer spam `ReusePrimaryGhostAcrossCycle ... null ghost` WARNs every frame in `KSP.log`; the skip branch now advances the cycle counter so the condition logs at most once per rate-limit window.
+- Demoted the chatty `CameraFollow Camera pivot recalculated` line from Info to VerboseRateLimited; it was firing thousands of times per session on any recording with part visibility changes.
 - Fix #439B: strategy activate setup cost reconciliation now covers Funds, Science, and Reputation legs, closing the known limitation that shipped with #439.
 - `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
 - `#406 follow-up` Looping ghosts now reuse the same ghost GameObject across loop-cycle boundaries instead of destroying and rebuilding, eliminating the remaining ~21 ms per-cycle hitch on flight recordings with reentry FX. Per-cycle mutable state (engine throttle, RCS power, robotic servo, char intensity, reentry intensity) resets to the fresh-spawn baseline so the new cycle does not inherit stale readings.

@@ -18,6 +18,29 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 462. LedgerOrchestrator earnings reconciliation: MilestoneAchievement double-count vs FundsChanged
+
+**Source:** `logs/2026-04-19_0014_investigate/KSP.log` (48 WARN lines across one session). Representative pair:
+
+```
+[WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, funds): MilestoneAchievement id=Kerbin/SurfaceEVA expected=960.0, observed=1440.0 across 2 event(s) keyed 'Progression' at ut=17110.6 -- post-walk delta mismatch
+[WARN][LedgerOrchestrator] Earnings reconciliation (funds): store delta=13920.0 vs ledger emitted delta=13440.0 — missing earning channel? window=[17076.5,17110.6]
+```
+
+**Concern:** post-walk funds reconciliation detects a systematic mismatch between the expected milestone award and the observed FundsChanged events for several stock milestones — `MilestoneAchievement id=` values hitting 1.5× the expected payout across 2 events (so every recalc is double-writing one of them), plus store-vs-ledger window mismatches where the full-window delta diverges by a stable offset. Seen for: `RecordsSpeed` (12×), `RecordsDistance` (12×), `Kerbin/SurfaceEVA` (6+3), `Kerbin/Landing` (6×), `Kerbin/FlagPlant` (6×), `FirstLaunch` (6×). All on the same test-career session at UT≈17110. Because the observed delta is higher than expected, funds accounting for these milestones is likely over-paying — the kind of bug that silently inflates funds over long play sessions and is very hard to spot without the reconciliation WARNs.
+
+**Fix:** investigate `LedgerOrchestrator.RecalculateAndPatch` + `GameActions/KerbalsModule`-style earnings paths for milestone events. Two plausible causes: (1) milestone event being emitted twice into the ledger (once from the live progress event, once during recalc replay); (2) `Progression` channel key matching two distinct events in the reconciliation window (ambient FundsChanged from another source collapsed in). Add a test generator that reproduces the double-count for `RecordsSpeed` in `Source/Parsek.Tests/` (the milestone most obviously reproducible — it fires on every takeoff/landing in the test save). Cross-reference with the existing PR #307 follow-ups in `done/todo-and-known-bugs-v3.md` — that bundle already touched the `Progression` dedup key.
+
+**Files:** likely `Source/Parsek/GameActions/LedgerOrchestrator.cs`, the earnings emit path for MilestoneAchievement, and whichever module owns MilestoneStore→FundsChanged conversion. Log snapshot saved under `logs/2026-04-19_0014_investigate/` for reproduction context.
+
+**Scope:** Medium. Funds reconciliation is safety-critical (double-counted earnings invalidate career economies), but the WARN mechanism is already catching it — so the fix is localised to one emit path, not a schema redesign.
+
+**Dependencies:** none.
+
+**Status:** TODO. Priority: medium-to-high — real data correctness bug with no user-facing symptom today except the WARNs, but compounds over long saves.
+
+---
+
 ## 461. Pin the #406 reuse post-frame visibility invariant with an in-game test
 
 **Source:** clean-context Opus review of PR #394 (#406 ghost GameObject reuse across loop-cycle boundaries), finding #4.

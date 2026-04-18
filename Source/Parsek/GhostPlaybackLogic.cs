@@ -2003,9 +2003,9 @@ namespace Parsek
                 count++;
             }
             state.cameraPivot.localPosition = count > 0 ? (min + max) * 0.5f : Vector3.zero;
-            ParsekLog.Info("CameraFollow",
+            ParsekLog.VerboseRateLimited("CameraFollow", $"pivot-{state.ghost.name}",
                 $"Camera pivot recalculated: localPos=({state.cameraPivot.localPosition.x:F2},{state.cameraPivot.localPosition.y:F2},{state.cameraPivot.localPosition.z:F2})" +
-                $" activeParts={count}");
+                $" activeParts={count}", 1.0);
         }
 
         #endregion
