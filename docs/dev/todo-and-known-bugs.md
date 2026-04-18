@@ -58,6 +58,29 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~456.~~ `CrewReservation` orphan placement fails when snapshot pid is synthetic (pid=100000 showcase ghost) and doesn't coincide with any live part pid
+
+**Source:** Playtest `2026-04-18_1859_450-phase-a-playtest/KSP.log:15428` and `:35915`. Both log lines:
+
+```
+[Parsek][WARN][CrewReservation] Orphan placement: no matching part with free seat in active vessel for
+  'Bill Kerman' -> 'Urdun Kerman' (snapshot pid=100000 name='mk1pod.v2') - stand-in left in roster
+```
+
+**Close cousin of #413.** #413 fixed the *serialization-side* variant: the matcher used to read `partNode.GetValue("pid")` instead of `persistentId`, so every orphan seat resolved with `PartPid=0` and tier-1 match failed. #456 is the *semantics-side* variant: the snapshot's `persistentId` IS now captured correctly, but for showcase ghosts it's the synthetic value `100000` (the canonical first AddPart-assigned PID — see `.claude/CLAUDE.md` "Ghost event <-> snapshot PID" gotcha), which can never match the KSP-assigned pid of a freshly-launched real vessel.
+
+**Root cause (matcher-side):** `CrewReservationManager.FindTargetPartForOrphan` had a two-tier match (`persistentId` -> `partInfo.name` + free seat) that walked the live vessel parts in list order and took the first match. Tier 1 missed (synthetic vs KSP-assigned pid). Tier 2 worked only when the first-in-order same-name part also had a free seat. No log signal distinguished "pid-hit placed it" from "name-fallback placed it" for playtest triage, so successful fallbacks looked the same as pid matches and missed the "this is a synthetic-pid ghost" pattern.
+
+**Fix:** extracted the matcher decision into a pure `internal static TryResolveActiveVesselPartForSeat(snapshotPid, snapshotPartName, activeParts) -> (partIndex, SeatMatchKind)` helper. Tier-1 pid-hit still wins (PidHit over NameHit); tier-2 name-hit now picks the **tightest fit** (minimum free seats) so single-seat cockpits win over multi-seat passenger cabins when both share a part name. `PlaceOrphanedReplacements` now counts `pidHits` vs `nameHitFallbacks`, surfacing both in the post-loop summary line and on the WARN when both tiers miss. A dedicated `match=name-fallback` INFO line fires on every successful fallback placement so future playtests can grep for it.
+
+**Files:** `Source/Parsek/CrewReservationManager.cs` (`TryResolveActiveVesselPartForSeat` pure helper + `ActivePartSeat` struct + `SeatMatchKind` enum, `FindTargetPartForOrphan` rewritten to call the helper, `PlaceOrphanedReplacements` counter + success INFO line + summary and WARN extensions), `Source/Parsek.Tests/CrewReservationNameHitFallbackTests.cs` (new - 13 unit tests: pid-hit wins over name-hit, name-hit unique / multi / tightest-fit / tie-first-wins, no-match, pid-coincidence, pid-full-falls-to-name, zero-pid-skips-tier-1, null/empty inputs, playtest regression with single-seat full pod, mutation and determinism invariants), `Source/Parsek/InGameTests/RuntimeTests.cs` (new `Bug456_OrphanPlacement_NameHitFallback_PlacesStandin` - builds a synthetic pid=100000 snapshot against the live active vessel, verifies placement via name-fallback, asserts the `match=name-fallback` INFO line and `nameHitFallbacks=1` counter both fired).
+
+**Scope:** Small. Decision-logic refactor + diagnostic-log expansion. No schema or save-format change.
+
+**Status:** ~~Fixed~~. Note: this fix does NOT rescue the exact playtest log line (the active vessel's single `mk1pod.v2` cockpit was already fully crewed, so tier 2 still finds no free seat) — the regression test pins that as a true no-match. What it DOES fix is every future variant where a real free seat exists on a same-named part with a mismatched pid, and surfaces the tier split in the summary log so a follow-up can decide whether to escalate (e.g., force-evict a replacement, or skip orphan placement entirely when the snapshot is a showcase ghost with synthetic pid).
+
+---
+
 ## ~~455.~~ `PatchMilestones` WARN storm on one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …)
 
 **Status:** ~~Fixed~~. `PatchRepeatableRecordNode` now calls a new `IsRepeatableRecordType(ProgressNode)` helper as its first step. In normal runtime the helper matches `node.GetType().FullName` against the four stock repeatable subclasses (`KSPAchievements.RecordsAltitude`, `KSPAchievements.RecordsDepth`, `KSPAchievements.RecordsSpeed`, `KSPAchievements.RecordsDistance`) using string comparison so we do not take a compile-time dependency on `KSPAchievements`. The existing `SuppressUnityCallsForTesting` seam enables a simple-name fallback for xUnit stand-ins only, so unrelated same-name classes in other namespaces do not get misclassified in production. Non-record nodes return `false` silently, which flows them through `PatchProgressNodeTree`'s one-shot achieve/un-achieve branch — the correct behavior for one-shot body sub-achievements. Genuinely-record types that drift away from the stock field layout still hit the existing missing-stock-fields WARN as a structural-change alarm. Six unit tests in `KspStatePatcherTests.cs` pin the helper (null, four true stock cases, one name-collision false case, two one-shot false cases) and the `PatchRepeatableRecordNode` branches (one-shot returns false with no WARN; records-named synthetic without stock fields returns true and emits the WARN).
