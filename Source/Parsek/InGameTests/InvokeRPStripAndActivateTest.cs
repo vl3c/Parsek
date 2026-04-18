@@ -16,9 +16,10 @@ namespace Parsek.InGameTests
     /// (<c>CanInvoke</c> true; quicksave exists; PartLoader precondition
     /// passes), and exercise the atomic marker-write directly via
     /// <see cref="RewindInvoker.AtomicMarkerWrite"/>. We deliberately do not
-    /// trigger the full <c>RunInvoke</c> coroutine because loading the
-    /// quicksave is a destructive scene transition that cannot be undone
-    /// inside a test. Instead we assert the testable guarantees:
+    /// trigger the full pre-load / post-load invocation (see
+    /// <see cref="RewindInvoker.StartInvoke"/>) because loading the quicksave
+    /// is a destructive scene transition that cannot be undone inside a test.
+    /// Instead we assert the testable guarantees:
     /// </para>
     /// <list type="bullet">
     ///   <item><description>CanInvoke returns true for the RP.</description></item>
