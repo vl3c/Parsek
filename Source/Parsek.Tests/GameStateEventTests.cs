@@ -206,6 +206,82 @@ namespace Parsek.Tests
             Assert.Equal("cost=800;entryCost=800", events[0].detail);
         }
 
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_MatchingTechInDifferentEpoch_SkipsMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 1,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 2,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(0, migrated);
+            Assert.Equal("cost=800;entryCost=800", events[1].detail);
+            Assert.Equal(50000, events[1].valueBefore);
+            Assert.Equal(49200, events[1].valueAfter);
+        }
+
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_DifferentEpochFundsDebit_DoesNotBlockMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 2,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 2,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 1,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "RnDPartPurchase",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(1, migrated);
+            Assert.Equal("cost=0;entryCost=800", events[1].detail);
+            Assert.Equal(events[1].valueAfter, events[1].valueBefore);
+        }
+
         #endregion
 
         #region ContractSnapshot Serialization

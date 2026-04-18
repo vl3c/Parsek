@@ -144,6 +144,59 @@ namespace Parsek.Tests
             Assert.Equal(restored.Events[1].valueAfter, restored.Events[1].valueBefore);
         }
 
+        [Fact]
+        public void Milestone_DeserializeFrom_IgnoresDifferentEpochFundsDebitWhenMigratingLegacyFreePartUnlockShape()
+        {
+            var node = new ConfigNode("MILESTONE");
+            node.AddValue("id", "ms-451-epoch");
+            node.AddValue("startUT", "0");
+            node.AddValue("endUT", "1000");
+            node.AddValue("recordingId", "");
+            node.AddValue("epoch", "2");
+            node.AddValue("committed", "True");
+            node.AddValue("lastReplayedIdx", "2");
+
+            var techEvent = node.AddNode("GAME_STATE_EVENT");
+            new GameStateEvent
+            {
+                ut = 500,
+                epoch = 2,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5;parts=solidBooster.v2"
+            }.SerializeInto(techEvent);
+
+            var purchaseEvent = node.AddNode("GAME_STATE_EVENT");
+            new GameStateEvent
+            {
+                ut = 500,
+                epoch = 2,
+                eventType = GameStateEventType.PartPurchased,
+                key = "solidBooster.v2",
+                detail = "cost=800;entryCost=800",
+                valueBefore = 50000,
+                valueAfter = 49200
+            }.SerializeInto(purchaseEvent);
+
+            var fundsEvent = node.AddNode("GAME_STATE_EVENT");
+            new GameStateEvent
+            {
+                ut = 500,
+                epoch = 1,
+                eventType = GameStateEventType.FundsChanged,
+                key = "RnDPartPurchase",
+                valueBefore = 50000,
+                valueAfter = 49200
+            }.SerializeInto(fundsEvent);
+
+            var restored = Milestone.DeserializeFrom(node);
+
+            Assert.Equal(3, restored.Events.Count);
+            Assert.Equal("cost=0;entryCost=800", restored.Events[1].detail);
+            Assert.Equal(restored.Events[1].valueAfter, restored.Events[1].valueBefore);
+            Assert.Equal(1u, restored.Events[2].epoch);
+        }
+
         #endregion
 
         #region MilestoneStore.CreateMilestone

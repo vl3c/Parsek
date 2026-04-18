@@ -127,8 +127,8 @@ namespace Parsek
         /// <list type="bullet">
         /// <item><description>the PartPurchased row must have both tokens with the same positive value;</description></item>
         /// <item><description>its numeric before/after delta must match that value (the predecessor also wrote the wrong charged delta there);</description></item>
-        /// <item><description>a same-batch TechResearched row must list this part in <c>parts=</c> at the same UT window; and</description></item>
-        /// <item><description>no same-batch FundsChanged(<c>RnDPartPurchase</c>) debit may exist, which distinguishes the free bypass path from a real paid unlock.</description></item>
+        /// <item><description>a same-epoch TechResearched row must list this part in <c>parts=</c> at the same UT window; and</description></item>
+        /// <item><description>no same-epoch FundsChanged(<c>RnDPartPurchase</c>) debit may exist, which distinguishes the free bypass path from a real paid unlock.</description></item>
         /// </list>
         /// This covers both live event-store loads and committed milestone loads without
         /// relying on the player's current difficulty setting.
@@ -148,10 +148,10 @@ namespace Parsek
                 if (!IsLegacyFreePartPurchaseCandidate(evt, out entryCostStr, out entryCost))
                     continue;
 
-                if (!HasNearbyTechResearchedAutoUnlock(events, evt.ut, evt.key))
+                if (!HasNearbyTechResearchedAutoUnlock(events, evt.ut, evt.epoch, evt.key))
                     continue;
 
-                if (HasMatchingRnDPartPurchaseDebit(events, evt.ut, entryCost))
+                if (HasMatchingRnDPartPurchaseDebit(events, evt.ut, evt.epoch, entryCost))
                     continue;
 
                 evt.detail = ReplaceDetailFieldValue(evt.detail, "cost", "0");
@@ -202,7 +202,8 @@ namespace Parsek
         }
 
         private static bool HasNearbyTechResearchedAutoUnlock(
-            List<GameStateEvent> events, double partPurchaseUt, string partName)
+            List<GameStateEvent> events, double partPurchaseUt, uint partPurchaseEpoch,
+            string partName)
         {
             if (string.IsNullOrEmpty(partName))
                 return false;
@@ -211,6 +212,9 @@ namespace Parsek
             {
                 var evt = events[i];
                 if (evt.eventType != GameStateEventType.TechResearched)
+                    continue;
+
+                if (evt.epoch != partPurchaseEpoch)
                     continue;
 
                 if (Math.Abs(evt.ut - partPurchaseUt) > LegacyPartPurchaseCompatUtEpsilon)
@@ -232,13 +236,17 @@ namespace Parsek
         }
 
         private static bool HasMatchingRnDPartPurchaseDebit(
-            List<GameStateEvent> events, double partPurchaseUt, double expectedEntryCost)
+            List<GameStateEvent> events, double partPurchaseUt, uint partPurchaseEpoch,
+            double expectedEntryCost)
         {
             for (int i = 0; i < events.Count; i++)
             {
                 var evt = events[i];
                 if (evt.eventType != GameStateEventType.FundsChanged ||
                     !string.Equals(evt.key, "RnDPartPurchase", StringComparison.Ordinal))
+                    continue;
+
+                if (evt.epoch != partPurchaseEpoch)
                     continue;
 
                 if (Math.Abs(evt.ut - partPurchaseUt) > LegacyPartPurchaseCompatUtEpsilon)
