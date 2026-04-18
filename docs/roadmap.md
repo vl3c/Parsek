@@ -278,7 +278,7 @@ The pre-implementation spec that drove v0.9 is archived at
   quicksaves) happen only after a durable save, and the nine-phase `MergeJournal` recovers the merge
   on the next load if a crash occurs mid-sequence.
 - **Revert-during-re-fly dialog** — intercepts stock Revert-to-Launch while a session is active and
-  offers Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying.
+  offers Retry from Rewind Point / Discard Re-fly / Continue Flying.
 
 ---
 

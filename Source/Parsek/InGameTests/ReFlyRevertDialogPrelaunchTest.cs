@@ -92,6 +92,95 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
+            Description = "DiscardReFlyHandler (Prelaunch context) dispatches EDITOR with the clicked facility")]
+        public void DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility()
+        {
+            var scenario = ParsekScenario.Instance;
+            InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
+
+            var savedMarker = scenario.ActiveReFlySessionMarker;
+            var savedRpsSnapshot = scenario.RewindPoints != null
+                ? new System.Collections.Generic.List<RewindPoint>(scenario.RewindPoints)
+                : new System.Collections.Generic.List<RewindPoint>();
+
+            string sessId = "sess_pd_igt_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string rpId = "rp_pd_igt_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            var originRp = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = "bp_pd_igt",
+                UT = 0.0,
+                QuicksaveFilename = rpId + ".sfs",
+                SessionProvisional = true,
+                CreatingSessionId = sessId,
+                ChildSlots = new System.Collections.Generic.List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_origin_pd_igt",
+                        Controllable = true,
+                    },
+                },
+            };
+
+            if (scenario.RewindPoints == null)
+                scenario.RewindPoints = new System.Collections.Generic.List<RewindPoint>();
+            scenario.RewindPoints.Add(originRp);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = sessId,
+                TreeId = "tree_pd_igt",
+                ActiveReFlyRecordingId = "rec_prov_pd_igt",
+                OriginChildRecordingId = "rec_origin_pd_igt",
+                RewindPointId = rpId,
+                InvokedUT = 0.0,
+                InvokedRealTime = DateTime.UtcNow.ToString("o"),
+            };
+            scenario.ActiveReFlySessionMarker = marker;
+
+            GameScenes? sceneSeen = null;
+            EditorFacility facilitySeen = EditorFacility.None;
+            int loadCalls = 0;
+            RevertInterceptor.DiscardReFlyLoadGameForTesting = (_, __) => loadCalls++;
+            RevertInterceptor.DiscardReFlyLoadSceneForTesting = (scene, facility) =>
+            {
+                sceneSeen = scene;
+                facilitySeen = facility;
+            };
+            RevertInterceptor.DiscardReFlyQuicksaveExistsForTesting = _ => true;
+
+            try
+            {
+                ParsekLog.Info("RewindTest",
+                    $"DiscardReFly_PrelaunchContext: synthetic sess={sessId} rp={rpId}");
+
+                RevertInterceptor.DiscardReFlyHandler(
+                    marker, RevertTarget.Prelaunch, EditorFacility.SPH);
+
+                InGameAssert.AreEqual(1, loadCalls,
+                    "DiscardReFlyLoadGameForTesting should fire exactly once");
+                InGameAssert.IsTrue(sceneSeen.HasValue,
+                    "Scene seam should have received a value");
+                InGameAssert.AreEqual(GameScenes.EDITOR, sceneSeen.Value,
+                    "Prelaunch context should transition to EDITOR");
+                InGameAssert.AreEqual(EditorFacility.SPH, facilitySeen,
+                    "Prelaunch context should pass the clicked facility (SPH)");
+                InGameAssert.IsFalse(originRp.SessionProvisional,
+                    "Origin RP should be promoted to persistent");
+            }
+            finally
+            {
+                RevertInterceptor.ResetTestOverrides();
+                scenario.ActiveReFlySessionMarker = savedMarker;
+                scenario.RewindPoints.Clear();
+                scenario.RewindPoints.AddRange(savedRpsSnapshot);
+            }
+        }
+
+        [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
             Description = "No re-fly active: Prelaunch interceptor allows stock RevertToPrelaunch through")]
         public void ReFlyRevertDialog_Prelaunch_NoSession_AllowsStockRevert()
         {
