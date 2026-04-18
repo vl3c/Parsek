@@ -61,6 +61,19 @@ After reverting (or aborting a mission to the Space Center with a recording pend
 
 If **Auto-merge recordings** is enabled in Settings, the merge happens silently without a dialog.
 
+### Rewind to Staging (v0.9+)
+
+When a vessel stages, undocks, or EVAs into two or more controllable pieces, Parsek automatically captures a **Rewind Point** (a quicksave plus a per-slot vessel map) so you can replay the split. This is the booster-recovery feature in spirit: launch an AB stack, stage, take B to orbit and commit — and later come back to fly A down as a self-landing booster.
+
+- **Unfinished Flights group** — appears in the Recordings Manager when a sibling from a past split ends badly (crash, destroyed, BG-crash). The group is read-only: you cannot hide it and you cannot drag its members into manual groups.
+- **Rewind button** — click the row to re-fly the unfinished sibling from the moment of the split. Parsek loads the Rewind Point quicksave, strips the other split siblings to ghosts, and hands you the active vessel. The five preconditions (Corrupted flag, quicksave file present, no active session already, scene is not transitioning, parts still load) are checked before the button enables.
+- **Merging the re-fly** — when your re-fly ends, the normal Merge dialog appears. Merging writes supersede relations for the retired siblings; if the re-fly landed/recovered/orbited it seals as `Immutable`, if it crashed it commits as `CommittedProvisional` and remains re-rewindable from the same slot.
+- **What survives supersede** — contracts, milestones, facility upgrades, strategies, tech unlocks, science, funds, and vessel-destruction rep penalties from the retired sibling stay in your career totals. Only kerbal deaths in the retired sibling are reversed (plus rep penalties bundled with those deaths).
+- **Revert during re-fly** — pressing stock Revert-to-Launch while a session is active shows a three-option dialog: Retry from Rewind Point, Full Revert (Discard Re-fly), Continue Flying.
+- **Disk usage** — Settings > Diagnostics shows live Rewind Point disk usage (total size + file count). Rewind Points self-reap when the split has been fully resolved.
+
+See `docs/parsek-rewind-staging.md` for the full feature design.
+
 ### Timeline Playback
 
 After merging, wait on the pad (or time warp) until UT reaches the recording's timestamps:
