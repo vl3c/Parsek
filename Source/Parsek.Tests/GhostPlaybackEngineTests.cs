@@ -549,21 +549,22 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_NegativeInterval_DefensivelyClamped_NoThrow()
         {
             var engine = new GhostPlaybackEngine(null);
-            // #381: negative interval clamps to MinCycleDuration via ResolveLoopInterval,
-            // which means GetLoopIntervalSeconds returns 1.0, not -30. Engine must not throw.
+            // #443: negative interval clamps to MinCycleDuration=5 via ResolveLoopInterval.
+            // Engine must not throw.
             var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(-30);
 
             double loopUT;
             long cycleIndex;
             bool inPause;
             // The caller passes autoLoopIntervalSeconds=10 but traj.LoopTimeUnit=Sec so the
-            // recording's own (negative) value is used, then clamped to MinCycleDuration=1.
-            // At currentUT=205, resolved interval=1, cycleDuration=1, elapsed=105, cycle=105, phase=0.
+            // recording's own (negative) value is used, then clamped to MinCycleDuration=5.
+            // At currentUT=205, resolved interval=5, cycleDuration=5, elapsed=105,
+            // cycle=floor(105/5)=21, phase=0.
             Assert.True(engine.TryComputeLoopPlaybackUT(traj, 205, 10,
                 out loopUT, out cycleIndex, out inPause));
             Assert.False(inPause);
             Assert.Equal(100, loopUT, 6);
-            Assert.Equal(105, cycleIndex);
+            Assert.Equal(21, cycleIndex);
         }
 
         [Fact]

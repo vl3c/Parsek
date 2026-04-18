@@ -468,6 +468,40 @@ Injection decisions per tree:
 
 ---
 
+## ~~443. Short loop period stacks ghosts at the launch pad (dense-overlap cap + newest-cycle retention)~~
+
+**Source:** user report `2026-04-18`, log at `logs/2026-04-18_1106_ghosts-stuck-at-pad/KSP.log` (user toggled period from 101 s -> 10 s -> 1 s -> 1 s -> 10 s on a 164 s Learstar A1 recording; visible stack of ghosts at launch, none advancing past the first few seconds of trajectory).
+
+**Symptom:** under aggressive overlap (period << duration), the flight scene showed 5 ghosts clustered at the launch pad with none past the first few seconds of trajectory. The user's expected visual was a staggered cascade across the whole trajectory.
+
+**Cause — two factors:**
+
+- **Factor A (expected, not a bug):** the static-pad visual window is 1-3 s of every recording. Leading stationary points are trimmed at commit time (`TrajectoryMath.FindFirstMovingPoint` at `TrajectoryMath.cs:86-112` with `altitude change >= 1 m OR speed >= 5 m/s`), but those thresholds are low — a typical rocket takes 1-3 s to clear the clamp and gain 1 m altitude. So the first retained trajectory seconds still position the ghost essentially on the pad.
+
+- **Factor B (the actual bug):** `GhostPlaybackEngine.MaxOverlapGhostsPerRecording = 5` plus `GhostPlaybackLogic.GetActiveCycles` retaining the N newest cycles (`firstActiveCycle = lastActiveCycle - maxCycles + 1`, `GhostPlaybackLogic.cs:279-280`). With period=1 s, every retained cycle had phase < 5 s — i.e. inside Factor A's window. Older cycles that would be visibly mid-trajectory were silently culled.
+
+**Fix — three coordinated changes:**
+
+1. `GhostPlaybackLogic.MinCycleDuration` 1.0 -> 5.0 (`GhostPlaybackLogic.cs:21`). UI period inputs in `RecordingsTableUI` and `SettingsWindowUI` already clamp against this constant and pick up the new floor automatically. 5 s matches the speed-threshold used by `FindFirstMovingPoint` and is the smallest value that lets a typical rocket clear the launch clamp between successive cycles.
+2. `GhostPlaybackEngine.MaxOverlapGhostsPerRecording` 5 -> 10 (`GhostPlaybackEngine.cs:47`). `ParsekKSC.MaxOverlapGhostsPerRecording` 20 -> 10 (`ParsekKSC.cs:47`) for consistency. Both scenes share the same cap.
+3. New pure-static `GhostPlaybackLogic.ComputeEffectiveLaunchCadence(userPeriod, duration, maxCycles)` that clamps to `MinCycleDuration` then doubles the period until `ceil(duration/cadence) <= maxCycles`. Called from `GhostPlaybackEngine.UpdateOverlapPlayback` (`:1041-1049`) and `ParsekKSC.UpdateOverlapKsc` (`:413-420`). The user's stored period is unchanged; only the runtime spawn rate is adjusted. This guarantees the cap is never exceeded, so no cycle is ever silently culled mid-trajectory.
+
+**Observability (non-spamming):** both engine and KSC track the last-logged `(recordingIndex, userPeriod, effectiveCadence, duration)` tuple per recording in a private dictionary (`lastLoggedCadence` / `lastLoggedKscCadence`). `LogOverlapCadenceIfChanged` / `LogKscCadenceIfChanged` emit exactly one INFO line when the tuple changes (including the first time a recording enters overlap mode). Steady-state silent. Log format:
+
+```
+[Parsek][INFO][Engine] Loop cadence #{idx} "{vesselName}": requested={requested}s duration={duration}s cap={cap} effective={effective}s (cycles={m}) {verdict}
+```
+
+**Tests:** 8 new cases in `LoopPhaseTests.cs` (`ComputeEffectiveLaunchCadence_Tests` region): `WithinCap_ReturnsUserPeriod`, `PeriodBelowMin_ClampedToMinThenPossiblyDoubled`, `ExceedsCap_DoubledUntilFits`, `CapOneDegenerate_DoublesUntilWholeTrajectoryFits`, `ZeroDuration_ReturnsClampedMinPeriod`, `ZeroCap_ReturnsClampedMinPeriod`, `HugeDuration_TerminatesInBoundedIterations`, `NaNPeriod_FallsBackToMin`. Plus updated existing tests that pinned `MinCycleDuration = 1` (`RuntimePolicyTests.GetActiveCycles_*`, `BugFixTests.Bug84_LoopPhaseOverflowTests.*`, `LoopPhaseTests.*ClampsToMinCycleDuration`, `KscGhostPlaybackTests.TryComputeLoopUT_*Interval_*`, `GhostPlaybackEngineTests.TryComputeLoopPlaybackUT_NegativeInterval_DefensivelyClamped_NoThrow`, `SyntheticRecordingTests.RecordingBuilder_WithLoopPlayback_WritesLoopMetadata`).
+
+**Files touched:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/LoopPhaseTests.cs`, `Source/Parsek.Tests/RuntimePolicyTests.cs`, `Source/Parsek.Tests/BugFixTests.cs`, `Source/Parsek.Tests/KscGhostPlaybackTests.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`, `Source/Parsek.Tests/SyntheticRecordingTests.cs`, `CHANGELOG.md`.
+
+**Review follow-up (P1):** `WatchModeController.ResolveWatchPlaybackUT` was passing the user-requested `intervalSeconds` to `ComputeOverlapCycleLoopUT`, while the engine's `UpdateOverlapPlayback` assigns `loopCycleIndex` using the effective (cadence-doubled) value. Under any cadence-adjusted recording, entering or reloading watch on an overlap ghost would reconstruct the wrong `cycleStartUT` and jump the camera/ghost to the wrong phase (drift = `(effective - user) * loopCycleIndex`). Fixed by computing the effective cadence inside the overlap branch of `ResolveWatchPlaybackUT` before calling `ComputeOverlapCycleLoopUT`. Dispatch (`IsOverlapLoop`) still uses the user period — matching the engine's dispatch at `GhostPlaybackEngine.cs:900`. Two regression tests added: `ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase` (pins the corrected invariant) and `ComputeOverlapCycleLoopUT_UserPeriodWhileEngineDoubled_ProducesWrongPhase` (documents the drift that existed before the fix).
+
+**Status:** ~~Fixed~~. Size: M.
+
+---
+
 ## ~~441. Ledger.Reconcile must prune spendings by RecordingId so negative-residual legacy migrations can reconcile cleanly~~
 
 **Source:** follow-up to #436 (Phase A) — the "trees whose flight net-lost science or reputation" pathway that Phase A skipped with WARN. `LegacyMigrationTests` used to pin `NegativeScience_SkipsWithWarn_MarksApplied` / `NegativeReputation_SkipsWithWarn_MarksApplied`: negative residuals logged and dropped, the residual silently lost, because `Ledger.Reconcile`'s spending branch pruned only by UT (not by RecordingId). Emitting a `ScienceSpending` / `ReputationPenalty` for the missing magnitude would have correctly reduced the pool on the next walk but would have survived `Reconcile` after the tree was discarded — a permanent orphan. Earnings already had symmetric RecordingId pruning; spendings didn't.

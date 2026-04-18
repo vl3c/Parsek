@@ -32,7 +32,13 @@ namespace Parsek
         internal const double UntouchedLoopIntervalSentinel = 10.0;
 
         internal const double MinLoopDurationSeconds = 1.0;
-        internal const double MinCycleDuration = 1.0;
+        // Minimum user-requested loop period / minimum cycle duration. Periods
+        // below this floor are clamped at UI input and by engine math. 5s is
+        // the smallest value that lets a typical KSP rocket clear launch
+        // clamps between successive cycles, and matches the 5 m/s first-motion
+        // threshold used by TrajectoryMath.FindFirstMovingPoint so the
+        // static-pad visual window of one cycle no longer overlaps the next.
+        internal const double MinCycleDuration = 5.0;
         // #410: shared boundary tolerance for loop-phase comparisons. Used by
         // ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT to keep both helpers in sync
         // on whether the ghost is "still playing the final frame" vs "entered the pause
@@ -293,6 +299,41 @@ namespace Parsek
             if (firstActiveCycle < lastActiveCycle - maxCycles + 1)
                 firstActiveCycle = lastActiveCycle - maxCycles + 1;
             if (firstActiveCycle < 0) firstActiveCycle = 0;
+        }
+
+        /// <summary>
+        /// Computes the runtime launch cadence for an overlap-looped recording so
+        /// that the number of simultaneously-live cycles (ceil(duration/cadence))
+        /// never exceeds <paramref name="maxCycles"/>. Starts from the
+        /// user-requested period (clamped to <see cref="MinCycleDuration"/>) and
+        /// doubles it until the cycle count fits. Returns the effective cadence
+        /// in seconds; the user's stored loop period is unchanged — only the
+        /// runtime spawn rate is adjusted. Guarantees the per-recording ghost
+        /// clone count stays within the cap without silently culling cycles
+        /// mid-trajectory (the pre-fix behaviour stacked ghosts near launch).
+        /// </summary>
+        internal static double ComputeEffectiveLaunchCadence(
+            double userPeriod, double duration, int maxCycles)
+        {
+            double period = Math.Max(userPeriod, MinCycleDuration);
+            if (double.IsNaN(period) || double.IsInfinity(period))
+                period = MinCycleDuration;
+            if (duration <= 0 || maxCycles <= 0)
+                return period;
+
+            // Defensive ceiling: the doubling loop always terminates because
+            // each iteration halves the theoretical cycle count, but cap the
+            // iteration count at 64 to guard against pathological inputs.
+            int safety = 64;
+            while (safety-- > 0 && CeilingDivPositive(duration, period) > maxCycles)
+                period *= 2.0;
+            return period;
+        }
+
+        private static long CeilingDivPositive(double numerator, double denominator)
+        {
+            if (denominator <= 0) return long.MaxValue;
+            return (long)Math.Ceiling(numerator / denominator);
         }
 
         /// <summary>

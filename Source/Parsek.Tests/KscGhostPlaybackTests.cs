@@ -348,19 +348,19 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopUT_ZeroInterval_ClampsAndCycles()
         {
-            // #381: period=0 clamps to MinCycleDuration=1. duration=100.
+            // #443: period=0 clamps to MinCycleDuration=5. duration=100.
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 0.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
 
-            // At UT 250: elapsed=150, cycleDuration=1, cycle=150, cycleTime=0.
+            // At UT 250: elapsed=150, cycleDuration=5, cycle=floor(150/5)=30, cycleTime=0.
             bool result = ParsekKSC.TryComputeLoopUT(rec, 250,
                 out loopUT, out cycleIndex, out inPauseWindow);
 
             Assert.True(result);
-            Assert.Equal(150, cycleIndex);
+            Assert.Equal(30, cycleIndex);
             Assert.False(inPauseWindow);
             Assert.Equal(100, loopUT, 3);
         }
@@ -554,21 +554,21 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopUT_NegativeInterval_ClampsDefensively_NoThrow()
         {
-            // #381: negative intervals are rejected at UI; engine clamps defensively to
-            // MinCycleDuration=1. Must not throw.
+            // #443: negative intervals are rejected at UI; engine clamps defensively to
+            // MinCycleDuration=5. Must not throw.
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: -30.0);
             double loopUT;
             long cycleIndex;
             bool inPauseWindow;
 
-            // Clamped period=1, duration=100. At UT 250, elapsed=150, cycle=150, phase=0.
+            // Clamped period=5, duration=100. At UT 250, elapsed=150, cycle=floor(150/5)=30, phase=0.
             bool result = ParsekKSC.TryComputeLoopUT(rec, 250,
                 out loopUT, out cycleIndex, out inPauseWindow);
 
             Assert.True(result);
             Assert.False(inPauseWindow);
-            Assert.Equal(150, cycleIndex);
+            Assert.Equal(30, cycleIndex);
             Assert.Equal(100, loopUT, 3);
         }
 
