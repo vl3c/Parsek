@@ -74,13 +74,13 @@ namespace Parsek
             var candidates = source.EnumerateVessels();
             if (candidates == null)
             {
-                ParsekLog.Info(Tag,
-                    $"Strip stripped=[] selected=none ghostsGuarded=0 leftAlone=0 fallbackMatches=0 " +
-                    $"(enumerator returned null rp={rp.RewindPointId})");
+                ParsekLog.Warn(Tag,
+                    $"Strip: enumerator returned null rp={rp.RewindPointId} " +
+                    $"(stripped=[] selected=none)");
                 return result;
             }
 
-            var matches = new List<(IStrippableVessel v, int slotIdx, bool viaFallback)>();
+            var matches = new List<(IStrippableVessel v, int slotIdx)>();
 
             foreach (var v in candidates)
             {
@@ -101,7 +101,7 @@ namespace Parsek
                 int slotIdx;
                 if (rp.PidSlotMap != null && rp.PidSlotMap.TryGetValue(pid, out slotIdx))
                 {
-                    matches.Add((v, slotIdx, false));
+                    matches.Add((v, slotIdx));
                     continue;
                 }
 
@@ -113,7 +113,7 @@ namespace Parsek
                     result.FallbackMatches++;
                     ParsekLog.Warn(Tag,
                         $"Fallback match via root-part v={pid} rootPart={rootPid} slotIdx={slotIdx}");
-                    matches.Add((v, slotIdx, true));
+                    matches.Add((v, slotIdx));
                     continue;
                 }
 
