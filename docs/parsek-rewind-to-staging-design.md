@@ -101,7 +101,7 @@ This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) i
 - **Multi-controllable split** — a split event that produces two or more controllable entities. Only these get a Rewind Point.
 - **Rewind Point (RP)** — the durable object at a multi-controllable split. Holds the quicksave filename, the save UT, the ChildSlots, the PidSlotMap, the RootPartPidMap, plus bookkeeping fields. Defined in `Source/Parsek/RewindPoint.cs`. "Session-provisional" during re-fly; "persistent" after session merge.
 - **Child slot** — a stable, ordered entry on an RP identifying one controllable output of the split. Carries `OriginChildRecordingId` (immutable) and derives `EffectiveRecordingId` via a forward walk through `RecordingSupersedeRelation`. Defined in `Source/Parsek/ChildSlot.cs`.
-- **PidSlotMap** — `Dictionary<uint, int>` mapping `Vessel.persistentId` to `ChildSlot.SlotIndex`. Populated at quicksave-write time by `RewindPointAuthor.ExecuteDeferredBody` (`Source/Parsek/RewindPointAuthor.cs:267`). The authoritative primary match for the post-load strip.
+- **PidSlotMap** — `Dictionary<uint, int>` mapping `Vessel.persistentId` to `ChildSlot.SlotIndex`. Populated at quicksave-write time by `RewindPointAuthor.ExecuteDeferredBody` (`Source/Parsek/RewindPointAuthor.cs:202`). The authoritative primary match for the post-load strip.
 - **RootPartPidMap** — `Dictionary<uint, int>` mapping root-part `Part.persistentId` to `ChildSlot.SlotIndex`. Populated at the same time as PidSlotMap. Fallback match when KSP has reassigned a vessel-level persistentId between save and load. `Part.persistentId` is the stable cross-save/load identity for a physical part; `Part.flightID` is session-scoped and unstable.
 - **Finished recording** — a Recording with `MergeState == Immutable`.
 - **Unfinished Flight** — a Recording matching `EffectiveState.IsUnfinishedFlight` (see §5). Visible in the ERS, terminal state classified as Crashed, parent BranchPoint carries a non-null `RewindPointId`, and a live RewindPoint entry exists for that BranchPoint.
@@ -856,7 +856,7 @@ The dialog takes an input lock (`DialogLockId = "ParsekReFlyRevertDialog"`) whil
 
 File: `Source/Parsek/LoadTimeSweep.cs`.
 
-Runs from `ParsekScenario.OnLoad` AFTER `MergeJournalOrchestrator.RunFinisher` and the Phase 6 rewind-invocation dispatch, and BEFORE `RewindPointReaper.ReapOrphanedRPs`. Single-pass gather-then-delete (eligibility decisions are made against a stable snapshot before any mutation):
+Runs from `ParsekScenario.OnLoad` AFTER `MergeJournalOrchestrator.RunFinisher` and `RewindInvoker.ConsumePostLoad`, and BEFORE `RewindPointReaper.ReapOrphanedRPs`. Single-pass gather-then-delete (eligibility decisions are made against a stable snapshot before any mutation):
 
 1. **Marker validation** (`MarkerValidator.Validate`, `MarkerValidator.cs:86`). Six durable fields checked in order: `SessionId` non-empty; `TreeId` present in `RecordingStore.CommittedTrees`; `ActiveReFlyRecordingId` resolves in `CommittedRecordings` with `MergeState == NotCommitted`; `OriginChildRecordingId` resolves in `CommittedRecordings`; `RewindPointId` resolves in `ParsekScenario.RewindPoints`; `InvokedUT` is not strictly greater than current UT. The seventh field (`InvokedRealTime`) is informational only and does not fail a load. On any failure, `[ReFlySession] Warn: Marker invalid field=<f>; clearing` + marker cleared before the sweep continues (nested cleanup below depends on the cleared marker's session id).
 2. **Spare set.** If marker valid: `ActiveReFlyRecordingId` and `RewindPointId` are in the spare set; additionally, any Recording with `CreatingSessionId == marker.SessionId` and any RP with `CreatingSessionId == marker.SessionId` join the spare set.
@@ -915,7 +915,7 @@ UI + CanInvoke gate rejects with `"Another re-fly session is already active"`. N
 SessionSuppressedSubtree includes descendants (forward-only closure). Merge step 2 adds supersede relations for each descendant. **Shipped (test)**: `SessionSuppressionWiringTests` + `SupersedeCommitTests`.
 
 ### 7.7 Cross-tree dock during re-fly
-Station `S` from a different tree's Immutable recording is real at its chain tip. The re-fly can physically dock. Dock event is added to the re-fly's recording. No cross-tree merge; S's tree is not modified. **Shipped (integration)**: tested via the in-game `ReRewindExtendsChain` flow.
+Station `S` from a different tree's Immutable recording is real at its chain tip. The re-fly can physically dock. Dock event is added to the re-fly's recording. No cross-tree merge; S's tree is not modified. **Acceptable v1 limitation**: no dedicated in-game test for cross-tree dock; covered by `InvokeRPStripAndActivateTest` behavior when a docked station is present.
 
 ### 7.8 Non-Parsek stock vessel interaction
 Standard — the stripper leaves unrelated vessels alone (§6.9 step 4). **Shipped (test)**: `PostLoadStripperTests`.
@@ -945,7 +945,7 @@ First-time flag is KSP-owned and sticky. v1 never un-sets. **Deferred (v1 limita
 `KerbalAssignment`-to-Dead + bundled `ReputationPenalty` tombstoned at merge. `CrewReservationManager.RecomputeAfterTombstones` re-derives; kerbal returns to active. **Shipped (integration)**: `CrewReservationRecomputeTests` + in-game `KerbalRecoveryOnSupersedeTest`.
 
 ### 7.17 Re-fly crashes; player merges
-Re-fly commits as `CommittedProvisional` with `TerminalKind = Crashed` per `TerminalKindClassifier`. Supersede relation appends (`A → A'`). A' satisfies `IsUnfinishedFlight`. Player CAN invoke RP again to try once more. **Shipped (integration)**: in-game `MergeCrashedReFlyCreatesCPSupersedeTest` + `ReRewindExtendsChain` flow.
+Re-fly commits as `CommittedProvisional` with `TerminalKind = Crashed` per `TerminalKindClassifier`. Supersede relation appends (`A → A'`). A' satisfies `IsUnfinishedFlight`. Player CAN invoke RP again to try once more. **Shipped (integration)**: in-game `MergeCrashedReFlyCreatesCPSupersedeTest`.
 
 ### 7.18 Re-fly reaches stable outcome; player discards at dialog
 Provisional discarded; marker cleared; original BG-crash remains Unfinished; RP durable. **Shipped (integration)**: the discard path drops the provisional via `RecordingStore.RemoveCommittedInternal` + `ActiveReFlySessionMarker = null`.
@@ -1023,7 +1023,7 @@ v1 tombstones only when the action's `RecordingId` is in the supersede subtree. 
 Player doesn't typically leave flight during re-fly. If a KSC action fires (mod or edge case), it's added to the ledger with null `RecordingId`; not in supersede scope; stays ELS. **Shipped (integration)**.
 
 ### 7.43 Chain extends through multiple merged crashes
-Each `CommittedProvisional Crashed` merge extends the supersede chain. `EffectiveRecordingId` walks forward through all relations. Unfinished Flights moves along with the chain's tip. **Shipped (integration)**: in-game `ReRewindExtendsChain` flow + `ChildSlotEffectiveRecordingIdTests`.
+Each `CommittedProvisional Crashed` merge extends the supersede chain. `EffectiveRecordingId` walks forward through all relations. Unfinished Flights moves along with the chain's tip. **Shipped (test)**: `ChildSlotEffectiveRecordingIdTests` exercises the forward walk through 0/1/2/3-length chains; the chain-extension flow over multiple merges is covered by the in-game `MergeCrashedReFlyCreatesCPSupersedeTest` matrix.
 
 ### 7.44 Vessel-destruction rep penalty
 Original BG-crash had a vessel-destruction rep penalty (not kerbal-death; just "vessel blew up"). v1 does NOT tombstone general `ReputationPenalty` actions — only the kerbal-death-bundled rep retires. Vessel-destruction rep stays. **Deferred (v1 limitation)**.
@@ -1070,7 +1070,7 @@ They cannot. `Immutable` seals the slot. To retry, the player must Full-Revert (
 - Load cleanly. All five new ConfigNode sections are absent → treated as empty lists / null singletons (`REWIND_POINTS`, `RECORDING_SUPERSEDES`, `LEDGER_TOMBSTONES` → `List<T>()`; `REFLY_SESSION_MARKER`, `MERGE_JOURNAL` → `null`).
 - `Recording.MergeState` legacy migration: binary `committed = True` → `Immutable`; `committed = False` → `NotCommitted`; absent → `Immutable` (pre-feature invariant: any recording reachable from a committed tree was already sealed). One-shot `[LegacyMigration] Info` log line on first post-upgrade load.
 - `GameAction.ActionId` legacy migration: deterministic hash `act_<hash>` generated from `UT + Type + RecordingId + Sequence` (`GameAction.cs:541`). Idempotent — the same action always yields the same id. One-shot `[LegacyMigration] Info` log line.
-- `Recording.SupersedeTargetId` — never set on pre-v0.9 saves. Non-empty values on `Immutable` / `CommittedProvisional` recordings (should only happen on a corrupt or hand-edited save) log Warn and are treated as cleared (`LoadTimeSweep.ClearStraySupersedeTargets`, `LoadTimeSweep.cs:337`).
+- `Recording.SupersedeTargetId` — never set on pre-v0.9 saves. Non-empty values on `Immutable` / `CommittedProvisional` recordings (should only happen on a corrupt or hand-edited save) log Warn and are treated as cleared (`LoadTimeSweep.ClearStraySupersedeTargets`, `LoadTimeSweep.cs:326`).
 - `BranchPoint.RewindPointId` — absent on pre-v0.9 saves. No `IsUnfinishedFlight` predicate matches on pre-feature BG-crashed siblings because the predicate requires a non-null parent `RewindPointId`. The player's existing crashed siblings are NOT retroactively made Unfinished Flights.
 - Pre-v0.9 recordings have no cargo/crew manifest changes; Rewind to Staging does not read or write those fields.
 
@@ -1153,7 +1153,7 @@ A pre-existing Unity-gated test skip unrelated to Rewind to Staging, but exercis
 
 ## 11. Diagnostic Logging
 
-Every decision point in §6 emits a log line. The tag catalog below enumerates what appears in `KSP.log` for a Rewind-to-Staging session. **All tags are verified against the shipped source** in the files named in §1.1; no tags from the pre-impl spec's candidate list (`RewindSave`, `Reap`, `Strip`, `Tombstone`, `ERS`, `ELS`) are emitted as separate tag names unless explicitly listed here.
+Every decision point in §6 emits a log line. The tag catalog below enumerates what appears in `KSP.log` for a Rewind-to-Staging session. **All tags are verified against the shipped source** in the files named in §1.1. The pre-impl spec's candidate tags `Reap`, `Strip`, and `Tombstone` did NOT ship as distinct tag names — their log lines fold into `[Rewind]` and `[LedgerSwap]` respectively. `RewindSave`, `ERS`, and `ELS` DID ship as distinct tags and are cataloged below.
 
 ### 11.1 `[Rewind]`
 
@@ -1351,8 +1351,7 @@ The Rewind-scoped test classes in `Source/Parsek.Tests/`:
 - `WarpZeroedDuringSave` — warp drops to zero during save.
 - `InvokeRPStripAndActivate` — strip counts + active-vessel PID unchanged.
 - `MergeLandedReFlyCreatesImmutableSupersedeTest` — relation in list, provisional Immutable, RP reaps.
-- `MergeCrashedReFlyCreatesCPSupersedeTest` — provisional `CommittedProvisional`, is Unfinished Flight, RP does not reap.
-- `ReRewindExtendsChain` — after merged crash, re-invoke, new provisional, chain extends on next merge.
+- `MergeCrashedReFlyCreatesCPSupersedeTest` — provisional `CommittedProvisional`, is Unfinished Flight, RP does not reap; re-invoke path exercises chain extension on next merge.
 - `ContractStickyAcrossSupersedeTest` — contract completed by BG-crash stays complete after re-fly merge.
 - `GhostSuppressionDuringReFlyTest` — no ghost rendering for supersede-target subtree.
 - `KerbalRecoveryOnSupersedeTest` — kerbal returns active; reservation re-derived.

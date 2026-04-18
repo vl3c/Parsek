@@ -250,7 +250,7 @@ follow-up is validation/tuning work against larger corpora rather than another p
 ### v0.9 — Rewind to Staging
 
 Phase 12 shipped: re-fly unfinished missions after multi-controllable splits (staging, undock, EVA
-with 2+ controllable outputs). Full design: [`docs/parsek-rewind-staging.md`](parsek-rewind-staging.md).
+with 2+ controllable outputs). Full design: [`docs/parsek-rewind-to-staging-design.md`](parsek-rewind-to-staging-design.md).
 The pre-implementation spec that drove v0.9 is archived at
 [`docs/dev/done/parsek-rewind-staging-design.md`](dev/done/parsek-rewind-staging-design.md).
 
@@ -385,7 +385,7 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     │  remaining follow-up is synthetic stress benchmarking/tuning
     │
     ▼
-Phase 12: Rewind to Staging (v0.9, in design)
+Phase 12: Rewind to Staging (v0.9 ✓)
     │  Rewind Points at multi-controllable splits, Unfinished Flights
     │  group, append-only supersede, narrow v1 scope. Independent of
     │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.

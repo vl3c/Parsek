@@ -72,7 +72,7 @@ When a vessel stages, undocks, or EVAs into two or more controllable pieces, Par
 - **Revert during re-fly** — pressing stock Revert-to-Launch while a session is active shows a three-option dialog: Retry from Rewind Point, Full Revert (Discard Re-fly), Continue Flying.
 - **Disk usage** — Settings > Diagnostics shows live Rewind Point disk usage (total size + file count). Rewind Points self-reap when the split has been fully resolved.
 
-See `docs/parsek-rewind-staging.md` for the full feature design.
+See `docs/parsek-rewind-to-staging-design.md` for the full feature design.
 
 ### Timeline Playback
 

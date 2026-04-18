@@ -20,9 +20,9 @@ Only #433 remains open. Once it ships, the `MilestoneStore.CurrentEpoch` filter 
 
 ## Rewind to Staging — v0.9 shipped
 
-All 14 implementation phases landed on `feat/rewind-staging`. See:
+The feature shipped on `feat/rewind-staging` across v0.9's development cycle. See:
 
-- Design doc: `docs/parsek-rewind-staging.md` (post-implementation, final).
+- Design doc: `docs/parsek-rewind-to-staging-design.md` (post-implementation, final).
 - Pre-implementation spec (archived): `docs/dev/done/parsek-rewind-staging-design.md`.
 - Roadmap entry: `docs/roadmap.md` → Completed → v0.9.
 - CHANGELOG: `CHANGELOG.md` → v0.9.0 features + Internals block.
