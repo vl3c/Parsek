@@ -3856,26 +3856,35 @@ namespace Parsek.InGameTests
 
         private static void RestoreFinancials(double fundsBefore, float scienceBefore, float repBefore)
         {
-            if (Funding.Instance != null)
+            // Suppress resource-event capture for the duration of the restore
+            // so the AddFunds/AddScience/SetReputation calls below do NOT emit
+            // synthetic FundsChanged/ScienceChanged/ReputationChanged events
+            // into GameStateStore. Without this guard, the test would leave
+            // test-generated resource events behind in the save even after the
+            // numeric balances are restored.
+            using (SuppressionGuard.Resources())
             {
-                double delta = fundsBefore - Funding.Instance.Funds;
-                if (System.Math.Abs(delta) > 0.01)
-                    Funding.Instance.AddFunds(delta, TransactionReasons.None);
-            }
-            if (ResearchAndDevelopment.Instance != null)
-            {
-                float delta = scienceBefore - ResearchAndDevelopment.Instance.Science;
-                if (Mathf.Abs(delta) > 0.01f)
-                    ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
-            }
-            if (Reputation.Instance != null)
-            {
-                // Mirror KspStatePatcher.PatchReputation: SetReputation (NOT
-                // AddReputation) because AddReputation applies KSP's reputation
-                // curve, which would leave permanent drift on any rep-costing
-                // strategy. SetReputation writes the absolute value directly.
-                if (Mathf.Abs(repBefore - Reputation.Instance.reputation) > 0.01f)
-                    Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                if (Funding.Instance != null)
+                {
+                    double delta = fundsBefore - Funding.Instance.Funds;
+                    if (System.Math.Abs(delta) > 0.01)
+                        Funding.Instance.AddFunds(delta, TransactionReasons.None);
+                }
+                if (ResearchAndDevelopment.Instance != null)
+                {
+                    float delta = scienceBefore - ResearchAndDevelopment.Instance.Science;
+                    if (Mathf.Abs(delta) > 0.01f)
+                        ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
+                }
+                if (Reputation.Instance != null)
+                {
+                    // Mirror KspStatePatcher.PatchReputation: SetReputation (NOT
+                    // AddReputation) because AddReputation applies KSP's reputation
+                    // curve, which would leave permanent drift on any rep-costing
+                    // strategy. SetReputation writes the absolute value directly.
+                    if (Mathf.Abs(repBefore - Reputation.Instance.reputation) > 0.01f)
+                        Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                }
             }
         }
 
@@ -3941,8 +3950,16 @@ namespace Parsek.InGameTests
             // Snapshot financials BEFORE activation so teardown can restore.
             var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
 
-            // Snapshot event count so we iterate only the tail slice.
+            // Snapshot event and ledger-action counts so teardown can truncate
+            // back to the pre-test tail. The test exercises a real KSC capture
+            // path which (per GameStateRecorder.OnStrategyActivated) ALSO
+            // forwards into LedgerOrchestrator.OnKscSpending in KSC-scope,
+            // writing a StrategyActivate GameAction to the ledger. Teardown
+            // removes both to keep the save byte-equivalent (ignoring strategy
+            // dateActivated/dateDeactivated bookkeeping on Strategies.Strategy
+            // itself, which stock sets unconditionally and Parsek does not own).
             int eventCountBefore = GameStateStore.EventCount;
+            int ledgerCountBefore = Ledger.Actions.Count;
 
             // Install log sink chained to prior sink.
             var captured = new List<string>();
@@ -3989,7 +4006,13 @@ namespace Parsek.InGameTests
                 }
                 InGameAssert.IsTrue(foundActivate,
                     $"Expected StrategyActivated event with key='{configName}' in tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
-                InGameAssert.IsGreaterThan(activateUt, 0.0, "StrategyActivated event ut must be positive");
+                // Note: do NOT assert ut > 0. On a fresh career save the
+                // activation can legitimately happen at Planetarium UT 0.0,
+                // which would false-negative a perfectly valid capture. The
+                // event-found assertion above already proves the postfix fired
+                // and stamped the row with the current UT.
+                // Silence unused-variable warning on activateUt:
+                _ = activateUt;
                 InGameAssert.IsNotNull(activateDetail, "StrategyActivated event detail must not be null");
                 InGameAssert.Contains(activateDetail, "title=");
                 InGameAssert.Contains(activateDetail, "factor=");
@@ -4028,6 +4051,8 @@ namespace Parsek.InGameTests
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                Ledger.TruncateActionsForTesting(ledgerCountBefore);
                 throw;
             }
 
@@ -4081,6 +4106,12 @@ namespace Parsek.InGameTests
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                // Truncate events and ledger actions AFTER the restore so the
+                // restore's (resource-suppressed) calls can't append stray rows
+                // between the assertion slice read and the truncation. Both
+                // truncations are silent no-ops if nothing was added.
+                GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                Ledger.TruncateActionsForTesting(ledgerCountBefore);
             }
         }
 
@@ -4118,6 +4149,13 @@ namespace Parsek.InGameTests
             // Snapshot financials — the first (successful) Activate below will
             // spend setup costs that we must restore in teardown.
             var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+
+            // Snapshot event and ledger-action counts for cleanup. Set before
+            // the try so the finally always sees a valid baseline (matches
+            // pre-activation state, so truncation purges BOTH the first
+            // Activate and the failed second Activate from the save).
+            int preTestEventCount = GameStateStore.EventCount;
+            int preTestLedgerCount = Ledger.Actions.Count;
 
             try
             {
@@ -4168,6 +4206,12 @@ namespace Parsek.InGameTests
                     }
                 }
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                // Purge test-generated events and ledger actions so the save
+                // stays save-neutral across repeated category runs. See
+                // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+                // teardown for the same pattern.
+                GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                Ledger.TruncateActionsForTesting(preTestLedgerCount);
             }
         }
 
