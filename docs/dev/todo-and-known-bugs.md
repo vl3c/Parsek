@@ -317,7 +317,23 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   nested cleanup + summary + cache bump; in-game
   `F5MidReFlyResumeTest` synthesizes a live session and verifies
   the sweep preserves marker + provisional + RP.
-- **Phase 14 (next)** — remaining design items (ordering TBD).
+- ~~**Phase 14** — polish + pre-release prep (design §5.11 / §7.17 / §7.28 / §7.33).~~
+  Settings > Diagnostics now shows `Rewind point disk usage: <size> (<N> files)`
+  backed by `RewindPointDiskUsage` with a 10s snapshot cache (three unit tests:
+  multi-file byte-sum, missing-directory zero fallback, cache TTL). Per-row
+  hide on an Unfinished Flight row refuses the toggle and toasts a clear
+  advisory (ScreenMessages sink added to `ParsekLog` for unit-testability).
+  Rename persists through the generic `Recording.VesselName` path — test
+  pins the ERS membership + rename round-trip. `MergeDialog` re-fly advisory
+  copy rewritten to name the canonical-sibling semantics + kerbal-death
+  exception; `ReFlyRevertDialog` button labels now read "Retry from Rewind
+  Point" / "Full Revert (Discard Re-fly)" / "Continue Flying" per §7.17.
+  `.claude/CLAUDE.md` adds the RewindPoints file-layout line, ERS/ELS
+  consumer-routing guidance, and key-file entries for `RewindInvoker`,
+  `SupersedeCommit`, `MergeJournalOrchestrator`, `LoadTimeSweep`. Version
+  bumped to 0.9.0.
+
+**Rewind to Staging (v0.9) shipped in feat/rewind-staging; see CHANGELOG.**
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so
