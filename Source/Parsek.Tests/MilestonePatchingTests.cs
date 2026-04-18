@@ -300,11 +300,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PatchRepeatableRecordNode_RewindFromCompletedState_RestoresEarlierIntervalProgress()
+        public void PatchRepeatableRecordNode_RewindAfterFirstReward_PreservesCurrentBestWithinRewardBand()
         {
             var node = new RecordsDistance();
             Assert.True(KspStatePatcher.TryComputeRepeatableRecordState(
-                node, effectiveCount: 1, out var expected));
+                node, effectiveCount: 1, out var expectedBand));
+
+            SetProgressNodeFlags(node, reached: true, complete: true);
+            SetPrivateField(node, "record", 2500.0);
+            SetPrivateField(node, "rewardThreshold", 0.0);
+            SetPrivateField(node, "rewardInterval", 1);
+            node.OnIterateVessels = null;
+
+            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
+                node, effectiveCount: 1, qualifiedId: "RecordsDistance");
+
+            Assert.True(recognized);
+            Assert.True(node.IsReached);
+            Assert.False(node.IsComplete);
+            Assert.Equal(2500.0, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(expectedBand.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
+            Assert.Equal(expectedBand.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
+            Assert.NotNull(node.OnIterateVessels);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("synced repeatable record") &&
+                l.Contains("RecordsDistance"));
+        }
+
+        [Fact]
+        public void PatchRepeatableRecordNode_RewindToNoHits_PreservesBestBelowFirstReward()
+        {
+            var node = new RecordsDepth();
+            Assert.True(KspStatePatcher.TryComputeRepeatableRecordState(
+                node, effectiveCount: 0, out var expectedBand));
+
+            SetProgressNodeFlags(node, reached: false, complete: false);
+            SetPrivateField(node, "record", 3.4158733958611265);
+            SetPrivateField(node, "rewardThreshold", 0.0);
+            SetPrivateField(node, "rewardInterval", 4);
+            node.OnIterateVessels = null;
+
+            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
+                node, effectiveCount: 0, qualifiedId: "RecordsDepth");
+
+            Assert.True(recognized);
+            Assert.True(node.IsReached);
+            Assert.False(node.IsComplete);
+            Assert.Equal(3.4158733958611265, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(expectedBand.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
+            Assert.Equal(expectedBand.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
+            Assert.NotNull(node.OnIterateVessels);
+        }
+
+        [Fact]
+        public void PatchRepeatableRecordNode_RewindToEarlierBand_ClampsImpossibleFutureRecord()
+        {
+            var node = new RecordsDistance();
+            Assert.True(KspStatePatcher.TryComputeRepeatableRecordState(
+                node, effectiveCount: 1, out var expectedBand));
 
             SetProgressNodeFlags(node, reached: true, complete: true);
             SetPrivateField(node, "record", 100000.0);
@@ -318,35 +372,9 @@ namespace Parsek.Tests
             Assert.True(recognized);
             Assert.True(node.IsReached);
             Assert.False(node.IsComplete);
-            Assert.Equal(expected.Record, GetPrivateField<double>(node, "record"), 6);
-            Assert.Equal(expected.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
-            Assert.Equal(expected.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
-            Assert.NotNull(node.OnIterateVessels);
-            Assert.Contains(logLines, l =>
-                l.Contains("[KspStatePatcher]") &&
-                l.Contains("synced repeatable record") &&
-                l.Contains("RecordsDistance"));
-        }
-
-        [Fact]
-        public void PatchRepeatableRecordNode_RewindToNoHits_ClearsStaleRecordState()
-        {
-            var node = new RecordsSpeed();
-
-            SetProgressNodeFlags(node, reached: true, complete: false);
-            SetPrivateField(node, "record", 250.0);
-            SetPrivateField(node, "rewardThreshold", 500.0);
-            SetPrivateField(node, "rewardInterval", 4);
-
-            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
-                node, effectiveCount: 0, qualifiedId: "RecordsSpeed");
-
-            Assert.True(recognized);
-            Assert.False(node.IsReached);
-            Assert.False(node.IsComplete);
-            Assert.Equal(0.0, GetPrivateField<double>(node, "record"), 6);
-            Assert.Equal(0.0, GetPrivateField<double>(node, "rewardThreshold"), 6);
-            Assert.Equal(1, GetPrivateField<int>(node, "rewardInterval"));
+            Assert.Equal(expectedBand.Record, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(expectedBand.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
+            Assert.Equal(expectedBand.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
             Assert.NotNull(node.OnIterateVessels);
         }
 
