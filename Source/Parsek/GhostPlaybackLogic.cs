@@ -1337,6 +1337,56 @@ namespace Parsek
                 }
             }
 
+            // 3b. Parachutes: re-stow canopies (localScale = Vector3.zero, the
+            //     spawn-time baseline from TryBuildParachuteInfo at
+            //     GhostVisualBuilder.cs line ~4539) and re-activate caps so
+            //     packs that cut / destroyed / deployed in the prior cycle
+            //     are back to their pre-launch pose. Destroy any fake canopy
+            //     left over from a prior ParachuteDeployed event so the new
+            //     cycle's event can re-create it fresh.
+            if (state.parachuteInfos != null)
+            {
+                foreach (var kvp in state.parachuteInfos)
+                {
+                    ParachuteGhostInfo info = kvp.Value;
+                    if (info == null) continue;
+                    if (info.canopyTransform != null)
+                        info.canopyTransform.localScale = UnityEngine.Vector3.zero;
+                    if (info.capTransform != null)
+                        info.capTransform.gameObject.SetActive(true);
+                }
+            }
+            DestroyAllFakeCanopies(state);
+
+            // 3c. Fairings: re-activate fairing mesh so a FairingJettisoned
+            //     event from the prior cycle is undone. Events during the
+            //     new cycle re-hide on their original UT.
+            if (state.fairingInfos != null)
+            {
+                foreach (var kvp in state.fairingInfos)
+                {
+                    FairingGhostInfo info = kvp.Value;
+                    if (info == null || info.fairingMeshObject == null) continue;
+                    info.fairingMeshObject.SetActive(true);
+                }
+            }
+
+            // 3d. Lights: force every Light component to disabled so a lamp
+            //     that was ON at cycle-end does not stay on during the new
+            //     cycle's pre-event window. ResetForLoopCycle already cleared
+            //     lightPlaybackStates, so UpdateBlinkingLights would not
+            //     iterate until events repopulate the dict — without this
+            //     explicit SetLightState(false), the Unity Light.enabled flag
+            //     stays at its prior value. The fresh-spawn path converges on
+            //     "all off" only after UpdateBlinkingLights runs once with
+            //     lightPlaybackStates populated; this short-circuits the
+            //     transient window where lamps appear stuck on.
+            if (state.lightInfos != null)
+            {
+                foreach (var kvp in state.lightInfos)
+                    SetLightState(state, kvp.Key, false);
+            }
+
             // 4. Orphan engine/audio auto-start: duplicates the zero-engine-event
             //    branch of TryPopulateGhostVisuals so a debris-booster recording
             //    with no engine events keeps its plume + audio across loop cycles.
