@@ -214,6 +214,10 @@ namespace Parsek.Tests
             // A minimally-constructed state (first-frame-after-spawn) may
             // have `lightPlaybackStates == null` because it is lazily
             // created on the first light event. The helper must not NRE.
+            // DestroyAllFakeCanopies is a Unity-touching helper called by
+            // the engine orchestrator separately; the pure-logic reset
+            // leaves fakeCanopies untouched (the null here just confirms
+            // no accidental re-initialization).
             var state = new GhostPlaybackState
             {
                 lightPlaybackStates = null,
@@ -223,7 +227,6 @@ namespace Parsek.Tests
             var ex = Record.Exception(() => GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex: 1));
             Assert.Null(ex);
             Assert.Null(state.lightPlaybackStates);
-            // DestroyAllFakeCanopies is defensive and nulls out the dict.
             Assert.Null(state.fakeCanopies);
         }
 

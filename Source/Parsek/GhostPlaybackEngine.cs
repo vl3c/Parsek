@@ -2357,11 +2357,32 @@ namespace Parsek
 
             long previousCycle = state.loopCycleIndex;
 
+            // Step 0: parity with SpawnGhost + DestroyGhost dedupe hygiene —
+            // the prior-cycle end may have fired a trajectory completion event
+            // (added to completedEventFired) and emitted a missing-audio-clip
+            // warning (tracked in GhostVisualBuilder.ClearMissingAudioClipWarnings).
+            // Today's destroy+spawn path clears both. Mirroring here so reuse
+            // does not suppress the new cycle's legitimate completion event
+            // nor over-dedupe the audio warning across cycles.
+            completedEventFired.Remove(index);
+            GhostVisualBuilder.ClearMissingAudioClipWarnings(state.ghost.name);
+
             // Step 1: pure-static per-cycle state reset. See
             // GhostPlaybackLogic.ResetForLoopCycle for the field-by-field
             // preservation table in
             // docs/dev/plan-406-ghost-reuse-loop-cycles.md.
             GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex);
+
+            // Step 1b: Unity-touching cleanup that cannot live inside the
+            // pure-logic ResetForLoopCycle (xUnit JIT-verify would trip
+            // SecurityException on Unity type references). These were
+            // originally called from inside ResetForLoopCycle and moved out
+            // after a review finding — ordering is preserved: restore RCS
+            // emitters before downstream code re-inspects `rcsSuppressed`,
+            // destroy fake canopy GameObjects so stale decouple stubs from
+            // the prior cycle do not linger in the scene.
+            GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
 
             // Step 2: re-activate any part GameObjects hidden by prior-cycle
             // events (decouple, destroy, inventory placed, pause-window

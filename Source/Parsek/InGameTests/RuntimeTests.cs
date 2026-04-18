@@ -3968,8 +3968,15 @@ namespace Parsek.InGameTests
             int reusesBefore = DiagnosticsState.health.ghostReusedAcrossCycleThisSession;
             int destroysBefore = DiagnosticsState.health.ghostDestroysThisSession;
 
+            // Minimal trajectory stub — ReusePrimaryGhostAcrossCycle's inner
+            // PrimeLoadedGhostForPlaybackUT dereferences `traj.VesselName` via
+            // UpdateReentryFx, so traj must be non-null. Positioner stays null
+            // above so PositionLoadedGhostAtPlaybackUT early-returns without
+            // trying to move the test GameObject.
+            var traj = new TestTrajectoryForBug406();
+
             engine.ReusePrimaryGhostAcrossCycle(
-                index: 99, traj: null, flags: default, state,
+                index: 99, traj: traj, flags: default, state,
                 playbackUT: 0.0, newCycleIndex: 5);
 
             // Identity invariants: the ghost GameObject and the cameraPivot
@@ -4020,5 +4027,51 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// Minimal IPlaybackTrajectory for Bug406 in-game test: all collections empty
+    /// so ApplyPartEvents / ApplyFlagEvents early-return, no snapshot so
+    /// GetGhostSnapshot returns null, non-null VesselName so UpdateReentryFx
+    /// does not NRE, zero points/orbit/surface so PositionLoadedGhostAtPlaybackUT
+    /// does not try to move the test GameObject even if a positioner were wired.
+    /// Kept in this file (same assembly as IPlaybackTrajectory) so it can
+    /// implement the internal interface without InternalsVisibleTo gymnastics.
+    /// </summary>
+    internal class TestTrajectoryForBug406 : IPlaybackTrajectory
+    {
+        public System.Collections.Generic.List<TrajectoryPoint> Points { get; } = new System.Collections.Generic.List<TrajectoryPoint>();
+        public System.Collections.Generic.List<OrbitSegment> OrbitSegments { get; } = new System.Collections.Generic.List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public System.Collections.Generic.List<TrackSection> TrackSections { get; } = new System.Collections.Generic.List<TrackSection>();
+        public double StartUT => 0;
+        public double EndUT => 0;
+        public int RecordingFormatVersion => 0;
+        public System.Collections.Generic.List<PartEvent> PartEvents { get; } = new System.Collections.Generic.List<PartEvent>();
+        public System.Collections.Generic.List<FlagEvent> FlagEvents { get; } = new System.Collections.Generic.List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "TestReuse";
+        public string RecordingId => "test-b406";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
     }
 }

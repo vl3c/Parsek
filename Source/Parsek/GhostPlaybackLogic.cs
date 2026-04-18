@@ -1150,12 +1150,23 @@ namespace Parsek
 
         /// <summary>
         /// #406 follow-up: per-cycle state reset for the loop-cycle ghost reuse
-        /// path. Mirrors the spawn-time baseline for iterators and per-cycle
-        /// flags while PRESERVING snapshot-derived dictionaries, the ghost
+        /// path. Pure-logic helper (no Unity API calls) — safe to invoke from
+        /// xUnit tests. Mirrors the spawn-time baseline for iterators, per-cycle
+        /// flags, AND the mutable playback fields stored inside the preserved
+        /// module dictionaries (EngineGhostInfo.currentPower etc.), while
+        /// PRESERVING the snapshot-derived dictionary references, the ghost
         /// GameObject, the reentry FX info, and the reentry-FX pending-build
-        /// flag (#450 B3 — clearing it would re-pay the ~7 ms build every
-        /// cycle). See <c>docs/dev/plan-406-ghost-reuse-loop-cycles.md</c> for
-        /// the field-by-field preservation table.
+        /// flag (#450 B3 — clearing the flag would re-pay the ~7 ms build
+        /// every cycle). See <c>docs/dev/plan-406-ghost-reuse-loop-cycles.md</c>
+        /// for the field-by-field preservation table.
+        ///
+        /// Unity-touching cleanup (RCS emission restore, fake canopy GameObject
+        /// destroy) is deliberately NOT invoked here — the engine's
+        /// <c>ReusePrimaryGhostAcrossCycle</c> orchestrator calls those helpers
+        /// separately immediately after this one. Pulling them into this method
+        /// would trip <c>System.Security.SecurityException</c> in xUnit runs
+        /// because the JIT loads Unity type references at method-verify time,
+        /// even if the early-returns prevent their execution.
         /// </summary>
         internal static void ResetForLoopCycle(GhostPlaybackState state, long newCycleIndex)
         {
@@ -1172,14 +1183,6 @@ namespace Parsek
             // Per-cycle flags reset to spawn baseline — the new cycle re-decides.
             state.explosionFired = false;
             state.pauseHidden = false;
-
-            // RCS emissions: restore before clearing the suppressed flag so
-            // any suppressed KSP emitters get their renderers/audio back.
-            // RestoreAllRcsEmissions itself flips rcsSuppressed to false when
-            // it runs; the belt-and-braces assignment below handles the
-            // no-rcsInfos fast path where it early-returns without touching
-            // the flag.
-            RestoreAllRcsEmissions(state);
             state.rcsSuppressed = false;
 
             // Audio state machine: next frame's atmosphere/mute pipeline
@@ -1188,13 +1191,62 @@ namespace Parsek
             state.atmosphereFactor = 1f;
 
             // Per-part runtime state accrued from events (light blink state,
-            // decoupled-canopy stubs, logical-pid presence set). Events on
-            // the new cycle repopulate these; `logicalPartIds` is restored
-            // by the reuse orchestrator via BuildSnapshotPartIdSet because
-            // that helper requires the snapshot ConfigNode which this pure
-            // static doesn't have access to.
+            // logical-pid presence set). Events on the new cycle repopulate
+            // these; `logicalPartIds` is restored by the reuse orchestrator
+            // via BuildSnapshotPartIdSet because that helper requires the
+            // snapshot ConfigNode which this pure static doesn't have access
+            // to. `fakeCanopies` entries must be destroyed — the engine
+            // orchestrator calls DestroyAllFakeCanopies() separately because
+            // it invokes Unity's Object.Destroy.
             state.lightPlaybackStates?.Clear();
-            DestroyAllFakeCanopies(state);
+
+            // Mutable playback fields INSIDE the preserved module dictionaries:
+            // a fresh spawn constructs new info objects with these fields at
+            // their default (zero). Reuse must match that baseline or the
+            // first-visible frame can reapply stale engine throttle / robotic
+            // servo / color-charge / reentry-intensity state from the previous
+            // cycle before the new cycle's events have fired. Nullable-safe
+            // loops — any of these dictionaries can legitimately be null
+            // (trajectory had no engines, no RCS, no robotic parts, etc.).
+            if (state.engineInfos != null)
+            {
+                foreach (var info in state.engineInfos.Values)
+                    if (info != null) info.currentPower = 0f;
+            }
+            if (state.rcsInfos != null)
+            {
+                foreach (var info in state.rcsInfos.Values)
+                    if (info != null) info.currentPower = 0f;
+            }
+            if (state.audioInfos != null)
+            {
+                foreach (var info in state.audioInfos.Values)
+                    if (info != null) info.currentPower = 0f;
+            }
+            if (state.roboticInfos != null)
+            {
+                foreach (var info in state.roboticInfos.Values)
+                {
+                    if (info == null) continue;
+                    info.currentValue = 0f;
+                    info.active = false;
+                    info.lastUpdateUT = double.NaN;
+                }
+            }
+            if (state.colorChangerInfos != null)
+            {
+                foreach (var list in state.colorChangerInfos.Values)
+                {
+                    if (list == null) continue;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i] != null)
+                            list[i].peakCharIntensity = 0f;
+                    }
+                }
+            }
+            if (state.reentryFxInfo != null)
+                state.reentryFxInfo.lastIntensity = 0f;
 
             // Reset fresh-spawn visibility deferral so the first positioned
             // frame activates the ghost the same way a fresh spawn would.
