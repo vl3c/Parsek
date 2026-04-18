@@ -741,6 +741,40 @@ namespace Parsek.Tests
             Assert.Equal("rec-di", legacyAction.RecordingId);
         }
 
+        [Fact]
+        public void DoubleInjectGuard_PartialExistingSynthetics_OnlyInjectsMissingResources()
+        {
+            var tree = MakeTree(
+                "tree-di-partial",
+                "rec-di-partial",
+                100.0,
+                200.0,
+                deltaFunds: 34400.0,
+                deltaScience: 42.5);
+            RegisterTree(tree);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec-di-partial",
+                FundsAwarded = 34400f,
+                FundsSource = FundsEarningSource.LegacyMigration
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            Assert.Single(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration
+                && a.RecordingId == "rec-di-partial"));
+            Assert.Single(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.ScienceEarning
+                && a.SubjectId == "LegacyMigration:tree-di-partial"
+                && a.RecordingId == "rec-di-partial"));
+            AssertTreeRecordingsFullyApplied(tree);
+        }
+
         // ================================================================
         // RecordingStore.MarkTreeAsApplied primitive (Phase C dependency)
         // ================================================================

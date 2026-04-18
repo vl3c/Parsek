@@ -1243,7 +1243,20 @@ namespace Parsek
                 }
 
                 double endUT = tree.ComputeEndUT();
-                if (HasAnyLegacyMigrationSynthetic(tree, residual, endUT))
+                bool hasFundsSynthetic;
+                bool hasScienceSynthetic;
+                bool hasRepSynthetic;
+                FindLegacyMigrationSyntheticMatches(
+                    tree,
+                    residual,
+                    endUT,
+                    out hasFundsSynthetic,
+                    out hasScienceSynthetic,
+                    out hasRepSynthetic);
+
+                if ((!fundsNonZero || hasFundsSynthetic)
+                    && (!scienceNonZero || hasScienceSynthetic)
+                    && (!repNonZero || hasRepSynthetic))
                 {
                     treesAlreadyMigrated++;
                     ParsekLog.Verbose(Tag,
@@ -1283,7 +1296,7 @@ namespace Parsek
                 else
                 {
                     double startUT = ComputeTreeStartUT(tree);
-                    if (HasAnyLedgerCoverage(tree, startUT, endUT))
+                    if (HasAnyLedgerCoverage(tree, residual, startUT, endUT))
                     {
                         treesSkippedPartialCoverage++;
                         warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
@@ -1298,25 +1311,36 @@ namespace Parsek
                     }
                     else
                     {
-                        if (TryInjectLegacyFundsEarning(tree, residual, endUT))
-                            fundsInjected++;
+                        bool injectedFunds = false;
+                        bool injectedScience = false;
+                        bool injectedRep = false;
 
-                        if (scienceNonZero)
+                        if (fundsNonZero
+                            && !hasFundsSynthetic
+                            && TryInjectLegacyFundsEarning(tree, residual, endUT))
+                        {
+                            fundsInjected++;
+                            injectedFunds = true;
+                        }
+
+                        if (scienceNonZero && !hasScienceSynthetic)
                         {
                             if (residual.DeltaScience > 0)
                                 InjectLegacyScienceEarning(tree, residual.DeltaScience, endUT);
                             else
                                 InjectLegacyScienceSpending(tree, residual.DeltaScience, endUT);
                             scienceInjected++;
+                            injectedScience = true;
                         }
 
-                        if (repNonZero)
+                        if (repNonZero && !hasRepSynthetic)
                         {
                             if (residual.DeltaReputation > 0)
                                 InjectLegacyReputationEarning(tree, (double)residual.DeltaReputation, endUT);
                             else
                                 InjectLegacyReputationPenalty(tree, (double)residual.DeltaReputation, endUT);
                             repInjected++;
+                            injectedRep = true;
                         }
 
                         ParsekLog.Info(Tag,
@@ -1326,11 +1350,11 @@ namespace Parsek
                             $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
                             "coverage=zero " +
                             $"deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"(injected={fundsNonZero}), " +
+                            $"(injected={injectedFunds}), " +
                             $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"(injected={scienceNonZero}), " +
+                            $"(injected={injectedScience}), " +
                             $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"(injected={repNonZero})");
+                            $"(injected={injectedRep})");
 
                         RecordingStore.MarkTreeAsApplied(tree);
                         treesMigrated++;
@@ -1481,16 +1505,22 @@ namespace Parsek
             Ledger.AddAction(action);
         }
 
-        private static bool HasAnyLegacyMigrationSynthetic(
+        private static void FindLegacyMigrationSyntheticMatches(
             RecordingTree tree,
             RecordingTree.LegacyResourceResidual residual,
-            double endUT)
+            double endUT,
+            out bool hasFundsSynthetic,
+            out bool hasScienceSynthetic,
+            out bool hasRepSynthetic)
         {
             bool fundsNonZero = Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance;
             bool scienceNonZero = Math.Abs(residual.DeltaScience) > LegacyMigrationScienceTolerance;
             bool repNonZero = Math.Abs((double)residual.DeltaReputation) > LegacyMigrationReputationTolerance;
-            if (!fundsNonZero && !scienceNonZero && !repNonZero)
-                return false;
+            hasFundsSynthetic = !fundsNonZero;
+            hasScienceSynthetic = !scienceNonZero;
+            hasRepSynthetic = !repNonZero;
+            if (hasFundsSynthetic && hasScienceSynthetic && hasRepSynthetic)
+                return;
 
             string scienceKey = "LegacyMigration:" + tree.Id;
             var actions = Ledger.Actions;
@@ -1500,54 +1530,29 @@ namespace Parsek
                 if (action == null)
                     continue;
 
-                if (fundsNonZero
-                    && action.Type == GameActionType.FundsEarning
-                    && action.FundsSource == FundsEarningSource.LegacyMigration
-                    && action.RecordingId == tree.RootRecordingId)
+                if (!hasFundsSynthetic
+                    && IsMatchingLegacyFundsMigration(action, tree, residual, endUT))
                 {
-                    return true;
+                    hasFundsSynthetic = true;
                 }
 
-                if (scienceNonZero)
+                if (!hasScienceSynthetic)
                 {
-                    if (action.Type == GameActionType.ScienceEarning
-                        && action.SubjectId == scienceKey)
+                    if (IsMatchingLegacyScienceMigration(action, tree, residual, endUT))
                     {
-                        return true;
-                    }
-
-                    if (action.Type == GameActionType.ScienceSpending
-                        && action.NodeId == scienceKey)
-                    {
-                        return true;
+                        hasScienceSynthetic = true;
                     }
                 }
 
-                if (repNonZero
-                    && action.RecordingId == tree.RootRecordingId
-                    && Math.Abs(action.UT - endUT) <= 0.001)
+                if (!hasRepSynthetic
+                    && IsMatchingLegacyReputationMigration(action, tree, residual, endUT))
                 {
-                    if (residual.DeltaReputation > 0
-                        && action.Type == GameActionType.ReputationEarning
-                        && action.RepSource == ReputationSource.Other
-                        && Math.Abs(action.NominalRep - (float)residual.DeltaReputation)
-                            <= LegacyMigrationReputationTolerance)
-                    {
-                        return true;
-                    }
-
-                    if (residual.DeltaReputation < 0
-                        && action.Type == GameActionType.ReputationPenalty
-                        && action.RepPenaltySource == ReputationPenaltySource.Other
-                        && Math.Abs(action.NominalPenalty - (float)(-residual.DeltaReputation))
-                            <= LegacyMigrationReputationTolerance)
-                    {
-                        return true;
-                    }
+                    hasRepSynthetic = true;
                 }
+
+                if (hasFundsSynthetic && hasScienceSynthetic && hasRepSynthetic)
+                    return;
             }
-
-            return false;
         }
 
         private static void WarnLegacyFormatGate(
@@ -1706,7 +1711,11 @@ namespace Parsek
         ///
         /// <para>Pure; does not mutate state. Early-returns on first match.</para>
         /// </summary>
-        private static bool HasAnyLedgerCoverage(RecordingTree tree, double startUT, double endUT)
+        private static bool HasAnyLedgerCoverage(
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual,
+            double startUT,
+            double endUT)
         {
             var recordings = tree.Recordings;
             if (recordings == null || recordings.Count == 0)
@@ -1726,6 +1735,13 @@ namespace Parsek
 
                 if (treeTagged)
                 {
+                    if (IsMatchingLegacyFundsMigration(action, tree, residual, endUT)
+                        || IsMatchingLegacyScienceMigration(action, tree, residual, endUT)
+                        || IsMatchingLegacyReputationMigration(action, tree, residual, endUT))
+                    {
+                        continue;
+                    }
+
                     // Tree-tagged in-window action always counts.
                     return true;
                 }
@@ -1740,6 +1756,79 @@ namespace Parsek
                 // KSC activity during normal operation do not count as tree coverage.
             }
             return false;
+        }
+
+        private static bool IsMatchingLegacyFundsMigration(
+            GameAction action,
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual,
+            double endUT)
+        {
+            return action != null
+                && Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance
+                && action.Type == GameActionType.FundsEarning
+                && action.FundsSource == FundsEarningSource.LegacyMigration
+                && action.RecordingId == tree.RootRecordingId
+                && Math.Abs(action.UT - endUT) <= 0.001
+                && Math.Abs(action.FundsAwarded - (float)residual.DeltaFunds)
+                    <= LegacyMigrationFundsTolerance;
+        }
+
+        private static bool IsMatchingLegacyScienceMigration(
+            GameAction action,
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual,
+            double endUT)
+        {
+            if (action == null
+                || Math.Abs(residual.DeltaScience) <= LegacyMigrationScienceTolerance
+                || action.RecordingId != tree.RootRecordingId
+                || Math.Abs(action.UT - endUT) > 0.001)
+            {
+                return false;
+            }
+
+            string scienceKey = "LegacyMigration:" + tree.Id;
+            if (residual.DeltaScience > 0)
+            {
+                return action.Type == GameActionType.ScienceEarning
+                    && action.SubjectId == scienceKey
+                    && Math.Abs(action.ScienceAwarded - (float)residual.DeltaScience)
+                        <= LegacyMigrationScienceTolerance;
+            }
+
+            return action.Type == GameActionType.ScienceSpending
+                && action.NodeId == scienceKey
+                && Math.Abs(action.Cost - (float)(-residual.DeltaScience))
+                    <= LegacyMigrationScienceTolerance;
+        }
+
+        private static bool IsMatchingLegacyReputationMigration(
+            GameAction action,
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual,
+            double endUT)
+        {
+            if (action == null
+                || Math.Abs((double)residual.DeltaReputation) <= LegacyMigrationReputationTolerance
+                || action.RecordingId != tree.RootRecordingId
+                || Math.Abs(action.UT - endUT) > 0.001)
+            {
+                return false;
+            }
+
+            if (residual.DeltaReputation > 0)
+            {
+                return action.Type == GameActionType.ReputationEarning
+                    && action.RepSource == ReputationSource.Other
+                    && Math.Abs(action.NominalRep - (float)residual.DeltaReputation)
+                        <= LegacyMigrationReputationTolerance;
+            }
+
+            return action.Type == GameActionType.ReputationPenalty
+                && action.RepPenaltySource == ReputationPenaltySource.Other
+                && Math.Abs(action.NominalPenalty - (float)(-residual.DeltaReputation))
+                    <= LegacyMigrationReputationTolerance;
         }
 
         private struct KerbalAssignmentRepairRename
