@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - **Rewind to Staging** — re-fly unfinished missions after multi-controllable splits. When a vessel stages, undocks, or EVAs into 2+ controllable pieces, Parsek captures a Rewind Point (a transient quicksave under `Parsek/RewindPoints/`). If any sibling ends badly — a destroyed booster, a dead kerbal EVA, a crashed lander — it appears in a read-only "Unfinished Flights" group with a Rewind button to replay the split moment. Merging the re-fly supersedes the retired sibling so the replayed attempt becomes the canonical playback; career state (contracts, milestones, facilities, strategies) is unchanged, but kerbal deaths in the retired attempt are reversed. A Revert-during-re-fly dialog offers Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying. Crash recovery is journaled so an F5, quit, or disk interruption mid-merge can resume cleanly on next load.
+- Revert to VAB/SPH during an active re-fly session now triggers the same 3-option dialog as Revert to Launch (was previously unhandled, bypassing the dialog entirely); Full Revert returns the player to the editor as originally clicked.
 - New Settings > Diagnostics line shows live rewind-point disk usage (directory size + file count, refreshed every 10 seconds).
 
 ### Internals — Rewind to Staging rollout (reference)
@@ -24,7 +25,7 @@ All notable changes to Parsek are documented here.
 - Phase 9 — narrow v1 tombstone scope: only kerbal-death actions (plus bundled rep penalties within a 1s window) are retired on merge; career state stays sticky.
 - Phase 10 — journaled staged commit (`MergeJournalOrchestrator` with 5 crash-recovery checkpoints; OnLoad finisher rolls back or drives-to-completion).
 - Phase 11 — rewind-point reap after merge (`RewindPointReaper`); tree discard purges related RPs, supersede relations, and tombstones (`TreeDiscardPurge`).
-- Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying) intercepts `FlightDriver.RevertToLaunch` while a session is active.
+- Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying) intercepts both `FlightDriver.RevertToLaunch` and `FlightDriver.RevertToPrelaunch` while a session is active.
 - Phase 13 — load-time sweep (`LoadTimeSweep.Run`): validates marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warns on orphan supersede/tombstone rows.
 - Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
 
