@@ -13,6 +13,15 @@ namespace Parsek
     /// Main flight-scene controller for Parsek.
     /// Handles recording, playback, timeline management, and UI.
     /// </summary>
+    // [ERS-exempt — Phase 3] ParsekFlight is the top-level playback host: its
+    // ghostStates dictionary is keyed by committed recording index, and it hands
+    // off the raw list to WatchModeController / ChainSegmentManager / policy
+    // events that share the same index space. Routing through
+    // EffectiveState.ComputeERS() file-wide would require simultaneous
+    // refactors across GhostPlaybackEngine, ghostStates, and every ParsekFlight
+    // -> policy event handoff; deferred to a recording-id-keyed pass.
+    // TODO(phase 6+): migrate ParsekFlight ghost-state dicts + event indices
+    // to recording-id keying and route every read here through ComputeERS().
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class ParsekFlight : MonoBehaviour, IGhostPositioner
     {
