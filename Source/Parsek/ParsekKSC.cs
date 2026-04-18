@@ -67,6 +67,12 @@ namespace Parsek
                 ParsekFlight.MODNAME
             );
 
+            ui.CloseMainWindow = () =>
+            {
+                showUI = false;
+                if (toolbarControl != null) toolbarControl.SetFalse();
+            };
+
             // Build body lookup cache
             bodyCache = new Dictionary<string, CelestialBody>();
             if (FlightGlobals.Bodies != null)
@@ -104,6 +110,7 @@ namespace Parsek
         {
             if (!showUI) return;
 
+            windowRect.height = 0f;
             windowRect = ClickThruBlocker.GUILayoutWindow(
                 GetInstanceID(), windowRect, ui.DrawWindow,
                 "Parsek", ui.GetOpaqueWindowStyle(), GUILayout.Width(250));
