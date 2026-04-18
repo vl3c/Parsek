@@ -3836,17 +3836,18 @@ namespace Parsek.InGameTests
         #region Bug #450 B3 Lazy Reentry FX
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
-            Description = "Bug #450 B3: TryBuildReentryFx on a real Unity GameObject returns null for an empty ghost root, and the lazy-build helper clears the pending flag without incrementing the builds counter.")]
-        public void Bug450B3_LazyBuild_OnEmptyGhostRoot_ClearsFlagWithoutCountingBuild()
+            Description = "Bug #450 B3: TryBuildReentryFx on a real Unity GameObject still returns a ReentryFxInfo for an empty ghost root, and the lazy-build helper clears the pending flag while counting the build success.")]
+        public void Bug450B3_LazyBuild_OnEmptyGhostRoot_ClearsFlagAndCountsBuild()
         {
             // Residual-risk coverage for the plan's "in-game only" test gap: verifies
             // the live-Unity lazy-build path wiring. We do NOT construct a real ghost
             // (that requires an active snapshot + AvailablePart + Unity prefab), but
             // we DO exercise TryBuildReentryFx with a genuine GameObject so the Unity
             // APIs inside (GetComponentsInChildren, Mesh.CombineMeshes, ParticleSystem
-            // setup) run against a real scene. An empty ghost root produces no mesh
-            // coverage → TryBuildReentryFx returns null → the lazy-build wrapper must
-            // clear the flag and NOT bump reentryFxBuildsThisSession.
+            // setup) run against a real scene. Even with no renderers or meshes, the
+            // builder still returns a non-null ReentryFxInfo for a non-null root, so
+            // the lazy-build wrapper must clear the flag, store the info, and bump
+            // reentryFxBuildsThisSession exactly once.
             var ghostRoot = new GameObject("ParsekTestGhost_B3");
             runner.TrackForCleanup(ghostRoot);
 
@@ -3869,13 +3870,16 @@ namespace Parsek.InGameTests
                 recIdx: 999, state, vesselName: "TestB3",
                 bodyName: "Kerbin", altitude: 50_000);
 
-            // Flag clears regardless of build success (one-shot, no retry storm).
+            // Flag clears after the build fires (one-shot, no retry storm).
             InGameAssert.IsFalse(state.reentryFxPendingBuild,
-                "Lazy build must clear reentryFxPendingBuild even when TryBuildReentryFx returns null");
-            // Counter only bumps on non-null build. Empty ghost root → null → no bump.
+                "Lazy build must clear reentryFxPendingBuild after the build succeeds");
+            InGameAssert.IsNotNull(state.reentryFxInfo,
+                "Empty ghost roots should still produce a non-null ReentryFxInfo");
+            // Counter bumps on non-null build. Empty ghost root still returns info,
+            // so the session build counter must increase by exactly one.
             int buildsAfter = DiagnosticsState.health.reentryFxBuildsThisSession;
-            InGameAssert.AreEqual(buildsBefore, buildsAfter,
-                "reentryFxBuildsThisSession must NOT increment when TryBuildReentryFx returns null");
+            InGameAssert.AreEqual(buildsBefore + 1, buildsAfter,
+                "reentryFxBuildsThisSession must increment when TryBuildReentryFx returns info");
             // A frame-slot IS consumed (we did invoke the build). Confirms the
             // counter lives in the unthrottled-success path.
             InGameAssert.AreEqual(1, engine.FrameLazyReentryBuildCountForTesting,
