@@ -37,8 +37,9 @@ namespace Parsek
     /// <summary>
     /// Bug #450: build-path classification for the heaviest single spawn of a frame.
     /// Byte-backed so <see cref="PlaybackBudgetPhases"/> stays a pure value type with no
-    /// heap references in the hot playback loop. Mapped to a human-readable string only
-    /// at WARN format time in <see cref="DiagnosticsComputation"/>.
+    /// heap references in the hot playback loop. Plumbed directly through the spawn path
+    /// as an out-param — the WARN format layer calls <see cref="HeaviestSpawnBuildTypeExtensions.ToLogToken"/>
+    /// for the single human-readable rendering.
     /// </summary>
     internal enum HeaviestSpawnBuildType : byte
     {
@@ -46,6 +47,26 @@ namespace Parsek
         RecordingStartSnapshot = 1,
         VesselSnapshot = 2,
         SphereFallback = 3
+    }
+
+    /// <summary>
+    /// Bug #450: single source of truth for the enum → log-token mapping. Lives next to the
+    /// enum so the spawn-side build log and the breakdown WARN cannot drift apart. Avoids
+    /// the brittle string-equality coupling that a prior revision had between
+    /// GhostPlaybackEngine.ClassifyBuildType and DiagnosticsComputation.FormatHeaviestSpawnBuildType.
+    /// </summary>
+    internal static class HeaviestSpawnBuildTypeExtensions
+    {
+        internal static string ToLogToken(this HeaviestSpawnBuildType buildType)
+        {
+            switch (buildType)
+            {
+                case HeaviestSpawnBuildType.RecordingStartSnapshot: return "recording-start-snapshot";
+                case HeaviestSpawnBuildType.VesselSnapshot: return "vessel-snapshot";
+                case HeaviestSpawnBuildType.SphereFallback: return "sphere-fallback";
+                default: return "none";
+            }
+        }
     }
 
     /// <summary>
@@ -94,7 +115,7 @@ namespace Parsek
         public long buildDictionariesMicroseconds;
         /// <summary>Bug #450: aggregate time in TryBuildReentryFx across all spawns this frame (conditional on HasReentryPotential).</summary>
         public long buildReentryFxMicroseconds;
-        /// <summary>Bug #450: aggregate residual time inside BuildGhostVisualsWithMetrics not attributed to any other sub-phase (camera pivot, materials, MaterialPropertyBlock, activeSelf toggle, appearance reset).</summary>
+        /// <summary>Bug #450: aggregate residual time inside BuildGhostVisualsWithMetrics not attributed to any other sub-phase (camera pivot + horizonProxy GameObject construction, MaterialPropertyBlock allocation, activeSelf toggle, appearance reset). Materials-list allocation sits inside the dictionaries window — see GhostPlaybackEngine.TryPopulateGhostVisuals for exact attribution.</summary>
         public long buildOtherMicroseconds;
 
         // Heaviest-spawn breakdown: latched on whichever single BuildGhostVisualsWithMetrics

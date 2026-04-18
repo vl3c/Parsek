@@ -786,7 +786,7 @@ namespace Parsek
                         (phases.buildDictionariesMicroseconds / 1000.0).ToString("F2", Inv),
                         (phases.buildReentryFxMicroseconds / 1000.0).ToString("F2", Inv),
                         (phases.buildOtherMicroseconds / 1000.0).ToString("F2", Inv),
-                        FormatHeaviestSpawnBuildType(phases.heaviestSpawnBuildType),
+                        phases.heaviestSpawnBuildType.ToLogToken(),
                         (phases.heaviestSpawnSnapshotResolveMicroseconds / 1000.0).ToString("F2", Inv),
                         (phases.heaviestSpawnTimelineFromSnapshotMicroseconds / 1000.0).ToString("F2", Inv),
                         (phases.heaviestSpawnDictionariesMicroseconds / 1000.0).ToString("F2", Inv),
@@ -800,30 +800,28 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Bug #450: map the byte-backed enum to a log-friendly string. Kept in the format
-        /// layer so the struct stays allocation-free during hot-path writes.
-        /// </summary>
-        private static string FormatHeaviestSpawnBuildType(HeaviestSpawnBuildType buildType)
-        {
-            switch (buildType)
-            {
-                case HeaviestSpawnBuildType.RecordingStartSnapshot: return "recording-start-snapshot";
-                case HeaviestSpawnBuildType.VesselSnapshot: return "vessel-snapshot";
-                case HeaviestSpawnBuildType.SphereFallback: return "sphere-fallback";
-                default: return "none";
-            }
-        }
 
         /// <summary>
         /// Test-only: reset the bug #414 and #450 one-shot breakdown latches so each test
-        /// starts clean. Callers that only want one latch cleared should read the field
-        /// directly via a dedicated helper; in practice every test path clears both.
+        /// starts clean. Use <see cref="SetBug414BreakdownLatchFiredForTesting"/> when a
+        /// test needs to pre-consume just the #414 latch.
         /// </summary>
         internal static void ResetPlaybackBreakdownOneShotForTesting()
         {
             s_playbackBreakdownOneShotFired = false;
             s_buildBreakdownOneShotFired = false;
+        }
+
+        /// <summary>
+        /// Bug #450 test seam: flip the #414 breakdown latch without touching #450's latch,
+        /// so a test can simulate the mid-session rollout case where the session's first
+        /// budget-exceeded frame already consumed the #414 latch BEFORE Phase A's code
+        /// loaded. Without this helper the "latch independence" test can only verify that
+        /// both latches consume in lockstep, not that they are independent.
+        /// </summary>
+        internal static void SetBug414BreakdownLatchFiredForTesting()
+        {
+            s_playbackBreakdownOneShotFired = true;
         }
 
         /// <summary>

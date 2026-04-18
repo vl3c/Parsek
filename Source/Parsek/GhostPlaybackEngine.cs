@@ -343,7 +343,15 @@ namespace Parsek
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: reset per-frame heaviest-spawn breakdown fields so the latch starts
-            // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None.
+            // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None. The
+            // lastSpawn*Ticks fields are NOT reset here because TryPopulateGhostVisuals
+            // resets them itself at its head every call — any read of frameHeaviestSpawn*
+            // happens only inside the PlaybackBudgetPhases populate block below, strictly
+            // after all BuildGhostVisualsWithMetrics calls this frame have run. Scene-
+            // cleanup paths (DestroyAllGhosts, ReindexAfterDelete) do not need to clear
+            // these fields either — they run outside UpdatePlayback, and the next frame's
+            // reset at the head of UpdatePlayback zeroes everything before any producer
+            // touches it. Same invariant #414's frameMaxSpawnTicks already relies on.
             frameHeaviestSpawnSnapshotResolveTicks = 0;
             frameHeaviestSpawnTimelineTicks = 0;
             frameHeaviestSpawnDictionariesTicks = 0;
@@ -2190,7 +2198,7 @@ namespace Parsek
                 flagEventIndex = 0
             };
 
-            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out string buildType))
+            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out HeaviestSpawnBuildType buildType))
                 return;
 
             PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
@@ -2198,17 +2206,17 @@ namespace Parsek
             ghostStates[index] = state;
 
             ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
-                $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType}, " +
+                $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType.ToLogToken()}, " +
                 $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
                 $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
         }
 
         private bool BuildGhostVisualsWithMetrics(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            bool resetCompletedEventDedup, out string buildType)
+            bool resetCompletedEventDedup, out HeaviestSpawnBuildType buildType)
         {
             bool built = false;
-            buildType = null;
+            buildType = HeaviestSpawnBuildType.None;
             // Bug #414: record per-spawn cost so the breakdown WARN surfaces whether a single
             // heavy ghost is the culprit vs many light ones. Take the pre-call tick count
             // before Start() resumes the stopwatch so the delta is this call only.
@@ -2234,7 +2242,9 @@ namespace Parsek
                     // breakdown so the one-shot WARN can attribute whichever single spawn
                     // dominates. Copy the per-call deltas set by TryPopulateGhostVisuals;
                     // "other" is the residual that preserves the sum+residual = delta
-                    // invariant the tests assert.
+                    // invariant the tests assert. The enum arrives directly through the
+                    // out-param — no string-classification coupling between engine and
+                    // diagnostics layer (prior revision had that brittleness).
                     frameHeaviestSpawnSnapshotResolveTicks = lastSpawnSnapshotResolveTicks;
                     frameHeaviestSpawnTimelineTicks = lastSpawnTimelineTicks;
                     frameHeaviestSpawnDictionariesTicks = lastSpawnDictionariesTicks;
@@ -2246,26 +2256,11 @@ namespace Parsek
                         + lastSpawnReentryTicks;
                     long otherTicks = deltaTicks - attributedTicks;
                     frameHeaviestSpawnOtherTicks = otherTicks < 0 ? 0 : otherTicks;
-                    frameHeaviestSpawnBuildType = ClassifyBuildType(buildType);
+                    frameHeaviestSpawnBuildType = buildType;
                 }
                 if (built)
                     DiagnosticsState.health.ghostBuildsThisSession++;
             }
-        }
-
-        /// <summary>
-        /// Bug #450: map the human-readable buildType strings produced by
-        /// TryPopulateGhostVisuals onto the byte-backed HeaviestSpawnBuildType enum.
-        /// Returns None when the build failed (buildType == null) or a new build type
-        /// was added without updating this map — both are safe default behaviour (the
-        /// breakdown WARN renders "None" so the gap is visible in logs).
-        /// </summary>
-        private static HeaviestSpawnBuildType ClassifyBuildType(string buildType)
-        {
-            if (buildType == "recording-start snapshot") return HeaviestSpawnBuildType.RecordingStartSnapshot;
-            if (buildType == "vessel snapshot") return HeaviestSpawnBuildType.VesselSnapshot;
-            if (buildType == "sphere fallback") return HeaviestSpawnBuildType.SphereFallback;
-            return HeaviestSpawnBuildType.None;
         }
 
         /// <summary>
@@ -2323,9 +2318,9 @@ namespace Parsek
 
         private bool TryPopulateGhostVisuals(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            out string buildType)
+            out HeaviestSpawnBuildType buildType)
         {
-            buildType = null;
+            buildType = HeaviestSpawnBuildType.None;
             // Bug #450: reset per-call sub-phase deltas so a prior (shorter-lived) spawn's
             // attribution cannot leak into this call's heaviest-spawn latch. Each delta is
             // captured via pre/post Start-Stop subtraction below, matching the #414
@@ -2450,8 +2445,10 @@ namespace Parsek
             ResetGhostAppearanceTracking(state);
 
             buildType = builtFromSnapshot
-                ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
-                : "sphere fallback";
+                ? (traj.GhostVisualSnapshot != null
+                    ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                    : HeaviestSpawnBuildType.VesselSnapshot)
+                : HeaviestSpawnBuildType.SphereFallback;
             return true;
         }
 
@@ -2517,12 +2514,12 @@ namespace Parsek
             if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
                 return false;
 
-            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out string buildType))
+            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out HeaviestSpawnBuildType buildType))
                 return false;
 
             PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
             ParsekLog.VerboseRateLimited("Engine", $"rebuild-{index}",
-                $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType}, {reason})", 1.0);
+                $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType.ToLogToken()}, {reason})", 1.0);
             return HasLoadedGhostVisuals(state);
         }
 

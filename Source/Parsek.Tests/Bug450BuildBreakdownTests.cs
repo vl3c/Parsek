@@ -170,21 +170,38 @@ namespace Parsek.Tests
         {
             // Simulate the mid-session rollout case: a budget-exceeded spike already fired
             // (and consumed #414's latch) BEFORE Phase A's code loaded into the running
-            // process. The #450 build breakdown must still fire on the next spike that
-            // actually contains build-phase data.
-            //
-            // We emulate "Phase A just loaded" by calling WithBreakdown twice: the first
-            // call populates the #414 latch; the second call should emit ONLY the #450
-            // build breakdown line (the #414 breakdown is latched out, but the build
-            // breakdown latch is independent).
+            // process. Use the #414-only test seam to pre-consume that latch without
+            // touching #450's. The next spike must still emit the #450 build breakdown
+            // (latch genuinely independent), while the #414 breakdown stays suppressed.
+            DiagnosticsComputation.SetBug414BreakdownLatchFiredForTesting();
+
             DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
                 40_100, 0, 1.0f, BimodalSingleSpawnPhases());
-            int breakdownAfterFirst = logLines.Count(l => l.Contains("Playback budget breakdown"));
-            int buildBreakdownAfterFirst = logLines.Count(l => l.Contains("Playback spawn build breakdown"));
-            Assert.Equal(1, breakdownAfterFirst);
-            Assert.Equal(1, buildBreakdownAfterFirst);
 
-            // Second spike: both latches already consumed, neither line re-emits.
+            // #414 breakdown must NOT fire — its latch was pre-consumed.
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback budget breakdown"));
+            // #450 build breakdown fires because its latch is still armed.
+            Assert.Contains(logLines, l => l.Contains("Playback spawn build breakdown"));
+
+            // Second spike: both latches consumed now, neither breakdown line re-emits.
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                42_000, 0, 1.0f, BimodalSingleSpawnPhases());
+            Assert.Equal(0, logLines.Count(l => l.Contains("Playback budget breakdown")));
+            Assert.Equal(1, logLines.Count(l => l.Contains("Playback spawn build breakdown")));
+        }
+
+        [Fact]
+        public void BothLatchesConsumeOnFreshSession_OneEmissionEach()
+        {
+            // On a fresh session with both latches armed, the first spike emits BOTH
+            // breakdowns once. Subsequent spikes emit neither. Complements the
+            // independence test — together they establish that the latches are
+            // separate state but fire in lockstep on the happy path.
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                40_100, 0, 1.0f, BimodalSingleSpawnPhases());
+            Assert.Equal(1, logLines.Count(l => l.Contains("Playback budget breakdown")));
+            Assert.Equal(1, logLines.Count(l => l.Contains("Playback spawn build breakdown")));
+
             DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
                 42_000, 0, 1.0f, BimodalSingleSpawnPhases());
             Assert.Equal(1, logLines.Count(l => l.Contains("Playback budget breakdown")));

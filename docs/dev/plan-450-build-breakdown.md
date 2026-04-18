@@ -44,10 +44,13 @@ Inside `TryPopulateGhostVisuals`, the natural sub-phase boundaries are:
 4. **reentryFx** — conditional `TryBuildReentryFx` on the
    `HasReentryPotential` branch (skip branch is trivial and not timed).
 
-Residual work (camera pivot + horizonProxy GameObject construction, materials
-list, `MaterialPropertyBlock`, `SetActive(false)`, `ResetGhostAppearanceTracking`)
+Residual work (camera pivot + horizonProxy GameObject construction,
+`MaterialPropertyBlock`, `SetActive(false)`, `ResetGhostAppearanceTracking`)
 is captured arithmetically as `other = deltaTicks − sum(sub-phases)`, which
-holds sum-reconciliation as an invariant the tests can assert.
+holds sum-reconciliation as an invariant the tests can assert. Materials-list
+allocation sits inside the dictionaries window (it runs between the subtree-map
+build and `PopulateGhostInfoDictionaries`, so bracketing it separately would
+artificially split a single contiguous region of snapshot-walking work).
 
 ## Design (addresses clean-context review findings)
 
@@ -64,8 +67,10 @@ internal enum HeaviestSpawnBuildType : byte
 ```
 
 Byte-backed to keep `PlaybackBudgetPhases` a pure value type with no heap
-references (review finding #3). The string form is only reconstructed inside
-the one-shot WARN format layer.
+references (review finding #3). The enum is plumbed directly through the
+spawn path as an out-param; the log-token string lives in one place (an
+extension method beside the enum) so engine and diagnostics layers cannot
+drift apart.
 
 ### Extended `PlaybackBudgetPhases`
 
@@ -156,10 +161,13 @@ loaded. `ResetForTesting` clears both.
 
 ### Steady-state overhead
 
-Four pre-allocated `Stopwatch` Start/Stop pairs per spawn ≈ 200-600 ns.
-Negligible vs the ~28 ms single-spawn cost we're attributing and vs the
-existing `spawnStopwatch` overhead #414 already pays. Zero steady-state log
-output (one-shot latch shared semantics).
+Per spawn: 4 `Start`/`Stop` pairs + 8 `ElapsedTicks` reads = 12 Stopwatch
+calls, plus a handful of local-field writes. Under Mono on Windows each
+`ElapsedTicks` read is backed by `QueryPerformanceCounter` (~20-30 ns), so
+the total is ≈ 400-800 ns per spawn — negligible vs the 28 ms spike we're
+attributing and the same order of magnitude as the existing `spawnStopwatch`
+overhead #414 already pays. Zero steady-state log output (one-shot latch,
+independent from #414's).
 
 ## Files touched (Phase A)
 
