@@ -101,33 +101,38 @@ namespace Parsek
             return "Light";
         }
 
-        /// <summary>
-        /// Resolve the audio clip path for an engine module on a part prefab.
-        /// Returns null if no clip could be resolved.
-        /// </summary>
-        internal static string ResolveEngineAudioClip(Part prefab, int moduleIndex)
+        internal static bool UsesQuietVolumeCurve(string propType)
         {
-            if (prefab == null) return LookupClip("Fallback");
+            return propType == "XenonGas" ||
+                   propType == "ElectricCharge" ||
+                   propType == "IntakeAir";
+        }
 
-            var engines = prefab.Modules.GetModules<ModuleEngines>();
-            if (engines == null || moduleIndex < 0 || moduleIndex >= engines.Count)
+        internal static string ResolveEngineAudioClip(
+            string prefabName,
+            int moduleIndex,
+            IList<Propellant> propellants,
+            float maxThrust,
+            out bool useQuietVolumeCurve)
+        {
+            string propType = ClassifyPropellantType(propellants);
+            string thrustClass = ClassifyThrustClass(maxThrust);
+            useQuietVolumeCurve = UsesQuietVolumeCurve(propType);
+
+            if (useQuietVolumeCurve)
             {
-                ParsekLog.Warn("GhostAudio",
-                    $"ResolveEngineAudioClip: no ModuleEngines[{moduleIndex}] on '{prefab.name}', using fallback");
-                return LookupClip("Fallback");
-            }
+                string quietClip = LookupClip(propType);
+                if (quietClip == null)
+                {
+                    ParsekLog.Warn("GhostAudio",
+                        $"Unknown preset key '{propType}' for '{prefabName}' midx={moduleIndex}, using fallback");
+                    useQuietVolumeCurve = false;
+                    quietClip = LookupClip("Fallback");
+                }
 
-            var engine = engines[moduleIndex];
-            string propType = ClassifyPropellantType(engine.propellants);
-            string thrustClass = ClassifyThrustClass(engine.maxThrust);
-
-            // Ion/jet engines don't vary by thrust class
-            if (propType == "XenonGas" || propType == "ElectricCharge" || propType == "IntakeAir")
-            {
-                string clip = LookupClip(propType);
-                LogResolvedClip(prefab.name, moduleIndex,
-                    $"Resolved '{prefab.name}' midx={moduleIndex}: propellant={propType} → clip='{clip}'");
-                return clip;
+                LogResolvedClip(prefabName, moduleIndex,
+                    $"Resolved '{prefabName}' midx={moduleIndex}: propellant={propType} volume={(useQuietVolumeCurve ? "quiet" : "rocket")} → clip='{quietClip}'");
+                return quietClip;
             }
 
             string key = propType + "_" + thrustClass;
@@ -135,13 +140,49 @@ namespace Parsek
             if (result == null)
             {
                 ParsekLog.Warn("GhostAudio",
-                    $"Unknown preset key '{key}' for '{prefab.name}' midx={moduleIndex}, using fallback");
+                    $"Unknown preset key '{key}' for '{prefabName}' midx={moduleIndex}, using fallback");
                 result = LookupClip("Fallback");
             }
 
-            LogResolvedClip(prefab.name, moduleIndex,
-                $"Resolved '{prefab.name}' midx={moduleIndex}: {propType}_{thrustClass} thrust={engine.maxThrust:F0}kN → clip='{result}'");
+            LogResolvedClip(prefabName, moduleIndex,
+                $"Resolved '{prefabName}' midx={moduleIndex}: {propType}_{thrustClass} thrust={maxThrust:F0}kN volume=rocket → clip='{result}'");
             return result;
+        }
+
+        /// <summary>
+        /// Resolve the audio clip path for an engine module on a part prefab.
+        /// Returns null if no clip could be resolved.
+        /// </summary>
+        internal static string ResolveEngineAudioClip(Part prefab, int moduleIndex)
+        {
+            bool unusedQuietVolumeCurve;
+            return ResolveEngineAudioClip(prefab, moduleIndex, out unusedQuietVolumeCurve);
+        }
+
+        internal static string ResolveEngineAudioClip(Part prefab, int moduleIndex, out bool useQuietVolumeCurve)
+        {
+            if (prefab == null)
+            {
+                useQuietVolumeCurve = false;
+                return LookupClip("Fallback");
+            }
+
+            var engines = prefab.Modules.GetModules<ModuleEngines>();
+            if (engines == null || moduleIndex < 0 || moduleIndex >= engines.Count)
+            {
+                useQuietVolumeCurve = false;
+                ParsekLog.Warn("GhostAudio",
+                    $"ResolveEngineAudioClip: no ModuleEngines[{moduleIndex}] on '{prefab.name}', using fallback");
+                return LookupClip("Fallback");
+            }
+
+            var engine = engines[moduleIndex];
+            return ResolveEngineAudioClip(
+                prefab.name,
+                moduleIndex,
+                engine.propellants,
+                engine.maxThrust,
+                out useQuietVolumeCurve);
         }
 
         /// <summary>
@@ -158,26 +199,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build the volume curve for a ghost engine based on clip type.
-        /// Rockets get 2x boost to compensate for SHIP_VOLUME (~0.5) + atmosphere attenuation.
-        /// Ion is now mapped to a rocket clip per #423, so it follows the same boosted curve;
-        /// jets stay at 1x — already audible at stock levels.
+        /// Build the volume curve for a ghost engine.
+        /// Rockets get the full curve to compensate for SHIP_VOLUME (~0.5) + atmosphere attenuation.
+        /// Ion/EC/jet engines keep the quieter curve even when they borrow a rocket clip
+        /// path as a substitute, so bug #423 stays subtle instead of sounding rocket-loud.
         /// </summary>
-        internal static FloatCurve BuildVolumeCurve(string clipPath)
+        internal static FloatCurve BuildVolumeCurve(bool useQuietVolumeCurve)
         {
-            bool isRocket = clipPath != null && clipPath.Contains("rocket");
-            bool isJet = clipPath != null && clipPath.Contains("jet");
+            float maxVolume = useQuietVolumeCurve ? 0.4f : 1f;
             var curve = new FloatCurve();
-            if (isJet)
-            {
-                curve.Add(0f, 0f, 0f, 0.4f);
-                curve.Add(1f, 0.4f, 0.4f, 0f);
-            }
-            else
-            {
-                curve.Add(0f, 0f, 0f, 1f);
-                curve.Add(1f, 1f, 1f, 0f);
-            }
+            curve.Add(0f, 0f, 0f, maxVolume);
+            curve.Add(1f, maxVolume, maxVolume, 0f);
             return curve;
         }
 
@@ -201,9 +233,7 @@ namespace Parsek
             return curve;
         }
 
-        // internal (not private) so unit tests can assert preset-map entries
-        // directly without standing up a real `Part` (which requires Unity runtime).
-        internal static string LookupClip(string key)
+        private static string LookupClip(string key)
         {
             string result;
             return presetMap.TryGetValue(key, out result) ? result : null;
