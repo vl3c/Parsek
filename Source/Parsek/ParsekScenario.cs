@@ -1491,6 +1491,13 @@ namespace Parsek
                     ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                     WriteLoadTiming(sw, recordings.Count);
                     DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+
+                    // Phase 6 of Rewind-to-Staging: re-fly invocation drains
+                    // the static context in the new scenario. Lives on the
+                    // FLIGHT→FLIGHT branch because the RP quicksave always
+                    // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
+                    // from FLIGHT/SPACECENTER/TRACKSTATION.
+                    DispatchRewindPostLoadIfPending();
                     return;
                 }
 
@@ -1654,6 +1661,15 @@ namespace Parsek
 
                 // Scene load memory snapshot (once per load, after all recordings are loaded)
                 DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+
+                // Phase 6 of Rewind-to-Staging (design §6.3 step 4 / §6.4):
+                // if a re-fly invocation is pending, the preceding LoadGame was
+                // triggered by RewindInvoker.StartInvoke. Drain the static
+                // RewindInvokeContext now — Restore → Strip → Activate →
+                // AtomicMarkerWrite — in the new scenario, synchronously, NO
+                // coroutine (the old scenario's coroutine was torn down with
+                // the scene).
+                DispatchRewindPostLoadIfPending();
             }
             finally
             {
@@ -1661,6 +1677,37 @@ namespace Parsek
                 // Always capture timing, even on exception (matches OnSave pattern)
                 WriteLoadTiming(sw, loadedRecordingCount);
             }
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging: drains <see cref="RewindInvokeContext"/>
+        /// if a re-fly invocation was initiated pre-load. Runs in the new
+        /// scenario after the normal OnLoad pipeline has settled — bundle
+        /// restore overrides the .sfs-loaded recordings / ledger / scenario
+        /// lists with the pre-load in-memory state, as per the §6.4 table.
+        /// <para>
+        /// Only fires when <c>LoadedScene == FLIGHT</c>; the RP quicksave is
+        /// always a flight-scene save. Any other scene means the load took an
+        /// unexpected branch — log Error and clear the context.
+        /// </para>
+        /// </summary>
+        private static void DispatchRewindPostLoadIfPending()
+        {
+            if (!RewindInvokeContext.Pending) return;
+
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+            {
+                ParsekLog.Error("Rewind",
+                    $"DispatchRewindPostLoadIfPending: pending invocation " +
+                    $"but scene is {HighLogic.LoadedScene} (expected FLIGHT) — aborting");
+                RewindInvoker.ShowUserError(
+                    $"Rewind failed: scene loaded as {HighLogic.LoadedScene} " +
+                    "instead of flight");
+                RewindInvokeContext.Clear();
+                return;
+            }
+
+            RewindInvoker.ConsumePostLoad();
         }
 
         /// <summary>
@@ -3526,6 +3573,11 @@ namespace Parsek
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.
             RevertDetector.Unsubscribe();
+            // Phase 6 of Rewind-to-Staging: clear the per-RP precondition
+            // cache so the dict does not grow unbounded across long sessions
+            // (Fix 8). The cache is 60s-TTL'd anyway but long-lived scene loops
+            // can accumulate entries faster than TTL cleanup.
+            RewindInvoker.PreconditionCache.ClearAll();
             // Phase 2 (Rewind-to-Staging): drop the Instance back-reference so
             // EffectiveState does not read stale scenario state after destruction.
             if (ReferenceEquals(s_instance, this))
