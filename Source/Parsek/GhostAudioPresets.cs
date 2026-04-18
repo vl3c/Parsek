@@ -160,12 +160,8 @@ namespace Parsek
         /// <summary>
         /// Build the volume curve for a ghost engine based on clip type.
         /// Rockets get 2x boost to compensate for SHIP_VOLUME (~0.5) + atmosphere attenuation.
-        /// Jets/ion stay at 1x — they're already audible at stock levels.
-        /// </summary>
-        /// <summary>
-        /// Build the volume curve for a ghost engine based on clip type.
-        /// Rockets get 2x boost — they need to punch through at distance.
-        /// Jets/ion stay at 1x — already audible at stock levels.
+        /// Ion is now mapped to a rocket clip per #423, so it follows the same boosted curve;
+        /// jets stay at 1x — already audible at stock levels.
         /// </summary>
         internal static FloatCurve BuildVolumeCurve(string clipPath)
         {
