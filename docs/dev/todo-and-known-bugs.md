@@ -290,9 +290,34 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   no-session / no-scenario); in-game `ReFlyRevertDialogTest`
   verifies the interceptor fires the dialog hook with the marker's
   session id in FLIGHT scene.
-- **Phase 13 (next)** — load-time sweep: zombie re-fly provisionals,
+- ~~**Phase 13** — load-time sweep: zombie re-fly provisionals,
   session-provisional RPs, and orphaned supersede/tombstone entries
-  (design §6.9).
+  (design §6.9).~~
+  `LoadTimeSweep.Run` (new file) runs from `ParsekScenario.OnLoad`
+  between `MergeJournalOrchestrator.RunFinisher` and
+  `RewindPointReaper.ReapOrphanedRPs` on both OnLoad branches
+  (cold-start and FLIGHT->FLIGHT). Pipeline: `MarkerValidator`
+  checks the six durable fields (SessionId, TreeId,
+  ActiveReFlyRecordingId+NotCommitted, OriginChildRecordingId,
+  RewindPointId, InvokedUT-not-future); on failure the sweep
+  clears the marker + logs `[ReFlySession] Marker invalid field=...`.
+  Spare set = session-provisional recordings / RPs referenced by
+  a valid marker. Discard set = NotCommitted recordings and
+  session-provisional RPs not in spare. Orphan supersede relations
+  (both endpoints missing / one endpoint missing) log Warn and
+  STAY per §3.5 invariant 7; orphan tombstones log Warn and stay;
+  stray `SupersedeTargetId` on Immutable / CommittedProvisional
+  recordings logs Warn + clears the field. Nested session-prov
+  cleanup (§7.11) is the same gather pass — when the marker's
+  cleared, every session-tagged RP and recording falls into the
+  discard set. Single `[LoadSweep]` summary line carries all
+  counters. BumpSupersedeStateVersion + BumpTombstoneStateVersion
+  at the end. 16 unit tests in `LoadTimeSweepTests.cs` cover the
+  marker matrix + spare/discard + orphan logs + stray field +
+  nested cleanup + summary + cache bump; in-game
+  `F5MidReFlyResumeTest` synthesizes a live session and verifies
+  the sweep preserves marker + provisional + RP.
+- **Phase 14 (next)** — remaining design items (ordering TBD).
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so

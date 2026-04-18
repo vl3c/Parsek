@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 - Phase 10: merge runs through MergeJournalOrchestrator with 5 crash-recovery checkpoints; on-load finisher resumes from any crash window.
 - Phase 11: rewind points reaped after merge; tree discard purges related rewind points, supersede relations, and tombstones.
 - Phase 12: Revert-during-re-fly dialog (Retry / Full Revert / Cancel) intercepts stock revert while a session is active.
+- Phase 13: OnLoad sweep validates re-fly session marker (6 fields), cleans up orphan provisionals and stray transient fields, logs summary.
 
 ---
 
