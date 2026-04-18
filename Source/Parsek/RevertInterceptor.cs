@@ -373,7 +373,6 @@ namespace Parsek
             if (originRp.SessionProvisional)
             {
                 originRp.SessionProvisional = false;
-                originRp.CreatingSessionId = null;
                 ParsekLog.Info(SessionTag,
                     $"Origin RP promoted to persistent rp={rpId} sess={sessionId} reason=discardReFly");
             }
@@ -382,6 +381,10 @@ namespace Parsek
                 ParsekLog.Verbose(SessionTag,
                     $"Origin RP already persistent rp={rpId} sess={sessionId} — no promotion needed");
             }
+            // Always clear CreatingSessionId — defensive against invariant
+            // violations where a persistent RP can carry a stale
+            // CreatingSessionId from a crashed session.
+            originRp.CreatingSessionId = null;
 
             // Step 5-6: clear scenario session state + bump caches.
             if (!ReferenceEquals(null, scenario))
@@ -476,12 +479,14 @@ namespace Parsek
             // Step 10: scene transition.
             DispatchScene(target, facility);
 
-            // Step 11: log end line.
+            // Step 11: log end line. Append dispatched=true so greppers can
+            // filter on dispatched=<true|false> symmetrically across the
+            // success and failure paths.
             string facilityText = target == RevertTarget.Prelaunch
                 ? $" facility={facility}"
                 : " facility=--";
             ParsekLog.Info(SessionTag,
-                $"End reason=discardReFly sess={sessionId} target={target}{facilityText}");
+                $"End reason=discardReFly sess={sessionId} target={target}{facilityText} dispatched=true");
         }
 
         /// <summary>

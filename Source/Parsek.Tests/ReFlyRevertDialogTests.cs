@@ -270,7 +270,8 @@ namespace Parsek.Tests
                 l.Contains("[ReFlySession]")
                 && l.Contains("End reason=discardReFly")
                 && l.Contains("sess=" + marker.SessionId)
-                && l.Contains("target=Launch"));
+                && l.Contains("target=Launch")
+                && l.Contains("dispatched=true"));
         }
 
         [Fact]
@@ -293,7 +294,8 @@ namespace Parsek.Tests
                 l.Contains("[ReFlySession]")
                 && l.Contains("End reason=discardReFly")
                 && l.Contains("target=Prelaunch")
-                && l.Contains("facility=VAB"));
+                && l.Contains("facility=VAB")
+                && l.Contains("dispatched=true"));
         }
 
         [Fact]
@@ -316,7 +318,8 @@ namespace Parsek.Tests
                 l.Contains("[ReFlySession]")
                 && l.Contains("End reason=discardReFly")
                 && l.Contains("target=Prelaunch")
-                && l.Contains("facility=SPH"));
+                && l.Contains("facility=SPH")
+                && l.Contains("dispatched=true"));
         }
 
         [Fact]
@@ -512,6 +515,37 @@ namespace Parsek.Tests
             Assert.Equal(marker.RewindPointId, survivor.RewindPointId);
             Assert.False(survivor.SessionProvisional,
                 "Origin RP must stay persistent after LoadTimeSweep");
+        }
+
+        [Fact]
+        public void DiscardReFly_OriginRp_PersistentWithStaleCreatingSessionId_CreatingSessionIdCleared()
+        {
+            // Defensive invariant test: an RP that is already persistent
+            // (SessionProvisional=false) but still carries a stale
+            // CreatingSessionId from a crashed prior session must have that
+            // id cleared by Discard Re-fly regardless of the promotion branch.
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(
+                marker.RewindPointId,
+                marker.OriginChildRecordingId,
+                sessionProvisional: false,
+                creatingSessionId: "stale_session_id");
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            // Preconditions.
+            Assert.False(rp.SessionProvisional);
+            Assert.Equal("stale_session_id", rp.CreatingSessionId);
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // Always-clear assertion: even though SessionProvisional was
+            // already false (no promotion branch), CreatingSessionId must be
+            // null after the handler runs.
+            Assert.False(rp.SessionProvisional);
+            Assert.Null(rp.CreatingSessionId);
         }
 
         [Fact]
@@ -779,7 +813,8 @@ namespace Parsek.Tests
                     && l.Contains("End reason=discardReFly")
                     && l.Contains("sess=" + marker.SessionId)
                     && l.Contains("target=Prelaunch")
-                    && l.Contains("facility=SPH"))
+                    && l.Contains("facility=SPH")
+                    && l.Contains("dispatched=true"))
                 {
                     endLineCount++;
                 }
