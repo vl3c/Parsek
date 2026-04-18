@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -73,6 +74,25 @@ namespace Parsek
                 && !chainSuppressed
                 && distance <= proximityRadius
                 && relativeSpeed <= maxRelativeSpeed;
+        }
+
+        /// <summary>
+        /// Pure: derive the relative speed (m/s) between active vessel and ghost from two
+        /// position samples taken `dt` seconds apart. Frame-agnostic: any uniform shift
+        /// (floating-origin, krakensbane) cancels in the per-sample relative vector.
+        /// Returns +infinity when dt is outside [minDt, maxDt] — the sample is either
+        /// jitter-dominated (too short) or stale (time warp / scene change).
+        /// </summary>
+        internal static double ComputeRelativeSpeed(
+            Vector3d activePos, Vector3d ghostPos,
+            Vector3d prevActivePos, Vector3d prevGhostPos,
+            float dt, float minDt, float maxDt)
+        {
+            if (dt < minDt || dt > maxDt)
+                return double.PositiveInfinity;
+            Vector3d nowRel = activePos - ghostPos;
+            Vector3d prevRel = prevActivePos - prevGhostPos;
+            return (nowRel - prevRel).magnitude / dt;
         }
 
         /// <summary>

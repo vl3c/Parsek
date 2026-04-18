@@ -97,11 +97,33 @@ namespace Parsek
         private float nextProximityCheckTime;
         private const float ProximityCheckIntervalSec = 1.5f;
         internal const double NearbySpawnRadius = 250.0;
-        // Real Spawn Control: maximum surface-frame relative speed (m/s) between the
-        // active vessel and a ghost for the ghost to qualify as a spawn candidate.
-        // Tight enough to require a deliberate rendezvous (matched orbits, station-keeping)
-        // before fast-forward is offered.
+        // Real Spawn Control: maximum relative speed (m/s) between the active vessel and a
+        // ghost for the ghost to qualify as a spawn candidate. Tight enough to require a
+        // deliberate rendezvous (matched orbits, station-keeping) before fast-forward is offered.
+        // Computed frame-agnostically as d(active_pos - ghost_pos)/dt across consecutive
+        // proximity scans — see CollectNearbySpawnCandidates.
         internal const double MaxRelativeSpeed = 2.0;
+        // Per-recording position samples from the prior proximity scan, used to derive a
+        // frame-agnostic relative speed without depending on which frame
+        // GhostPlaybackState.lastInterpolatedVelocity happens to be in (it varies by
+        // playback path — orbit-only ghosts never seed it; trajectory-replay velocity is
+        // not guaranteed surface-relative).
+        private struct ProximityVelocitySample
+        {
+            public Vector3d activePos;
+            public Vector3d ghostPos;
+            public float time;
+        }
+        private readonly Dictionary<string, ProximityVelocitySample> proximityVelocitySamples =
+            new Dictionary<string, ProximityVelocitySample>();
+        // Sample is trustworthy when 0.5s <= dt <= 5s. Below: jitter dominates.
+        // Above: sample is stale (time warp, scene change, paused) — discard.
+        private const float ProximityVelocitySampleMinDt = 0.5f;
+        private const float ProximityVelocitySampleMaxDt = 5.0f;
+        // Tracks the active vessel pid the proximity samples were captured against; on
+        // vessel switch the cached activePos belongs to a different craft and must be
+        // discarded (otherwise the next scan would see a teleport-sized delta).
+        private uint lastProximityActiveVesselPid;
         private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
         private int proximityCheckGeneration;
         internal int ProximityCheckGeneration => proximityCheckGeneration;
@@ -1067,6 +1089,7 @@ namespace Parsek
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
+            proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
@@ -9164,6 +9187,7 @@ namespace Parsek
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
+            proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
@@ -11201,14 +11225,22 @@ namespace Parsek
 
             if (FlightGlobals.ActiveVessel == null) return;
 
-            var activeVessel = FlightGlobals.ActiveVessel;
-            Vector3d activePos = activeVessel.GetWorldPos3D();
-            Vector3d activeSrfVel = activeVessel.srf_velocity;
-            string activeBodyName = activeVessel.mainBody != null ? activeVessel.mainBody.name : null;
+            Vector3d activePos = FlightGlobals.ActiveVessel.GetWorldPos3D();
+            uint activePid = FlightGlobals.ActiveVessel.persistentId;
+            if (activePid != lastProximityActiveVesselPid)
+            {
+                if (lastProximityActiveVesselPid != 0 && proximityVelocitySamples.Count > 0)
+                    ParsekLog.Verbose("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Proximity check: active vessel changed pid {0} -> {1}, dropped {2} velocity sample(s)",
+                            lastProximityActiveVesselPid, activePid, proximityVelocitySamples.Count));
+                proximityVelocitySamples.Clear();
+                lastProximityActiveVesselPid = activePid;
+            }
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
 
-            CollectNearbySpawnCandidates(activePos, activeSrfVel, activeBodyName, currentUT, committed);
+            CollectNearbySpawnCandidates(activePos, currentUT, committed);
 
             // Sort by distance (closest first)
             nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
@@ -11221,12 +11253,14 @@ namespace Parsek
         /// Scans active ghosts for spawn-eligible recordings within proximity range.
         /// Populates nearbySpawnCandidates with qualifying entries.
         /// </summary>
-        private void CollectNearbySpawnCandidates(
-            Vector3d activePos, Vector3d activeSrfVel, string activeBodyName,
-            double currentUT, IReadOnlyList<Recording> committed)
+        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
         {
-            int skippedBody = 0;
             int skippedSpeed = 0;
+            int skippedSeeding = 0;
+            float now = Time.time;
+            // Track which recordings still have an active ghost so we can prune stale samples.
+            var seenRecordingIds = new HashSet<string>();
+
             foreach (var kvp in ghostStates)
             {
                 int i = kvp.Key;
@@ -11259,22 +11293,40 @@ namespace Parsek
                         continue;
                 }
 
-                double dist = Vector3d.Distance(activePos, state.ghost.transform.position);
+                Vector3d ghostPos = state.ghost.transform.position;
+                double dist = Vector3d.Distance(activePos, ghostPos);
                 if (dist > NearbySpawnRadius)
                     continue;
 
-                // Bodies must match — surface-frame velocities are body-relative, and a
-                // sub-250m proximity across two bodies is geometrically impossible anyway.
-                if (string.IsNullOrEmpty(activeBodyName) ||
-                    string.IsNullOrEmpty(state.lastInterpolatedBodyName) ||
-                    activeBodyName != state.lastInterpolatedBodyName)
+                // Frame-agnostic relative-speed gate. We compute d(active_pos - ghost_pos)/dt
+                // across consecutive proximity scans rather than subtracting velocity vectors
+                // from KSP and ghost playback (those are not in a guaranteed common frame —
+                // TrajectoryPoint.velocity is "not guaranteed surface-relative" and orbit-only
+                // ghosts never seed lastInterpolatedVelocity at all). Both samples are read
+                // from transform.position in the same Update tick, so floating-origin and
+                // krakensbane shifts cancel in the per-sample relative vector.
+                seenRecordingIds.Add(rec.RecordingId);
+                bool hasPrev = proximityVelocitySamples.TryGetValue(rec.RecordingId, out var prev);
+                // Always overwrite the sample so the next scan can compute against this one.
+                proximityVelocitySamples[rec.RecordingId] = new ProximityVelocitySample
                 {
-                    skippedBody++;
+                    activePos = activePos,
+                    ghostPos = ghostPos,
+                    time = now
+                };
+
+                if (!hasPrev)
+                {
+                    // First sighting in range — seed only, defer admission until we have
+                    // a second sample to derive a velocity from.
+                    skippedSeeding++;
                     continue;
                 }
 
-                // Both ghost and active vessel velocities are surface-frame (body-relative).
-                double relSpeed = (activeSrfVel - (Vector3d)state.lastInterpolatedVelocity).magnitude;
+                float dt = now - prev.time;
+                double relSpeed = SelectiveSpawnUI.ComputeRelativeSpeed(
+                    activePos, ghostPos, prev.activePos, prev.ghostPos, dt,
+                    ProximityVelocitySampleMinDt, ProximityVelocitySampleMaxDt);
                 if (relSpeed > MaxRelativeSpeed)
                 {
                     skippedSpeed++;
@@ -11295,11 +11347,22 @@ namespace Parsek
                 });
             }
 
-            if ((skippedBody > 0 || skippedSpeed > 0) && ParsekLog.IsVerboseEnabled)
+            // Drop samples for recordings that are no longer in-range / ghosted, so the cache
+            // doesn't grow unboundedly across a long session.
+            if (proximityVelocitySamples.Count > seenRecordingIds.Count)
+            {
+                var stale = new List<string>();
+                foreach (var key in proximityVelocitySamples.Keys)
+                    if (!seenRecordingIds.Contains(key)) stale.Add(key);
+                for (int s = 0; s < stale.Count; s++)
+                    proximityVelocitySamples.Remove(stale[s]);
+            }
+
+            if ((skippedSpeed > 0 || skippedSeeding > 0) && ParsekLog.IsVerboseEnabled)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: skipped {0} (body mismatch) + {1} (rel-speed > {2:F1} m/s)",
-                        skippedBody, skippedSpeed, MaxRelativeSpeed));
+                        "Proximity check: skipped {0} (rel-speed > {1:F1} m/s) + {2} (seeding first sample)",
+                        skippedSpeed, MaxRelativeSpeed, skippedSeeding));
         }
 
         /// <summary>

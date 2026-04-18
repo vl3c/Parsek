@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -123,6 +124,80 @@ namespace Parsek.Tests
                 needsSpawn: true, chainSuppressed: false,
                 distance: 200, proximityRadius: 250,
                 relativeSpeed: 0.0, maxRelativeSpeed: 2.0));
+        }
+
+        // ── ComputeRelativeSpeed ──
+
+        [Fact]
+        public void ComputeRelativeSpeed_StationKeeping_ReturnsZero()
+        {
+            // Same relative offset at both samples: ghost and active vessel moved together.
+            var prevActive = new Vector3d(1000, 0, 0);
+            var prevGhost = new Vector3d(1100, 0, 0);
+            var nowActive = new Vector3d(1500, 200, 0);  // both translated by (500, 200, 0)
+            var nowGhost = new Vector3d(1600, 200, 0);
+            double rel = SelectiveSpawnUI.ComputeRelativeSpeed(
+                nowActive, nowGhost, prevActive, prevGhost,
+                dt: 1.5f, minDt: 0.5f, maxDt: 5.0f);
+            Assert.Equal(0.0, rel, precision: 6);
+        }
+
+        [Fact]
+        public void ComputeRelativeSpeed_FrameShift_Cancels()
+        {
+            // Floating-origin shift: same uniform offset added to all four positions.
+            // Relative geometry preserved -> relative speed should still be zero.
+            var prevActive = new Vector3d(0, 0, 0);
+            var prevGhost = new Vector3d(50, 0, 0);
+            var shift = new Vector3d(1e6, -2e6, 5e5);
+            var nowActive = prevActive + shift;
+            var nowGhost = prevGhost + shift;
+            double rel = SelectiveSpawnUI.ComputeRelativeSpeed(
+                nowActive, nowGhost, prevActive, prevGhost,
+                dt: 1.5f, minDt: 0.5f, maxDt: 5.0f);
+            Assert.Equal(0.0, rel, precision: 6);
+        }
+
+        [Fact]
+        public void ComputeRelativeSpeed_ApproachingAt3MperS_Returns3()
+        {
+            // Active stationary; ghost moves 4.5 m closer along x over 1.5s -> 3 m/s.
+            var prevActive = new Vector3d(0, 0, 0);
+            var prevGhost = new Vector3d(100, 0, 0);
+            var nowActive = new Vector3d(0, 0, 0);
+            var nowGhost = new Vector3d(95.5, 0, 0);
+            double rel = SelectiveSpawnUI.ComputeRelativeSpeed(
+                nowActive, nowGhost, prevActive, prevGhost,
+                dt: 1.5f, minDt: 0.5f, maxDt: 5.0f);
+            Assert.Equal(3.0, rel, precision: 6);
+        }
+
+        [Fact]
+        public void ComputeRelativeSpeed_DtTooShort_ReturnsInfinity()
+        {
+            double rel = SelectiveSpawnUI.ComputeRelativeSpeed(
+                Vector3d.zero, Vector3d.zero, Vector3d.zero, Vector3d.zero,
+                dt: 0.1f, minDt: 0.5f, maxDt: 5.0f);
+            Assert.Equal(double.PositiveInfinity, rel);
+        }
+
+        [Fact]
+        public void ComputeRelativeSpeed_DtTooLong_ReturnsInfinity()
+        {
+            // Stale sample (e.g. after time warp / scene change) — must reject.
+            double rel = SelectiveSpawnUI.ComputeRelativeSpeed(
+                Vector3d.zero, Vector3d.zero, Vector3d.zero, Vector3d.zero,
+                dt: 10f, minDt: 0.5f, maxDt: 5.0f);
+            Assert.Equal(double.PositiveInfinity, rel);
+        }
+
+        [Fact]
+        public void ComputeRelativeSpeed_NegativeDt_ReturnsInfinity()
+        {
+            double rel = SelectiveSpawnUI.ComputeRelativeSpeed(
+                Vector3d.zero, Vector3d.zero, Vector3d.zero, Vector3d.zero,
+                dt: -1f, minDt: 0.5f, maxDt: 5.0f);
+            Assert.Equal(double.PositiveInfinity, rel);
         }
 
         // ── FindNextSpawnCandidate ──
