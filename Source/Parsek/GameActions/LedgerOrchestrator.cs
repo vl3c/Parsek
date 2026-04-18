@@ -2120,39 +2120,16 @@ namespace Parsek
                     // ConvertPartPurchased → source=Other); vessel build comes from the
                     // flight path, facility/hire/strategy use their own action types.
                     // Strategy input (source=Strategy) is not yet captured on KSC (Phase
-                    // E1.5) — skip if we ever see it.
+                    // E1.5) — skip if we ever see it. Stock bypass=true part unlocks
+                    // now record a zero charged cost in GameStateRecorder, so they stay
+                    // on the untransformed path here and short-circuit later via the
+                    // zero-expected-delta early return in ReconcileKscAction.
                     if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
                     {
                         return new KscActionExpectation
                         {
                             Class = KscReconcileClass.Transformed,
                             SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
-                        };
-                    }
-                    // #448: when KSP's Difficulty.BypassEntryPurchaseAfterResearch is
-                    // true (the stock default), Funding.onPartPurchased returns early
-                    // without calling AddFunds — so KSP never fires
-                    // OnFundsChanged(RnDPartPurchase) for ANY part purchase (manual or
-                    // auto-purchase via tech research). The reconciler can never find a
-                    // matching event, so every FundsSpending action would WARN. The
-                    // ledger action itself is authoritative for the FundsModule walk
-                    // (whether the player paid is encoded in the action's FundsSpent),
-                    // so skip the per-action paired-event check in this mode.
-                    //
-                    // Gate explicitly on FundsSpendingSource.Other: that is the KSC part-
-                    // purchase channel today (GameStateRecorder.OnPartPurchased →
-                    // ConvertPartPurchased writes source=Other). The earlier Strategy
-                    // branch above already returned, but a future FundsSpendingSource value
-                    // (e.g. a non-Other KSC producer) must NOT inherit this skip — its
-                    // paired-event expectation would be different. Keep the bypass guard
-                    // tied to the only source the bypass actually affects.
-                    if (action.FundsSpendingSource == FundsSpendingSource.Other &&
-                        IsBypassEntryPurchaseAfterResearch())
-                    {
-                        return new KscActionExpectation
-                        {
-                            Class = KscReconcileClass.Transformed,
-                            SkipReason = "BypassEntryPurchaseAfterResearch=true — KSP fires no FundsChanged(RnDPartPurchase)"
                         };
                     }
                     return new KscActionExpectation
@@ -2510,39 +2487,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Test-only seam for <see cref="IsBypassEntryPurchaseAfterResearch"/>. In production
-        /// this stays null and the helper reads
-        /// <c>HighLogic.CurrentGame.Parameters.Difficulty.BypassEntryPurchaseAfterResearch</c>
-        /// directly. Unit tests can install a delegate to drive both branches of the
-        /// #448 part-purchase reconciliation skip without a live KSP <c>HighLogic</c> game.
-        /// Cleared by <see cref="ResetForTesting"/>.
-        /// </summary>
-        internal static System.Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
-
-        /// <summary>
-        /// #448: returns whether KSP's career setting bypasses the per-part entry purchase
-        /// (the stock default <c>true</c>). When true, KSP fires <c>OnPartPurchased</c>
-        /// without a paired <c>OnFundsChanged(RnDPartPurchase)</c> — every part purchase
-        /// would produce a false-positive WARN in <see cref="ReconcileKscAction"/>.
-        /// <see cref="ClassifyAction"/> uses this to downgrade RnD part purchases to
-        /// <see cref="KscReconcileClass.Transformed"/> in that mode. Defensive: returns
-        /// <c>false</c> when the test seam is unset and no live <c>HighLogic.CurrentGame</c>
-        /// exists, which preserves the historical Untransformed classification under the
-        /// xUnit harness.
-        /// </summary>
-        internal static bool IsBypassEntryPurchaseAfterResearch()
-        {
-            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
-            if (provider != null)
-                return provider();
-
-            var game = HighLogic.CurrentGame;
-            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
-                return false;
-            return game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
-        }
-
-        /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
         /// current ledger reservation. Returns true if available science >= cost.
         /// Used by TechResearchPatch to block unfunded tech unlocks.
@@ -2627,7 +2571,6 @@ namespace Parsek
             Ledger.ResetForTesting();
             OnTimelineDataChanged = null;
             NowUtProviderForTesting = null;
-            BypassEntryPurchaseAfterResearchProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

@@ -29,6 +29,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
+            GameStateRecorder.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateStore.SuppressLogging = true;
@@ -38,6 +39,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
@@ -141,6 +143,25 @@ namespace Parsek.Tests
             Assert.NotNull(match);
             Assert.Equal(FundsSpendingSource.Other, match.FundsSpendingSource);
             Assert.Equal(600f, match.FundsSpent);
+        }
+
+        [Fact]
+        public void OnKscSpending_PartPurchased_ZeroCost_AddsZeroCostFundsSpendingAction()
+        {
+            var evt = GameStateRecorder.CreatePartPurchasedEvent(
+                "mk1pod",
+                entryCost: 600f,
+                bypassEntryPurchaseAfterResearch: true,
+                ut: 501.0,
+                currentFunds: 10000);
+
+            LedgerOrchestrator.OnKscSpending(evt);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsSpending && a.DedupKey == "mk1pod");
+            Assert.NotNull(match);
+            Assert.Equal(FundsSpendingSource.Other, match.FundsSpendingSource);
+            Assert.Equal(0f, match.FundsSpent);
         }
 
         [Fact]
