@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -41,6 +42,7 @@ namespace Parsek.InGameTests
             }
 
             int valid = 0, skippedRoots = 0;
+            var monotonicFailures = new List<string>();
             foreach (var rec in recordings)
             {
                 InGameAssert.IsNotNull(rec.RecordingId, $"Recording has null ID");
@@ -55,15 +57,89 @@ namespace Parsek.InGameTests
                 }
 
                 // Time should be monotonically non-decreasing
+                bool monotonic = true;
                 for (int i = 1; i < rec.Points.Count; i++)
                 {
-                    InGameAssert.IsTrue(rec.Points[i].ut >= rec.Points[i - 1].ut,
-                        $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut} < previous {rec.Points[i - 1].ut}");
+                    if (rec.Points[i].ut < rec.Points[i - 1].ut)
+                    {
+                        int prefixMatchCount = CountTrackSectionPrefixMatches(rec);
+                        string firstPostPrefixSource = DescribeFirstPostPrefixPointSource(rec, prefixMatchCount);
+                        monotonicFailures.Add(
+                            $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"< previous {rec.Points[i - 1].ut.ToString("R", CultureInfo.InvariantCulture)}; " +
+                            $"trackSections={rec.TrackSections?.Count ?? 0} prefixMatchCount={prefixMatchCount} " +
+                            $"firstPostPrefixSource={firstPostPrefixSource}");
+                        monotonic = false;
+                        break;
+                    }
                 }
-                valid++;
+
+                if (monotonic)
+                    valid++;
             }
+
+            InGameAssert.IsTrue(monotonicFailures.Count == 0, string.Join(System.Environment.NewLine, monotonicFailures.ToArray()));
             ParsekLog.Verbose("TestRunner",
                 $"Validated {valid} committed recordings, {skippedRoots} tree root(s) skipped");
+
+            int CountTrackSectionPrefixMatches(Recording rec)
+            {
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                    return 0;
+
+                var rebuiltPoints = new List<TrajectoryPoint>();
+                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                int max = System.Math.Min(rebuiltPoints.Count, rec.Points.Count);
+                int prefixMatchCount = 0;
+                while (prefixMatchCount < max &&
+                    TrajectoryPointsEqual(rebuiltPoints[prefixMatchCount], rec.Points[prefixMatchCount]))
+                {
+                    prefixMatchCount++;
+                }
+
+                return prefixMatchCount;
+            }
+
+            string DescribeFirstPostPrefixPointSource(Recording rec, int prefixMatchCount)
+            {
+                if (rec.Points == null || prefixMatchCount < 0 || prefixMatchCount >= rec.Points.Count)
+                    return "none";
+
+                TrajectoryPoint target = rec.Points[prefixMatchCount];
+                for (int sectionIndex = 0; sectionIndex < rec.TrackSections.Count; sectionIndex++)
+                {
+                    List<TrajectoryPoint> frames = rec.TrackSections[sectionIndex].frames;
+                    if (frames == null)
+                        continue;
+
+                    for (int frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+                    {
+                        if (TrajectoryPointsEqual(frames[frameIndex], target))
+                            return $"section[{sectionIndex}] source={rec.TrackSections[sectionIndex].source} frame[{frameIndex}]";
+                    }
+                }
+
+                return "flat-only";
+            }
+
+            bool TrajectoryPointsEqual(TrajectoryPoint a, TrajectoryPoint b)
+            {
+                return a.ut == b.ut
+                    && a.latitude == b.latitude
+                    && a.longitude == b.longitude
+                    && a.altitude == b.altitude
+                    && a.rotation.x == b.rotation.x
+                    && a.rotation.y == b.rotation.y
+                    && a.rotation.z == b.rotation.z
+                    && a.rotation.w == b.rotation.w
+                    && a.velocity.x == b.velocity.x
+                    && a.velocity.y == b.velocity.y
+                    && a.velocity.z == b.velocity.z
+                    && a.bodyName == b.bodyName
+                    && a.funds == b.funds
+                    && a.science == b.science
+                    && a.reputation == b.reputation;
+            }
         }
 
         #endregion

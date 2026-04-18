@@ -58,6 +58,18 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~458.~~ Binary `.prec` flat-fallback loads skip the malformed-prefix healer
+
+**Source:** playtest `2026-04-18 1947`. `RuntimeTests.CommittedRecordingsHaveValidData` failed on recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) with `point 13 UT 155.840000000006 < previous 170.920000000014`. Hex-decoding the `.prec` confirmed the top-level flat point list duplicated the authoritative 13-frame prefix and then appended a terminal endpoint, while `TrackSection[0]` itself held the correct monotonically increasing frames. Root cause: commit `4474ba97` added `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`, but only the text `ConfigNode` load path (`DeserializeTrajectoryFrom`) called it. Real committed recordings hydrate through `TrajectorySidecarBinary.Read`, so the bad binary shape bypassed the healer entirely.
+
+**Fix:** `TrajectorySidecarBinary.Read` now runs the same healer in the non-section-authoritative branch after `ReadTrackSections`, with `allowRelativeSections: true` to match the text load path. The existing `ReadBinaryTrajectoryFile ... used flat fallback path` VERBOSE line now includes `healed=true/false` plus `prePoints/postPoints` and `preOrbitSegments/postOrbitSegments`, making it obvious in `KSP.log` whether a malformed flat fallback was rewritten on read. The healer already calls `rec.MarkFilesDirty()`, so a healed sidecar now flushes back out automatically on the next save. `RuntimeTests.CommittedRecordingsHaveValidData` also reports `trackSections=`, `prefixMatchCount=`, and `firstPostPrefixSource=` for any future monotonicity failure so the next playtest points directly at duplicated track-section payload vs flat-only tail data.
+
+**Files:** `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Bug458BinaryFlatFallbackHealTests.cs`.
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter Bug458BinaryFlatFallbackHealTests` (1/1). In-game verification is pending the next playtest bundle.
+
+---
+
 ## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
 
 **Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
