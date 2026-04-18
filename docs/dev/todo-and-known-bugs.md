@@ -83,8 +83,35 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   **Feature-preview cutoff reached**: rewind points capture on split, the
   virtual group surfaces unfinished flights to the player, but there is no
   rewind button yet — observable, not actionable.
-- **Phase 6 (next)** — wire the rewind invocation (button per Unfinished Flights
-  row → `RewindPointLoader` → revert-to-RP pipeline). §6 of the design doc.
+- ~~**Phase 6** — wire the rewind invocation (button per Unfinished Flights
+  row → `RewindInvoker` → revert-to-RP pipeline). §6 of the design doc.~~
+  `RewindInvoker.CanInvoke` gates the button on four preconditions (not corrupted,
+  quicksave exists, no active session, PartLoader deep-parse passes). `ShowDialog`
+  displays the confirmation popup; on accept, the `RunInvoke` coroutine captures a
+  `ReconciliationBundle` (design §6.4 table: recordings, ledger actions, scenario
+  lists, crew reservations, group hierarchy, milestones), subscribes
+  `GameEvents.onGameStateLoad` with a 10-second timeout, calls
+  `GamePersistence.LoadGame(rp.QuicksaveFilename, ...)`, restores the bundle,
+  runs `PostLoadStripper.Strip` (PidSlotMap primary + RootPartPidMap fallback
+  + `IsGhostMapVessel` guard + unrelated-vessel-left-alone), calls
+  `FlightGlobals.SetActiveVessel`, and then synchronously (no yield) adds the
+  provisional `NotCommitted` re-fly recording and writes the `ReFlySessionMarker`.
+  Any throw between the provisional add and the marker write rolls back the
+  provisional via `RecordingStore.RemoveCommittedInternal`. New files:
+  `Source/Parsek/RewindInvoker.cs`, `ReconciliationBundle.cs`, `PostLoadStripper.cs`.
+  UI: `RecordingsTableUI.DrawUnfinishedFlightRewindButton` swaps the per-row R
+  button for a Rewind-to-RP button inside the virtual group. Tests: 12 new unit
+  tests (`ReconciliationBundleTests`, `PostLoadStripperTests`,
+  `AtomicMarkerWriteTests`) plus the `InvokeRPStripAndActivateTest` FLIGHT-scene
+  in-game test. Allowlisted in `scripts/ers-els-audit-allowlist.txt` with per-file
+  rationale. **Phase 6 unlocks the rewind button for users** — invocation lands
+  on a provisional `NotCommitted` recording that stays around until Phase 8's
+  merge/supersede lands; Phase 13's load-time sweep will clean up orphaned
+  provisionals + stale markers on crash/quit recovery (not scope here).
+- **Phase 7 (next)** — ghost-fy the stripped siblings: the Phase 6 strip just
+  calls `Vessel.Die()`; Phase 7 captures a pre-despawn snapshot and registers
+  each stripped recording for ghost playback so the re-fly session sees its
+  merged siblings as ghosts instead of missing vessels.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so
