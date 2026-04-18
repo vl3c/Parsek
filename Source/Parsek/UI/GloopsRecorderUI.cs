@@ -88,6 +88,27 @@ namespace Parsek
             hasInputLock = false;
         }
 
+        /// <summary>
+        /// Status block to render below the buttons. The selection feeds the IMGUI
+        /// label ladder; <see cref="StatusBlock.Saved"/> is the only branch that
+        /// dereferences <c>flight.LastGloopsRecording</c>, so callers must compute
+        /// it from a fresh <c>hasLastRecording</c> snapshot taken AFTER any
+        /// state-mutating button handler runs (#446).
+        /// </summary>
+        internal enum StatusBlock { Recording, Saved, Empty }
+
+        /// <summary>
+        /// Pure decision: which status block applies for the current button-row
+        /// boolean state. Extracted for direct unit testing of the stale-local
+        /// NRE guard (#446) — see GloopsRecorderUIStatusBlockTests.
+        /// </summary>
+        internal static StatusBlock SelectStatusBlock(bool isRecording, bool hasLastRecording)
+        {
+            if (isRecording) return StatusBlock.Recording;
+            if (hasLastRecording) return StatusBlock.Saved;
+            return StatusBlock.Empty;
+        }
+
         private void DrawWindow(int windowID, ParsekFlight flight)
         {
             GUILayout.BeginVertical();
@@ -156,29 +177,54 @@ namespace Parsek
 
             GUILayout.Space(6f);
 
-            if (isRecording)
+            // Re-evaluate state from `flight` AFTER the button handlers above.
+            // IMGUI runs handlers inline during the MouseUp pass (no early return
+            // from DrawWindow), so any cached locals captured at the top of the
+            // method are stale by the time this status-label ladder runs.
+            // Discard nulls LastGloopsRecording — without re-reading we'd
+            // dereference null in the Saved branch (#446 NRE). Re-read all three
+            // booleans for symmetry against the same pattern in Stop Recording
+            // and Stop Preview.
+            bool prevHasLastRecording = hasLastRecording;
+            bool prevIsRecording = isRecording;
+            bool prevIsPreviewing = isPreviewing;
+            isRecording = flight.IsGloopsRecording;
+            hasLastRecording = flight.LastGloopsRecording != null;
+            isPreviewing = flight.IsPlaying;
+            if (isRecording != prevIsRecording
+                || hasLastRecording != prevHasLastRecording
+                || isPreviewing != prevIsPreviewing)
             {
-                DrawRecordingStatus(flight);
+                ParsekLog.Verbose("UI",
+                    $"Gloops state changed mid-DrawWindow: " +
+                    $"isRecording {prevIsRecording}->{isRecording} " +
+                    $"hasLastRecording {prevHasLastRecording}->{hasLastRecording} " +
+                    $"isPreviewing {prevIsPreviewing}->{isPreviewing}");
             }
-            else if (hasLastRecording)
+
+            switch (SelectStatusBlock(isRecording, hasLastRecording))
             {
-                var rec = flight.LastGloopsRecording;
-                GUILayout.Label($"Saved: \"{rec.VesselName}\"");
-                GUILayout.Label($"Points: {rec.Points.Count}");
-                double duration = rec.Points.Count > 1
-                    ? rec.Points[rec.Points.Count - 1].ut - rec.Points[0].ut
-                    : 0;
-                GUILayout.Label(string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    "Duration: {0:F1}s", duration));
-            }
-            else
-            {
-                string vesselName = FlightGlobals.ActiveVessel != null
-                    ? FlightGlobals.ActiveVessel.vesselName
-                    : "No vessel";
-                GUILayout.Label($"Vessel: {vesselName}");
-                GUILayout.Label("Ghost-only - loops by default");
+                case StatusBlock.Recording:
+                    DrawRecordingStatus(flight);
+                    break;
+                case StatusBlock.Saved:
+                    var rec = flight.LastGloopsRecording;
+                    GUILayout.Label($"Saved: \"{rec.VesselName}\"");
+                    GUILayout.Label($"Points: {rec.Points.Count}");
+                    double duration = rec.Points.Count > 1
+                        ? rec.Points[rec.Points.Count - 1].ut - rec.Points[0].ut
+                        : 0;
+                    GUILayout.Label(string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "Duration: {0:F1}s", duration));
+                    break;
+                default:
+                    string vesselName = FlightGlobals.ActiveVessel != null
+                        ? FlightGlobals.ActiveVessel.vesselName
+                        : "No vessel";
+                    GUILayout.Label($"Vessel: {vesselName}");
+                    GUILayout.Label("Ghost-only - loops by default");
+                    break;
             }
 
             GUILayout.FlexibleSpace();

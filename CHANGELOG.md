@@ -52,6 +52,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#446` Discard Recording in the Gloops Flight Recorder no longer throws a NullReferenceException — the status block below the buttons now reads fresh state after the click handler nulls the saved recording.
 - `#441` Legacy flights whose net science or reputation was negative now reconcile cleanly on load instead of being skipped — the load-time migration injects a spending-side synthetic and the ledger purges it with the tree on discard. Long missions that overlap unrelated KSC activity (contract accept, part purchase) no longer silently drop their persisted residuals, and optimizer merges that absorb a tree's root recording retag any ledger synthetics to the new root so they survive subsequent reconcile passes.
 - Every non-revert tree-commit path (post-revert merge dialog, scene-exit auto-merge, Esc > Abort Mission auto-commit, and the OnSave safety-net auto-commit) now disarms the legacy lump-sum replay path on the just-committed tree, matching the in-flight Commit Flight behavior so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
 - Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.

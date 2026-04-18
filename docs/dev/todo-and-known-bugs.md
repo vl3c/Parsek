@@ -207,7 +207,7 @@ Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` i
 
 ---
 
-## 446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording
+## ~~446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording~~
 
 **Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16211` (single `[EXC]` in the whole session). Reproduced at UT ≈ end-of-session after clicking "Discard Recording" on a saved Gloops recording. Stack: `GloopsRecorderUI.DrawWindow ... [0x001b6]` → `DrawIfOpen+<>c__DisplayClass10_0.<DrawIfOpen>b__0` → `GUILayout.LayoutedWindow.DoWindow`.
 
@@ -256,7 +256,7 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Scope:** Small. Single-file fix, one small test.
 
-**Status:** TODO. Priority: medium. User-visible exception after a common UI action; recovers on next frame (IMGUI reruns `DrawWindow` with fresh locals) so the session isn't lost, but the `[EXC]` in KSP.log is a release-quality concern.
+**Status:** ~~Fixed~~ — `DrawWindow` now re-reads `isRecording`, `hasLastRecording`, `isPreviewing` from `flight` after the button-row handlers run and before the status-label ladder, and the ladder dispatches through a new `internal static SelectStatusBlock` helper unit-tested in `Bug446GloopsDiscardNreTests`. State changes detected at re-evaluation time emit a verbose `Gloops state changed mid-DrawWindow` log so a future stale-local situation is visible in `KSP.log`.
 
 ---
 
