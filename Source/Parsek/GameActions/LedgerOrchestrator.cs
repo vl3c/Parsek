@@ -1792,12 +1792,133 @@ namespace Parsek
             if (!string.IsNullOrEmpty(path))
             {
                 Ledger.LoadFromFile(path);
+                int repairedLegacyPartPurchaseEvents =
+                    GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
+                int repairedLegacyPartPurchaseActions =
+                    RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+                if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
+                {
+                    ParsekLog.Info(Tag,
+                        $"OnLoad: repaired legacy R&D part-purchase rows " +
+                        $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
+                }
                 ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
             }
             else
             {
                 ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
             }
+        }
+
+        /// <summary>
+        /// Rewrites persisted legacy part-purchase ledger rows whose stored funds debit
+        /// still reflects rollout <c>part.cost</c> instead of stock KSP's real R&amp;D
+        /// charge semantics. Existing version-1 ledger files keep the same shape; the
+        /// compatibility path mutates the in-memory actions after load and before the
+        /// first recalculation walk.
+        /// </summary>
+        internal static int RepairLegacyPartPurchaseActionsOnLoad(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            if (ledgerActions == null || ledgerActions.Count == 0)
+                return 0;
+
+            int repaired = 0;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (!IsPartPurchaseFundsSpendingAction(action))
+                    continue;
+
+                float canonicalCost;
+                if (!TryResolveCanonicalPartPurchaseChargeForAction(action, events, out canonicalCost))
+                    continue;
+
+                if (Math.Abs(action.FundsSpent - canonicalCost) <= 0.01f)
+                    continue;
+
+                action.FundsSpent = canonicalCost;
+                repaired++;
+            }
+
+            return repaired;
+        }
+
+        private static bool IsPartPurchaseFundsSpendingAction(GameAction action)
+        {
+            return action != null &&
+                   action.Type == GameActionType.FundsSpending &&
+                   action.FundsSpendingSource == FundsSpendingSource.Other;
+        }
+
+        private static bool TryResolveCanonicalPartPurchaseChargeForAction(
+            GameAction action,
+            IReadOnlyList<GameStateEvent> events,
+            out float canonicalCost)
+        {
+            canonicalCost = 0f;
+            if (action == null)
+                return false;
+
+            GameStateEvent matchedEvent;
+            if (TryFindMatchingPartPurchasedEvent(events, action, out matchedEvent))
+            {
+                GameStateEvent rewrittenEvent;
+                if (GameStateStore.TryRewriteLegacyPartPurchaseEvent(
+                    matchedEvent, events, out rewrittenEvent))
+                {
+                    matchedEvent = rewrittenEvent;
+                }
+
+                if (GameStateStore.TryGetStoredPartPurchaseCost(
+                    matchedEvent.detail, out canonicalCost))
+                {
+                    return true;
+                }
+            }
+
+            return GameStateRecorder.TryResolveCanonicalPartPurchaseCharge(
+                action.DedupKey, out canonicalCost);
+        }
+
+        private static bool TryFindMatchingPartPurchasedEvent(
+            IReadOnlyList<GameStateEvent> events,
+            GameAction action,
+            out GameStateEvent matchedEvent)
+        {
+            matchedEvent = default(GameStateEvent);
+            if (events == null || action == null)
+                return false;
+
+            string partName = action.DedupKey;
+            int fallbackCount = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.PartPurchased)
+                    continue;
+                if (Math.Abs(evt.ut - action.UT) > KscReconcileEpsilonSeconds)
+                    continue;
+
+                if (!string.IsNullOrEmpty(partName))
+                {
+                    if (string.Equals(evt.key, partName, StringComparison.Ordinal))
+                    {
+                        matchedEvent = evt;
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                matchedEvent = evt;
+                fallbackCount++;
+                if (fallbackCount > 1)
+                    return false;
+            }
+
+            return fallbackCount == 1;
         }
 
         /// <summary>
@@ -1816,6 +1937,7 @@ namespace Parsek
         internal static int TryRecoverBrokenLedgerOnLoad()
         {
             Initialize();
+            GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
 
             int recoveredFundsParts = 0;
             int recoveredContracts = 0;

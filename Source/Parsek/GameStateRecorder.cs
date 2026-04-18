@@ -120,6 +120,7 @@ namespace Parsek
             SuppressResourceEvents = false;
             IsReplayingActions = false;
             BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            PartEntryCostProviderForTesting = null;
         }
 
         /// <summary>
@@ -131,20 +132,118 @@ namespace Parsek
         internal static Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
 
         /// <summary>
+        /// Test-only seam for resolving a part's <c>entryCost</c> by name during
+        /// load-time compatibility repair of legacy <see cref="GameStateEventType.PartPurchased"/>
+        /// rows. Production resolves through <see cref="PartLoader"/>; tests provide a
+        /// deterministic mapping without a live KSP part database.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<string, float?> PartEntryCostProviderForTesting;
+
+        /// <summary>
+        /// Returns whether the stock R&amp;D difficulty toggle is available and, if so,
+        /// whether KSP bypasses one-time part entry purchases after research.
+        /// </summary>
+        internal static bool TryGetBypassEntryPurchaseAfterResearch(out bool bypassEntryPurchaseAfterResearch)
+        {
+            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
+            if (provider != null)
+            {
+                bypassEntryPurchaseAfterResearch = provider();
+                return true;
+            }
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
+            {
+                bypassEntryPurchaseAfterResearch = false;
+                return false;
+            }
+
+            bypassEntryPurchaseAfterResearch =
+                game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+            return true;
+        }
+
+        /// <summary>
         /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
         /// Defensive: returns false when no live game exists.
         /// </summary>
         internal static bool IsBypassEntryPurchaseAfterResearch()
         {
-            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
-            if (provider != null)
-                return provider();
+            bool bypassEntryPurchaseAfterResearch;
+            return TryGetBypassEntryPurchaseAfterResearch(out bypassEntryPurchaseAfterResearch)
+                && bypassEntryPurchaseAfterResearch;
+        }
 
-            var game = HighLogic.CurrentGame;
-            return game != null &&
-                   game.Parameters != null &&
-                   game.Parameters.Difficulty != null &&
-                   game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+        /// <summary>
+        /// Resolves the canonical stock-KSP funds charge for a part unlock under the
+        /// current save's difficulty rules. Used by load-time compatibility repair for
+        /// legacy persisted <see cref="GameStateEventType.PartPurchased"/> rows whose
+        /// stored <c>cost=</c> token still means rollout <c>part.cost</c> instead of the
+        /// real R&amp;D debit rule.
+        /// </summary>
+        internal static bool TryResolveCanonicalPartPurchaseCharge(
+            string partName,
+            out float chargedCost)
+        {
+            chargedCost = 0f;
+
+            bool bypassEntryPurchaseAfterResearch;
+            if (!TryGetBypassEntryPurchaseAfterResearch(out bypassEntryPurchaseAfterResearch))
+                return false;
+
+            if (bypassEntryPurchaseAfterResearch)
+                return true;
+
+            if (string.IsNullOrEmpty(partName))
+                return false;
+
+            var provider = PartEntryCostProviderForTesting;
+            if (provider != null)
+            {
+                float? entryCost = provider(partName);
+                if (!entryCost.HasValue)
+                    return false;
+
+                chargedCost = entryCost.Value;
+                return true;
+            }
+
+            AvailablePart part = TryGetAvailablePartForEntryCost(partName);
+            if (part == null)
+                return false;
+
+            chargedCost = part.entryCost;
+            return true;
+        }
+
+        private static AvailablePart TryGetAvailablePartForEntryCost(string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return null;
+
+            string trimmed = partName.Trim();
+            if (trimmed.Length == 0)
+                return null;
+
+            AvailablePart part = PartLoader.getPartInfoByName(trimmed);
+            if (part != null)
+                return part;
+
+            string dotted = trimmed.Replace('_', '.');
+            if (!string.Equals(dotted, trimmed, StringComparison.Ordinal))
+            {
+                part = PartLoader.getPartInfoByName(dotted);
+                if (part != null)
+                    return part;
+            }
+
+            string underscored = trimmed.Replace('.', '_');
+            if (!string.Equals(underscored, trimmed, StringComparison.Ordinal))
+                return PartLoader.getPartInfoByName(underscored);
+
+            return null;
         }
 
         /// <summary>

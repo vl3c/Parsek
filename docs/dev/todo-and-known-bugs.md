@@ -60,7 +60,7 @@ are fixed in the same PR branch with additional commits:
 
 ## ~~451. `OnPartPurchased` encoded the wrong funds charge for R&D unlocks~~
 
-**Status:** ~~Fixed~~ — `GameStateRecorder.OnPartPurchased` now mirrors stock KSP's real debit rule: `cost=0` when `Difficulty.BypassEntryPurchaseAfterResearch=true`, otherwise `cost=part.entryCost`. The event still uses the legacy `cost=` token for save-format compatibility, but the value behind that key is now the amount KSP actually charged. This closes both failure modes discovered during #448 review:
+**Status:** ~~Fixed~~ — `GameStateRecorder.OnPartPurchased` now mirrors stock KSP's real debit rule: `cost=0` when `Difficulty.BypassEntryPurchaseAfterResearch=true`, otherwise `cost=part.entryCost`. The event still uses the legacy `cost=` token for save-format compatibility, but the value behind that key is now the amount KSP actually charged. Load-time compatibility also rewrites existing version-1 no-bypass `PartPurchased` events / `FundsSpending(Other)` ledger rows that still persisted the old rollout `part.cost` meaning, so older saves stop reloading over-debited. This closes both failure modes discovered during #448 review:
 - stock-default careers no longer hide a real funds over-debit behind reconciliation suppression, because bypass-mode purchases now land as zero-cost actions;
 - harder no-bypass careers no longer debit rollout `part.cost` and now match the real `FundsChanged(RnDPartPurchase)` delta of `-entryCost`.
 
