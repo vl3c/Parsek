@@ -11,10 +11,10 @@ These four TODOs are the top of the work queue. They're load-bearing correctness
 
 1. ~~**#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).~~
 2. ~~**#432** — Gloops ghost-only recordings must not capture or apply any game events.~~
-3. **#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).
+3. ~~**#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).~~
 4. ~~**#434** — Revert to Launch should auto-discard, not open the merge dialog.~~
 
-Only #433 remains open. Once it ships, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
+All four have shipped. The `MilestoneStore.CurrentEpoch` filter can now be retired as the legacy work-around (see #431's notes).
 
 ---
 
