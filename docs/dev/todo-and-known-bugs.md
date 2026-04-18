@@ -521,6 +521,8 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **NOT included (deferred further):** a `StrategyPayout` fallback emitter for mod-compat strategies that bypass the `OnCurrencyModifierQuery` path. No current stock or major mod needs it; add when a concrete requirement arises.
 
+**Follow-up delivered:** in-game `[InGameTest]` coverage for the strategy Harmony patch added in `test/strategy-lifecycle-in-game` -- `RuntimeTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `RuntimeTests.FailedActivation_DoesNotEmitEvent` in the new `StrategyLifecycle` category, with Funds/Science/Reputation snapshot-restore so any `CanBeActivated`-true stock strategy works without drifting save state.
+
 ---
 
 ## ~~439B.~~ Strategy setup cost reconciliation for Science and Reputation legs (#439 follow-up)

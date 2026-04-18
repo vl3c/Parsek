@@ -1,6 +1,13 @@
 # Add In-Game Test for StrategyLifecyclePatch (#439 Phase A follow-up)
 
-Status: plan v1. Branch: `test/strategy-lifecycle-in-game`. Scope: tests only, no production changes.
+Status: plan v2 (post-opus review corrections). Branch: `test/strategy-lifecycle-in-game`. Scope: tests only, no production changes.
+
+## v2 corrections from clean review
+
+- Zero-cost strategy gate removed: stock audit showed only `BailoutGrant` / `researchIPsellout` qualify and both are rep-gated. Plan now uses snapshot/restore of Funds/Sci/Rep around the test so any `CanBeActivated`-true strategy works.
+- `IEnumerator` + `yield return` cannot live inside a C# `try/finally`. Updated section 3 to show the correct post-yield try/finally pattern matching existing RuntimeTests examples.
+- `GameStateStore.EventCount`/`Events` and `ParsekLog.TestSinkForTesting` are internal (not public); same-assembly access is fine, wording corrected.
+- Log-line format confirmed: `[Parsek][INFO][GameStateRecorder] Game state: StrategyActivated 'key' title=... dept=... factor=... setupFunds=... setupSci=... setupRep=...`. Substring assertion on `[GameStateRecorder]` + `StrategyActivated` + `s.Config.Name` is correct.
 
 ## 1. Context
 
@@ -8,22 +15,21 @@ Status: plan v1. Branch: `test/strategy-lifecycle-in-game`. Scope: tests only, n
 
 ## 2. Stock strategies available at Admin tier 1
 
-Stock strategies (from `GameData/Squad/Strategies/*.cfg`) activatable at Admin tier 1 with zero setup costs:
+Audit of `Kerbal Space Program/GameData/Squad/Strategies/Strategies.cfg` (11 stock strategies) shows that **only `BailoutGrant` and `researchIPsellout` (Emergency group) have all three `initialCost*` ranges set to zero**, and both are gated by `requiredReputationMax=0` -- activatable only when rep <= 0. Every other stock strategy (`LeadershipInitiative`, `FundraisingCampaign`, `UnpaidResearchProgram`, `PatentsLicensing`, `OpenSourceTechProgram`, etc.) has a non-zero Funds, Science, or Reputation setup cost.
 
-- `LeadershipInitiative` -- Funds -> Reputation converter.
-- `FundraisingCampaign` -- Reputation -> Funds converter.
-- `UnpaidResearchProgram` -- Funds -> Science converter.
-- `PatentsLicensing` -- Science -> Funds.
-- `OpenSourceTechProgram`, `AppreciationCampaign`, `RecoveryTransponderFitting`, `FundingInitiative` -- various zero / minimal cost.
+Conclusion: a strict "zero setup cost" gate would skip on nearly every real save. The test must **snapshot and restore Funds/Science/Reputation around the test** so any activatable strategy works.
 
-**Chosen target:** **discover at runtime**. Rather than hard-coding a config name, iterate `StrategySystem.Instance.Strategies`, pick the first entry satisfying:
+**Chosen target:** **discover at runtime**. Iterate `StrategySystem.Instance.Strategies`, pick the first entry satisfying:
 
 - `!s.IsActive` (not already running)
-- `s.Config != null` and `s.CanBeActivated(out _)` returns true (stock gate)
-- `s.InitialCostFunds == 0 && s.InitialCostScience == 0 && s.InitialCostReputation == 0`
-- `s.MinFactor <= s.Factor <= s.MaxFactor` (usually enforced by CanBeActivated, but check explicitly for resilience against stock config drift)
+- `s.Config != null`
+- `s.CanBeActivated(out _)` returns true (stock gate — covers admin-tier, rep, exclusive-group requirements)
 
-Skip test with `InGameAssert.Skip("no stock strategy with zero setup cost available at current Admin tier")` if no candidate is found. This is robust across career tiers, Bureaucracy / Strategia-style mod overrides, and future stock rebalances.
+No cost filter. Test takes full responsibility for restoring funds/sci/rep in teardown via snapshot arithmetic (see section 3, step 15).
+
+Skip test with `InGameAssert.Skip(...)` only if `StrategySystem` has **no** activatable strategy at all -- rare but possible on a cold career save.
+
+Note on config names: stock strategy `Config.Name` values vary in suffix (e.g. `FundraisingCampaignCfg` vs `LeadershipInitiative` bare). Runtime discovery avoids hard-coding any specific name -- the test asserts `key == s.Config.Name` using whatever the live value is.
 
 ## 3. Test design
 
@@ -53,10 +59,44 @@ Body, sequenced:
 16. **Final state assert.** `InGameAssert.IsFalse(s.IsActive, "teardown: strategy still active")`.
 17. **Log sink restore.** `ParsekLog.TestSinkForTesting = priorSink;` in a `finally`.
 
-Use a `try/finally` wrapping steps 7 through 17 so a failed assertion still:
-- restores the log sink,
-- calls `s.Deactivate()` if `s.IsActive`,
-- restores funds/sci/rep if modified.
+**Critical C# constraint for `IEnumerator` tests:** C# does NOT allow `yield return` inside a `try` block that has a `finally`. The established RuntimeTests pattern (see examples around lines 2221-2298, 2986-3092) is: place `yield return null` outside the try block, and wrap ONLY the post-yield assertion work in try/finally. For a test that needs yields both between activate and assertion, and between deactivate and assertion, the clean pattern is:
+
+```
+// ... gates, discovery, snapshot ...
+var priorSink = ParsekLog.TestSinkForTesting;
+ParsekLog.TestSinkForTesting = l => { captured.Add(l); priorSink?.Invoke(l); };
+bool activateOk = s.Activate();
+yield return null;                              // outside try
+bool deactivateOk = false;
+try
+{
+    // ... assertions on Activate event ...
+    deactivateOk = s.Deactivate();
+}
+finally
+{
+    // cleanup path 1: if activate succeeded but the try throws before deactivate
+    if (s.IsActive) s.Deactivate();
+    // restore sink
+    ParsekLog.TestSinkForTesting = priorSink;
+    // restore resources
+    RestoreSnapshot(fundsBefore, sciBefore, repBefore);
+}
+yield return null;                              // outside try
+try
+{
+    // ... assertions on Deactivate event ...
+}
+finally
+{
+    ParsekLog.TestSinkForTesting = priorSink;
+    RestoreSnapshot(fundsBefore, sciBefore, repBefore);
+}
+```
+
+Alternate shape: two separate helpers returning `IEnumerator`, each doing one phase, with cleanup in between. Pick whichever is clearer at implementation time.
+
+**Resource restoration in teardown:** snapshot `Funding.Instance.Funds`, `ResearchAndDevelopment.Instance.Science`, `Reputation.Instance.reputation` before step 7. In teardown, compute the delta the test's activate/deactivate produced and emit reverse transactions via `TransactionReasons.None` to zero the drift. Snapshot arithmetic, not a hard set, so it composes with concurrent KSP state changes.
 
 ### Optional failure-filter pin -- `FailedActivation_DoesNotEmitEvent`
 
@@ -140,7 +180,7 @@ Both live in the `RuntimeTests` class. Category is `StrategyLifecycle` in both.
 
 ## 12. Risks and open questions
 
-- **R1 -- zero-cost strategy availability.** If no stock strategy at the current Admin tier has all-zero setup costs, the test skips. This is the right behavior (tests that cannot run cleanly should skip), but it means a minimal-progression save could skip the test. **Mitigation:** the section 2 candidate discovery accepts any zero-cost strategy; snapshot/restore Funds/Sci/Rep in teardown as a fallback for a non-zero-cost strategy if the skip rate is empirically high. Prefer skip over forced mutation.
+- **R1 -- strategy availability.** Section 2 audit found that stock strategies are almost never zero-cost; only `BailoutGrant` / `researchIPsellout` qualify and both need rep <= 0. Plan v2 resolves this by dropping the zero-cost gate and restoring Funds/Sci/Rep in teardown via snapshot-diff arithmetic. The test now runs against any `CanBeActivated`-true strategy and leaves the save numerically unchanged.
 - **R2 -- side effects on save state.** Activate/Deactivate persists to `saves/<save>/persistent.sfs`. Re-entering the test save after the test leaves one extra activate/deactivate pair in `StrategySystem`. Because the test deactivates in teardown, `IsActive` is false on disk, which is equivalent to never-activated. The `dateActivated` / `dateDeactivated` bookkeeping on the strategy is mutated, but that is user-visible only as a tiny log crumb -- acceptable.
 - **R3 -- Sandbox / Science mode.** `StrategySystem.Instance` is null outside Career. The game-mode gate (step 1) handles this with `Skip`.
 - **R4 -- shared test save vs. dedicated save.** The `InjectAllRecordings` workflow injects synthetic recordings into an arbitrary user save. The strategy test runs against whatever save is loaded. It does NOT require `InjectAllRecordings`-injected state, so it works on the default career test save. No new test save is required. Document in the test docstring: "Runs in any career-mode save with at least one zero-setup-cost strategy available."

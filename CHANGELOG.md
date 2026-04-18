@@ -50,6 +50,7 @@ All notable changes to Parsek are documented here.
 - `T66` In-game runtime regression for fresh watch-entry camera orientation (canonical pitch/heading, no 180° flip).
 - `T61` Two hydration-salvage regression tests covering `RestoreHydrationFailedRecordingsFromPendingTree` and mixed subset-restorable trees.
 - `#365` Unit coverage for v2/v3 binary sidecar reader bounds and full codec round-trip matrix.
+- Added runtime in-game test for strategy lifecycle Harmony patch capture (#439 Phase A follow-up).
 
 ### Documentation
 

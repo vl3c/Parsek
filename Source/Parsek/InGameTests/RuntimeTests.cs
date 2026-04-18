@@ -3833,6 +3833,343 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region StrategyLifecycle (#439 Phase A follow-up)
+
+        // Snapshot/restore helpers for Funds/Science/Reputation. Used by the
+        // StrategyLifecycle tests so a non-zero `InitialCost*` strategy leaves
+        // the save numerically unchanged. The restore uses AddFunds/AddScience/
+        // AddReputation with `TransactionReasons.None` — matches the KspStatePatcher
+        // pattern. These calls DO emit FundsChanged/ScienceChanged/ReputationChanged
+        // events into GameStateStore, so tests must restrict their event assertions
+        // to the specific StrategyActivated/StrategyDeactivated event they expect,
+        // not a blanket "no other events" check.
+
+        private static (double funds, float science, float reputation) SnapshotFinancials()
+        {
+            double funds = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+            float science = ResearchAndDevelopment.Instance != null
+                ? ResearchAndDevelopment.Instance.Science : 0f;
+            float reputation = Reputation.Instance != null
+                ? Reputation.Instance.reputation : 0f;
+            return (funds, science, reputation);
+        }
+
+        private static void RestoreFinancials(double fundsBefore, float scienceBefore, float repBefore)
+        {
+            if (Funding.Instance != null)
+            {
+                double delta = fundsBefore - Funding.Instance.Funds;
+                if (System.Math.Abs(delta) > 0.01)
+                    Funding.Instance.AddFunds(delta, TransactionReasons.None);
+            }
+            if (ResearchAndDevelopment.Instance != null)
+            {
+                float delta = scienceBefore - ResearchAndDevelopment.Instance.Science;
+                if (Mathf.Abs(delta) > 0.01f)
+                    ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
+            }
+            if (Reputation.Instance != null)
+            {
+                float delta = repBefore - Reputation.Instance.reputation;
+                if (Mathf.Abs(delta) > 0.01f)
+                    Reputation.Instance.AddReputation(delta, TransactionReasons.None);
+            }
+        }
+
+        private static Strategies.Strategy FindActivatableStockStrategy()
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null) return null;
+            var list = system.Strategies;
+            if (list == null) return null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null) continue;
+                if (s.IsActive) continue;
+                if (s.Config == null) continue;
+                string reason;
+                if (!s.CanBeActivated(out reason)) continue;
+                return s;
+            }
+            return null;
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "#439 Phase A: StrategyLifecyclePatch postfixes emit StrategyActivated/StrategyDeactivated events into GameStateStore for a real Strategies.Strategy instance.")]
+        public IEnumerator ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents()
+        {
+            // Gate 1: career-mode only — StrategySystem is null outside career.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
+            // Gate 2: StrategySystem singleton available.
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null)
+            {
+                InGameAssert.Skip("StrategySystem.Instance is null — Admin facility may be missing or scene not ready");
+                yield break;
+            }
+
+            // Gate 3: at least one activatable strategy. No cost gate — teardown
+            // restores Funds/Science/Reputation via snapshot-diff.
+            var strategy = FindActivatableStockStrategy();
+            if (strategy == null)
+            {
+                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
+                yield break;
+            }
+
+            string configName = strategy.Config.Name ?? "";
+            ParsekLog.Info("TestRunner",
+                $"StrategyLifecycle test target: configName={configName} title={strategy.Title} " +
+                $"setupF={strategy.InitialCostFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"setupS={strategy.InitialCostScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"setupR={strategy.InitialCostReputation.ToString("R", CultureInfo.InvariantCulture)}");
+
+            // Snapshot financials BEFORE activation so teardown can restore.
+            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+
+            // Snapshot event count so we iterate only the tail slice.
+            int eventCountBefore = GameStateStore.EventCount;
+
+            // Install log sink chained to prior sink.
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+
+            // Note: GameStateRecorder.IsReplayingActions is false during normal
+            // test-runner execution — we are not inside a KspStatePatcher walk — so
+            // the lifecycle postfixes WILL emit their events. If a future change
+            // starts a recalculation walk mid-test, this assumption breaks and the
+            // test's event-find step will fail with a clear message.
+
+            bool activateOk = strategy.Activate();
+            yield return null;
+
+            // deactSnapshot is set inside the first try and read in the second;
+            // initialize to GameStateStore.EventCount so a throw before the
+            // deactivate assignment still gives the second try a sane lower
+            // bound (tail slice would simply be empty, failing the event-find
+            // with a clear message rather than an IndexOutOfRangeException).
+            int deactSnapshot = GameStateStore.EventCount;
+            bool deactivateOk = false;
+            try
+            {
+                InGameAssert.IsTrue(activateOk, "Strategy.Activate returned false");
+                InGameAssert.IsTrue(strategy.IsActive,
+                    "Strategy.IsActive should be true after Activate returned true");
+
+                // Find the first StrategyActivated event after the snapshot cursor.
+                bool foundActivate = false;
+                string activateDetail = null;
+                double activateUt = 0;
+                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyActivated
+                        && evt.key == configName)
+                    {
+                        foundActivate = true;
+                        activateDetail = evt.detail;
+                        activateUt = evt.ut;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(foundActivate,
+                    $"Expected StrategyActivated event with key='{configName}' in tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+                InGameAssert.IsGreaterThan(activateUt, 0.0, "StrategyActivated event ut must be positive");
+                InGameAssert.IsNotNull(activateDetail, "StrategyActivated event detail must not be null");
+                InGameAssert.Contains(activateDetail, "title=");
+                InGameAssert.Contains(activateDetail, "factor=");
+                InGameAssert.Contains(activateDetail, "setupFunds=");
+                InGameAssert.Contains(activateDetail, "source=");
+                InGameAssert.Contains(activateDetail, "target=");
+
+                // Log-line assertion: [GameStateRecorder] + StrategyActivated + key.
+                bool sawActivateLog = captured.Any(l =>
+                    l.Contains("[GameStateRecorder]")
+                    && l.Contains("StrategyActivated")
+                    && l.Contains(configName));
+                InGameAssert.IsTrue(sawActivateLog,
+                    $"Expected [GameStateRecorder] INFO log line for StrategyActivated '{configName}'");
+
+                // Deactivate inside the try so the finally-block fallback only
+                // fires on an exception. Snapshot the event cursor first so the
+                // second-phase tail slice only contains the deactivate row.
+                deactSnapshot = GameStateStore.EventCount;
+                deactivateOk = strategy.Deactivate();
+            }
+            catch
+            {
+                // Ensure the sink + financials are restored on an exception path.
+                // We leave the sink installed on the happy path so the second
+                // yield-and-assert block can read the deactivate log line that
+                // was emitted synchronously inside strategy.Deactivate above.
+                if (strategy.IsActive)
+                {
+                    try { strategy.Deactivate(); }
+                    catch (System.Exception innerEx)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
+                    }
+                }
+                ParsekLog.TestSinkForTesting = priorSink;
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                throw;
+            }
+
+            yield return null;
+
+            try
+            {
+                InGameAssert.IsTrue(deactivateOk, "Strategy.Deactivate returned false");
+                InGameAssert.IsFalse(strategy.IsActive,
+                    "Strategy.IsActive should be false after Deactivate returned true");
+
+                bool foundDeactivate = false;
+                string deactivateDetail = null;
+                for (int i = deactSnapshot; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyDeactivated
+                        && evt.key == configName)
+                    {
+                        foundDeactivate = true;
+                        deactivateDetail = evt.detail;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(foundDeactivate,
+                    $"Expected StrategyDeactivated event with key='{configName}' in tail slice [{deactSnapshot}..{GameStateStore.EventCount})");
+                InGameAssert.IsNotNull(deactivateDetail,
+                    "StrategyDeactivated event detail must not be null");
+                InGameAssert.Contains(deactivateDetail, "activeDurationSec=");
+
+                // Log-line assertion for Deactivate. The deactivate log was
+                // emitted synchronously inside the strategy.Deactivate call in
+                // the previous try, so it is already sitting in `captured`.
+                bool sawDeactivateLog = captured.Any(l =>
+                    l.Contains("[GameStateRecorder]")
+                    && l.Contains("StrategyDeactivated")
+                    && l.Contains(configName));
+                InGameAssert.IsTrue(sawDeactivateLog,
+                    $"Expected [GameStateRecorder] INFO log line for StrategyDeactivated '{configName}'");
+            }
+            finally
+            {
+                if (strategy.IsActive)
+                {
+                    try { strategy.Deactivate(); }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
+                    }
+                }
+                ParsekLog.TestSinkForTesting = priorSink;
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+            }
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "#439 Phase A: Activate()=false path (already-active) does NOT emit StrategyActivated (pins the __result==true filter in StrategyLifecyclePatch).")]
+        public void FailedActivation_DoesNotEmitEvent()
+        {
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                return;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                return;
+            }
+
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null)
+            {
+                InGameAssert.Skip("StrategySystem.Instance is null");
+                return;
+            }
+
+            var strategy = FindActivatableStockStrategy();
+            if (strategy == null)
+            {
+                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
+                return;
+            }
+
+            string configName = strategy.Config.Name ?? "";
+
+            // Snapshot financials — the first (successful) Activate below will
+            // spend setup costs that we must restore in teardown.
+            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+
+            try
+            {
+                // Activate the strategy FIRST so the second Activate hits the
+                // already-active short-circuit and returns false.
+                bool firstActivate = strategy.Activate();
+                if (!firstActivate)
+                {
+                    InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
+                    return;
+                }
+
+                int eventCountBefore = GameStateStore.EventCount;
+
+                // Second Activate — KSP short-circuits when IsActive is true and
+                // returns false. The postfix should detect __result=false and skip.
+                bool ok = strategy.Activate();
+                InGameAssert.IsFalse(ok,
+                    "Strategy.Activate should return false when already active");
+
+                // Walk the tail slice — must find NO StrategyActivated events
+                // with matching key.
+                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyActivated
+                        && evt.key == configName)
+                    {
+                        InGameAssert.Fail(
+                            $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
+                            $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                    }
+                }
+
+                ParsekLog.Verbose("TestRunner",
+                    $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
+                    $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+            }
+            finally
+            {
+                if (strategy.IsActive)
+                {
+                    try { strategy.Deactivate(); }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex.Message}");
+                    }
+                }
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+            }
+        }
+
+        #endregion
+
         #region Bug #450 B3 Lazy Reentry FX
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,

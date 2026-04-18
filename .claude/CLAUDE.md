@@ -107,7 +107,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
 - `UI/GloopsRecorderUI.cs` - Gloops Flight Recorder window (manual ghost-only recording controls)
 - `UI/KerbalsWindowUI.cs` - kerbal roster window (reserved crew, active stand-ins, retired stand-ins)
-- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
+- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (76 tests across 22 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
