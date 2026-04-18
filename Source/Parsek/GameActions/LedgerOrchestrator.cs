@@ -3797,7 +3797,7 @@ namespace Parsek
                 bool anyMismatch = false;
                 if (exp.Funds.Applies)
                 {
-                    if (!CompareLeg(action, "funds", exp.Funds, fundsTol, events))
+                    if (!CompareLeg(action, "funds", exp.Funds, fundsTol, events, actions, utCutoff))
                     {
                         mismatchFunds++;
                         anyMismatch = true;
@@ -3805,7 +3805,7 @@ namespace Parsek
                 }
                 if (exp.Rep.Applies)
                 {
-                    if (!CompareLeg(action, "rep", exp.Rep, repTol, events))
+                    if (!CompareLeg(action, "rep", exp.Rep, repTol, events, actions, utCutoff))
                     {
                         mismatchRep++;
                         anyMismatch = true;
@@ -3813,7 +3813,7 @@ namespace Parsek
                 }
                 if (exp.Sci.Applies)
                 {
-                    if (!CompareLeg(action, "sci", exp.Sci, sciTol, events))
+                    if (!CompareLeg(action, "sci", exp.Sci, sciTol, events, actions, utCutoff))
                     {
                         mismatchSci++;
                         anyMismatch = true;
@@ -3845,8 +3845,13 @@ namespace Parsek
             string legTag,
             PostWalkLeg leg,
             double tolerance,
-            IReadOnlyList<GameStateEvent> events)
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
         {
+            double summedExpected = SumExpectedPostWalkWindow(
+                action, leg, tolerance, actions, utCutoff);
+
             double observed = 0.0;
             int observedCount = 0;
             if (events != null)
@@ -3867,7 +3872,7 @@ namespace Parsek
             // Zero-expected + zero-observed is silent match (no event fired, none
             // expected). Zero-expected + non-zero observed is a mismatch: the walk
             // produced nothing but KSP credited a delta.
-            if (Math.Abs(leg.Expected) <= tolerance && observedCount == 0)
+            if (Math.Abs(summedExpected) <= tolerance && observedCount == 0)
                 return true;
 
             string id = ActionIdForPostWalk(action);
@@ -3876,17 +3881,17 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"id={id} expected={leg.Expected:F1} but no matching {leg.EventType} event " +
+                    $"id={id} expected={summedExpected:F1} but no matching {leg.EventType} event " +
                     $"keyed '{leg.ReasonKey}' within {PostWalkReconcileEpsilonSeconds:F1}s of " +
                     $"ut={action.UT:F1} -- missing earning channel or stale event?");
                 return false;
             }
 
-            if (Math.Abs(leg.Expected - observed) > tolerance)
+            if (Math.Abs(summedExpected - observed) > tolerance)
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"id={id} expected={leg.Expected:F1}, observed={observed:F1} across " +
+                    $"id={id} expected={summedExpected:F1}, observed={observed:F1} across " +
                     $"{observedCount} event(s) keyed '{leg.ReasonKey}' at ut={action.UT:F1} " +
                     $"-- post-walk delta mismatch");
                 return false;
@@ -3895,8 +3900,81 @@ namespace Parsek
             ParsekLog.VerboseRateLimited(Tag,
                 $"post-walk-match:{action.Type}:{legTag}",
                 $"Post-walk match: {action.Type} {legTag} id={id} " +
-                $"expected={leg.Expected:F1}, observed={observed:F1}, ut={action.UT:F1}");
+                $"expected={summedExpected:F1}, observed={observed:F1}, ut={action.UT:F1}");
             return true;
+        }
+
+        /// <summary>
+        /// Sums the expected post-walk delta across all actions that classify to the
+        /// same (EventType, ReasonKey) pair within the coalesce window. Mirrors the
+        /// observed-side event coalescing so same-UT reward bursts do not falsely warn.
+        /// </summary>
+        private static double SumExpectedPostWalkWindow(
+            GameAction anchorAction,
+            PostWalkLeg anchorLeg,
+            double tolerance,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            double summedExpected = 0.0;
+            int expectedCount = 0;
+
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var other = actions[i];
+                    if (other == null) continue;
+                    if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
+                        continue;
+                    if (utCutoff.HasValue &&
+                        !RecalculationEngine.IsSeedType(other.Type) &&
+                        other.UT > utCutoff.Value)
+                    {
+                        continue;
+                    }
+
+                    var otherExp = ClassifyPostWalk(other);
+                    if (!otherExp.Reconcile) continue;
+
+                    AccumulateMatchingPostWalkLeg(
+                        otherExp.Funds, anchorLeg, tolerance,
+                        ref summedExpected, ref expectedCount);
+                    AccumulateMatchingPostWalkLeg(
+                        otherExp.Rep, anchorLeg, tolerance,
+                        ref summedExpected, ref expectedCount);
+                    AccumulateMatchingPostWalkLeg(
+                        otherExp.Sci, anchorLeg, tolerance,
+                        ref summedExpected, ref expectedCount);
+                }
+            }
+
+            if (expectedCount == 0)
+                return anchorLeg.Expected;
+
+            return summedExpected;
+        }
+
+        private static void AccumulateMatchingPostWalkLeg(
+            PostWalkLeg candidate,
+            PostWalkLeg anchorLeg,
+            double tolerance,
+            ref double summedExpected,
+            ref int expectedCount)
+        {
+            if (!candidate.Applies) return;
+            if (candidate.EventType != anchorLeg.EventType) return;
+
+            string candidateKey = candidate.ReasonKey ?? "";
+            string anchorKey = anchorLeg.ReasonKey ?? "";
+            if (!string.Equals(candidateKey, anchorKey, StringComparison.Ordinal))
+                return;
+
+            if (Math.Abs(candidate.Expected) <= tolerance)
+                return;
+
+            summedExpected += candidate.Expected;
+            expectedCount++;
         }
 
         /// <summary>Pure: best-effort identifier for post-walk log lines.</summary>

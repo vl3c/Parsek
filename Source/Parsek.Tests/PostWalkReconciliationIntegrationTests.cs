@@ -120,6 +120,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Integration_SameUtContractRewards_CoalescedEvent_DoesNotWarn()
+        {
+            // Two contract rewards inside the 0.1 s coalesce window share one
+            // FundsChanged(ContractReward) event in the store. Post-walk must sum the
+            // expected side across both actions before comparing, or it false-warns on
+            // each individual action against the coalesced delta.
+            LedgerOrchestrator.Initialize();
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 0f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec-a",
+                ContractId = "c-coalesce-a",
+                FundsReward = 3000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.05,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec-b",
+                ContractId = "c-coalesce-b",
+                FundsReward = 4000f
+            });
+
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 32000);
+
+            LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("ContractComplete"));
+        }
+
+        [Fact]
         public void Integration_StrategyActive_ContractComplete_TransformDiverges_Warn()
         {
             // Controlled divergence: the raw FundsReward is 4700, which the walk will
