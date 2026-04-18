@@ -116,14 +116,89 @@ namespace Parsek.Tests
             Assert.False(MapMarkerRenderer.ToggleSticky("x", null));
         }
 
+        // ghost-label-click-toggle follow-up: visibility is driven exclusively by
+        // sticky. Hover MUST NOT reveal the label — that behavior from the
+        // original #386 ship was explicitly removed. These cases pin the new
+        // contract: the decision table is just `sticky`.
         [Theory]
-        [InlineData(false, false, false)]
-        [InlineData(true,  false, true)]
-        [InlineData(false, true,  true)]
-        [InlineData(true,  true,  true)]
-        public void ShouldDrawLabel_ReturnsHoverOrSticky(bool hover, bool sticky, bool expected)
+        [InlineData(false, false)]
+        [InlineData(true,  true)]
+        public void ShouldDrawLabel_ReturnsStickyOnly(bool sticky, bool expected)
         {
-            Assert.Equal(expected, MapMarkerRenderer.ShouldDrawLabel(hover, sticky));
+            Assert.Equal(expected, MapMarkerRenderer.ShouldDrawLabel(sticky));
+        }
+
+        // IsToggleClick — only left-button MouseDown toggles sticky state.
+        // Non-left clicks must pass through so stock map/tracking handlers can
+        // still react normally. The production click handler gates on this
+        // predicate, so the matrix here defines the full toggle contract.
+        [Theory]
+        [InlineData(EventType.MouseDown, 0, true)]   // left click down
+        [InlineData(EventType.MouseDown, 1, false)]  // right click down — pass through
+        [InlineData(EventType.MouseDown, 2, false)]  // middle click down — not a toggle
+        [InlineData(EventType.MouseDown, 3, false)]  // any other button — not a toggle
+        [InlineData(EventType.MouseUp,   0, false)]  // left click up — not a toggle
+        [InlineData(EventType.MouseUp,   1, false)]  // right click up — not a toggle
+        [InlineData(EventType.KeyDown,   0, false)]  // key event — not a toggle
+        [InlineData(EventType.Repaint,   0, false)]  // repaint — not a toggle
+        [InlineData(EventType.Layout,    0, false)]  // layout — not a toggle
+        [InlineData(EventType.MouseDrag, 0, false)]  // drag — not a toggle
+        public void IsToggleClick_MatchesMouseDownLeftOnly(
+            EventType type, int button, bool expected)
+        {
+            Assert.Equal(expected, MapMarkerRenderer.IsToggleClick(type, button));
+        }
+
+        // The click log line keeps the button id in the payload so log reviews
+        // can confirm the production left-click path. This test pins the wire
+        // format (label / sticky on/off / key / button) by format-building
+        // directly — driving DrawMarkerAtScreen requires a live Unity GUI
+        // context, but the pure formatter owns the contract.
+        [Fact]
+        public void FormatClickLogLine_LeftButtonToggleOn_IncludesButtonAndStickyOn()
+        {
+            string line = MapMarkerRenderer.FormatClickLogLine(
+                label: "Bob Kerman Lander", markerKey: "rec-42",
+                nowSticky: true, button: 0);
+            Assert.Contains("sticky=on", line);
+            Assert.Contains("button=0", line);
+            Assert.Contains("key=rec-42", line);
+            Assert.Contains("Bob Kerman Lander", line);
+        }
+
+        [Fact]
+        public void FormatClickLogLine_LeftButtonToggleOff_IncludesButtonAndStickyOff()
+        {
+            string line = MapMarkerRenderer.FormatClickLogLine(
+                label: "Probe 7", markerKey: "rec-7",
+                nowSticky: false, button: 0);
+            Assert.Contains("sticky=off", line);
+            Assert.Contains("button=0", line);
+        }
+
+        [Fact]
+        public void FormatClickLogLine_NullLabel_RendersAsPlaceholder()
+        {
+            string line = MapMarkerRenderer.FormatClickLogLine(
+                label: null, markerKey: "rec-x", nowSticky: true, button: 0);
+            Assert.Contains("(null)", line);
+        }
+
+        // Log-assertion test: emit via ParsekLog.Info and assert the captured
+        // line goes under tag MapMarker and carries the button id + sticky=on
+        // after a left-button toggle.
+        [Fact]
+        public void ClickLogLine_LeftButtonToggleOn_LoggedUnderMapMarkerTagWithButton()
+        {
+            string line = MapMarkerRenderer.FormatClickLogLine(
+                label: "Ghost A", markerKey: "rec-log", nowSticky: true, button: 0);
+            ParsekLog.Info("MapMarker", line);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapMarker]") &&
+                l.Contains("sticky=on") &&
+                l.Contains("button=0") &&
+                l.Contains("key=rec-log"));
         }
 
         // #386 — ResetForSceneChange clears sticky state (users expect stickies
