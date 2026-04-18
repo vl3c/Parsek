@@ -38,11 +38,20 @@ namespace Parsek.Patches
             ProgressNode __instance,
             float funds, float science, float reputation)
         {
-            // Route to the testable helper with a live UT from Planetarium. Production
-            // is the only call site that touches Unity statics; tests call RoutePostfix
-            // directly with a literal UT.
-            RoutePostfix(__instance, funds, science, reputation,
-                __instance != null ? Planetarium.GetUniversalTime() : 0.0);
+            try
+            {
+                // Route to the testable helper with a live UT from Planetarium. Production
+                // is the only call site that touches Unity statics; tests call RoutePostfix
+                // directly with a literal UT.
+                RoutePostfix(__instance, funds, science, reputation,
+                    __instance != null ? Planetarium.GetUniversalTime() : 0.0);
+            }
+            catch (Exception ex)
+            {
+                // Defensive: even the UT lookup must not throw into KSP's reward pipeline.
+                ParsekLog.Warn(Tag,
+                    $"Postfix threw while capturing milestone rewards: {ex.Message}");
+            }
         }
 
         /// <summary>

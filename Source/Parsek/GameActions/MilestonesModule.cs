@@ -4,9 +4,10 @@ using System.Globalization;
 namespace Parsek
 {
     /// <summary>
-    /// First-tier milestone module. Tracks once-ever milestone achievements.
-    /// Each milestoneId can be credited exactly once — the chronologically first
-    /// recording gets effective=true, all later duplicates get effective=false.
+    /// First-tier milestone module. Tracks once-ever milestone achievements, except for
+    /// KSP's repeatable world-record nodes (RecordsAltitude/Depth/Speed/Distance), which
+    /// can award funds/rep/science multiple times while still mapping to a single
+    /// progress-tree node for patching.
     ///
     /// When effective=true, the milestone's MilestoneFundsAwarded and MilestoneRepAwarded
     /// flow into the Funds and Reputation modules in the second tier.
@@ -40,8 +41,10 @@ namespace Parsek
         /// all other action types are ignored.
         ///
         /// For MilestoneAchievement:
-        ///   - If milestoneId not yet credited: marks effective=true, adds to credited set
-        ///   - If milestoneId already credited: marks effective=false (duplicate zeroed)
+        ///   - First hit for any milestoneId: marks effective=true, adds to credited set
+        ///   - Repeatable Records* hits after the first: stay effective, but do not grow the
+        ///     credited set (the progress node still only needs to be patched to achieved once)
+        ///   - Other later duplicates: marks effective=false
         /// </summary>
         public void ProcessAction(GameAction action)
         {
@@ -49,6 +52,11 @@ namespace Parsek
                 return;
 
             string milestoneId = action.MilestoneId ?? "";
+            bool isRepeatableRecordMilestone =
+                milestoneId == "RecordsAltitude" ||
+                milestoneId == "RecordsDepth" ||
+                milestoneId == "RecordsSpeed" ||
+                milestoneId == "RecordsDistance";
 
             if (!creditedMilestones.Contains(milestoneId))
             {
@@ -56,6 +64,17 @@ namespace Parsek
                 creditedMilestones.Add(milestoneId);
                 ParsekLog.Verbose("Milestones",
                     $"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}" +
+                    $" (recording={action.RecordingId ?? "null"}," +
+                    $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
+                    $" rep={action.MilestoneRepAwarded.ToString("F0", IC)}," +
+                    $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)})," +
+                    $" total credited={creditedMilestones.Count}");
+            }
+            else if (isRepeatableRecordMilestone)
+            {
+                action.Effective = true;
+                ParsekLog.Verbose("Milestones",
+                    $"Repeatable record milestone '{milestoneId}' stays effective at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
                     $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
                     $" rep={action.MilestoneRepAwarded.ToString("F0", IC)}," +

@@ -25,6 +25,7 @@ namespace Parsek.Tests
 
         public MilestoneRewardCaptureTests()
         {
+            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -42,6 +43,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            RecalculationEngine.ClearModules();
             GameStateRecorder.PendingMilestoneEventByNode.Clear();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
@@ -496,6 +498,49 @@ namespace Parsek.Tests
                 l.Contains("Earnings reconciliation (rep)"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("Earnings reconciliation (sci)"));
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_RepeatedRecordHits_BothStayEffective()
+        {
+            var node = new FakeProgressNode("RecordsDistance");
+            GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0, ut: 100.0);
+            GameStateRecorder.EmitStandaloneProgressReward(node, 3200.0, 1.0f, 0.0, ut: 200.0);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 0.0,
+                    Type = GameActionType.FundsInitial,
+                    InitialFunds = 10000f
+                }
+            };
+
+            foreach (var evt in GameStateStore.Events)
+            {
+                if (evt.eventType == GameStateEventType.MilestoneAchieved &&
+                    evt.key == "RecordsDistance")
+                {
+                    actions.Add(GameStateEventConverter.ConvertMilestoneAchieved(evt, null));
+                }
+            }
+
+            var milestones = new MilestonesModule();
+            var funds = new FundsModule();
+            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+
+            RecalculationEngine.Recalculate(actions);
+
+            var recordActions = actions.Where(a =>
+                a.Type == GameActionType.MilestoneAchievement &&
+                a.MilestoneId == "RecordsDistance").ToList();
+            Assert.Equal(2, recordActions.Count);
+            Assert.All(recordActions, a => Assert.True(a.Effective));
+            Assert.True(milestones.IsMilestoneCredited("RecordsDistance"));
+            Assert.Equal(1, milestones.GetCreditedCount());
+            Assert.Equal(18000.0, funds.GetRunningBalance(), 1);
         }
 
         private static int CountEvents(GameStateEventType type)
