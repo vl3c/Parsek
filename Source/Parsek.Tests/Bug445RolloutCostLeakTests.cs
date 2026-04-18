@@ -631,5 +631,48 @@ namespace Parsek.Tests
             Assert.Null(adopted.DedupKey);
             Assert.Equal(5000f, adopted.FundsSpent);
         }
+
+        [Fact]
+        public void LegacyBareRolloutKey_RoundTripsThroughSerializeDeserialize_RemainsAdoptable()
+        {
+            // Targeted recheck fix: the immediately previous follow-up persisted
+            // rollout markers as bare "rollout:<UT>" keys. After upgrading to the
+            // vessel/site-aware matcher, those saves still need to reattach the
+            // stored charge on the next launch+record instead of leaving it orphaned
+            // after load.
+            var legacy = new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsSpending,
+                RecordingId = null,
+                FundsSpent = 5000f,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                DedupKey = "rollout:100"
+            };
+
+            var parent = new ConfigNode("LEDGER");
+            legacy.SerializeInto(parent);
+            var actionNode = parent.GetNode("GAME_ACTION");
+            var reloaded = GameAction.DeserializeFrom(actionNode);
+
+            Assert.Equal("rollout:100", reloaded.DedupKey);
+            Assert.Null(reloaded.RecordingId);
+            Assert.Equal(GameActionType.FundsSpending, reloaded.Type);
+            Assert.Equal(FundsSpendingSource.VesselBuild, reloaded.FundsSpendingSource);
+
+            LedgerOrchestrator.ResetForTesting();
+            Ledger.AddAction(reloaded);
+            var rec = CreateRecording("rec-after-upgrade-load");
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction(
+                "rec-after-upgrade-load",
+                startUT: 110.0,
+                rec);
+
+            Assert.NotNull(adopted);
+            Assert.Equal("rec-after-upgrade-load", adopted.RecordingId);
+            Assert.Null(adopted.DedupKey);
+            Assert.Equal(5000f, adopted.FundsSpent);
+        }
     }
 }

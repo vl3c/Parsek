@@ -86,6 +86,7 @@ namespace Parsek
             public uint VesselPersistentId;
             public string VesselName;
             public string LaunchSiteName;
+            public bool IsLegacyBareKey;
         }
 
         /// <summary>
@@ -2367,6 +2368,14 @@ namespace Parsek
             RolloutAdoptionContext actionContext,
             RolloutAdoptionContext recordingContext)
         {
+            // Compatibility: the immediately previous #445 follow-up persisted
+            // rollout adoption markers as bare "rollout:<UT>" keys with no
+            // vessel/site fields. Those saves still need to reattach the saved
+            // charge after upgrade/load, so preserve the legacy window-only
+            // adoption behavior for that exact key shape.
+            if (actionContext.IsLegacyBareKey)
+                return true;
+
             if (actionContext.VesselPersistentId != 0 && recordingContext.VesselPersistentId != 0)
                 return actionContext.VesselPersistentId == recordingContext.VesselPersistentId;
 
@@ -2395,6 +2404,12 @@ namespace Parsek
 
             var context = default(RolloutAdoptionContext);
             string[] parts = dedupKey.Split('|');
+            if (parts.Length == 1)
+            {
+                context.IsLegacyBareKey = true;
+                return context;
+            }
+
             for (int i = 1; i < parts.Length; i++)
             {
                 string part = parts[i];
