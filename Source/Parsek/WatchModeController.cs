@@ -744,8 +744,13 @@ namespace Parsek
                     // Other cycles of the same recording expiring must not yank the camera.
                     if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
                     {
+                        // Rate-limit key is per (recording, action) — NOT per cycle index —
+                        // because cycle indices grow without bound over a session, which
+                        // would leak one rate-limit-state entry per expired non-watched
+                        // cycle in ParsekLog.rateLimitStateByKey. The message still carries
+                        // the cycle numbers for diagnostic value.
                         ParsekLog.VerboseRateLimited("CameraFollow",
-                            $"overlap-hold-start-skip-{evt.Index}-{evt.NewCycleIndex}",
+                            $"overlap-hold-start-skip-{evt.Index}",
                             $"Overlap: hold start for #{evt.Index} cycle={evt.NewCycleIndex} " +
                             $"ignored (watching cycle={watchedOverlapCycleIndex})");
                         break;
@@ -766,8 +771,9 @@ namespace Parsek
                 case CameraActionType.ExplosionHoldEnd:
                     if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
                     {
+                        // See overlap-hold-start-skip above for why the key omits cycle index.
                         ParsekLog.VerboseRateLimited("CameraFollow",
-                            $"overlap-hold-end-skip-{evt.Index}-{evt.NewCycleIndex}",
+                            $"overlap-hold-end-skip-{evt.Index}",
                             $"Overlap: hold end for #{evt.Index} cycle={evt.NewCycleIndex} " +
                             $"ignored (watching cycle={watchedOverlapCycleIndex})");
                         break;
