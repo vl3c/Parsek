@@ -94,6 +94,17 @@ namespace Parsek
         public long observabilityCaptureMicroseconds;
         /// <summary>Number of trajectories iterated in the main loop (dispatched, not necessarily rendered).</summary>
         public int trajectoriesIterated;
+        /// <summary>
+        /// Bug #460: total overlap-ghost iterations across every primary trajectory this
+        /// frame. <see cref="mainLoopMicroseconds"/> covers both the top-level trajectory
+        /// dispatch and every overlap ghost iterated inside `UpdateExpireAndPositionOverlaps`,
+        /// so a `meanPerTraj = mainLoopMicroseconds / trajectoriesIterated` ratio alone cannot
+        /// distinguish "slow per-trajectory dispatch" from "many overlap ghosts per trajectory".
+        /// The mainLoop breakdown WARN reports `meanPerDispatch = mainLoop /
+        /// (trajectoriesIterated + overlapGhostIterationCount)` alongside `meanPerTraj` so
+        /// the reader can see overlap fan-out as a separate Phase B signal.
+        /// </summary>
+        public int overlapGhostIterationCount;
         /// <summary>Number of deferred OnGhostCreated events fired this frame.</summary>
         public int createdEventsFired;
         /// <summary>Number of deferred OnPlaybackCompleted events fired this frame.</summary>
