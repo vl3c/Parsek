@@ -1,0 +1,43 @@
+# Phase 3 of Rewind-to-Staging (design doc §3.4 / §11.7).
+# Files listed here are permitted to read RecordingStore.CommittedRecordings
+# and/or GameActions.Ledger.Actions directly. All other consumers must route
+# through EffectiveState.ComputeERS() / ComputeELS().
+#
+# One path per line, repo-relative, forward slashes. '#' starts a comment.
+
+# --- Storage + effective-state owners ---
+Source/Parsek/RecordingStore.cs
+Source/Parsek/EffectiveState.cs
+
+# --- Serialization (I/O not semantics) ---
+Source/Parsek/ParsekScenario.cs
+
+# --- Ledger owner + orchestration internals ---
+Source/Parsek/GameActions/Ledger.cs
+Source/Parsek/GameActions/LedgerOrchestrator.cs
+Source/Parsek/KerbalsModule.cs
+
+# --- Internal game-state-event suppression check ---
+Source/Parsek/GameStateRecorder.cs
+
+# --- Tests (unit + in-game) ---
+Source/Parsek.Tests/
+Source/Parsek/InGameTests/
+
+# --- Phase 3 ERS-exempt files (see inline [ERS-exempt] / TODO comments) ---
+# These hold raw index-based readers that Phase 3 leaves in place pending a
+# deeper refactor (tracked as TODO(phase 6+): migrate to EffectiveRecordingId
+# walk). Each exemption is documented at the call site.
+Source/Parsek/GhostMapPresence.cs
+Source/Parsek/WatchModeController.cs
+Source/Parsek/ChainSegmentManager.cs
+Source/Parsek/ParsekFlight.cs
+Source/Parsek/ParsekPlaybackPolicy.cs
+Source/Parsek/ParsekTrackingStation.cs
+Source/Parsek/Diagnostics/DiagnosticsComputation.cs
+Source/Parsek/FlightRecorder.cs
+Source/Parsek/ParsekKSC.cs
+Source/Parsek/ParsekUI.cs
+Source/Parsek/UI/RecordingsTableUI.cs
+Source/Parsek/UI/GroupPickerUI.cs
+Source/Parsek/UI/SettingsWindowUI.cs
