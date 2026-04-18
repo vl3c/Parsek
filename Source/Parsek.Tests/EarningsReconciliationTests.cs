@@ -27,20 +27,12 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             GameStateStore.SuppressLogging = true;
-
-            // #448: symmetric with Dispose so a previous test that left the seam
-            // installed (e.g. crashed before its try/finally) does not leak its
-            // bypass override into this fixture's classifier calls.
-            LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            // #448: defensive — clear the bypass seam in case a test forgot its
-            // try/finally restoration.
-            LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
         }
 
         private static GameStateEvent MakeFundsChanged(double ut, double before, double after)
@@ -948,47 +940,41 @@ namespace Parsek.Tests
             Assert.Contains("Phase E1.5", exp.SkipReason);
         }
 
-        // ---------- #448: BypassEntryPurchaseAfterResearch suppression ----------
+        // ---------- #448 / #451: part-purchase zero-delta bypass path ----------
 
         [Fact]
-        public void ClassifyAction_PartPurchase_BypassOn_TransformedNoWarn()
+        public void ReconcileKsc_PartPurchase_ZeroCost_NoMatchingEvent_Silent()
         {
-            // #448: stock-default Difficulty.BypassEntryPurchaseAfterResearch=true makes
-            // KSP's Funding.onPartPurchased return early (no AddFunds, no
-            // OnFundsChanged(RnDPartPurchase) ever fires). Classifier must downgrade
-            // RnD part purchases to Transformed in that mode so the per-action paired-
-            // event check skips with VERBOSE rather than producing 8-per-tech-node
-            // false-positive WARNs (smoke-test bundle 2026-04-18).
-            try
+            // Stock bypass=true careers do not pay part entry costs at all. The
+            // PartPurchased event now records FundsSpent=0 in that mode, so the
+            // reconciler should short-circuit on the zero expected delta without
+            // looking for a paired FundsChanged(RnDPartPurchase) event.
+            var events = new List<GameStateEvent>();
+            var action = new GameAction
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+                UT = 201.3,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 0f,
+                DedupKey = "solidBooster.v2"
+            };
+            var ledger = new List<GameAction> { action };
 
-                var a = new GameAction
-                {
-                    Type = GameActionType.FundsSpending,
-                    FundsSpendingSource = FundsSpendingSource.Other,
-                    FundsSpent = 600f
-                };
-                var exp = LedgerOrchestrator.ClassifyAction(a);
+            ReconcileKsc(events, ledger, action, 201.3);
 
-                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp.Class);
-                Assert.Contains("BypassEntryPurchaseAfterResearch", exp.SkipReason);
-            }
-            finally
-            {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
-            }
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
         }
 
         [Fact]
-        public void ClassifyAction_PartPurchase_BypassOff_StaysUntransformed()
+        public void ClassifyAction_PartPurchase_ZeroCost_StaysUntransformed()
         {
-            // Inverse of the above: when the player runs the harder difficulty
-            // (Bypass=false), KSP DOES fire OnFundsChanged(RnDPartPurchase) on every
-            // part purchase, so the reconciler should still match-and-WARN as before.
-            try
+            var action = new GameAction
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 0f
+            };
+            var exp = LedgerOrchestrator.ClassifyAction(action);
 
                 var a = new GameAction
                 {

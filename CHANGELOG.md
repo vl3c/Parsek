@@ -27,6 +27,7 @@ All notable changes to Parsek are documented here.
 - Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
 - `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose.
 - `#378` Added a rate-limited warn when on-save monotonicity rebuild exceeds 5 ms on a single recording, so save-time stutter is visible in `KSP.log`.
+- `#449` Merger boundary-discontinuity warnings now include the inter-section time gap, the velocity-implied expected gap, and a `cause=` tag (`unrecorded-gap` / `sample-skip` / `frame-mismatch`) so quickload-resume gaps are immediately distinguishable from real recorder bugs in `KSP.log`.
 - `#376` Documented the dual-storage invariant for auto-assigned standalone group names.
 - Gloops Flight Recorder window now has a Close button at the bottom, matching other Parsek windows.
 - Recordings window opens wider by default (1280 px) so more columns fit without a horizontal scroll; the Info-expanded width scales up to match.

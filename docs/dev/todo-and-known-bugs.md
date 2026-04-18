@@ -60,15 +60,13 @@ are fixed in the same PR branch with additional commits:
 
 ## ~~451.~~ `OnPartPurchased` writes `part.cost` instead of `part.entryCost` — ledger over-debits R&D unlocks under bypass=off
 
-**Source:** discovered while addressing #448. `Source/Parsek/GameStateRecorder.cs:480` reads `float cost = part.cost`, then writes that into the `PartPurchased` event's `detail` (`cost=...`) and into the `valueBefore`/`valueAfter` fields used by `ConvertPartPurchased` to synthesize the `FundsSpending` ledger action's `FundsSpent`. KSP's actual entry-purchase deduction in stock `Funding.OnPartPurchased` (`Funding.cs:397`, decompiled) is `AddFunds(-aP.entryCost, TransactionReasons.RnDPartPurchase)` — i.e. the **R&D unlock price**, not the per-instance build cost.
+**Source:** PR #443 review. The #443 root cause was that `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local copy. The cached pending entry kept `epoch=0` while the stored slot carried the live epoch, and `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed silently. The fix mirrors `MilestoneStore.CurrentEpoch` (and now also `recordingId`) onto the cached entry by hand inside `RegisterPendingMilestoneEvent`.
 
-The two values are conceptually different and almost never numerically equal:
-- `AvailablePart.entryCost` is the one-time R&D unlock price set per-part in the .cfg (e.g. solidBooster_v2 entryCost=800).
-- `AvailablePart.cost` is the per-instance build cost charged at vessel rollout (e.g. solidBooster_v2 cost=450). Many stock parts have `entryCost = 2 × cost` or wider ratios; some mod parts set entryCost arbitrarily high (research gate) while keeping cost low (build affordability).
+**Concern:** the same shape exists for every other field that `Emit`/`AddEvent` mutates on its local copy: `recordingId` is stamped by `Emit` (`GameStateRecorder.cs:60-62`) but the caller's copy doesn't see it; today no consumer reads `recordingId` off a cached event after `Emit`, but any future code that does will repeat #443's silent-failure shape. The current fix mirrors `epoch` and `recordingId` explicitly with a defense-in-depth comment, but the structural fix is to change the signatures so the language enforces propagation.
 
-**Why we didn't notice:** under KSP's stock-default `Difficulty.BypassEntryPurchaseAfterResearch=true`, `Funding.OnPartPurchased` returns at line 374 without calling `AddFunds`, so KSP charges the player nothing and our `cost`-vs-`entryCost` mismatch is masked — both sides are paying zero. #448's bypass-aware classifier downgrade now skips the per-action paired-event check in this mode, so the mismatch never trips the reconciler. **Under the harder difficulty (bypass=off)** KSP charges `entryCost` while our ledger debits `cost`, producing a per-purchase delta of `entryCost - cost`. The KSC reconciliation diagnostic (`ReconcileKscAction`) WILL fire a "delta mismatch" WARN per purchase (the matching `FundsChanged` event KSP fires carries `-entryCost`, our action expects `-cost`), and the FundsModule walk over-debits the player's bank by exactly that delta on every part unlock.
+**Fix:** change `internal static void Emit(GameStateEvent evt, string source)` to `internal static void Emit(ref GameStateEvent evt, string source)`, and `internal static void AddEvent(GameStateEvent e)` to `internal static void AddEvent(ref GameStateEvent e)`. Update every call site (12+ Emit callers in `GameStateRecorder.cs` plus `AddEvent` direct callers including the unit tests) to pass `ref`. Once the signatures take `ref`, the explicit `evt.epoch = ...` / `evt.recordingId = ...` mirrors inside `RegisterPendingMilestoneEvent` can be dropped — the language guarantees the caller's local sees every store-side mutation.
 
-**Concern:** in non-bypass careers the symptom is silent funds drift — players who unlock parts through the R&D screen will see Parsek's reconciled funds diverge from KSP's stock funds pool by the cumulative `(entryCost - cost)` sum. The `KspStatePatcher` writeback is per-recalc, so the divergence shows up as an apparent "fund leak" the next time the ledger walk runs. The reconciliation WARN at `LedgerOrchestrator.ReconcileKscAction` will fire on every purchase, but only in the bypass=off branch — bypass=on suppresses the WARN (#448) without fixing the underlying field mismatch.
+**Files:** `Source/Parsek/GameStateRecorder.cs` (`Emit` signature + 12+ call sites), `Source/Parsek/GameStateStore.cs` (`AddEvent` signature), `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs` and other tests that call `AddEvent` directly (~20 sites across the test project).
 
 **Fix:** compute the authoritative charged amount in `GameStateRecorder.OnPartPurchased`: `0` when `BypassEntryPurchaseAfterResearch=true`, otherwise `part.entryCost`. Then:
 - persist `cost=<chargedCost>` as the authoritative funds delta and `entryCost=<part.entryCost>` as raw-price context;
@@ -80,7 +78,7 @@ The two values are conceptually different and almost never numerically equal:
 
 **Scope:** Small. Existing field swap plus a narrow load-time compatibility migration and focused regression coverage. Format-compat note: pre-#451 single-token `cost=` saves still load unchanged, and the immediately previous bad dual-token auto-unlock shape is healed on load.
 
-**Dependencies:** #448 shipped (bypass classifier downgrade) — without #448, the mismatch under bypass=off was masked behind the false-positive WARN flood; now that bypass=on is silent, the bypass=off mismatch is the next visible diagnostic that will fire when a player runs the harder difficulty.
+## 452. Cancelled-rollout ledger entries should label the vessel name (or flag as "cancelled rollout")
 
 **Status:** ~~Fixed~~ in this PR. `GameStateRecorder.OnPartPurchased` now computes the actual charged amount per difficulty (`0` under bypass=on, `entryCost` under bypass=off), persists it in `cost=`, and keeps `entryCost=` as raw-price context. `ConvertPartPurchased` and `ResourceBudget.ParseCostFromDetail` treat `cost=` as authoritative with `entryCost=` fallback only when `cost=` is absent, and load now heals the immediately previous bad bypass=true save shape by rewriting `cost=<entryCost>;entryCost=<entryCost>` auto-unlock rows back to `cost=0` only when the same candidate epoch contains the matching tech unlock and no `RnDPartPurchase` funds debit. Regression coverage: `GameStateEventTests.NormalizeLegacyPartPurchaseCostsForLoad_FreeAutoUnlock_RewritesCostToZero`/`_MatchingFundsDebit_KeepsPaidPurchase`/`_WithoutMatchingTechUnlock_SkipsMigration`/`_MatchingTechInDifferentEpoch_SkipsMigration`/`_DifferentEpochFundsDebit_DoesNotBlockMigration`, `MilestoneTests.Milestone_DeserializeFrom_MigratesLegacyFreePartUnlockShape`/`_IgnoresDifferentEpochFundsDebitWhenMigratingLegacyFreePartUnlockShape`, `GameStateRecorderLedgerTests.ComputePartPurchaseFundsSpent_BypassOn_ReturnsZero`/`_BypassOff_ReturnsEntryCost`/`OnKscSpending_PartPurchased_UsesCostTokenWhenEntryCostAlsoPresent`, `GameStateEventConverterTests.ConvertEvent_PartPurchased_UsesCostToken_WhenEntryCostAlsoPresent`/`_CostOnly_StillParses`/`_EntryCostOnly_FallsBackWhenCostMissing`, `EarningsReconciliationTests.ReconcileKsc_PartPurchase_BypassOff_EntryCostMatched_NoWarn`/`_LegacyCostMismatch_WarnsDelta`, and `ResourceBudgetTests.ParseCostFromDetail_UsesCostWhenEntryCostAlsoPresent`/`_EntryCostOnly_FallsBackWhenCostMissing`/`_CostWinsEvenWhenEntryCostAppearsFirst`. Priority was medium; player-visible on the harder no-bypass difficulty and, in this branch's initial implementation, on stock-default bypass careers after reload.
 
@@ -125,7 +123,9 @@ Once the dominant sub-phase is identified, the fix is one of:
 
 ---
 
-## 449. Merger boundary discontinuity 132.82 m within a single-source tree
+## ~~449. Merger boundary discontinuity 132.82 m within a single-source tree~~
+
+**Status:** ~~Fixed~~ — diagnostic-only improvement (root cause is benign, no behavioral change needed).
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17917`. Single WARN per session:
 
@@ -134,73 +134,35 @@ Once the dominant sub-phase is identified, the fix is one of:
 ut=4004.92 vessel='r0' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=Active
 ```
 
-**Concern:** the two adjacent track sections at the boundary are **both** `prevSrc=Active nextSrc=Active` with `prevRef=Absolute nextRef=Absolute` — i.e., both halves come from the active flight recorder (not a background-recorder split, not a revert merge), same reference frame, and still a 132.82 m position jump. The merger's boundary-continuity invariant is that an all-Active / same-reference pair should stitch within a sampling tolerance (usually sub-meter after interpolation). A 132.82 m gap inside a single-source tree points at one of:
+**Investigation finding:** this is **case (2) from the original analysis** — a quickload-resume scene reload stitched at the same-source boundary. Trace:
+1. OnSave at UT 4004.7 closes section 0 (last sample at UT 4003.9) and writes the sidecar with one section.
+2. Live recorder samples for ~48 s (section A, UT 4004.7 → 4052.9) until `OnSceneChangeRequested` fires (FLIGHT→FLIGHT vessel switch that wasn't pre-transitionable, so it fell into `StashActiveTreeAsPendingLimbo`).
+3. After the scene reload, `RestoreActiveTreeFromPending` reinstalls the on-disk tree (which only has section 0 — section A was never persisted) and `recorder.StartRecording(isPromotion: true)` resumes at UT ~4004.92.
+4. New section 1's first sample lands at UT 4004.92, ~1 s after section 0's tail at UT 4003.9. At the recorded surface velocity (~130 m/s) the unsampled vessel motion across that 1 s fully accounts for the 132.82 m gap.
 
-1. **Dropped sample window around a physics step large enough to miss the boundary UT** — the recorder's `Update`/`FixedUpdate` sampling may have skipped the frame at ut ≈ 4004.92 (e.g., the 40 ms frame-budget spike at `KSP.log:11489` / see #450, or a Krakensbane float-origin shift at ut=4004.92 that the recorder didn't re-sample through).
-2. **Boundary stitched across a scene-level discontinuity** the merger doesn't tag as a source change — e.g., vessel switch with the recorder keeping the same `Active` source label, or a time-warp rate change that dilated the sample interval.
-3. **Interpolation bug at `Merger.MergeTree` section[1]** — the specific code path that computes the continuity check may be comparing positions in mismatched frames despite both sides claiming `Absolute`.
+Both halves are correctly tagged `Active` because they came from the same source semantically — there is no scene-source distinction to add. The user-visible "teleport" is real but unavoidable: the resume point cannot retroactively interpolate motion that wasn't recorded.
 
-The smoke-test session recorded two recordings — recording 2 starts at ut ≈ 3988.6 and the WARN lands at ut=4004.92, ~16 s into recording 2. Recording 1 ended at ut ≈ 177, so this is not a cross-recording merge boundary; it is a within-recording section boundary. The `[1]` index suggests section[1] is the second section of recording 2 — consistent with a single section split at ut=4004.92 within recording 2.
+**Fix shipped:** `SessionMerger.LogMergeDiagnostics` now classifies each discontinuity using the inter-section time gap and the previous section's last-frame velocity. The WARN line carries `dt=`, `expectedFromVel=`, and `cause=` (`unrecorded-gap` / `sample-skip` / `frame-mismatch`) so future occurrences are immediately classifiable from `KSP.log` alone, without log-archaeology around the boundary UT.
 
-**Investigation steps:**
-1. Correlate ut=4004.92 with adjacent KSP.log lines — look for vessel-switch events, Krakensbane shifts, time-warp rate changes, or frame-budget spikes in a ±1 s window. Starting point: `KSP.log:17900-17940`.
-2. Dump the two trajectory points bracketing section[1]'s boundary: their `ut`, `position`, `velocity`, `refFrame`, and sample-interval-to-neighbor. If the gap is >1 physics step's worth of the previous-point velocity, the sample was dropped. If the gap equals `prev_velocity × dt` for the expected `dt`, the recorder sampled correctly but the merger is misinterpreting the positions.
-3. Check `FlightRecorder.HandleVesselSwitchDuringRecording` and `BackgroundRecorder` split paths for any condition that would insert a section boundary without flipping `Src` to `Background` or `Paused`.
+- `unrecorded-gap` — discontinuity is consistent with `|prev.velocity| × dt` (with a 5 m floor + 2× margin); benign quickload-resume / scene-reload / frame-budget spike.
+- `sample-skip` — discontinuity exceeds the velocity-implied gap; points at a real dropped-sample / drift / src-tag bug.
+- `frame-mismatch` — `dt < 0.05 s` but a position jump; points at an interpolation/source-frame bug at the same boundary UT.
 
-**Fix:** depends on the root cause from the investigation. If (1), the recorder needs to clamp-sample at boundary UT or the merger's continuity tolerance needs to widen for known-skipped-frame cases (with a DEBUG trail). If (2), the `Src` label needs extending to distinguish "Active before vessel-switch" from "Active after vessel-switch". If (3), pure bug in `Merger.MergeTree` section-boundary math.
-
-**Files:** `Source/Parsek/Merger.cs` (boundary-continuity check + section assembly), `Source/Parsek/FlightRecorder.cs` / `Source/Parsek/BackgroundRecorder.cs` (sample-dropped or src-relabel paths), `Source/Parsek.Tests/MergerTests.cs` (new case: same-src/same-ref 132 m gap should either stitch with a clamp-sample or WARN with a specific root-cause tag).
-
-**Scope:** Small once the investigation identifies the path; unknown until then.
-
-**Status:** TODO. Priority: low. Single occurrence in a smoke test, recoverable (playback continues through the gap, vessel visibly "teleports" 132 m), not a crash. Worth a diagnostic investigation in the next cycle to prevent it compounding if the underlying cause is systemic (e.g., tied to #450's frame-budget spikes).
+**Files:** `Source/Parsek/SessionMerger.cs` (classifier + WARN format), `Source/Parsek.Tests/SessionMergerTests.cs` (7 classifier unit tests covering no-prev / zero-dt / velocity-matched / sample-skip / floor / NaN / Infinity, plus a parameterised WARN-format assertion that checks the exact `cause=` value across all three buckets).
 
 ---
 
 ## ~~448. KSC reconciliation: `FundsSpending(RnDPartPurchase)` has no matching `FundsChanged` event~~
 
-**Status:** ~~Fixed~~ — `LedgerOrchestrator.ClassifyAction` now downgrades RnD part purchases to `Transformed` (rate-limited VERBOSE skip in `ReconcileKscAction`) when KSP's `Difficulty.BypassEntryPurchaseAfterResearch=true`. Verified via decompilation of `Funding.onPartPurchased` (returns early without `AddFunds` in that mode) and `RDTech.PurchasePart`/`AutoPurchaseAllParts` (always fires `OnPartPurchased`). Reconciler still WARNs as before when the player runs the harder no-bypass difficulty. Tests in `EarningsReconciliationTests` cover both branches via the `BypassEntryPurchaseAfterResearchProviderForTesting` seam.
+**Status:** ~~Fixed~~ — the missing-event WARNs were a symptom of incorrect action synthesis, not a classifier problem. Stock KSP fires `OnPartPurchased` even when `Difficulty.BypassEntryPurchaseAfterResearch=true`, but charges 0 funds and therefore emits no paired `FundsChanged(RnDPartPurchase)` event. The fix moved to the source of truth:
+- `GameStateRecorder.OnPartPurchased` now records a zero-cost purchase in bypass mode, so `ReconcileKscAction` short-circuits on the zero expected delta and emits no WARN;
+- when bypass is off, the same handler now records `part.entryCost`, so the untransformed reconciliation path continues to match the real `RnDPartPurchase` funds event instead of comparing against rollout `part.cost`.
 
-**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:10191,10245,10298,10352,10407,10554,10612,10671` — 8 WARNs in the session, all at the same UT:
-
-```
-[LedgerOrchestrator] KSC reconciliation (funds): action FundsSpending
-expected delta=-150.0 (reason='RnDPartPurchase') but no matching FundsChanged
-event within 0.1s of ut=201.3 — missing earning channel or stale event?
-```
-
-Deltas across the 8 WARNs: -150, -150, -400, -1200, -1200, -50, -100, -200 (sum = -3450 funds). Each line corresponds to one `FundsSpending(RnDPartPurchase)` action in the ledger. **The actions themselves were captured correctly** — the #405 fix added the `OnKscSpending(evt)` call inside `OnPartPurchased` at `Source/Parsek/GameStateRecorder.cs:497-498`, so every part purchase writes a ledger action. What's missing is the corresponding `FundsChanged` event in `GameStateStore.Events`, which `ReconcileKscAction` expects within a 0.1 s window for the "untransformed" action class (`RnDPartPurchase` is listed at todo #437's line 353 in the "Untransformed (WARN on missing or mismatched event)" bucket).
-
-**Concern:** the split between "action captured" and "event missing" points at one of three causes:
-
-1. **KSP does not fire `Funding.onFundsChanged` on `AvailablePart` purchase in R&D.** The `OnPartPurchased` handler subscribes to `GameEvents.OnPartPurchased` (`GameStateRecorder.cs:166`), which fires when the player buys a locked part in the R&D screen. The actual funds deduction inside KSP's stock code path may bypass `Funding.AddFunds(-cost)` (and therefore `onFundsChanged`) — the cost is debited directly against `Funding.Instance.Funds`. If so, there is no `FundsChanged` event for the reconciler to match and every RnDPartPurchase action will trip this WARN by construction. Easy to verify: `ilspycmd` on `PartPurchasePopup`/`RDController` and check whether part-purchase goes through `AddFunds` or a direct setter. If direct setter, KSP never emits `onFundsChanged` and our converter has nothing to convert.
-2. **Batch purchase in the same physics tick collapses events.** All 8 WARNs share `ut=201.3` — a batch of part buys through a tech-node unlock or a "buy all parts in node" R&D UI affordance. If KSP does fire `onFundsChanged` but all 8 fire within one tick, `GameStateStore.AddEvent`'s dedup key (by `eventType`/`key`/`ut` bucket) may collapse them to a single stored event, and the reconciler then matches only one of the 8 actions.
-3. **Timing-window mismatch.** The `FundsChanged` event fires, but at a UT that falls outside the 0.1 s window around ut=201.3 (e.g., the purchase records at scene-transition UT while KSP's `onFundsChanged` fires after a small async delay). Less likely given the `TransactionReasons.RnDPartPurchase` matching key is specific enough that a simple window widen should resolve it, but worth ruling out before code changes.
-
-All three are plausible on the evidence alone. Investigation must disambiguate.
-
-**Investigation steps:**
-1. Decompile KSP's part-purchase path (`ilspycmd` on `Assembly-CSharp.dll`, classes `PartPurchasePopup`, `RDController`, `RDPartActionMenu`). Confirm whether the funds deduction goes through `Funding.AddFunds(-cost, TransactionReasons.RnDPartPurchase)` (which fires `onFundsChanged`) or a direct field mutation.
-2. If KSP fires `onFundsChanged`: add a one-shot VERBOSE log inside `GameStateRecorder.OnFundsChanged` that prints `reason + delta + ut` for every `RnDPartPurchase` delta. Re-run the smoke test. If zero lines appear at ut=201.3, KSP didn't fire the event (cause 1). If 8 lines appear but only 1 event sticks in `GameStateStore`, the dedup is collapsing them (cause 2). If 8 lines appear at a different UT than 201.3, it's a window-width problem (cause 3).
-3. If cause (1) is confirmed, the fix is structural: `OnPartPurchased` must emit a synthetic `FundsChanged` event (in addition to the ledger action) at the purchase UT with `reason=RnDPartPurchase` so the reconciler has something to match against. Alternative: widen `ReconcileKscAction`'s RnDPartPurchase bucket to NOT require a matching event (classify it as "action is authoritative, no reconciliation needed").
-4. If cause (2) is confirmed, the dedup logic in `GameStateStore.AddEvent` needs a monotonic counter appended to the key for high-frequency batch events. This is a schema-sensitive change — coordinate with the event format to ensure old saves still load.
-
-**Fix:** depends on which cause the investigation pins. Most likely path (cause 1):
-- Add a helper `GameStateRecorder.EmitSyntheticFundsChanged(float delta, TransactionReasons reason)` that writes a `FundsChanged` `GameStateEvent` with `valueBefore`/`valueAfter` derived from the current `Funding.Instance.Funds` snapshot.
-- Call it from `OnPartPurchased` at the top of the handler, symmetric to the ledger-action write at line 498.
-- Add a regression test in `GameStateRecorderLedgerTests.cs` asserting that an `OnPartPurchased` call produces both a `PartPurchased` event AND a `FundsChanged(RnDPartPurchase)` event, and that `ReconcileKscAction` does not WARN.
-
-**Files:** `Source/Parsek/GameStateRecorder.cs:468-499` (OnPartPurchased — add synthetic event emit), `Source/Parsek/GameActions/LedgerOrchestrator.cs` (ReconcileKscAction — verify the window-match path), `Source/Parsek/GameStateEventConverter.cs` (make sure the synthetic event is NOT converted to a second `FundsSpending` action — must stay a ledger-silent event, only used for reconciliation). Tests: `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
-
-**Scope:** Small once the investigation identifies the cause; 1-2 hours if cause (1) holds.
-
-**Dependencies:** #405 shipped (which added the OnKscSpending call that causes this WARN to fire in the first place — without #405, there'd be no `FundsSpending` action and therefore no reconciliation target). #437 shipped (which added `ReconcileKscAction`). #442 and #443 are separate ledger-channel gaps and do not overlap with this one.
-
-**Status:** TODO. Priority: medium. Diagnostic-only today (the ledger walk still reconciles the KSP funds pool correctly because the action itself is authoritative), but a session with 8 false-positive WARNs per recalc loop drowns real issues. Not release-blocking for v0.8.2; should ship in v0.8.3 alongside the broader reconciliation cleanup.
+This preserves the useful WARN on genuine no-bypass mismatches while eliminating the stock-default false positives without hiding real debit bugs.
 
 ---
 
-## 447. `RecordingStopMetricsValid` fails on single-point landed debris leaves
+## ~~447. `RecordingStopMetricsValid` fails on single-point landed debris leaves~~
 
 **Source:** in-game test run 2026-04-18 02:25 on save `c5`. `Kerbal Space Program/parsek-test-results.txt` reports `LogContractTests.RecordingStopMetricsValid` FAILED in FLIGHT with `REC-002: Recording e30c5a11537f40a89f2998b18da4f8c5 has 1 points (minimum 2)`. The recording is a breakup debris leaf:
 
@@ -223,21 +185,21 @@ return rec.TrackSections == null || rec.TrackSections.Count == 0;
 
 The failing recording fails both guards: terminal is `Landed` (not `Destroyed`), and the single point lives inside a TRACK_SECTION (`TrackSections.Count == 1`). The #359 fix deliberately narrowed the predicate; a section-backed non-destroyed single-point debris leaf slips past commit and later trips REC-002 on reload.
 
-**Fix:** Widen `IsSinglePointDestroyedDebrisLeaf` (and rename to drop `Destroyed`) so it accepts any terminal state for a debris leaf with exactly 1 trajectory point, 0 orbit segments, no `SurfacePos`, and at most 1 TRACK_SECTION that contains only the same point. A 1-point 0-duration debris leaf carries no playable trajectory regardless of terminal state; pruning it is consistent with #359's original intent. Add a covering unit test variant for `TerminalState.Landed` (and one for `TerminalState.Recovered`) in the same test file that exercises the destroyed case. Update #359's entry with a back-reference noting the widened predicate.
+**Fix:** Widen `IsSinglePointDestroyedDebrisLeaf` (and rename to drop `Destroyed`) so it accepts the fully terminal debris end-states (`Landed`, `Splashed`, `Recovered`, `Destroyed`) for a debris leaf with exactly 1 trajectory point, 0 orbit segments, no `SurfacePos`, and at most 1 TRACK_SECTION that contains only that same point. A 1-point 0-duration debris leaf in one of those end-states carries no playable trajectory; pruning it is consistent with #359's original intent without broadening into "delete any 1-point debris leaf". Add a covering unit test variant for `TerminalState.Landed` (and one for `TerminalState.Recovered`) in the same test file that exercises the destroyed case. Update #359's entry with a back-reference noting the widened predicate.
 
 Alternative (weaker) fix: relax REC-002 by skipping `rec.IsDebris` in `RecordingStopMetricsValid` (`Source/Parsek/InGameTests/LogContractTests.cs:200-235`). Rejected because it drops the contract for real tumbling debris whose sampling legitimately produces ≥2 points today, and hides future creation-path regressions that skip the second sample entirely.
 
 Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` in `CreateBreakupChildRecording`. Adds zero-motion tail samples that all downstream consumers would have to learn to ignore.
 
-**Files:** `Source/Parsek/ParsekFlight.cs:6974-7090` (pruner + predicate, rename), `Source/Parsek/ParsekScenario.cs:2364` (caller — no change required), `Source/Parsek.Tests/` (new unit-test variants for Landed + Recovered terminal states). No migration required for existing saves: the pruner runs on commit/revert, so loading `c5` (or any affected save) and performing any action that commits/reverts will sweep the stale leaf.
+**Files:** `Source/Parsek/ParsekFlight.cs:6981-7208` (pruner + stop-metrics exemption helper/predicates, mirrored-section matcher, deterministic terminal-state breakdown, rename), `Source/Parsek/ParsekScenario.cs:2364` (revert call-site rename to `PruneSinglePointDebrisLeaves`), `Source/Parsek/InGameTests/LogContractTests.cs:203-250` (`RecordingStopMetricsValid` follow-up now skips only the preserved single-point in-flight debris shape in `SubOrbital` / `Orbiting`), `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs` (positive terminal variants plus `SubOrbital` / `Orbiting` preserve paths, terminal-negative boundaries, and `LogContractTests.ShouldSkipStopMetricsValidation` coverage), `CHANGELOG.md` (0.8.2 bug-fix entry for `#447`). No migration required for existing saves: the pruner runs on commit/revert, so loading `c5` (or any affected save) and performing any action that commits/reverts will sweep the stale leaf.
 
-**Scope:** Small. Single-branch widening of one predicate + 2 test variants. No schema change, no serialization change.
+**Scope:** Small. Single-branch widening of one predicate, narrowed to fully terminal/same-point debris, plus boundary unit-test coverage. No schema change, no serialization change.
 
-**Status:** TODO. Priority: medium. User-invisible in normal play (REC-002 fires only under Ctrl+Shift+T), but the leaf it represents is dead data taking 42 KB sidecar space per occurrence, and the underlying creation gap will keep producing these until fixed. Pair with any future follow-up to #359.
+**Status:** ~~Fixed~~ — `IsSinglePointDestroyedDebrisLeaf` widened and renamed to `IsSinglePointDebrisLeaf` (with corresponding `PruneSinglePointDebrisLeaves` / `CollectSinglePointDebrisLeafIds` renames). The predicate now accepts only the fully terminal debris end-states (`Landed`, `Splashed`, `Recovered`, `Destroyed`) for a debris leaf with exactly 1 trajectory point, no orbit segments, no `SurfacePos`, and at most 1 TRACK_SECTION whose only payload is that same single point (no checkpoints). Unit-test coverage in `Bug278FinalizeLimboTests.cs`: Landed / Recovered / Splashed and section-backed Landed positive cases; non-debris single-point Landed leaf preserved (pins the `IsDebris` guard); unset-terminal and `SubOrbital` single-point debris leaves preserved (pins the "terminal debris only" boundary); two-section debris leaf preserved (pins `TrackSections.Count > 1` boundary); single-section debris leaf with one orbit checkpoint preserved (pins `checkpoints == 0` boundary); single-section debris leaf with a different lone frame preserved (pins the "same point" requirement); multi-frame section preserved (real data). Follow-up: `LogContractTests.RecordingStopMetricsValid` now skips only the intentional scene-exit preserve shape as well — a single-point debris leaf in `SubOrbital` or `Orbiting` with no extra data beyond the mirrored seed section — so `REC-002` stays strict for every other committed recording while no longer flagging the newly-kept in-flight debris path. The summary log line in `PruneSinglePointDebrisLeaves` still appends a deterministic terminal-state breakdown (e.g. ` (Landed=2, Destroyed=1)`) via `FormatTerminalStateBreakdown`, kept as one line per sweep so the batch-counting convention still holds. The upstream creation gap in `CreateBreakupChildRecording` is left as-is — every commit/revert sweeps the dead leaf, and seeding a synthetic tail point would force every downstream consumer to learn to ignore it (rejected in the original spec).
 
 ---
 
-## 446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording
+## ~~446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording~~
 
 **Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16211` (single `[EXC]` in the whole session). Reproduced at UT ≈ end-of-session after clicking "Discard Recording" on a saved Gloops recording. Stack: `GloopsRecorderUI.DrawWindow ... [0x001b6]` → `DrawIfOpen+<>c__DisplayClass10_0.<DrawIfOpen>b__0` → `GUILayout.LayoutedWindow.DoWindow`.
 
@@ -284,59 +246,61 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Files:** `Source/Parsek/UI/GloopsRecorderUI.cs:97-195` (re-evaluate locals after button blocks; optionally extract status-label helper), `Source/Parsek.Tests/` (new test), `CHANGELOG.md`.
 
-**Scope:** Small. Single-file fix, one small test.
+**Scope:** Small. Single-file fix, targeted unit tests.
 
-**Status:** TODO. Priority: medium. User-visible exception after a common UI action; recovers on next frame (IMGUI reruns `DrawWindow` with fresh locals) so the session isn't lost, but the `[EXC]` in KSP.log is a release-quality concern.
-
----
-
-## 445. `VesselRollout` without a subsequent recording leaks the build cost
-
-**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. If the player rolls out a vessel, incurs the `FundsChanged(VesselRollout)` deduction, then cancels (never starts recording), no `FundsSpending(VesselBuild)` action is created — and the KSC path has no reconciliation for rollouts that happen without a subsequent recording. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule.
-
-**Fix:** Same shape as #444 — route `TransactionReasons.VesselRollout` through `OnKscSpending` / a rename to `OnKscFundsEvent` so a `FundsSpending(VesselBuild)` action is committed at the real transaction moment, not deferred to recording commit. When a recording later starts from the same vessel, `CreateVesselCostActions` must dedupe against the already-committed action (use `DedupKey = vesselId + startUT` or similar).
-
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-510` (CreateVesselCostActions), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged).
-
-**Scope:** Medium. Crosses two files. Low priority — rare-edge (cancelled rollouts); not a user-visible drain in the default flow. Ship-blockers are #442 first.
-
-**Status:** TODO. Priority: low.
+**Status:** ~~Fixed~~ — `DrawWindow` now snapshots the button-row state into a `StatusSnapshot`, refreshes it from `flight` after the handlers run via `RefreshStatusSnapshot`, and dispatches the status ladder from that fresh snapshot before any saved-recording dereference. `Bug446GloopsDiscardNreTests` now calls the production helpers directly, covering both the original discard path and the same stale-local transition when Start New Recording clears a previously saved capture. The verbose `Gloops state changed mid-DrawWindow` log is emitted only when a button handler actually changed the tracked booleans, so the diagnostic stays high-signal in `KSP.log`.
 
 ---
 
-## 444. `VesselRecovery` at tracking station falls outside every recording window
+## ~~445. `VesselRollout` without a subsequent recording leaks the build cost~~
+
+**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. KSP's `FundsChanged(VesselRollout)` deduction lands BEFORE `FlightRecorder.CapturePreLaunchResources` runs, so the recording-side delta is already ~0 by the time the recording starts capturing — meaning **every** career launch+record was silently dropping the build cost from the ledger total, not just the cancelled-rollout corner case. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule, so the KSC path has no reconciliation either.
+
+**Fix:** Vessel build cost is now committed to the ledger when KSP deducts it. `GameStateRecorder.OnFundsChanged` forwards `TransactionReasons.VesselRollout` deductions to `LedgerOrchestrator.OnVesselRolloutSpending`, which commits a `FundsSpending(VesselBuild)` action immediately (tagged `RecordingId=null`, with a `DedupKey` that keeps the `rollout:` prefix and now also stores rollout context) and runs the existing KSC reconciliation. `LedgerOrchestrator.ClassifyAction` pairs the new action against `FundsChanged(VesselRollout)` events. `CreateVesselCostActions` calls `TryAdoptRolloutAction` before deriving its own build cost, but only for recordings whose `StartSituation` is `Prelaunch` — that keeps post-liftoff Record clicks from stealing the launch cost into a mid-flight recording. The adoption window is deliberately broad (30 minutes of UT) so a player can sit on the pad/runway for several minutes before pressing Record and still have the build cost tagged onto the real launch recording, but adoption now also requires the stored rollout context to match the recording's vessel/site context (prefer matching `VesselPersistentId`, else fall back to vessel name + launch site). Compatibility follow-up: saves written by the immediately previous follow-up commit may still carry bare `rollout:<UT>` dedup keys with no context fields, so the parser treats that exact legacy key shape as window-only-adoptable until the action is reattached. When multiple eligible unclaimed rollouts sit in the window before `startUT`, the action is re-tagged onto the new recording in LIFO order — but only among matching rollouts when context exists — instead of double-charging. Cancelled rollouts simply leave the null-tagged action in the ledger so the funds total stays in sync with KSP. The result: launching, recording, and committing a flight now charges the build cost exactly once; long prelaunch waits still claim it; post-liftoff recordings do not; unrelated prelaunch recordings cannot steal a stranded rollout from another vessel/site when context is present; and upgrade/load of the immediately previous bare-key saves still reattaches the stored rollout charge.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (CreateVesselCostActions, rollout-context serialization, legacy bare-key compatibility in `ParseRolloutAdoptionContext`/`TryAdoptRolloutAction`, CanRecordingAdoptRolloutAction, OnVesselRolloutSpending, ClassifyAction), `Source/Parsek/GameStateRecorder.cs` (OnFundsChanged), `Source/Parsek.Tests/Bug445RolloutCostLeakTests.cs` (expanded regression coverage for prelaunch-only adoption, long pad-wait adoption, vessel/site mismatch guards, LIFO adoption, save-load round-trip, legacy bare-key upgrade/load compatibility, and residual-buildCost branches).
+
+**Scope:** Medium. Crosses `GameStateRecorder` + `LedgerOrchestrator` plus targeted regression tests. Fixed on this branch; the post-review follow-up tightened adoption to prelaunch-start recordings, widened the prelaunch claim window so the fix matches normal pad-start play, correlates rollout adoption back to the same vessel/site before reassigning `RecordingId`, and keeps upgrade/load compatibility with the immediately previous bare `rollout:<UT>` key shape.
+
+**Status:** ~~Fixed~~. Priority: low.
+
+---
+
+## ~~444. `VesselRecovery` at tracking station falls outside every recording window~~
+
+**Status:** ~~Fixed~~. `LedgerOrchestrator.OnVesselRecoveryFunds(ut, vesselName, fromTrackingStation)` still handles true outside-FLIGHT recoveries, but the follow-up fixes tighten the pairing contract: `GameStateStore.AddEvent` treats `FundsChanged(VesselRecovery)` as a hard coalescing barrier (so later non-recovery resource events cannot scan past it and merge with older deltas), consumed recovery tracking uses a stable event fingerprint instead of mutable store indices, and recovery `FundsEarning` actions now persist that fingerprint through ledger save/load. `LedgerOrchestrator.OnKspLoad` also repairs legacy recovery earnings from the first follow-up commit that were saved without `DedupKey`; that repair now uses a float-aware amount tolerance, so large payouts whose stored `FundsAwarded` widened beyond $0.01 still map back to the original recovery event and replayed recoveries after load continue to dedup against the already-credited action. `ParsekScenario.OnVesselRecovered` now calls the real-time patch path only when no pending-tree recording still owns the vessel; pending/live recoveries stay on the commit-time path, where `CreateVesselCostActions` prefers the paired `FundsChanged(VesselRecovery)` event near recording end UT (and can now emit it even for very short/single-point recovered recordings). `PickRecoveryRecordingId(vesselName, ut)` still prefers the bracketing flight, then the most recent same-named flight that already ended, then the global latest by `EndUT`, all skipping ghost-only recordings. `Initialize` pins `VesselRecoveryReasonKey` against `TransactionReasons.VesselRecovery.ToString()` and WARNs on drift. Regression coverage now spans the recovery-barrier coalescing guard, back-to-back bulk recoveries, commit-time paired-event preference, single-point paired recoveries, legacy load repair including a large float-rounding case, the pending-tree outside-FLIGHT gate, same-UT wrong-reason rejection, and pre-seeded recovery-action dedup.
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17390-17462` window analysis. Recovering a vessel from the tracking station (or from the flight results screen at KSC) emits `FundsChanged(VesselRecovery)` at a UT that lies outside any recording window (e.g., between consecutive recordings). `LedgerOrchestrator.CreateVesselCostActions:486` only emits `FundsEarning(Recovery)` when the recording's `TerminalStateValue == Recovered` AND the event falls inside `Points[]`. Recovery performed after the recording has already ended misses this gate, and the `FundsChanged` event is dropped by the converter.
 
 **Smoke-test impact:** one `VesselRecovery +4005` at ut=3980.4 in the bundle, between recording 1 (ends ~177) and recording 2 (starts 3988.6). `ReconcileEarningsWindow` doesn't flag it because the recovery happens outside any recording's UT window — it's just silently lost from the ledger.
 
-**Fix:** Route `TransactionReasons.VesselRecovery` through `LedgerOrchestrator.OnKscSpending` (or a dedicated `OnKscFundsEvent` path) so a `FundsEarning(Recovery)` action is committed at the real-time recovery moment with `UT = event UT` and `RecordingId = nearest-recording-by-name` (or null for recovery of non-Parsek vessels). Match the existing pattern `CreateVesselCostActions` uses for the amount (last-point - penultimate-point).
+**Fix:** Keep `TransactionReasons.VesselRecovery` on a dedicated recovery path. `LedgerOrchestrator.OnVesselRecoveryFunds` pairs the real-time callback to the matching `FundsChanged(VesselRecovery)` event, emits `FundsEarning(Recovery)` at the event UT, and tags it to the best matching non-ghost recording (or null). Pending/live recoveries are left for commit time, where `CreateVesselCostActions` pairs the recovery event near the recording end UT instead of relying only on the last-point delta. Stable dedup fingerprints prevent double-credit from repeated callbacks or replayed recovery actions.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:2028-2053` (OnKscSpending), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged). New test in `GameStateRecorderLedgerTests.cs` or a sibling file.
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek/GameStateStore.cs`, `Source/Parsek/ParsekScenario.cs`, `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`, `Source/Parsek.Tests/GameStateEventTests.cs`, `Source/Parsek.Tests/LedgerOrchestratorTests.cs`, `Source/Parsek.Tests/ParsekScenarioRecoveryRoutingTests.cs`.
 
 **Scope:** Medium. Crosses GameStateRecorder + LedgerOrchestrator. Medium priority — affects tracking-station recoveries and post-flight KSC recoveries.
 
-**Status:** TODO. Priority: medium.
-
 ---
 
-## 443. `EnrichPendingMilestoneRewards` write-back silently fails for some node IDs
+## ~~443. `EnrichPendingMilestoneRewards` write-back silently fails for some node IDs~~
+
+**Status:** ~~Fixed~~ in this PR. Re-keyed the pending map from `ProgressNode` reference to qualified milestone id (`PendingMilestoneEventById`, e.g. `Kerbin/Landing`) at both the `OnProgressComplete` writer and the `ProgressRewardPatch.RoutePostfix` reader. Promoted the no-pending-event miss log from `Verbose` to `Warn` and added a defensive `Warn` when `GameStateStore.UpdateEventDetail` reports no matching slot. Gated the trailing "Milestone enriched" Info on the actual `storeUpdated` return so an operator never sees a contradicting Warn+Info pair. Investigation also surfaced the actual root cause: `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local `evt`; the cached pending entry kept `epoch=0` while the stored slot carried the live epoch, so `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed on every save where `CurrentEpoch != 0` (i.e. every save with at least one revert in its history). Fixed by mirroring `MilestoneStore.CurrentEpoch` (and `recordingId`, defense-in-depth) onto the cached pending event after `Emit`; the structural follow-up to convert `Emit`/`AddEvent` to take `ref GameStateEvent` is filed as #453. Follow-up review also fixed a lifecycle regression from the string-keyed map: `ResetForTesting` and every recorder unsubscribe/subscribe now clear `PendingMilestoneEventById`, so stale ids cannot survive an `OnLoad` resubscribe and misroute later `AwardProgress` calls down the enrich branch. Six unit tests now pin the happy path under non-zero epoch, the defensive store-miss warn path with an explicit cached-vs-stored mismatch reproduction, re-key tolerance to aliased `ProgressNode` instances, the post-fix vs pre-fix epoch-mirror parity, direct reset clearing, and the post-reset route back to the standalone world-record branch.
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17459-17462`. `FundsChanged +800 (Progression)` fires at ut=4134.8 for the `Kerbin/Landing` node. The patch's INFO log reports enrichment success, but no `Updated event detail` line follows and the subsequent commit at KSP.log:18024 credits the milestone with `funds=0`. Same pattern may affect other OnProgressComplete-emitting nodes; only Records* (which don't fire OnProgressComplete at all) are covered by #442.
 
-**Root cause (suspected):** `pendingMilestoneEvents` in `GameStateRecorder` keys the map by `ProgressNode` reference or a stringified ID that doesn't match what `EnrichPendingMilestoneRewards` looks up. When `Complete()` re-enters the patch chain, the pending-event map entry for that node ID is missed. The miss is logged only at `Verbose` — invisible in default log settings.
+**Root cause:** Two compounding defects. (1) `GameStateEvent` is a value type; `GameStateStore.AddEvent` stamps `MilestoneStore.CurrentEpoch` onto the appended slot but not onto the caller's local copy, so the cached pending entry's `epoch` field stayed at 0 while the stored slot carried the live epoch. `UpdateEventDetail` matches on `ut + eventType + key + epoch`, so the lookup missed on every save whose epoch had ever been bumped (every save with at least one revert in its history). (2) The pending map was keyed by `ProgressNode` reference, leaving a latent risk of instance-aliasing inside KSP's reward pipeline — and the miss log was `Verbose`, invisible in default log settings.
 
-**Fix:** Key the `pendingMilestoneEvents` map by `node.Id` string (not ProgressNode reference). Change the miss log from `Verbose` to `Warn` so it's visible in default logs. Add a unit test: `pendingMilestoneEvents` with a known ID, call enrichment with the same ID, assert map updated.
+**Fix:** Re-key `PendingMilestoneEventById` by qualified id string, mirror `MilestoneStore.CurrentEpoch` (and, defense-in-depth, `recordingId`) onto the cached event after `Emit`, promote the miss log to `Warn` with id+rewards+map-size context, add a defensive `Warn` when `UpdateEventDetail` returns false, gate the trailing "Milestone enriched" Info on the actual `storeUpdated` boolean (Verbose with a "ledger only, store skipped" note on the miss branch so an operator never sees a contradicting Warn+Info pair), and pin the behavior with four unit tests (end-to-end at `epoch=3`, store-miss warn with explicit `AddEvent` to prove the cached-vs-stored mismatch shape, aliased-instance enrich, post-fix vs pre-fix epoch-mirror parity).
 
-**Files:** `Source/Parsek/GameStateRecorder.cs:847-892` (OnProgressComplete), `Source/Parsek/GameStateRecorder.cs:915-980` (EnrichPendingMilestoneRewards), `Source/Parsek/Patches/ProgressRewardPatch.cs`.
+**Files:** `Source/Parsek/GameStateRecorder.cs` (OnProgressComplete + new `RegisterPendingMilestoneEvent` seam, `EnrichPendingMilestoneRewards`, `PendingMilestoneEventById`), `Source/Parsek/Patches/ProgressRewardPatch.cs` (id-keyed branch lookup), `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs` (4 new tests + migrated existing tests off the old field name).
 
-**Scope:** Small — localized to one file. New unit test.
-
-**Status:** TODO. Priority: high. Pairs with #442; expect them fixed together since they share the ProgressRewardPatch code path.
+**Scope:** Small — three files. Surgical, composes with #442's standalone-emit path. Spawned a defense-in-depth refactor follow-up: see #453 for the `ref GameStateEvent` pass-through that would eliminate the value-type field-mirror class of bug structurally.
 
 ---
 
-## 442. World-record progress nodes (`RecordsSpeed`/`Altitude`/`Distance`/`Depth`) have no ledger capture
+## ~~442. World-record progress nodes (`RecordsSpeed`/`Altitude`/`Distance`/`Depth`) have no ledger capture~~
+
+**Status:** ~~Fixed~~ — `ProgressRewardPatch` now branches on whether `OnProgressComplete` already left a pending entry for the node; if not, it emits a fully-populated standalone `MilestoneAchieved` via `GameStateRecorder.EmitStandaloneProgressReward`, so world-record rewards reach the ledger and the converter's drop-rule no longer swallows the paired `FundsChanged(Progression)` deltas. `MilestonesModule` also treats `Records*` milestones as repeatable earnings. `KspStatePatcher` now scopes repeatable-record writeback in two modes: rewind-style authoritative patching rebuilds `record` / `rewardThreshold` / `rewardInterval` / iterator / completion strictly from surviving ledger hits so discarded future-branch progress does not leak through, while normal same-branch recalculations preserve the live best value when it still fits the current reward band, including sub-threshold progress in the initial unpaid band before the first paid hit.
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log`. A fresh career without strategies fires `PatchFunds: suspicious drawdown` WARN 5× during normal play. Root cause: KSP's world-record `ProgressNode` subclasses (`RecordsSpeed`, `RecordsAltitude`, `RecordsDistance`, `RecordsDepth`) call `AwardProgress` directly without going through `OnProgressComplete`. No `MilestoneAchieved` event fires, so `Source/Parsek/Patches/ProgressRewardPatch.cs` has no pending event to enrich and `GameStateEventConverter` has nothing to convert. The `FundsChanged(Progression)` event is dropped wholesale by the converter's drop-rule (`GameStateEventConverter.cs:138-146`, which assumes every `Progression` FundsChanged has a companion `MilestoneAchieved`).
 
@@ -351,7 +315,7 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Scope:** Small. Single-patch change with clear regression target. Phase B's `ReconcileEarningsWindow` already exists as the test vehicle — add a case that asserts zero mismatch after the fix.
 
-**Status:** TODO. **Priority: highest.** Release-blocking for v0.8.2 — this is the bug that drove the whole ledger reconciliation work to be visible in-game, and it's still firing on a fresh career. Per smoke-test verdict: do not ship v0.8.2 without this fix.
+**Status:** ~~Fixed~~ in this PR.
 
 ---
 
@@ -498,6 +462,40 @@ Injection decisions per tree:
 
 ---
 
+## ~~443. Short loop period stacks ghosts at the launch pad (dense-overlap cap + newest-cycle retention)~~
+
+**Source:** user report `2026-04-18`, log at `logs/2026-04-18_1106_ghosts-stuck-at-pad/KSP.log` (user toggled period from 101 s -> 10 s -> 1 s -> 1 s -> 10 s on a 164 s Learstar A1 recording; visible stack of ghosts at launch, none advancing past the first few seconds of trajectory).
+
+**Symptom:** under aggressive overlap (period << duration), the flight scene showed 5 ghosts clustered at the launch pad with none past the first few seconds of trajectory. The user's expected visual was a staggered cascade across the whole trajectory.
+
+**Cause — two factors:**
+
+- **Factor A (expected, not a bug):** the static-pad visual window is 1-3 s of every recording. Leading stationary points are trimmed at commit time (`TrajectoryMath.FindFirstMovingPoint` at `TrajectoryMath.cs:86-112` with `altitude change >= 1 m OR speed >= 5 m/s`), but those thresholds are low — a typical rocket takes 1-3 s to clear the clamp and gain 1 m altitude. So the first retained trajectory seconds still position the ghost essentially on the pad.
+
+- **Factor B (the actual bug):** `GhostPlaybackEngine.MaxOverlapGhostsPerRecording = 5` plus `GhostPlaybackLogic.GetActiveCycles` retaining the N newest cycles (`firstActiveCycle = lastActiveCycle - maxCycles + 1`, `GhostPlaybackLogic.cs:279-280`). With period=1 s, every retained cycle had phase < 5 s — i.e. inside Factor A's window. Older cycles that would be visibly mid-trajectory were silently culled.
+
+**Fix — three coordinated changes:**
+
+1. `GhostPlaybackLogic.MinCycleDuration` 1.0 -> 5.0 (`GhostPlaybackLogic.cs:21`). UI period inputs in `RecordingsTableUI` and `SettingsWindowUI` already clamp against this constant and pick up the new floor automatically. 5 s matches the speed-threshold used by `FindFirstMovingPoint` and is the smallest value that lets a typical rocket clear the launch clamp between successive cycles.
+2. `GhostPlaybackEngine.MaxOverlapGhostsPerRecording` 5 -> 10 (`GhostPlaybackEngine.cs:47`). `ParsekKSC.MaxOverlapGhostsPerRecording` 20 -> 10 (`ParsekKSC.cs:47`) for consistency. Both scenes share the same cap.
+3. New pure-static `GhostPlaybackLogic.ComputeEffectiveLaunchCadence(userPeriod, duration, maxCycles)` that clamps to `MinCycleDuration` then doubles the period until `ceil(duration/cadence) <= maxCycles`. Called from `GhostPlaybackEngine.UpdateOverlapPlayback` (`:1041-1049`) and `ParsekKSC.UpdateOverlapKsc` (`:413-420`). The user's stored period is unchanged; only the runtime spawn rate is adjusted. This guarantees the cap is never exceeded, so no cycle is ever silently culled mid-trajectory.
+
+**Observability (non-spamming):** both engine and KSC track the last-logged `(recordingIndex, userPeriod, effectiveCadence, duration)` tuple per recording in a private dictionary (`lastLoggedCadence` / `lastLoggedKscCadence`). `LogOverlapCadenceIfChanged` / `LogKscCadenceIfChanged` emit exactly one INFO line when the tuple changes (including the first time a recording enters overlap mode). Steady-state silent. Log format:
+
+```
+[Parsek][INFO][Engine] Loop cadence #{idx} "{vesselName}": requested={requested}s duration={duration}s cap={cap} effective={effective}s (cycles={m}) {verdict}
+```
+
+**Tests:** 8 new cases in `LoopPhaseTests.cs` (`ComputeEffectiveLaunchCadence_Tests` region): `WithinCap_ReturnsUserPeriod`, `PeriodBelowMin_ClampedToMinThenPossiblyDoubled`, `ExceedsCap_DoubledUntilFits`, `CapOneDegenerate_DoublesUntilWholeTrajectoryFits`, `ZeroDuration_ReturnsClampedMinPeriod`, `ZeroCap_ReturnsClampedMinPeriod`, `HugeDuration_TerminatesInBoundedIterations`, `NaNPeriod_FallsBackToMin`. Plus updated existing tests that pinned `MinCycleDuration = 1` (`RuntimePolicyTests.GetActiveCycles_*`, `BugFixTests.Bug84_LoopPhaseOverflowTests.*`, `LoopPhaseTests.*ClampsToMinCycleDuration`, `KscGhostPlaybackTests.TryComputeLoopUT_*Interval_*`, `GhostPlaybackEngineTests.TryComputeLoopPlaybackUT_NegativeInterval_DefensivelyClamped_NoThrow`, `SyntheticRecordingTests.RecordingBuilder_WithLoopPlayback_WritesLoopMetadata`).
+
+**Files touched:** `Source/Parsek/GhostPlaybackLogic.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/ParsekKSC.cs`, `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/LoopPhaseTests.cs`, `Source/Parsek.Tests/RuntimePolicyTests.cs`, `Source/Parsek.Tests/BugFixTests.cs`, `Source/Parsek.Tests/KscGhostPlaybackTests.cs`, `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`, `Source/Parsek.Tests/SyntheticRecordingTests.cs`, `CHANGELOG.md`.
+
+**Review follow-up (P1):** `WatchModeController.ResolveWatchPlaybackUT` was passing the user-requested `intervalSeconds` to `ComputeOverlapCycleLoopUT`, while the engine's `UpdateOverlapPlayback` assigns `loopCycleIndex` using the effective (cadence-doubled) value. Under any cadence-adjusted recording, entering or reloading watch on an overlap ghost would reconstruct the wrong `cycleStartUT` and jump the camera/ghost to the wrong phase (drift = `(effective - user) * loopCycleIndex`). Fixed by computing the effective cadence inside the overlap branch of `ResolveWatchPlaybackUT` before calling `ComputeOverlapCycleLoopUT`. Dispatch (`IsOverlapLoop`) still uses the user period — matching the engine's dispatch at `GhostPlaybackEngine.cs:900`. Two regression tests added: `ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase` (pins the corrected invariant) and `ComputeOverlapCycleLoopUT_UserPeriodWhileEngineDoubled_ProducesWrongPhase` (documents the drift that existed before the fix).
+
+**Status:** ~~Fixed~~. Size: M.
+
+---
+
 ## ~~441. Ledger.Reconcile must prune spendings by RecordingId so negative-residual legacy migrations can reconcile cleanly~~
 
 **Source:** follow-up to #436 (Phase A) — the "trees whose flight net-lost science or reputation" pathway that Phase A skipped with WARN. `LegacyMigrationTests` used to pin `NegativeScience_SkipsWithWarn_MarksApplied` / `NegativeReputation_SkipsWithWarn_MarksApplied`: negative residuals logged and dropped, the residual silently lost, because `Ledger.Reconcile`'s spending branch pruned only by UT (not by RecordingId). Emitting a `ScienceSpending` / `ReputationPenalty` for the missing magnitude would have correctly reduced the pool on the next walk but would have survived `Reconcile` after the tree was discarded — a permanent orphan. Earnings already had symmetric RecordingId pruning; spendings didn't.
@@ -524,6 +522,24 @@ Injection decisions per tree:
 **Round 3 follow-up (second external review on PR #343):** `LedgerOrchestrator.CanAffordScienceSpending` / `CanAffordFundsSpending` (the helpers `TechResearchPatch` gates research purchases on) still walked the full ledger with no cutoff. Because `Ledger.Reconcile` does not prune earnings or spendings outside the `RecordingId ∉ validRecordingIds` rule, post-rewind future actions survive the persisted ledger and leaked into "what's the state right now?" — a research purchase could be wrongly allowed (player sees science they would have earned later) or wrongly blocked (a future spending made them broke in the future, so affordability says no now). Fix: both helpers now pass `Planetarium.GetUniversalTime()` as the UT cutoff to `RecalculationEngine.Recalculate`. The Planetarium call is routed through a private `GetNowUT()` that defers to an internal `NowUtProviderForTesting` seam when set, because `Planetarium.GetUniversalTime()` throws NRE in the xUnit Unity-static-free harness (documented in existing `FastForwardTests` and `Bug278SnapshotPersistenceTests` comments); the seam is cleared in `ResetForTesting` and stays null in production. Six new tests in `RewindUtCutoffTests.cs` cover post-rewind future-earning filtering for both helpers, past-earning-still-counts for both, future-spending-not-pre-counted via the pre-pass, and a null-seam pin that asserts the helper does NOT wrap Planetarium access in defensive error handling.
 
 **Status (Phase D):** ~~DONE~~ via the `fix/rewind-ut-cutoff-explicit-param` branch. Unit tests in `Source/Parsek.Tests/RewindUtCutoffTests.cs` (40 cases) cover every action type's cutoff behavior, the null / 0.0 / negative / past-all edge cases, seed-always-survives, the two-pass no-globals regression, mixed earning/spending filtering, log-content assertions, the five deadline-synthesis round-2 cases, and the six affordability-helper round-3 cases.
+
+---
+
+## ~~442. Watch camera jumps to the newest iteration when an unrelated overlap cycle of the watched Gloops recording expires~~
+
+**Source:** user report `2026-04-18`.
+
+**Symptom:** while watching a ghost of a Gloops recording (`period < duration`), the camera abruptly retargets to the current primary whenever any other overlap cycle of the same recording expires — even though the watched cycle is still playing normally. With a short period (deep overlap stack), the camera can "walk" through cycle expiries one by one and never settle on the ghost the user chose. The user-reported framing: "the camera should not automatically switch to the new ghost that launches (next loop iteration), but should just follow the ghost until mission end."
+
+**Cause:** `WatchModeController.HandleOverlapCameraAction` did not filter `ExplosionHoldStart` / `ExplosionHoldEnd` events by `NewCycleIndex`. The engine emits one event per overlap-ghost expiry (`GhostPlaybackEngine.UpdateExpireAndPositionOverlaps` at `:1186-1196`, with `NewCycleIndex = <expiring cycle>`), and the controller unconditionally ran the hold/bridge path — wiping `watchedOverlapCycleIndex` to `-2` / `-1`, installing a hold or bridge anchor at the expiring cycle's position, and then retargeting via the bridge resolver to the current primary. That primary is always the newest iteration, so the camera "jumped forward" every time any older cycle of the same recording expired.
+
+**Fix:** added a cycle-mismatch early-return at the top of both `ExplosionHoldStart` and `ExplosionHoldEnd` cases in `HandleOverlapCameraAction`. When `evt.NewCycleIndex != watchedOverlapCycleIndex`, the handler logs a rate-limited VERBOSE line (`CameraFollow` subsystem, `overlap-hold-{start|end}-skip-<idx>` key) and returns. When the expiring cycle IS the watched cycle, the existing hold → bridge → `TryResolveOverlapBridgeRetarget` → retarget-to-current-primary path still runs unchanged, so the user hands off cleanly to the most-recently-launched iteration exactly when their watched ghost's own cycle ends. `HandleLoopCameraAction` needs no change — the single-ghost regular-loop path has only one live cycle per recording, so every event it emits is about the watched cycle by construction.
+
+**Tests:** four pure-static cases in `Source/Parsek.Tests/WatchModeControllerTests.cs` exercising the extracted predicate `WatchModeController.ShouldIgnoreOverlapCycleEvent(eventCycleIndex, watchedCycleIndex)` directly: `_NonWatchedCycle_Ignored`, `_WatchedCycle_NotIgnored`, `_ReadyForNextSentinel_IgnoresRealEvent` (watched=-1), `_HoldingSentinel_IgnoresRealEvent` (watched=-2). The predicate is a separate `internal static` function so tests don't JIT-load the live `HandleOverlapCameraAction` body (which references `FlightCamera.fetch` / `UnityEngine.GameObject` — the xUnit Unity stub throws `SecurityException: ECall methods must be packaged into a system module` on those type references). Full-handler wired coverage (watched-cycle guard-passes path, rate-limit-log emission, `overlapRetargetAfterUT` mutation) is not unit-tested and relies on in-game verification.
+
+**Files touched:** `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/WatchModeControllerTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. Size: XS.
 
 ---
 
@@ -918,26 +934,19 @@ Added `ParsekSettings.CurrentOverrideForTesting` hook so unit tests can exercise
 
 ---
 
-## 423. Stock ion engine audio clip `sound_IonEngine` is missing on ghost playback (underlying cause behind the #421 dedupe)
+## ~~423. Stock ion engine audio clip `sound_IonEngine` is missing on ghost playback (underlying cause behind the #421 dedupe)~~
 
 **Source:** review follow-up on PR #328's `#421` fix. `#421` only deduped the `GhostAudio` "AudioClip not found" WARN per `(ghost, pid, clip path)`. The underlying reason the clip cannot be resolved at ghost-build time was intentionally left for a separate pass so the dedupe could ship first.
 
 **Concern:** Every live-career and showcase ghost that carries a stock ion engine (`ionEngine` / `IX-6315 "Dawn"`) silently plays without engine audio during ghost playback, which is a visual-fidelity regression relative to the real vessel. The playtest log that surfaced `#421` (`logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:15772, 18092, 22369, 26985, 35917, 41246, 45772`) shows the warn firing 7 times for the same `ionEngine` pid=100000 — the clip path `sound_IonEngine` never resolves.
 
-**Investigation hints:**
+**Investigation outcome:** The stock cfg `GameData/Squad/Parts/Engine/ionEngine/ionEngine.cfg` does reference `clip = sound_IonEngine` in its `EFFECTS { IonPlume { AUDIO { ... } } }` block (so Parsek's `GhostAudioPresets.presetMap` was using exactly the cfg-declared name), but the audio asset is NOT surfaced through `GameDatabase.GetAudioClip` in KSP 1.12 — `GameData/Squad/Sounds/` ships only the rocket/explosion/UI clips (`sound_rocket_hard`/`mini`/`spurts`, `sound_jet_deep`, `sound_explosion_*`, etc.) and no `sound_IonEngine` .wav/.ogg/asset bundle entry that `GameDatabase` indexes. The OMS `MonoPropellant_Light → sound_rocket_mini` lookup in the same playtest log resolves cleanly (line 11552), confirming the lookup pipeline works for clips that actually ship — the issue is specific to this one missing clip rather than an asset-bundle scanning timing bug. Per the bug spec, this is the "genuinely missing from the install" branch — adjust the lookup rather than logging WARN forever.
 
-- Grep `Source/Parsek/GhostAudio*` / `GhostVisualBuilder.TryBuildAudioFX` for `sound_IonEngine` and trace where the clip path is synthesized. Likely candidates:
-  - `GhostAudioPresets.presetMap` is emitting `sound_IonEngine` for the `XenonGas` / `ElectricCharge` propellant branch when the stock cfg's actual clip name differs (KSP post-1.12 may ship the clip under `KSP/Sounds/...` or a different base name).
-  - The ghost-build path is looking up the clip via `GameDatabase.Instance.GetAudioClip(...)` with a synthesized path that doesn't match what the stock cfg `EFFECTS { ... RUNNING { ... AUDIO { clip = <path> } } }` block references.
-  - KSP's AudioClip database may not be populated at the UT the ghost is built (ghost-build runs on scenario load, before `GameDatabase` finishes scanning stock sounds in some startup paths).
-- Decompile or read `Assembly-CSharp` for the `ionEngine` part's `EFFECTS` config to compare the clip reference against what Parsek is looking up. See `reference_ksp_decompilation.md` for the `ilspycmd` workflow.
-- Check whether the stock `ionEngine` cfg has been renamed between KSP versions (e.g. `sound_Engine_IonEngine` vs `sound_IonEngine` vs just a `.ogg` path), and whether the mod's clip-resolution code copes with the variant.
+**Fix:** in `GhostAudioPresets.presetMap`, remap `XenonGas` and `ElectricCharge` from the unresolvable `sound_IonEngine` to `sound_rocket_mini` (the quietest available stock clip), and keep ion / EC / jet engines on the quiet loop-volume curve even when the clip path contains `"rocket"`. That decouples volume from clip naming so the fallback stays subtle instead of picking up the louder rocket gain curve. The `#421` dedupe machinery in `GhostVisualBuilder.WarnMissingAudioClipOnce` is left intact as a safety net for any other future genuinely-missing clip. Inline comment in `GhostAudioPresets.cs` records the investigation outcome and points back at the playtest log lines.
 
-**Proposed fix:** depends on root cause. If the preset map is wrong, fix the preset. If the clip is in `GameData/Squad/Sounds/` under a different path, update the lookup. If the clip resolves late, defer the audio build or retry on first playback tick. Whatever the root fix, the `#421` dedupe machinery can stay — it becomes a cheap safety net for any other future genuinely-missing clips.
+**Files touched:** `Source/Parsek/GhostAudioPresets.cs` (remap + quiet-volume resolution helper + investigation comment), `Source/Parsek/GhostVisualBuilder.cs` (use the resolved quiet/rocket profile instead of inferring it from the clip name), `Source/Parsek.Tests/GhostAudioTests.cs` (regression coverage for ion / EC / jet / rocket resolution and the unknown-propellant fallback path).
 
-**Files to touch:** probably `Source/Parsek/GhostAudioPresets.cs` (or wherever the preset map lives), `Source/Parsek/GhostVisualBuilder.cs` (`TryBuildAudioFX`), and a unit test that asserts the correct clip path for the `ionEngine` part name under a mock `GameDatabase`.
-
-**Status:** TODO. Size: S. Low priority — no gameplay regression, only a subtle audio fidelity miss on a specific stock engine. Blocked on inspecting the stock cfg.
+**Status:** ~~Fixed~~. Size: S.
 
 ---
 
@@ -2871,6 +2880,8 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 **Root cause:** loaded background recordings could already hold data in both top-level `Points`/`OrbitSegments` and nested `TrackSections`. Later flushes appended the same section payload again using only a single-boundary-element dedupe, so multi-point overlaps produced duplicated / non-monotonic flat tails that survived session merge. Separately, the crash/continuation coalescer could leave one-point destroyed debris leaf recordings in the tree, which then polluted stop-metric expectations unless pruned.
 
 **Fix:** background append/merge now performs suffix/prefix overlap matching and refuses to preserve flat extensions that are not monotonic past the authoritative section payload. Finalize/revert also prune single-point destroyed debris leaves while explicitly protecting the tree root and active recording IDs. The stale in-game runtime-log assertion was updated to the current logging contract.
+
+**Follow-up #447:** the same predicate was later widened beyond `Destroyed`, but only for the fully terminal debris end-states (`Landed`, `Recovered`, `Splashed`, `Destroyed`), and only when the optional TRACK_SECTION mirrors that same single seed point. The original `Destroyed`-only guard let section-backed Landed debris stubs slip past commit and trip REC-002 on reload. Renamed to `PruneSinglePointDebrisLeaves` / `IsSinglePointDebrisLeaf`; non-terminal or unset one-point debris leaves are still preserved for diagnosis.
 
 **Status:** ~~Fixed~~
 

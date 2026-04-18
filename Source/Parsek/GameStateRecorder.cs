@@ -115,10 +115,82 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;
+            ClearPendingMilestoneEvents("ResetForTesting");
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
             IsReplayingActions = false;
+            BypassEntryPurchaseAfterResearchProviderForTesting = null;
+        }
+
+        /// <summary>
+        /// Test-only seam for the stock R&amp;D-part-purchase difficulty toggle. Production
+        /// reads <c>HighLogic.CurrentGame.Parameters.Difficulty.BypassEntryPurchaseAfterResearch</c>
+        /// directly; tests install a provider to drive both branches without a live KSP game.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
+
+        /// <summary>
+        /// Returns whether the stock R&amp;D difficulty toggle is available and, if so,
+        /// whether KSP bypasses one-time part entry purchases after research.
+        /// </summary>
+        internal static bool TryGetBypassEntryPurchaseAfterResearch(out bool bypassEntryPurchaseAfterResearch)
+        {
+            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
+            if (provider != null)
+            {
+                bypassEntryPurchaseAfterResearch = provider();
+                return true;
+            }
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
+            {
+                bypassEntryPurchaseAfterResearch = false;
+                return false;
+            }
+
+            bypassEntryPurchaseAfterResearch =
+                game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
+        /// Defensive: returns false when no live game exists.
+        /// </summary>
+        internal static bool IsBypassEntryPurchaseAfterResearch()
+        {
+            bool bypassEntryPurchaseAfterResearch;
+            return TryGetBypassEntryPurchaseAfterResearch(out bypassEntryPurchaseAfterResearch)
+                && bypassEntryPurchaseAfterResearch;
+        }
+
+        /// <summary>
+        /// Builds the canonical PartPurchased event payload from stock KSP semantics:
+        /// when bypass is on, the player pays 0; when bypass is off, the player pays
+        /// the part's <c>entryCost</c> (not its rollout/build <c>cost</c>).
+        /// Internal static for unit test coverage.
+        /// </summary>
+        internal static GameStateEvent CreatePartPurchasedEvent(
+            string partName,
+            float entryCost,
+            bool bypassEntryPurchaseAfterResearch,
+            double ut,
+            double currentFunds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float chargedCost = bypassEntryPurchaseAfterResearch ? 0f : entryCost;
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartPurchased,
+                key = partName ?? "",
+                detail = "cost=" + chargedCost.ToString("R", ic),
+                valueBefore = currentFunds + chargedCost,
+                valueAfter = currentFunds
+            };
         }
 
         private bool subscribed = false;
@@ -152,6 +224,7 @@ namespace Parsek
             if (subscribed) return;
             subscribed = true;
             pendingCrewEvents.Clear();
+            ClearPendingMilestoneEvents("Subscribe");
 
             // Contracts
             GameEvents.Contract.onOffered.Add(OnContractOffered);
@@ -199,6 +272,7 @@ namespace Parsek
         {
             if (!subscribed) return;
             subscribed = false;
+            ClearPendingMilestoneEvents("Unsubscribe");
 
             // Contracts
             GameEvents.Contract.onOffered.Remove(OnContractOffered);
@@ -744,15 +818,40 @@ namespace Parsek
                 return;
             }
 
+            double ut = Planetarium.GetUniversalTime();
             Emit(new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
             }, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+
+            // #445: VesselRollout deducts the vessel cost when the player launches from
+            // VAB/SPH onto the launchpad/runway. KSP captures this BEFORE
+            // FlightRecorder.CapturePreLaunchResources runs, so the recording-side
+            // CreateVesselCostActions sees a near-zero PreLaunchFunds-to-first-point delta
+            // and the cost was previously dropped on the floor (especially when the player
+            // cancels the rollout without ever starting a recording). Route the deduction
+            // through the ledger immediately as a FundsSpending(VesselBuild). A subsequent
+            // recording from the same vessel will adopt this action via TryAdoptRolloutAction.
+            //
+            // Sign/positivity contract: OnVesselRolloutSpending is the authoritative
+            // non-positive-cost guard (rejects cost <= 0 with VERBOSE) — we pass the
+            // negated delta unconditionally and let the orchestrator decide, so the
+            // contract is enforced in one place even if KSP ever fires a refund-style
+            // VesselRollout event.
+            //
+            // IsReplayingActions guard mirrors other career-event handlers — KspStatePatcher
+            // replays AddFunds during ledger walks and we must not synthesize new actions.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...FundsChanged(VesselRollout))
+            // above so OnVesselRolloutSpending's ReconcileKscAction can pair the action
+            // against the just-emitted event in GameStateStore.
+            if (reason == TransactionReasons.VesselRollout && !IsReplayingActions)
+                LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)
@@ -885,6 +984,27 @@ namespace Parsek
                 return;
             }
 
+            // Route to the testable helper with a live UT from Planetarium. Production
+            // is the only call site that touches Unity statics; tests call
+            // RegisterPendingMilestoneEvent directly with a literal UT and a controlled
+            // MilestoneStore.CurrentEpoch.
+            RegisterPendingMilestoneEvent(milestoneId, Planetarium.GetUniversalTime());
+        }
+
+        /// <summary>
+        /// #443: emit-and-register half of <see cref="OnProgressComplete"/>, extracted as
+        /// an internal static so the epoch-mirror logic that fixes the silent write-back
+        /// failure (cached pending-map entry vs. stored slot) is directly testable without
+        /// going through the live <see cref="Planetarium"/>/<see cref="GameEvents"/>
+        /// plumbing. Pre-#443 the cached copy retained <c>epoch=0</c> while the stored
+        /// slot carried <see cref="MilestoneStore.CurrentEpoch"/>, so the subsequent
+        /// <see cref="GameStateStore.UpdateEventDetail"/> lookup missed on every save with
+        /// at least one revert in its history and the milestone committed with funds=0.
+        ///
+        /// Internal static for testability.
+        /// </summary>
+        internal static void RegisterPendingMilestoneEvent(string milestoneId, double ut)
+        {
             // #400: KSP's reward pipeline is:
             //   subclass handler -> ProgressNode.Complete() -> OnProgressComplete.Fire()
             //                    -> [this handler runs here, rewards NOT yet applied]
@@ -894,20 +1014,42 @@ namespace Parsek
             // zeros as defaults and rely on the AwardProgressPatch Harmony postfix to
             // update the detail in place once it has the real reward values. For non-
             // career modes the zeros are correct (no rewards apply).
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
             var evt = new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = milestoneId,
                 detail = BuildMilestoneDetail(0.0, 0f, 0.0)
             };
             Emit(evt, "MilestoneAchieved");
 
-            // Tag the node -> event association so the AwardProgress postfix can find
-            // and enrich the right entry. The key is the ProgressNode instance reference,
-            // which is unique per milestone within the current stack frame.
-            PendingMilestoneEventByNode[node] = evt;
+            // #443: Emit (via AddEvent) stamps the current MilestoneStore epoch onto the
+            // event slot it appends to the store. GameStateEvent is a value type, so the
+            // local `evt` here did NOT receive that stamp — it still holds epoch=0. The
+            // cached copy must mirror the stored copy, otherwise UpdateEventDetail's
+            // ut+eventType+key+epoch lookup misses on any save where CurrentEpoch != 0
+            // (i.e. every save with at least one revert in its history).
+            evt.epoch = MilestoneStore.CurrentEpoch;
+            // #443 review: Emit also mutates evt.recordingId on its local copy when the
+            // caller didn't pre-populate it (see Emit's `if (string.IsNullOrEmpty(...))`
+            // branch). No consumer reads recordingId off the cached pending entry today,
+            // but mirroring it here closes the same value-type field-mirror footgun
+            // proactively — if a future caller ever consults evt.recordingId after enrich,
+            // it sees the same string the stored slot carries. Mirrors Emit's stamp logic
+            // (only fill when blank) so we don't overwrite a caller-supplied tag. The
+            // proper structural fix is to refactor Emit/AddEvent to take `ref
+            // GameStateEvent` so all field mutations propagate to the caller in one place;
+            // tracked as bug #453 in docs/dev/todo-and-known-bugs.md.
+            if (string.IsNullOrEmpty(evt.recordingId))
+                evt.recordingId = ResolveCurrentRecordingTag() ?? "";
+
+            // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
+            // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
+            // OnProgressComplete and the AwardProgress postfix derive deterministically
+            // via QualifyMilestoneId(node). Re-keying by string removes any future
+            // exposure to ProgressNode instance-aliasing should KSP ever rebuild nodes
+            // mid-Complete().
+            PendingMilestoneEventById[milestoneId] = evt;
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: MilestoneAchieved '{milestoneId}' (awaiting reward enrichment)");
@@ -933,37 +1075,74 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Short-lived map of ProgressNode -> pending MilestoneAchieved event. Populated
-        /// by <see cref="OnProgressComplete"/> when the event is emitted with zero
-        /// rewards, and read by <see cref="EnrichPendingMilestoneRewards"/> (called from
-        /// the Harmony postfix on <c>ProgressNode.AwardProgress</c>) to update the detail
-        /// string in place with the real funds/rep/sci values from the award parameters.
+        /// Short-lived map of qualified milestone id -> pending MilestoneAchieved event.
+        /// Populated by <see cref="OnProgressComplete"/> when the event is emitted with
+        /// zero rewards, and read by <see cref="EnrichPendingMilestoneRewards"/> (called
+        /// from the Harmony postfix on <c>ProgressNode.AwardProgress</c>) to update the
+        /// detail string in place with the real funds/rep/sci values from the award
+        /// parameters.
+        ///
+        /// #443: Re-keyed from <c>ProgressNode</c> reference to qualified id string. The
+        /// id is derived deterministically by <see cref="QualifyMilestoneId"/> at both the
+        /// emit and enrich call sites, so the lookup no longer depends on KSP handing the
+        /// same instance to both code paths. The cached <see cref="GameStateEvent"/> value
+        /// also carries the current <see cref="MilestoneStore.CurrentEpoch"/>, mirroring
+        /// what <see cref="GameStateStore.AddEvent"/> stamps onto the stored slot — without
+        /// that mirror the <see cref="GameStateStore.UpdateEventDetail"/> lookup misses on
+        /// any save whose epoch has been bumped (every save with at least one revert).
         ///
         /// Entries are removed immediately after enrichment. Stale entries (if AwardProgress
-        /// never fires for a node) don't survive beyond the save session — on load the map
-        /// is empty.
+        /// never fires for a node) don't survive beyond the save session — Subscribe(),
+        /// Unsubscribe(), and ResetForTesting() all clear the map before a new session can
+        /// route rewards through it.
         /// </summary>
-        internal static readonly Dictionary<ProgressNode, GameStateEvent> PendingMilestoneEventByNode
-            = new Dictionary<ProgressNode, GameStateEvent>();
+        internal static readonly Dictionary<string, GameStateEvent> PendingMilestoneEventById
+            = new Dictionary<string, GameStateEvent>(StringComparer.Ordinal);
+
+        internal static void ClearPendingMilestoneEvents(string reason)
+        {
+            int cleared = PendingMilestoneEventById.Count;
+            if (cleared <= 0)
+                return;
+
+            PendingMilestoneEventById.Clear();
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Cleared {cleared} pending milestone reward entr{(cleared == 1 ? "y" : "ies")} ({reason ?? "unspecified"})");
+        }
 
         /// <summary>
         /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c>. Looks
-        /// up the pending MilestoneAchieved event for the given node and updates its
-        /// detail string with the real funds/rep/sci values. If no pending event is
-        /// found (e.g., non-career mode where the subscriber didn't run), this is a
-        /// no-op. Also updates any matching ledger action that was already written via
-        /// <see cref="LedgerOrchestrator.OnKscSpending"/> — otherwise KSC milestones would
-        /// have zero rewards in the ledger.
+        /// up the pending MilestoneAchieved event for the given node (by its qualified
+        /// id) and updates its detail string with the real funds/rep/sci values. If no
+        /// pending event is found (e.g., non-career mode where the subscriber didn't run),
+        /// this is a no-op. Also updates any matching ledger action that was already
+        /// written via <see cref="LedgerOrchestrator.OnKscSpending"/> — otherwise KSC
+        /// milestones would have zero rewards in the ledger.
         /// Internal static for testability.
         /// </summary>
         internal static void EnrichPendingMilestoneRewards(
             ProgressNode node, double funds, float rep, double sci)
         {
             if (node == null) return;
-            if (!PendingMilestoneEventByNode.TryGetValue(node, out var evt))
+            string milestoneId = QualifyMilestoneId(node);
+            if (string.IsNullOrEmpty(milestoneId))
             {
-                ParsekLog.Verbose("GameStateRecorder",
-                    $"EnrichPendingMilestoneRewards: no pending event for node '{node.Id ?? "<null>"}' — skip");
+                ParsekLog.Warn("GameStateRecorder",
+                    "EnrichPendingMilestoneRewards: empty milestone id — cannot enrich");
+                return;
+            }
+            if (!PendingMilestoneEventById.TryGetValue(milestoneId, out var evt))
+            {
+                // #443: promoted from Verbose to Warn so the failure surfaces in default
+                // log settings. A miss here means the AwardProgress postfix ran without a
+                // matching OnProgressComplete-emitted pending event — usually a sign that
+                // either the dict was cleared between emit and enrich, or that the routing
+                // branch in ProgressRewardPatch.RoutePostfix sent us here incorrectly. Carry
+                // enough context (id, expected rewards, pending-map size) to triage.
+                ParsekLog.Warn("GameStateRecorder",
+                    $"EnrichPendingMilestoneRewards: no pending event for milestone id '{milestoneId}' " +
+                    $"(node.Id='{node.Id ?? "<null>"}', funds={funds:F0} rep={rep:F1} sci={sci:F1}, " +
+                    $"pendingMapSize={PendingMilestoneEventById.Count}) — skip");
                 return;
             }
 
@@ -971,9 +1150,23 @@ namespace Parsek
             // GameStateEvent is a value type; the cached `evt` is a separate copy that
             // we must also update for the test hooks and downstream observers.
             string newDetail = BuildMilestoneDetail(funds, rep, sci);
-            GameStateStore.UpdateEventDetail(evt.ut, evt.eventType, evt.key, evt.epoch, newDetail);
+            bool storeUpdated = GameStateStore.UpdateEventDetail(
+                evt.ut, evt.eventType, evt.key, evt.epoch, newDetail);
+            if (!storeUpdated)
+            {
+                // #443: defensive — UpdateEventDetail returning false used to be silent.
+                // Surface it so a future regression in the cached-vs-stored slot match
+                // (epoch, ut, key) is diagnosable from a default-level log. The trailing
+                // happy-path "Milestone enriched" Info is intentionally suppressed in this
+                // branch (logged inside the `else` below) so an operator never sees the
+                // contradicting "store had no matching event" Warn and "Milestone enriched"
+                // Info for the same call.
+                ParsekLog.Warn("GameStateRecorder",
+                    $"EnrichPendingMilestoneRewards: store had no matching event for " +
+                    $"'{evt.key}' ut={evt.ut:F1} epoch={evt.epoch} — detail not patched");
+            }
             evt.detail = newDetail;
-            PendingMilestoneEventByNode.Remove(node);
+            PendingMilestoneEventById.Remove(milestoneId);
 
             // If the event was already forwarded to the ledger via OnKscSpending, the
             // ledger has a zero-reward MilestoneAchievement action we need to update.
@@ -998,8 +1191,87 @@ namespace Parsek
                 }
             }
 
+            // #443 review: only print the happy-path Info when the store side actually
+            // got patched. The earlier shape printed it unconditionally, so on a
+            // store-miss the operator saw a contradicting Warn + Info pair for the same
+            // call. On the miss branch we leave the Warn above as the sole signal and
+            // demote the in-memory-only success line to Verbose for full-fidelity replay.
+            if (storeUpdated)
+            {
+                ParsekLog.Info("GameStateRecorder",
+                    $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+            }
+            else
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Milestone enriched (ledger only, store skipped): '{evt.key}' " +
+                    $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+            }
+        }
+
+        /// <summary>
+        /// #442: emits a fully-populated <see cref="GameStateEventType.MilestoneAchieved"/>
+        /// event for progress nodes whose subclass calls <c>AwardProgress</c> directly
+        /// without going through <c>OnProgressComplete</c> (e.g. <c>RecordsSpeed</c>,
+        /// <c>RecordsAltitude</c>, <c>RecordsDistance</c>, <c>RecordsDepth</c>). Without
+        /// this path the world-record FundsChanged(Progression) deltas are dropped wholesale
+        /// by <see cref="GameStateEventConverter"/>'s drop-rule and the rewards never reach
+        /// the ledger.
+        ///
+        /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c> only when
+        /// no entry exists in <see cref="PendingMilestoneEventById"/> — i.e. when the
+        /// usual two-phase emit-then-enrich path did not run. Bypasses the enrichment-map
+        /// indirection entirely: rewards arrive as method parameters and are baked into
+        /// the event detail directly.
+        ///
+        /// <paramref name="ut"/> is supplied by the caller — production passes
+        /// <see cref="Planetarium.GetUniversalTime"/> from the patch site (which has Unity
+        /// statics live), unit tests pass a literal so they don't NRE on Planetarium.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void EmitStandaloneProgressReward(
+            ProgressNode node, double funds, float rep, double sci, double ut)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: suppressed during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: null node — skipped");
+                return;
+            }
+
+            string milestoneId = QualifyMilestoneId(node);
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: empty node Id — skipped");
+                return;
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = BuildMilestoneDetail(funds, rep, sci)
+            };
+            Emit(evt, "MilestoneAchievedStandalone");
+
             ParsekLog.Info("GameStateRecorder",
-                $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+                $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
+                $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+
+            // Mirror the OnProgressComplete KSC-forwarding path so world-record rewards
+            // earned outside flight (rare, but possible — e.g. RecordsAltitude on a sub-
+            // orbital craft already reverted) still reach the ledger immediately.
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         /// <summary>

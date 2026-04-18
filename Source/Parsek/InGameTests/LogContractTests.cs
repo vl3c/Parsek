@@ -200,20 +200,29 @@ namespace Parsek.InGameTests
         // --- REC-002: Recording stop metrics ---
 
         [InGameTest(Category = "LogContracts", Scene = GameScenes.FLIGHT,
-            Description = "REC-002: Committed recordings have valid metrics (points>=2, segments>=0, duration>0)")]
+            Description = "REC-002: Playable committed recordings have valid metrics (points>=2, segments>=0, duration>0)")]
         public static void RecordingStopMetricsValid()
         {
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null || recordings.Count == 0)
                 InGameAssert.Skip("No committed recordings to validate");
 
-            int validated = 0, skippedRoots = 0;
+            int validated = 0, skippedRoots = 0, skippedPreservedSinglePointDebris = 0;
             foreach (var rec in recordings)
             {
                 // Tree roots are containers, not trajectory recordings
                 if (rec.Points.Count == 0)
                 {
                     skippedRoots++;
+                    continue;
+                }
+
+                // #447 follow-up: scene-exit commits can intentionally preserve a one-point
+                // debris leaf when it is still in-flight (SubOrbital / Orbiting). Keep the
+                // contract strict for every other committed recording shape.
+                if (ShouldSkipStopMetricsValidation(rec))
+                {
+                    skippedPreservedSinglePointDebris++;
                     continue;
                 }
 
@@ -231,7 +240,13 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Verbose("TestRunner",
-                $"REC-002: Validated {validated} recordings, {skippedRoots} tree roots skipped");
+                $"REC-002: Validated {validated} recordings, {skippedRoots} tree roots skipped, " +
+                $"{skippedPreservedSinglePointDebris} preserved single-point in-flight debris leaf/leaves skipped");
+        }
+
+        internal static bool ShouldSkipStopMetricsValidation(Recording rec)
+        {
+            return ParsekFlight.IsStopMetricsExemptSinglePointDebrisLeaf(rec);
         }
 
         // --- RES-001 / RES-002: Resource values ---

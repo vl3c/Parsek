@@ -35,7 +35,8 @@ namespace Parsek.Tests
             string milestoneId, double ut,
             string recordingId = null,
             float fundsAwarded = 0f,
-            float repAwarded = 0f)
+            float repAwarded = 0f,
+            float sciAwarded = 0f)
         {
             return new GameAction
             {
@@ -44,7 +45,8 @@ namespace Parsek.Tests
                 RecordingId = recordingId,
                 MilestoneId = milestoneId,
                 MilestoneFundsAwarded = fundsAwarded,
-                MilestoneRepAwarded = repAwarded
+                MilestoneRepAwarded = repAwarded,
+                MilestoneScienceAwarded = sciAwarded
             };
         }
 
@@ -189,6 +191,25 @@ namespace Parsek.Tests
             Assert.True(first.Effective);
             Assert.False(second.Effective);
             Assert.Equal(1, module.GetCreditedCount());
+            Assert.Equal(1, module.GetEffectiveMilestoneCount("FirstOrbit"));
+        }
+
+        [Fact]
+        public void RepeatableRecordMilestone_RemainsEffectiveAcrossMultipleHits()
+        {
+            var first = MakeMilestone("RecordsDistance", 500.0,
+                recordingId: "rec1", fundsAwarded: 4800f, repAwarded: 2f);
+            var second = MakeMilestone("RecordsDistance", 900.0,
+                recordingId: "rec2", fundsAwarded: 3200f, repAwarded: 1f);
+
+            module.ProcessAction(first);
+            module.ProcessAction(second);
+
+            Assert.True(first.Effective);
+            Assert.True(second.Effective);
+            Assert.True(module.IsMilestoneCredited("RecordsDistance"));
+            Assert.Equal(1, module.GetCreditedCount());
+            Assert.Equal(2, module.GetEffectiveMilestoneCount("RecordsDistance"));
         }
 
         // ================================================================

@@ -122,13 +122,15 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsEarning,
                 RecordingId = "rec_004",
                 FundsAwarded = 12300.0f,
-                FundsSource = FundsEarningSource.Recovery
+                FundsSource = FundsEarningSource.Recovery,
+                DedupKey = "FundsChanged|VesselRecovery|17200|10000|22300|5"
             };
 
             var result = RoundTrip(original);
 
             Assert.Equal(FundsEarningSource.Recovery, result.FundsSource);
             Assert.Equal(12300.0f, result.FundsAwarded);
+            Assert.Equal("FundsChanged|VesselRecovery|17200|10000|22300|5", result.DedupKey);
         }
 
         [Fact]

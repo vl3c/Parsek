@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Parsek.InGameTests;
 using Xunit;
 
 namespace Parsek.Tests
@@ -452,7 +453,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PruneSinglePointDestroyedDebrisLeaves_RemovesDestroyedDebrisStub()
+        public void PruneSinglePointDebrisLeaves_RemovesDestroyedDebrisStub()
         {
             var tree = new RecordingTree { TreeName = "Test" };
             var keep = new Recording
@@ -482,16 +483,515 @@ namespace Parsek.Tests
             stub.Points.Add(new TrajectoryPoint { ut = 50.0 });
             tree.Recordings[stub.RecordingId] = stub;
 
-            ParsekFlight.PruneSinglePointDestroyedDebrisLeaves(tree);
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
 
             Assert.True(tree.Recordings.ContainsKey("keep"));
             Assert.False(tree.Recordings.ContainsKey("destroyed-stub"));
             Assert.Contains(logLines, l =>
-                l.Contains("PruneSinglePointDestroyedDebrisLeaves: removed 1 single-point destroyed debris stub"));
+                l.Contains("PruneSinglePointDebrisLeaves: removed 1 single-point debris stub"));
+        }
+
+        // #447: Landed debris leaves with exactly 1 point are also dead data and must be pruned.
+        // Reproduces the failing REC-002 case: terminal=Landed, 1 trajectory point, no sections.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_RemovesLandedDebrisStub()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var stub = new Recording
+            {
+                RecordingId = "landed-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 4134.76,
+                ExplicitEndUT = 4134.76,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            stub.Points.Add(new TrajectoryPoint { ut = 4134.76 });
+            tree.Recordings[stub.RecordingId] = stub;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.False(tree.Recordings.ContainsKey("landed-stub"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDebrisLeaves: removed 1 single-point debris stub"));
+        }
+
+        // #447: Recovered debris leaves with exactly 1 point are equally non-playable.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_RemovesRecoveredDebrisStub()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var stub = new Recording
+            {
+                RecordingId = "recovered-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 100.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            stub.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            tree.Recordings[stub.RecordingId] = stub;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.False(tree.Recordings.ContainsKey("recovered-stub"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDebrisLeaves: removed 1 single-point debris stub"));
+        }
+
+        // #447 exact repro: section-backed single-point Landed debris leaf
+        // (`r0 Debris`: 1 point inside 1 TRACK_SECTION, terminal=Landed, IsDebris=true).
+        // The pre-#447 predicate rejected this on both the terminal-state guard and the
+        // "TrackSections.Count > 0" guard, so the dead leaf survived commit and tripped
+        // REC-002 on reload.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_RemovesSectionBackedLandedDebrisStub()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var stub = new Recording
+            {
+                RecordingId = "section-backed-stub",
+                VesselName = "r0 Debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 4134.76,
+                ExplicitEndUT = 4135.26,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            stub.Points.Add(new TrajectoryPoint { ut = 4134.76 });
+            stub.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 4134.76,
+                endUT = 4135.26,
+                frames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 4134.76 } },
+                checkpoints = null,
+                source = TrackSectionSource.Background
+            });
+            tree.Recordings[stub.RecordingId] = stub;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.False(tree.Recordings.ContainsKey("section-backed-stub"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDebrisLeaves: removed 1 single-point debris stub"));
+        }
+
+        // #447 negative case: multi-frame section is real playable data — never prune.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsSectionWithMultipleFrames()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "real-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 60.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 50.0 });
+            keep.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 50.0,
+                endUT = 60.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 50.0 },
+                    new TrajectoryPoint { ut = 55.0 },
+                    new TrajectoryPoint { ut = 60.0 }
+                },
+                checkpoints = null,
+                source = TrackSectionSource.Background
+            });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("real-debris"));
+        }
+
+        // #447 review item 1: with the Destroyed-only guard removed, the IsDebris guard is
+        // now the SOLE protection against pruning a real (non-debris) single-point Landed
+        // leaf. Pin that here so a future refactor that drops `if (!rec.IsDebris) return false;`
+        // would fail this test loudly.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsNonDebrisSinglePointLandedLeaf()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "non-debris-landed",
+                VesselName = "Lander",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 100.0,
+                IsDebris = false,
+                TerminalStateValue = TerminalState.Landed
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("non-debris-landed"));
+        }
+
+        // #447 follow-up: missing terminal state is outside the dead-stub shape. Keep it so
+        // finalize-path bugs are visible instead of being silently pruned as debris noise.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsDebrisLeafWithoutTerminalState()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "unset-terminal",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 150.0,
+                IsDebris = true
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 150.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("unset-terminal"));
+        }
+
+        // Scene-exit commits can produce single-point debris that is still in flight. Keep
+        // those instead of broadening #447 into a blanket "delete any 1-point debris leaf".
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsSubOrbitalDebrisLeaf()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "suborbital-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 175.0,
+                ExplicitEndUT = 175.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.SubOrbital
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 175.0, altitude = 1500.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("suborbital-debris"));
         }
 
         [Fact]
-        public void CollectSinglePointDestroyedDebrisLeafIds_SkipsRootAndActiveIds()
+        public void ShouldSkipStopMetricsValidation_SubOrbitalSinglePointDebrisLeaf_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "suborbital-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 175.0,
+                ExplicitEndUT = 175.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.SubOrbital
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 175.0, altitude = 1500.0 });
+
+            Assert.True(LogContractTests.ShouldSkipStopMetricsValidation(rec));
+        }
+
+        [Fact]
+        public void ShouldSkipStopMetricsValidation_OrbitingSectionBackedSinglePointDebrisLeaf_ReturnsTrue()
+        {
+            var point = new TrajectoryPoint { ut = 225.0, altitude = 80000.0, bodyName = "Kerbin" };
+            var rec = new Recording
+            {
+                RecordingId = "orbiting-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 225.0,
+                ExplicitEndUT = 225.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Orbiting,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 225.0,
+                        endUT = 225.0,
+                        frames = new List<TrajectoryPoint> { point },
+                        checkpoints = null,
+                        source = TrackSectionSource.Background
+                    }
+                }
+            };
+            rec.Points.Add(point);
+
+            Assert.True(LogContractTests.ShouldSkipStopMetricsValidation(rec));
+        }
+
+        [Fact]
+        public void ShouldSkipStopMetricsValidation_TerminalDebrisStub_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "landed-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 250.0,
+                ExplicitEndUT = 250.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 250.0 });
+
+            Assert.False(LogContractTests.ShouldSkipStopMetricsValidation(rec));
+        }
+
+        // #447 review item 2: Splashed variant for symmetry with the other terminal states
+        // (Landed / Recovered / Destroyed) enumerated in the comment. Same shape: IsDebris
+        // leaf with exactly one trajectory point, no sections.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_RemovesSplashedDebrisStub()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var stub = new Recording
+            {
+                RecordingId = "splashed-stub",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 200.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Splashed
+            };
+            stub.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            tree.Recordings[stub.RecordingId] = stub;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.False(tree.Recordings.ContainsKey("splashed-stub"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDebrisLeaves: removed 1 single-point debris stub"));
+        }
+
+        // #447 review item 3a: boundary at TrackSections.Count > 1 — a debris leaf with two
+        // sections (even if each is otherwise tiny) is kept; a future commit dropping that
+        // explicit guard would fail this test.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsTwoSectionDebrisLeaf()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "two-section-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 300.0,
+                ExplicitEndUT = 320.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 300.0 });
+            keep.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 300.0,
+                endUT = 310.0,
+                frames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 300.0 } },
+                checkpoints = null,
+                source = TrackSectionSource.Background
+            });
+            keep.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 310.0,
+                endUT = 320.0,
+                frames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 315.0 } },
+                checkpoints = null,
+                source = TrackSectionSource.Background
+            });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("two-section-debris"));
+        }
+
+        // #447 review item 3b: boundary at checkpoints > 0 — a single-section debris leaf
+        // whose lone section carries an orbit checkpoint is real Keplerian data and must be
+        // kept. Pins the `checkpoints == 0` half of the IsSinglePointDebrisLeaf predicate.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsSingleSectionDebrisLeafWithOrbitCheckpoint()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "single-section-with-checkpoint",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 400.0,
+                ExplicitEndUT = 410.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 400.0 });
+            keep.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 400.0,
+                endUT = 410.0,
+                frames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 400.0 } },
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 400.0,
+                        endUT = 410.0,
+                        semiMajorAxis = 700000.0,
+                        eccentricity = 0.01,
+                        epoch = 400.0
+                    }
+                },
+                source = TrackSectionSource.Checkpoint
+            });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("single-section-with-checkpoint"));
+        }
+
+        // #447 follow-up: the widened section-backed case is only the mirrored seed point.
+        // If the section's lone frame differs from the flat point, that's a second distinct
+        // sample and the recording must survive.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsSingleSectionDebrisLeafWithDifferentFrame()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "single-section-different-frame",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 510.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            keep.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0,
+                bodyName = "Kerbin"
+            });
+            keep.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 500.0,
+                endUT = 510.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 510.0,
+                        latitude = 1.0,
+                        longitude = 2.0,
+                        altitude = 3.0,
+                        bodyName = "Kerbin"
+                    }
+                },
+                checkpoints = null,
+                source = TrackSectionSource.Background
+            });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("single-section-different-frame"));
+        }
+
+        // #447 review item 5: terminal-state breakdown is included in the summary log when
+        // multiple stubs are pruned together (e.g. "(Landed=2, Destroyed=1)"). Pins the
+        // breakdown formatter and the deterministic enum-order rendering.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_SummaryLogIncludesTerminalStateBreakdown()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+
+            void AddStub(string id, double ut, TerminalState state)
+            {
+                var rec = new Recording
+                {
+                    RecordingId = id,
+                    VesselPersistentId = 0,
+                    ChildBranchPointId = null,
+                    ExplicitStartUT = ut,
+                    ExplicitEndUT = ut,
+                    IsDebris = true,
+                    TerminalStateValue = state
+                };
+                rec.Points.Add(new TrajectoryPoint { ut = ut });
+                tree.Recordings[id] = rec;
+            }
+
+            AddStub("landed-a", 1.0, TerminalState.Landed);
+            AddStub("landed-b", 2.0, TerminalState.Landed);
+            AddStub("destroyed-a", 3.0, TerminalState.Destroyed);
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.False(tree.Recordings.ContainsKey("landed-a"));
+            Assert.False(tree.Recordings.ContainsKey("landed-b"));
+            Assert.False(tree.Recordings.ContainsKey("destroyed-a"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneSinglePointDebrisLeaves: removed 3 single-point debris stub")
+                && l.Contains("(Landed=2, Destroyed=1)"));
+        }
+
+        // #447 review item 5: direct unit tests of the breakdown formatter — empty input
+        // returns empty string and enum-order rendering stays deterministic.
+        [Fact]
+        public void FormatTerminalStateBreakdown_EmptyReturnsEmpty()
+        {
+            Assert.Equal(string.Empty, ParsekFlight.FormatTerminalStateBreakdown(null));
+            Assert.Equal(string.Empty, ParsekFlight.FormatTerminalStateBreakdown(
+                new Dictionary<TerminalState, int>()));
+        }
+
+        [Fact]
+        public void FormatTerminalStateBreakdown_RendersEnumOrderDeterministically()
+        {
+            // Insert in non-enum order to prove the renderer sorts by enum value.
+            var d = new Dictionary<TerminalState, int>
+            {
+                { TerminalState.Destroyed, 1 },
+                { TerminalState.Landed, 2 }
+            };
+            Assert.Equal(" (Landed=2, Destroyed=1)",
+                ParsekFlight.FormatTerminalStateBreakdown(d));
+        }
+
+        [Fact]
+        public void CollectSinglePointDebrisLeafIds_SkipsRootAndActiveIds()
         {
             var tree = new RecordingTree
             {
@@ -524,7 +1024,7 @@ namespace Parsek.Tests
                 Points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 30.0 } }
             };
 
-            var ids = ParsekFlight.CollectSinglePointDestroyedDebrisLeafIds(tree);
+            var ids = ParsekFlight.CollectSinglePointDebrisLeafIds(tree);
 
             Assert.Single(ids);
             Assert.Equal("ordinary-stub", ids[0]);

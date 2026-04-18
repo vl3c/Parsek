@@ -3004,14 +3004,16 @@ namespace Parsek.Tests
                 .WithRecordingId("loop123")
                 .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .AddPoint(100, 0, 0, 0)
-                .AddPoint(103, 0, 0, 0)
+                .AddPoint(108, 0, 0, 0)
                 .BuildV3Metadata();
 
             Assert.Equal("True", node.GetValue("loopPlayback"));
-            // #412: builder now auto-derives the interval from trajectory duration (3 s here)
+            // #412: builder auto-derives the interval from trajectory duration (8 s here)
             // when the caller leaves intervalSeconds=0 with loop=true, so fixtures never
             // persist a degenerate value that triggers the ResolveLoopInterval clamp warning.
-            Assert.Equal("3", node.GetValue("loopIntervalSeconds"));
+            // Duration must be >= MinCycleDuration (5 s, #443) for auto-derivation to pick
+            // up the duration; shorter trajectories fall back to DefaultLoopIntervalSeconds.
+            Assert.Equal("8", node.GetValue("loopIntervalSeconds"));
         }
 
         [Fact]
