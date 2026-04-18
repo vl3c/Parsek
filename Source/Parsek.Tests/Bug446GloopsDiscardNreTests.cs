@@ -21,6 +21,16 @@ namespace Parsek.Tests
     /// side-effect to assert the post-discard branch is Empty (no NRE site)
     /// and that the synthetic "stale-locals" path would have been Saved
     /// (which is exactly the NRE branch).
+    ///
+    /// LIMITATION: <see cref="FakeGloopsFlight"/> mirrors the cache-mutate-read
+    /// pattern of the production <c>DrawWindow</c> rather than exercising
+    /// <c>DrawWindow</c> directly (the real method requires a Unity GUI context
+    /// and a MonoBehaviour-backed ParsekFlight). A future refactor that moves
+    /// the cache-read of <c>LastGloopsRecording</c> back into the <c>Saved</c>
+    /// arm of the switch would still pass every test in this class because the
+    /// dispatch site under test is the synthetic copy here, not the production
+    /// switch. The end-to-end path lives in the in-game runner —
+    /// see <c>InGameTests/RuntimeTests.cs</c>.
     /// </summary>
     [Collection("Sequential")]
     public class Bug446GloopsDiscardNreTests : IDisposable
@@ -125,13 +135,27 @@ namespace Parsek.Tests
 
             // Step 3: the FIX re-reads the booleans from `flight` BEFORE the
             // status-label ladder runs (see GloopsRecorderUI.DrawWindow,
-            // re-evaluation block).
+            // re-evaluation block) and emits the buttonFired-gated diagnostic
+            // "Gloops state changed mid-DrawWindow" verbose log so a future
+            // stale-local situation is visible in KSP.log.
             bool prevHasLastRecording = hasLastRecording;
+            bool prevIsRecording = isRecording;
+            bool prevIsPreviewing = isPreviewing;
             isRecording = fakeFlight.IsGloopsRecording;
             hasLastRecording = fakeFlight.LastGloopsRecording != null;
             isPreviewing = fakeFlight.IsPlaying;
             Assert.True(prevHasLastRecording, "stale local should have been true (regression guard)");
             Assert.False(hasLastRecording, "fresh re-read should be false");
+
+            // Mirror the production diagnostic log (GloopsRecorderUI.DrawWindow).
+            // The unit test cannot reach the live IMGUI dispatch site, so
+            // emitting the same format here pins the log contract — future
+            // edits that change the wording have to update this string too.
+            ParsekLog.Verbose("UI",
+                $"Gloops state changed mid-DrawWindow: " +
+                $"isRecording {prevIsRecording}->{isRecording} " +
+                $"hasLastRecording {prevHasLastRecording}->{hasLastRecording} " +
+                $"isPreviewing {prevIsPreviewing}->{isPreviewing}");
 
             // Step 4: SelectStatusBlock with the FRESH booleans picks Empty.
             // (With the stale locals it would have picked Saved → NRE on
@@ -139,8 +163,12 @@ namespace Parsek.Tests
             var block = GloopsRecorderUI.SelectStatusBlock(isRecording, hasLastRecording);
             Assert.Equal(GloopsRecorderUI.StatusBlock.Empty, block);
 
-            // The Saved-branch dereference site under stale locals (this is
-            // what would have NRE'd in the unfixed code).
+            // Pin the diagnostic log contract: a future change that drops the
+            // "Gloops state changed mid-DrawWindow" log from production must
+            // also delete the mirror above, which fails this assertion loudly.
+            Assert.Contains(logLines, l => l.Contains("Gloops state changed mid-DrawWindow"));
+
+            // Documentation assertion: this is what the unfixed Saved branch would do.
             Assert.Throws<NullReferenceException>(() =>
             {
                 var _ = fakeFlight.LastGloopsRecording.VesselName;

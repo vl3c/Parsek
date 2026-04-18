@@ -100,7 +100,7 @@ namespace Parsek
         /// <summary>
         /// Pure decision: which status block applies for the current button-row
         /// boolean state. Extracted for direct unit testing of the stale-local
-        /// NRE guard (#446) — see GloopsRecorderUIStatusBlockTests.
+        /// NRE guard (#446) — see Bug446GloopsDiscardNreTests.
         /// </summary>
         internal static StatusBlock SelectStatusBlock(bool isRecording, bool hasLastRecording)
         {
@@ -119,6 +119,14 @@ namespace Parsek
             bool hasLastRecording = flight.LastGloopsRecording != null;
             bool isPreviewing = flight.IsPlaying;
 
+            // Set true whenever a state-mutating button branch (Discard, Stop
+            // Recording, Stop Preview) fires this frame; gates the
+            // post-button-block diagnostic log so we only emit it when we
+            // actually triggered a mutation, not on every frame where state
+            // happened to differ from the cached snapshot for some other
+            // reason.
+            bool buttonFired = false;
+
             // Buttons are drawn in fixed order (primary action / preview / discard)
             // with text and enablement driven by state. Status labels render below
             // so button positions never shift between states.
@@ -133,6 +141,7 @@ namespace Parsek
                 if (isRecording)
                 {
                     flight.StopGloopsRecording();
+                    buttonFired = true;
                 }
                 else
                 {
@@ -149,9 +158,14 @@ namespace Parsek
             {
                 ParsekLog.Verbose("UI", "Gloops " + previewLabel + " clicked");
                 if (isPreviewing)
+                {
                     flight.StopPlayback();
+                    buttonFired = true;
+                }
                 else
+                {
                     flight.PreviewGloopsRecording();
+                }
             }
             GUI.enabled = true;
 
@@ -172,6 +186,7 @@ namespace Parsek
                         flight.StopPlayback();
                     flight.DiscardLastGloopsRecording();
                 }
+                buttonFired = true;
             }
             GUI.enabled = true;
 
@@ -191,9 +206,7 @@ namespace Parsek
             isRecording = flight.IsGloopsRecording;
             hasLastRecording = flight.LastGloopsRecording != null;
             isPreviewing = flight.IsPlaying;
-            if (isRecording != prevIsRecording
-                || hasLastRecording != prevHasLastRecording
-                || isPreviewing != prevIsPreviewing)
+            if (buttonFired)
             {
                 ParsekLog.Verbose("UI",
                     $"Gloops state changed mid-DrawWindow: " +

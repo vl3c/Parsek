@@ -256,7 +256,7 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Scope:** Small. Single-file fix, one small test.
 
-**Status:** ~~Fixed~~ — `DrawWindow` now re-reads `isRecording`, `hasLastRecording`, `isPreviewing` from `flight` after the button-row handlers run and before the status-label ladder, and the ladder dispatches through a new `internal static SelectStatusBlock` helper unit-tested in `Bug446GloopsDiscardNreTests`. State changes detected at re-evaluation time emit a verbose `Gloops state changed mid-DrawWindow` log so a future stale-local situation is visible in `KSP.log`.
+**Status:** ~~Fixed~~ — `DrawWindow` now re-reads `isRecording`, `hasLastRecording`, `isPreviewing` from `flight` after the button-row handlers run and before the status-label ladder, and the ladder dispatches through a new `internal static SelectStatusBlock` helper unit-tested in `Bug446GloopsDiscardNreTests`. A `buttonFired` local set inside the Discard / Stop Recording / Stop Preview branches gates a verbose `Gloops state changed mid-DrawWindow` log so a future stale-local situation is visible in `KSP.log` without spurious noise from unrelated frames.
 
 ---
 
