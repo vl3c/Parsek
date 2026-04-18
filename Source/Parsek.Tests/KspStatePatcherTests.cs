@@ -250,10 +250,11 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Synthetic stand-ins for KSPAchievements.RecordsAltitude/Depth/Speed/Distance.
-        /// The production code matches on <c>Type.Name</c>, so nested classes with these
-        /// names drive the same branch without a compile-time reference to KSPAchievements.
-        /// None of them carry the stock <c>record</c>/<c>rewardThreshold</c>/<c>rewardInterval</c>
-        /// fields — they exist only to exercise the type-pre-filter.
+        /// The production code only treats the exact stock full names as repeatable record
+        /// types, but <see cref="KspStatePatcher.SuppressUnityCallsForTesting"/> enables a
+        /// simple-name fallback so xUnit can still exercise the malformed-record WARN branch.
+        /// None of these fakes carry the stock <c>record</c>/<c>rewardThreshold</c>/
+        /// <c>rewardInterval</c> fields.
         /// </summary>
         private class RecordsAltitude : ProgressNode
         {
@@ -295,10 +296,10 @@ namespace Parsek.Tests
         [Fact]
         public void IsRepeatableRecordType_RecordsSubclasses_ReturnTrue()
         {
-            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsAltitude()));
-            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsDepth()));
-            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsSpeed()));
-            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsDistance()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new KSPAchievements.RecordsAltitude()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new KSPAchievements.RecordsDepth()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new KSPAchievements.RecordsSpeed()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new KSPAchievements.RecordsDistance()));
         }
 
         [Fact]
@@ -306,6 +307,14 @@ namespace Parsek.Tests
         {
             Assert.False(KspStatePatcher.IsRepeatableRecordType(new OrbitNode()));
             Assert.False(KspStatePatcher.IsRepeatableRecordType(new FlightNode()));
+        }
+
+        [Fact]
+        public void IsRepeatableRecordType_NameCollisionOutsideTestMode_ReturnsFalse()
+        {
+            KspStatePatcher.SuppressUnityCallsForTesting = false;
+
+            Assert.False(KspStatePatcher.IsRepeatableRecordType(new RecordsAltitude()));
         }
 
         [Fact]
@@ -347,6 +356,8 @@ namespace Parsek.Tests
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var completeField = typeof(ProgressNode).GetField("complete",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(reachedField);
+            Assert.NotNull(completeField);
 
             var node = new RecordsAltitude();
             bool recognized = KspStatePatcher.PatchRepeatableRecordNode(

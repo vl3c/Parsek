@@ -773,10 +773,12 @@ namespace Parsek
 
         /// <summary>
         /// Returns true when the node is one of KSP's four repeatable world-record subclasses
-        /// (<c>RecordsAltitude</c>, <c>RecordsDepth</c>, <c>RecordsSpeed</c>, <c>RecordsDistance</c>).
-        /// Uses string-based type-name comparison so we can run without a compile-time reference
-        /// to the <c>KSPAchievements</c> namespace and so xUnit fakes can drive the same code path
-        /// by naming a <see cref="ProgressNode"/> subclass accordingly.
+        /// (<c>KSPAchievements.RecordsAltitude</c>, <c>KSPAchievements.RecordsDepth</c>,
+        /// <c>KSPAchievements.RecordsSpeed</c>, <c>KSPAchievements.RecordsDistance</c>).
+        /// Uses string-based full-name comparison so production matching stays scoped to the
+        /// stock repeatable types without a compile-time reference to <c>KSPAchievements</c>.
+        /// When <see cref="SuppressUnityCallsForTesting"/> is enabled, a simple-name fallback
+        /// accepts xUnit stand-ins with matching type names.
         ///
         /// One-shot nodes (<c>Orbit</c>, <c>Landing</c>, <c>Flyby</c>, <c>Flight</c>, etc.) return
         /// false here — they are patched through the caller's one-shot achieve/un-achieve branch,
@@ -785,6 +787,18 @@ namespace Parsek
         internal static bool IsRepeatableRecordType(ProgressNode node)
         {
             if (node == null) return false;
+            string fullName = node.GetType().FullName;
+            if (fullName == "KSPAchievements.RecordsAltitude"
+                || fullName == "KSPAchievements.RecordsDepth"
+                || fullName == "KSPAchievements.RecordsSpeed"
+                || fullName == "KSPAchievements.RecordsDistance")
+            {
+                return true;
+            }
+
+            if (!SuppressUnityCallsForTesting)
+                return false;
+
             string name = node.GetType().Name;
             return name == "RecordsAltitude"
                 || name == "RecordsDepth"
