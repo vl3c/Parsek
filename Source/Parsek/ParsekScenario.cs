@@ -3135,9 +3135,11 @@ namespace Parsek
             // with the matching committed recording (or null for non-Parsek vessels).
             // In-flight recovery is already covered by the terminal-state path above:
             // UpdateRecordingsForTerminalEvent flips the live recording to Recovered, and
-            // the subsequent commit invokes CreateVesselCostActions which emits the same
-            // action — guarding here avoids double-counting.
-            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+            // the later commit now pairs the FundsChanged(VesselRecovery) event near the
+            // recording end UT. Only patch immediately when no pending-tree recording
+            // still owns this vessel; otherwise the commit-time path should emit the
+            // recovery action exactly once.
+            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, vesselName))
                 LedgerOrchestrator.OnVesselRecoveryFunds(now, vesselName, fromTrackingStation);
         }
 
@@ -3192,6 +3194,38 @@ namespace Parsek
             // any mutation persists through reverts, permanently preventing re-spawn.
 
             return anyUpdated;
+        }
+
+        /// <summary>
+        /// Returns true when an outside-FLIGHT recovery should be patched into the
+        /// ledger immediately. Pending-tree recordings that still own the vessel are
+        /// handled at commit time by CreateVesselCostActions, which now pairs the
+        /// FundsChanged(VesselRecovery) event near the recording end UT.
+        /// </summary>
+        internal static bool ShouldPatchRecoveryFundsOutsideFlight(GameScenes scene, string vesselName)
+        {
+            return scene != GameScenes.FLIGHT &&
+                   !HasPendingLedgerRecordingForVessel(vesselName);
+        }
+
+        /// <summary>
+        /// Returns true when a pending-tree recording still owns the named vessel and
+        /// will later contribute ledger actions on commit.
+        /// </summary>
+        internal static bool HasPendingLedgerRecordingForVessel(string vesselName)
+        {
+            if (string.IsNullOrEmpty(vesselName) || !RecordingStore.HasPendingTree)
+                return false;
+
+            foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
+            {
+                if (rec == null || rec.IsGhostOnly)
+                    continue;
+                if (MatchesVessel(rec, vesselName))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

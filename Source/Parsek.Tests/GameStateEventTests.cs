@@ -401,7 +401,7 @@ namespace Parsek.Tests
             {
                 ut = 100.05,
                 eventType = GameStateEventType.FundsChanged,
-                key = "VesselRecovery",
+                key = "ContractReward",
                 valueBefore = 15000,
                 valueAfter = 18000
             });
@@ -436,6 +436,34 @@ namespace Parsek.Tests
             });
 
             Assert.Equal(2, GameStateStore.EventCount);
+        }
+
+        [Fact]
+        public void ResourceCoalescing_VesselRecoveryWithinEpsilon_DoesNotCoalesce()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 10000,
+                valueAfter = 12000
+            });
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.05,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 12000,
+                valueAfter = 13500
+            });
+
+            Assert.Equal(2, GameStateStore.EventCount);
+            Assert.Equal(12000, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(13500, GameStateStore.Events[1].valueAfter);
         }
 
         [Fact]

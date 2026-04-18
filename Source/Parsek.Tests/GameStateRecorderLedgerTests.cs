@@ -466,24 +466,11 @@ namespace Parsek.Tests
         [Fact]
         public void OnVesselRecoveryFunds_BackToBackRecoveriesWithinEpsilon_PairToDistinctEvents()
         {
-            // Review item 1: bulk-recover two debris in the same physics frame fires two
-            // onVesselRecovered callbacks. KSP's two FundsChanged events coalesce in
-            // GameStateStore (resource-coalesce window is 0.1 s, see GameStateStore.cs),
-            // so both calls compete for ONE event in the store with a combined +800 delta.
-            //
-            // The pre-fix bug: reverse-search picks that coalesced event twice with no
-            // "consumed" marking, so the ledger gets TWO actions, each tagged with the
-            // coalesced amount (+800). Funds end up double-counted (+1600 vs the +800 KSP
-            // actually awarded).
-            //
-            // Post-fix behavior with consumed-index tracking: the first call latches the
-            // event (+800 — the coalesced sum equals A+B, which is what the player gained),
-            // the second call's reverse-search finds the index already consumed, falls
-            // through to "no paired event" and WARNs. Net ledger delta matches KSP.
-            //
-            // Use distinct UTs to distinguish the two store positions if KSP ever stops
-            // coalescing in a future patch (the test still passes either way: the consumed-
-            // index guard prevents a second entry whether one or two events sit in the store).
+            // Review items 1 + 2 together: back-to-back recoveries inside the 0.1 s resource
+            // coalesce window must still produce two distinct recovery earnings. The fix has
+            // two parts: GameStateStore stops coalescing FundsChanged(VesselRecovery), and
+            // OnVesselRecoveryFunds consumes a stable per-event fingerprint so each callback
+            // pairs to exactly one funds delta.
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = 3000.00,
@@ -498,7 +485,7 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 100.0,
-                valueAfter = 800.0   // B = +700; coalesces with A in the store → single event valueAfter=800
+                valueAfter = 800.0   // B = +700
             });
 
             LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "DebrisB", fromTrackingStation: true);
@@ -506,22 +493,15 @@ namespace Parsek.Tests
 
             var recoveries = Ledger.Actions
                 .Where(a => a.Type == GameActionType.FundsEarning && a.FundsSource == FundsEarningSource.Recovery)
+                .OrderBy(a => a.UT)
                 .ToList();
 
-            // Net awarded must equal what KSP credited (+800), regardless of whether the
-            // store coalesced into one event or kept two.
-            float totalAwarded = recoveries.Sum(r => r.FundsAwarded);
-            Assert.Equal(800f, totalAwarded);
-
-            // Pre-fix: 2 entries, each +800 (total 1600). Post-fix: at most one entry per
-            // store-side event index, so the count never exceeds the number of distinct
-            // FundsChanged(VesselRecovery) events sitting in the store within the window.
-            int eventsInStore = GameStateStore.Events.Count(e =>
-                e.eventType == GameStateEventType.FundsChanged &&
-                e.key == LedgerOrchestrator.VesselRecoveryReasonKey);
-            Assert.True(recoveries.Count <= eventsInStore,
-                $"Recovery actions ({recoveries.Count}) must not exceed paired events in store ({eventsInStore}); " +
-                "indicates the consumed-index guard regressed.");
+            Assert.Equal(2, recoveries.Count);
+            Assert.Equal(100f, recoveries[0].FundsAwarded);
+            Assert.Equal(700f, recoveries[1].FundsAwarded);
+            Assert.Equal(800f, recoveries.Sum(r => r.FundsAwarded));
+            Assert.Equal(3000.00, recoveries[0].UT, 2);
+            Assert.Equal(3000.04, recoveries[1].UT, 2);
         }
 
         [Fact]
@@ -633,9 +613,9 @@ namespace Parsek.Tests
             // same window a vessel is recovered), the routing must pick the VesselRecovery
             // one — not just "the most recent FundsChanged regardless of reason".
             //
-            // GameStateStore coalesces resource events that share the same eventType AND
-            // recordingId tag within 0.1 s. To produce two distinct pair-candidate events
-            // at nearly the same UT, use different recordingId tags so coalescing skips.
+            // GameStateStore still coalesces non-recovery resource events that share the
+            // same eventType AND recordingId tag within 0.1 s. Use different tags so the
+            // unrelated Strategies delta stays distinct from the recovery delta.
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = 7000.00,
@@ -669,19 +649,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OnVesselRecoveryFunds_PreSeededInFlightRecoveryAction_DocumentsLackOfInMethodDedup()
+        public void OnVesselRecoveryFunds_PreSeededMatchingRecoveryAction_DedupsByEventFingerprint()
         {
-            // Review item 3b: there is no in-method dedup against pre-existing
-            // FundsEarning(Recovery) actions in the ledger — the FLIGHT-scene gate in
-            // ParsekScenario.OnVesselRecovered is the load-bearing protection. This test
-            // pins that contract: pre-seed a FundsEarning(Recovery) action that simulates
-            // an in-flight CreateVesselCostActions emission, then call OnVesselRecoveryFunds
-            // (i.e., simulate the gate failing). Today this produces a SECOND entry; the
-            // assertion makes the gate's importance visible to anyone who weakens the gate.
-            //
-            // If a future change adds in-method dedup, this test should be updated (and the
-            // FLIGHT-scene gate can be relaxed). Until then, "two entries" is the documented
-            // current behavior.
+            // Review item 3b: OnVesselRecoveryFunds must dedup against a recovery action that
+            // was already emitted from the same FundsChanged(VesselRecovery) event, even if
+            // the caller accidentally bypasses the scene gate in ParsekScenario.
+            var recoveryEvent = new GameStateEvent
+            {
+                ut = 9000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 10000.0,
+                valueAfter = 11500.0
+            };
+            string dedupKey = LedgerOrchestrator.BuildRecoveryEventDedupKey(recoveryEvent);
+
             var preSeeded = new GameAction
             {
                 UT = 9000.0,
@@ -689,18 +671,12 @@ namespace Parsek.Tests
                 RecordingId = "rec-in-flight",
                 FundsAwarded = 1500f,
                 FundsSource = FundsEarningSource.Recovery,
+                DedupKey = dedupKey,
                 Sequence = 1
             };
             Ledger.AddAction(preSeeded);
 
-            GameStateStore.AddEvent(new GameStateEvent
-            {
-                ut = 9000.0,
-                eventType = GameStateEventType.FundsChanged,
-                key = LedgerOrchestrator.VesselRecoveryReasonKey,
-                valueBefore = 10000.0,
-                valueAfter = 11500.0
-            });
+            GameStateStore.AddEvent(recoveryEvent);
 
             int before = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -712,9 +688,10 @@ namespace Parsek.Tests
                 a.Type == GameActionType.FundsEarning &&
                 a.FundsSource == FundsEarningSource.Recovery);
 
-            // Documents the lack of in-method dedup — exactly one new entry was added.
-            // The gate in ParsekScenario.OnVesselRecovered is what prevents this in production.
-            Assert.Equal(before + 1, after);
+            Assert.Equal(before, after);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("already exists in ledger"));
         }
     }
 }
