@@ -245,6 +245,13 @@ namespace Parsek
         public int ghostDestroysThisSession;
         public int reentryFxBuildsThisSession;
         public int reentryFxSkippedThisSession;
+        // Bug #450 B3: incremented at spawn when a reentry-capable trajectory defers
+        // its build to the first in-atmosphere frame. `reentryFxBuildsThisSession`
+        // still tracks actual builds; the difference (`deferred - builds`) is the
+        // number of trajectories that saved the build entirely by never entering
+        // atmosphere in the session. That delta is the signal B3 uses to prove it
+        // worked.
+        public int reentryFxDeferredThisSession;
         public int gcGen0Baseline;
 
         public void Reset()
@@ -258,6 +265,7 @@ namespace Parsek
             ghostDestroysThisSession = 0;
             reentryFxBuildsThisSession = 0;
             reentryFxSkippedThisSession = 0;
+            reentryFxDeferredThisSession = 0;
             gcGen0Baseline = System.GC.CollectionCount(0);
         }
     }

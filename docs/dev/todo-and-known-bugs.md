@@ -118,18 +118,62 @@ Breakdown of the exceeded frame: 70% of the budget (28.11 / 40.1 ms) lived insid
 
 **Fix — Phase A (shipped): diagnostic first.** `PlaybackBudgetPhases` now carries an aggregate-and-heaviest-spawn breakdown of every `BuildGhostVisualsWithMetrics` call across four sub-phases (snapshot resolve, timeline-from-snapshot, dictionaries, reentry FX) plus a residual "other" bucket so `sum + other = spawnMax` reconciles. `GhostPlaybackEngine.TryPopulateGhostVisuals` hosts four pre-allocated Stopwatches using the #414 spawnStopwatch pattern (pre-call ElapsedTicks + post-call subtraction for per-call deltas; same objects accumulate across the frame for the aggregate). `BuildGhostVisualsWithMetrics.finally` latches the heaviest spawn's breakdown + a byte-backed `HeaviestSpawnBuildType` classification. A separate one-shot WARN (`s_buildBreakdownOneShotFired` — independent of #414's latch so Phase A collects data even when the session's first spike already consumed #414's latch before rollout) fires the very first time a budget-exceeded frame has `spawnMicroseconds > 0`. See `docs/dev/plan-450-build-breakdown.md`.
 
-**Phase B (gated on playtest data — NOT yet scheduled):** once the next real spike fires in a user install, the new `Playback spawn build breakdown` WARN will attribute the cost. The fix branch depends on the answer:
-- `timeline` dominates, heaviest-spawn < ~15 ms — **B1: per-frame build-time budget.** `MaxSpawnBuildMsPerFrame` const; new `GhostPlaybackLogic.ShouldThrottleSpawnByTime(frameSpawnTotalTicks, capTicks)`; `TryReserveSpawnSlot` ORs count-cap and time-cap.
-- `timeline` dominates, single spawn > ~15 ms — **B2: coroutine split of `TryPopulateGhostVisuals`.** Yield between (1) snapshot resolve, (2) timeline build, (3) dict populate, (4) reentry FX; extend `deferVisibilityUntilPlaybackSync` across yields.
-- `reentry` dominates — **B3: lazy reentry FX pre-warm.** Gate `TryBuildReentryFx` on first-frame-in-atmosphere + speed > floor, not on trajectory peak.
+**Phase B branch decision — data from the 2026-04-18 playtest:**
 
-**Files:** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch + `FormatHeaviestSpawnBuildType` helper), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs` (new), `docs/dev/plan-450-build-breakdown.md` (new).
+```
+heaviestSpawn[type=recording-start-snapshot
+              snapshot=0.00ms timeline=15.90ms dicts=1.28ms reentry=6.94ms
+              other=0.08ms total=24.20ms]
+```
 
-**Scope:** Phase A = Small (instrumentation-only, zero behaviour change). Phase B = scope depends on the chosen branch; held until playtest data lands.
+Timeline dominates (65.7 %) and reentry is a significant secondary
+contributor (28.7 %). Both B2 and B3 apply; B3 ships first (smaller blast
+radius), then B2 takes on the remaining `timeline` cost.
 
-**Dependencies:** #414 shipped (`TryReserveSpawnSlot` hook + per-phase breakdown framework are on main).
+**Phase B3 (shipped): lazy reentry FX pre-warm.** Defers
+`GhostVisualBuilder.TryBuildReentryFx` from spawn time to the first frame
+the ghost is actually inside a body's atmosphere. New
+`GhostPlaybackState.reentryFxPendingBuild` bool set at spawn when
+`HasReentryPotential(traj) == true`; cleared in
+`ClearLoadedVisualReferences` alongside `reentryFxInfo`. The lazy build
+fires from inside `UpdateReentryFx` after its existing body/atmosphere/
+altitude guards so there is no duplicate `FlightGlobals.Bodies.Find`.
+`MaxLazyReentryBuildsPerFrame = 2` per-frame cap mirrors
+`MaxSpawnsPerFrame` so a burst of same-frame atmosphere entries cannot
+relocate the bimodal hitch. New `reentryFxDeferredThisSession` counter
+tracks deferrals; the gap between deferrals and actual builds at session
+end is the count of trajectories that saved the full 6.94 ms by never
+entering atmosphere. Pure decision logic lives in
+`GhostPlaybackLogic.ShouldBuildLazyReentryFx` for unit testing without
+Unity. See `docs/dev/plan-450-b3-lazy-reentry.md`.
 
-**Status:** Phase A shipped — diagnostic instrumentation + one-shot WARN. Phase B: TODO, gated on next playtest's breakdown output. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns; not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Phase B2 (next): coroutine split of `BuildTimelineGhostFromSnapshot`.**
+Targets the dominant 15.90 ms timeline bucket. Not yet planned in detail;
+gated on confirmation from a post-B3 playtest that the `heaviestSpawn[reentry=…]`
+field has indeed dropped toward zero and the `timeline` field is the
+remaining problem.
+
+**Phase B1 (not planned):** the 15 ms latch threshold means #450's
+diagnostic only fires on bimodal cases, so the "spread across many
+spawns" case B1 targets is structurally out of scope of the evidence.
+#414's count cap already covers that pattern.
+
+**Files (B3):** `Source/Parsek/GhostPlaybackState.cs` (new pending flag
++ reset), `Source/Parsek/GhostPlaybackEngine.cs` (restructured
+`UpdateReentryFx` with lazy-build seam, new `TryPerformLazyReentryBuild`
+helper + per-frame cap, spawn-path defer, widened loop-pause call-site
+guard, test seams), `Source/Parsek/GhostPlaybackLogic.cs` (new pure
+`ShouldBuildLazyReentryFx` helper), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs`
+(new `reentryFxDeferredThisSession` counter), `Source/Parsek.Tests/Bug450B3LazyReentryTests.cs`
+(16 new tests), `docs/dev/plan-450-b3-lazy-reentry.md` (new).
+
+**Files (A — shipped previously):** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs`, `docs/dev/plan-450-build-breakdown.md`.
+
+**Scope:** Phase A = Small (instrumentation-only). Phase B3 = Small (defer one function call + cap). Phase B2 = Medium (coroutine split, new invariants).
+
+**Dependencies:** #414 shipped, Phase A shipped.
+
+**Status:** Phase A + Phase B3 shipped. Phase B2 TODO, gated on next playtest confirming `heaviestSpawn[reentry=…]` has dropped. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
 
 ---
 

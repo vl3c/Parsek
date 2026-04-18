@@ -72,6 +72,27 @@ namespace Parsek
             return spawnsThisFrame >= maxPerFrame;
         }
 
+        /// <summary>
+        /// Bug #450 B3: decides whether a deferred reentry-FX build should fire on the
+        /// current frame. Returns true when the ghost is inside a body's atmosphere
+        /// (the earliest point at which reentry visuals can render at non-zero intensity —
+        /// see <c>GhostVisualBuilder.ComputeReentryIntensity</c> density/Mach gates).
+        /// Pure helper so the condition is unit-testable without Unity or FlightGlobals.
+        /// </summary>
+        internal static bool ShouldBuildLazyReentryFx(
+            bool pendingFlag, string bodyName, bool bodyHasAtmosphere,
+            double altitudeMeters, double atmosphereDepthMeters)
+        {
+            if (!pendingFlag) return false;
+            if (string.IsNullOrEmpty(bodyName)) return false;
+            if (!bodyHasAtmosphere) return false;
+            // Strict `<`: at exactly atmosphereDepth the existing UpdateReentryFx path
+            // already calls DriveReentryToZero, so firing the build here would only pay
+            // the cost for a frame that produces zero-intensity output anyway.
+            if (altitudeMeters >= atmosphereDepthMeters) return false;
+            return true;
+        }
+
         internal static bool ShouldSuppressVisualFx(float currentWarpRate)
         {
             return currentWarpRate > FxSuppressWarpThreshold;

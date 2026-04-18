@@ -68,9 +68,21 @@ namespace Parsek
         // this cap; see plan-414-spawn-throttle.md for the full call-site taxonomy.
         internal const int MaxSpawnsPerFrame = 2;
 
+        // Bug #450 B3: cap on deferred reentry-FX builds that can fire on a single frame.
+        // Without a cap, N ghosts crossing atmosphereDepth in the same frame would each
+        // pay the ~7 ms TryBuildReentryFx cost, relocating the bimodal spawn-burst pattern
+        // to atmosphere-entry-time rather than eliminating it. The atmosphere-entry window
+        // is many frames wide (ghosts approach the boundary at ~hundreds of m/s vs a
+        // ~100 km atmosphere depth), so a 1-frame delay on the excess builds is invisible.
+        internal const int MaxLazyReentryBuildsPerFrame = 2;
+
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
         private int frameDestroyCount;
+        // Bug #450 B3: per-frame counters for deferred-reentry-build throttling.
+        // Reset each frame alongside the #414 counters.
+        private int frameLazyReentryBuildCount;
+        private int frameLazyReentryBuildDeferred;
         // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
         // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
         private int frameSpawnDeferred;
@@ -342,6 +354,10 @@ namespace Parsek
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
+            // Bug #450 B3: reset lazy-reentry-build per-frame counters each tick so the
+            // cap applies within a single UpdatePlayback call.
+            frameLazyReentryBuildCount = 0;
+            frameLazyReentryBuildDeferred = 0;
             // Bug #450: reset per-frame heaviest-spawn breakdown fields so the latch starts
             // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None. The
             // lastSpawn*Ticks fields are NOT reset here because TryPopulateGhostVisuals
@@ -1419,7 +1435,10 @@ namespace Parsek
                 state.pauseHidden = true;
                 GhostPlaybackLogic.HideAllGhostParts(state);
             }
-            if (state.reentryFxInfo != null)
+            // Bug #450 B3: widened guard — pending-but-not-yet-built ghosts also need
+            // UpdateReentryFx to run so the lazy build can fire if the loop-pause frame
+            // happens to be the first one in atmosphere.
+            if (state.reentryFxInfo != null || state.reentryFxPendingBuild)
             {
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
@@ -1734,12 +1753,22 @@ namespace Parsek
         /// Update reentry visual effects for a ghost. Computes atmospheric density,
         /// Mach number, and intensity, then drives glow/fire/shell layers.
         /// </summary>
+        /// <remarks>
+        /// Bug #450 B3: entry condition widened to allow ghosts whose reentry build
+        /// was deferred at spawn (<c>state.reentryFxPendingBuild == true</c>) to
+        /// reach the body/atmosphere lookup below. The lazy build fires inside this
+        /// method after the body is resolved so there is no duplicate
+        /// <c>FlightGlobals.Bodies.Find</c> on the hot path. Drive-to-zero paths
+        /// short-circuit to a plain return when <c>reentryFxInfo</c> is still null
+        /// (nothing to drive, we're just waiting for in-atmosphere conditions).
+        /// </remarks>
         internal void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName, float warpRate)
         {
-            var info = state.reentryFxInfo;
-            if (info == null || state.ghost == null) return;
+            if (state == null || state.ghost == null) return;
+            if (state.reentryFxInfo == null && !state.reentryFxPendingBuild) return;
 
-            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            var info = state.reentryFxInfo;
+            if (info != null && GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
             {
                 DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
                     state.lastInterpolatedAltitude, vesselName);
@@ -1752,7 +1781,8 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(bodyName))
             {
-                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
                 return;
             }
 
@@ -1766,24 +1796,38 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-nobody",
                     $"ReentryFx: body '{bodyName}' not found — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
-            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
-            float speed = surfaceVel.magnitude;
-
             if (!body.atmosphere)
             {
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
             if (altitude >= body.atmosphereDepth)
             {
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
+
+            // Bug #450 B3: lazy-build seam. Reuses the body + atmosphere + altitude
+            // checks above. If the build is throttled or fails, return — next frame
+            // will retry (flag cleared only when the build actually fires, see
+            // TryPerformLazyReentryBuild). Below this point info is guaranteed non-null.
+            if (state.reentryFxPendingBuild)
+            {
+                TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);
+                info = state.reentryFxInfo;
+                if (info == null) return;
+            }
+
+            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
+            float speed = surfaceVel.magnitude;
 
             double pressure = body.GetPressure(altitude);
             double temperature = body.GetTemperature(altitude);
@@ -1811,6 +1855,59 @@ namespace Parsek
 
             DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName, state);
             info.lastIntensity = smoothedIntensity;
+        }
+
+        /// <summary>
+        /// Bug #450 B3: perform the deferred reentry-FX build. Called from inside
+        /// <see cref="UpdateReentryFx"/> after its body/atmosphere/altitude guards have
+        /// already confirmed the ghost is in atmosphere, so there is no duplicate
+        /// <c>FlightGlobals.Bodies.Find</c> lookup. Respects
+        /// <see cref="MaxLazyReentryBuildsPerFrame"/> to prevent a burst of simultaneous
+        /// atmosphere-entries from producing the same bimodal hitch #450 is trying to
+        /// eliminate.
+        /// </summary>
+        private void TryPerformLazyReentryBuild(
+            int recIdx, GhostPlaybackState state, string vesselName,
+            string bodyName, double altitude)
+        {
+            // Defensive idempotency: the production call site in UpdateReentryFx guards
+            // on state.reentryFxPendingBuild, but this method is also exposed as a test
+            // seam. A re-entrant call with the flag already cleared must be a no-op.
+            if (state == null || !state.reentryFxPendingBuild) return;
+
+            if (frameLazyReentryBuildCount >= MaxLazyReentryBuildsPerFrame)
+            {
+                frameLazyReentryBuildDeferred++;
+                ParsekLog.VerboseRateLimited("ReentryFx", "lazy-throttle",
+                    $"Lazy reentry build throttled: #{recIdx} deferred to next frame " +
+                    $"(used {frameLazyReentryBuildCount}/{MaxLazyReentryBuildsPerFrame})", 1.0);
+                return;  // Flag stays true — retry next frame while still in atmosphere.
+            }
+
+            // Defensive: heatInfos is only nulled by ClearLoadedVisualReferences (which
+            // also clears our pending flag) or by a full rebuild path. If we somehow
+            // land here with a null it, clear the flag so we don't burn CPU every
+            // frame on an impossible build, and let the subsystem self-heal on the
+            // next rebuild.
+            if (state.heatInfos == null)
+            {
+                state.reentryFxPendingBuild = false;
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-nohheat-{recIdx}",
+                    $"Lazy reentry build skipped for #{recIdx} \"{vesselName}\" — " +
+                    $"state.heatInfos is null (rebuild likely in flight); clearing flag", 5.0);
+                return;
+            }
+
+            frameLazyReentryBuildCount++;
+            state.reentryFxPendingBuild = false;  // One-shot: clear even if build fails.
+            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                state.ghost, state.heatInfos, recIdx, vesselName);
+            DiagnosticsState.health.reentryFxBuildsThisSession++;
+
+            ParsekLog.Verbose("ReentryFx",
+                $"Lazy reentry build fired for ghost #{recIdx} \"{vesselName}\" — " +
+                $"body={bodyName} alt={altitude:F0}m " +
+                $"(deferred at spawn, built on first atmospheric frame)");
         }
 
         private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude,
@@ -2292,6 +2389,18 @@ namespace Parsek
             => frameSpawnCount++;
         internal int FrameSpawnCountForTesting => frameSpawnCount;
         internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
+        // Bug #450 B3 test hooks. Narrow seam that lets tests drive the lazy-build
+        // decision + throttle without constructing a full Unity scene (TryBuildReentryFx
+        // needs a live GameObject, so tests here will stay on the counter/flag observation
+        // side and defer the actual-build assertion to the in-game RuntimeTests fixture).
+        internal void TryPerformLazyReentryBuildForTesting(
+            int recIdx, GhostPlaybackState state, string vesselName,
+            string bodyName, double altitude)
+            => TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);
+        internal int FrameLazyReentryBuildCountForTesting => frameLazyReentryBuildCount;
+        internal int FrameLazyReentryBuildDeferredForTesting => frameLazyReentryBuildDeferred;
+        internal void SetFrameLazyReentryBuildCountForTesting(int value)
+            => frameLazyReentryBuildCount = value;
         internal void ResetPerFrameCountersForTesting()
         {
             frameSpawnCount = 0;
@@ -2314,6 +2423,9 @@ namespace Parsek
             buildTimelineStopwatch.Reset();
             buildDictionariesStopwatch.Reset();
             buildReentryFxStopwatch.Reset();
+            // Bug #450 B3: mirror the production reset so tests see a clean cap each call.
+            frameLazyReentryBuildCount = 0;
+            frameLazyReentryBuildDeferred = 0;
         }
 
         private bool TryPopulateGhostVisuals(
@@ -2422,13 +2534,20 @@ namespace Parsek
             buildReentryFxStopwatch.Start();
             if (TrajectoryMath.HasReentryPotential(traj))
             {
-                state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                    ghost, state.heatInfos, index, traj.VesselName);
-                DiagnosticsState.health.reentryFxBuildsThisSession++;
+                // Bug #450 B3: defer the ~7 ms TryBuildReentryFx work to the first
+                // in-atmosphere frame. Ghosts that never enter atmosphere (orbital-only
+                // fly-bys, pad ghosts that never launch, sub-400 m/s suborbital hops
+                // that stay above the boundary) save the entire build cost. The lazy
+                // build fires from inside UpdateReentryFx after its body lookup so
+                // there is no duplicate FlightGlobals.Bodies.Find.
+                state.reentryFxInfo = null;
+                state.reentryFxPendingBuild = true;
+                DiagnosticsState.health.reentryFxDeferredThisSession++;
             }
             else
             {
                 state.reentryFxInfo = null;
+                state.reentryFxPendingBuild = false;
                 DiagnosticsState.health.reentryFxSkippedThisSession++;
                 ParsekLog.VerboseRateLimited("ReentryFx", $"skip-{index}",
                     $"Skipped reentry FX build for ghost #{index} \"{traj.VesselName}\" " +
