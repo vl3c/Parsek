@@ -37,6 +37,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `T68` Added cleanup-order unit coverage for watch-mode exit-before-destroy, plus in-game regressions for watch-cleanup and low-altitude Kerbin ghost spawn exception containment.
 - `#458` Added a binary sidecar regression test for duplicated flat-prefix loads and expanded the in-game committed-recording monotonicity failure to report track-section prefix/source diagnostics.
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test plus an assertion that the optimizer rejects orbital-phase pairs.
 - `#384` Added the Learstar A1 S16 mission to the `DefaultCareer` fixture so `InjectAllRecordings` covers a far-away / map-view recording.
@@ -55,6 +56,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
 - `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
 - `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.
 - `#455` `PatchMilestones` no longer spams thousands of `repeatable node '<Body>/<Name>' is missing stock record fields` WARNs on every recalculation; one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …) now correctly fall through to the one-shot patch path instead of being short-circuited by the repeatable-record branch.
