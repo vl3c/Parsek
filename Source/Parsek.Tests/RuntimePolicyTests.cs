@@ -293,7 +293,7 @@ namespace Parsek.Tests
         }
 
         // --- GetActiveCycles tests (#381 launch-to-launch semantics) ---
-        // cycleDuration = max(intervalSeconds, MinCycleDuration=1).
+        // cycleDuration = max(intervalSeconds, MinCycleDuration=5 since #443).
 
         [Fact]
         public void GetActiveCycles_PeriodGreaterThanDuration_SingleCycle()
@@ -415,14 +415,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetActiveCycles_BelowMinCycleDuration_ClampsToOne()
+        public void GetActiveCycles_BelowMinCycleDuration_ClampsToFive()
         {
-            // #381: 10s recording, period=0.001 → cycleDuration clamps to MinCycleDuration=1.
+            // #443: 10s recording, period=0.001 → cycleDuration clamps to MinCycleDuration=5.
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 100.005, startUT: 100, endUT: 110,
                 intervalSeconds: 0.001, maxCycles: 5,
                 out long first, out long last);
-            // cycleDuration=1, elapsed=0.005 → lastCycle=0, firstCycle=0.
+            // cycleDuration=5, elapsed=0.005 → lastCycle=0, firstCycle=0.
             Assert.Equal(0, last);
             Assert.Equal(0, first);
         }
@@ -447,11 +447,11 @@ namespace Parsek.Tests
         [Fact]
         public void GetActiveCycles_ShortPeriod_ManyOverlaps_Capped()
         {
-            // 21s recording, period=1 → cycleDuration=1.
-            // At t=110 (elapsed=10): lastCycle=10.
+            // #443: 105s recording, period=5 (= MinCycleDuration) → cycleDuration=5.
+            // At t=150 (elapsed=50): lastCycle=floor(50/5)=10.
             GhostPlaybackLogic.GetActiveCycles(
-                currentUT: 110, startUT: 100, endUT: 121,
-                intervalSeconds: 1, maxCycles: 5,
+                currentUT: 150, startUT: 100, endUT: 205,
+                intervalSeconds: 5, maxCycles: 5,
                 out long first, out long last);
             Assert.Equal(10, last);
             // cap: last(10) - 5 + 1 = 6
@@ -462,11 +462,11 @@ namespace Parsek.Tests
         [Fact]
         public void GetActiveCycles_ShortPeriod_NoCap()
         {
-            // 21s recording, period=1 → cycleDuration=1.
-            // At t=110 (elapsed=10): lastCycle=10. elapsedMinusDuration=-11 → firstCycle=0.
+            // #443: 105s recording, period=5 → cycleDuration=5.
+            // At t=150 (elapsed=50): lastCycle=10. elapsedMinusDuration=-55 → firstCycle=0.
             GhostPlaybackLogic.GetActiveCycles(
-                currentUT: 110, startUT: 100, endUT: 121,
-                intervalSeconds: 1, maxCycles: 100,
+                currentUT: 150, startUT: 100, endUT: 205,
+                intervalSeconds: 5, maxCycles: 100,
                 out long first, out long last);
             Assert.Equal(10, last);
             Assert.Equal(0, first);
@@ -476,12 +476,12 @@ namespace Parsek.Tests
         [Fact]
         public void GetActiveCycles_ShortPeriod_OlderCyclesExpire()
         {
-            // 21s recording, period=1 → cycleDuration=1.
-            // At t=125 (elapsed=25): lastCycle=25.
-            // elapsedMinusDuration = 25-21 = 4 → firstCycle = floor(4/1)+1 = 5.
+            // #443: 105s recording, period=5 → cycleDuration=5.
+            // At t=225 (elapsed=125): lastCycle=floor(125/5)=25.
+            // elapsedMinusDuration = 125-105 = 20 → firstCycle = floor(20/5)+1 = 5.
             GhostPlaybackLogic.GetActiveCycles(
-                currentUT: 125, startUT: 100, endUT: 121,
-                intervalSeconds: 1, maxCycles: 100,
+                currentUT: 225, startUT: 100, endUT: 205,
+                intervalSeconds: 5, maxCycles: 100,
                 out long first, out long last);
             Assert.Equal(25, last);
             Assert.Equal(5, first);
@@ -491,13 +491,14 @@ namespace Parsek.Tests
         [Fact]
         public void TryComputeLoopPlaybackUT_ZeroInterval_ClampsToMinAndRestarts()
         {
-            // #381: period=0 clamps to 1. duration=20. At t=120 elapsed=20, cycle=20 phase=0.
+            // #443: period=0 clamps to MinCycleDuration=5. duration=20.
+            // At t=120 elapsed=20, cycle=floor(20/5)=4 phase=0.
             bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 120, startUT: 100, endUT: 120,
                 intervalSeconds: 0,
                 out double loopUT, out long cycleIndex);
             Assert.True(ok);
-            Assert.Equal(20, cycleIndex);
+            Assert.Equal(4, cycleIndex);
             Assert.Equal(100.0, loopUT, 6); // start of new cycle
         }
 

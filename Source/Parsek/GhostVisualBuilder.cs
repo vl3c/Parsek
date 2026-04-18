@@ -2353,7 +2353,10 @@ namespace Parsek
             {
                 for (int i = 0; i < engines.Count; i++)
                 {
-                    string clipPath = GhostAudioPresets.ResolveEngineAudioClip(prefab, i);
+                    string clipPath = GhostAudioPresets.ResolveEngineAudioClip(
+                        prefab,
+                        i,
+                        out bool useQuietVolumeCurve);
                     if (clipPath == null) continue;
 
                     AudioClip clip = GameDatabase.Instance.GetAudioClip(clipPath);
@@ -2374,7 +2377,7 @@ namespace Parsek
                         moduleIndex = i,
                         audioSource = source,
                         clip = clip,
-                        volumeCurve = GhostAudioPresets.BuildVolumeCurve(clipPath),
+                        volumeCurve = GhostAudioPresets.BuildVolumeCurve(useQuietVolumeCurve),
                         pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
                         currentPower = 0f
                     });

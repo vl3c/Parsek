@@ -22,7 +22,7 @@ When the redesign is complete, move all artifacts to `docs/dev/done/<feature>/`.
 
 **When to use a subset:** A pure internal refactor (no gameplay change) may need only the inventory, task plans, and deferred items — no system design doc, since there's no new behavior to specify. See the "Decision Framework" table in `development-workflow.md` for guidance.
 
-**Refactors have different structure:** Refactor plans (e.g., `code-refactor-2-plan.md`) follow their own conventions — processing tiers, extraction rules (ALLOWED/NOT ALLOWED lists), logging carve-outs, quality gates per tier, and conflict resolution principles. These don't map onto the feature design doc template. For refactors, the plan doc IS the design doc, and its structure should be driven by the refactor's scope and risk profile. The inventory, deferred items, and review checklist artifacts still apply.
+**Refactors have different structure:** Refactor plans (e.g., `code-refactor-2-plan.md`) follow their own conventions — processing tiers, extraction rules (ALLOWED/NOT ALLOWED lists), logging carve-outs, quality gates per tier, and conflict resolution principles. These don't map onto the feature design doc template. For refactors, the plan doc IS the design doc, and its structure should be driven by the refactor's scope and risk profile. Typical refactor passes: method extraction, deduplication, **constant centralization** (see Section 6 — "Centralize Magic Values"), and structural splits. The inventory, deferred items, and review checklist artifacts still apply.
 
 ---
 
@@ -252,6 +252,22 @@ task ordering.
 Code patterns already in the codebase that this redesign should follow
 (serialization style, event handling, logging conventions, etc.).
 
+## Magic Values Audit
+
+Catalog magic numbers, magic strings, and literal tuning values in the
+affected files — especially any value that appears in more than one place
+or encodes a behavioral threshold, limit, format tag, file extension,
+enum-int mapping, or user-visible string. For each, record the file +
+line, what the value represents, and whether a suitable host already
+exists (e.g., `ParsekConfig`, `RecordingConstants`, a per-subsystem
+static class).
+
+These feed a task (or refactor pass) that replaces every occurrence with
+a named constant in a single static class or config file, so future
+tuning is a one-line edit instead of a grep-and-replace. Skip genuine
+one-offs: identity values (`0`, `1`, `null`), index arithmetic
+(`i + 1`), and test-only fixtures.
+
 ## KSP API Surface
 
 Relevant KSP APIs/events, with gotchas from `docs/mods-references/` and
@@ -478,6 +494,7 @@ post-change checklist from CLAUDE.md first, then these additional checks.
 - [ ] <Backward compatibility with existing saves>
 - [ ] <Performance check for per-frame operations>
 - [ ] <Interaction with <existing system> verified>
+- [ ] No new magic numbers/strings introduced — thresholds, limits, format tags, file extensions, and user-visible strings live in a named static constant (see Section 6 — "Centralize Magic Values")
 
 ## Agent Constraints (if refactoring)
 
@@ -511,6 +528,18 @@ Derived from the recording system redesign (tasks 1-13):
 - Data model tasks produce **no runtime behavior** — just types and serialization.
 - Each task plan includes **"What This Task Does NOT Do"** listing explicit exclusions.
 - A task that touches many files but makes the same mechanical change everywhere (e.g., renaming, extraction) is fine — the "1-3 files" guideline is for tasks involving different logic in each file.
+
+### Centralize Magic Values
+
+Every magic number, magic string, or literal tuning value identified in the Magic Values Audit (Section 2) must be replaced with a well-named constant declared in a static class or configuration file, and referenced from every call site. This is non-negotiable for both refactors and new code introduced by a redesign:
+
+- **One source of truth** — tuning a threshold, renaming a key, or changing a format tag is a single-line edit instead of a codebase-wide grep-and-replace.
+- **Self-documenting** — `RecordingConstants.MaxTrailingGhostDistanceMeters` at a call site reads better than `2500f`.
+- **Discoverability** — new readers find all related values in one file instead of hunting through call sites.
+
+Prefer an **existing** static class (e.g., `ParsekConfig`, `RecordingConstants`) over creating a new one; only introduce a new container when no existing one fits the value's domain. Exclude genuine one-offs: identity values (`0`, `1`, `null`), index arithmetic (`i + 1`), and test-only fixtures. If a literal appears **more than once**, or encodes a **threshold, limit, format tag, file extension, enum-int mapping, or user-visible string**, it is a candidate.
+
+For refactors, constant centralization is usually its own pass (e.g., "Pass N: extract magic values") so the diff is reviewable independent of structural changes.
 
 ### Naming
 

@@ -2361,7 +2361,7 @@ namespace Parsek
             }
             ParsekFlight.EnsureActiveRecordingTerminalState(tree, isSceneExit: true);
             ParsekFlight.PruneZeroPointLeaves(tree);
-            ParsekFlight.PruneSinglePointDestroyedDebrisLeaves(tree);
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
 
             RecordingStore.MarkPendingTreeFinalized();
             ParsekLog.Info("Scenario",

@@ -6515,7 +6515,7 @@ namespace Parsek
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
             PruneZeroPointLeaves(tree);
-            PruneSinglePointDestroyedDebrisLeaves(tree);
+            PruneSinglePointDebrisLeaves(tree);
 
             // Phase F: tree-level resource delta capture removed. The ledger is
             // the single source of truth for funds/science/reputation; per-recording
@@ -6978,27 +6978,63 @@ namespace Parsek
                 "zero-point leaf recording(s)");
         }
 
-        internal static void PruneSinglePointDestroyedDebrisLeaves(RecordingTree tree)
+        internal static void PruneSinglePointDebrisLeaves(RecordingTree tree)
         {
-            var toPrune = CollectSinglePointDestroyedDebrisLeafIds(tree);
+            var toPrune = CollectSinglePointDebrisLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)
                 return;
 
             // Same-frame breakup debris can die inside the coalescing window and only retain
             // the split seed point. These stubs are non-playable, fail the data-health
-            // contract, and never contribute a meaningful ghost or spawn path.
+            // contract, and never contribute a meaningful ghost or spawn path. #447 widened
+            // this beyond Destroyed, but only for debris that has already fully ended
+            // (Landed / Recovered / Splashed / Destroyed). Scene-exit commits can still
+            // produce one-point SubOrbital / Orbiting debris leaves; keep those for
+            // diagnosis instead of silently deleting non-terminal recordings.
+
+            // Terminal-state breakdown for the summary log (#447 follow-up): aggregate before
+            // PruneLeafRecordings removes the recordings from the tree.
+            var breakdown = new Dictionary<TerminalState, int>();
+            for (int i = 0; i < toPrune.Count; i++)
+            {
+                if (!tree.Recordings.TryGetValue(toPrune[i], out var rec) || rec == null) continue;
+                var state = rec.TerminalStateValue.Value;
+                breakdown[state] = (breakdown.TryGetValue(state, out var n) ? n : 0) + 1;
+            }
+            string summarySuffix = FormatTerminalStateBreakdown(breakdown);
+
             PruneLeafRecordings(
                 tree,
                 toPrune,
-                "PruneSinglePointDestroyedDebrisLeaves",
-                "single-point destroyed debris stub(s)");
+                "PruneSinglePointDebrisLeaves",
+                "single-point debris stub(s)",
+                summarySuffix);
+        }
+
+        // #447 follow-up: render a "(Landed=2, Destroyed=1)" suffix for the prune summary
+        // log. Returns empty string when nothing to break out.
+        internal static string FormatTerminalStateBreakdown(
+            Dictionary<TerminalState, int> breakdown)
+        {
+            if (breakdown == null || breakdown.Count == 0)
+                return string.Empty;
+            var parts = new List<string>();
+            // Iterate enum values in their declared order so the suffix is deterministic
+            // regardless of dictionary insertion order.
+            foreach (TerminalState state in Enum.GetValues(typeof(TerminalState)))
+            {
+                if (breakdown.TryGetValue(state, out var count) && count > 0)
+                    parts.Add($"{state}={count}");
+            }
+            return parts.Count == 0 ? string.Empty : " (" + string.Join(", ", parts) + ")";
         }
 
         private static void PruneLeafRecordings(
             RecordingTree tree,
             List<string> toPrune,
             string logTag,
-            string description)
+            string description,
+            string summarySuffix = null)
         {
             for (int i = 0; i < toPrune.Count; i++)
             {
@@ -7032,6 +7068,7 @@ namespace Parsek
 
             ParsekLog.Info("Flight",
                 $"{logTag}: removed {toPrune.Count} {description}" +
+                (string.IsNullOrEmpty(summarySuffix) ? "" : summarySuffix) +
                 (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
                 $" from tree '{tree.TreeName}'");
         }
@@ -7055,7 +7092,7 @@ namespace Parsek
             return result;
         }
 
-        internal static List<string> CollectSinglePointDestroyedDebrisLeafIds(RecordingTree tree)
+        internal static List<string> CollectSinglePointDebrisLeafIds(RecordingTree tree)
         {
             List<string> result = null;
             foreach (var kvp in tree.Recordings)
@@ -7064,7 +7101,7 @@ namespace Parsek
                     continue;
 
                 var rec = kvp.Value;
-                if (IsSinglePointDestroyedDebrisLeaf(rec))
+                if (IsSinglePointDebrisLeaf(rec))
                 {
                     if (result == null) result = new List<string>();
                     result.Add(kvp.Key);
@@ -7086,14 +7123,88 @@ namespace Parsek
                 && !rec.SurfacePos.HasValue;
         }
 
-        internal static bool IsSinglePointDestroyedDebrisLeaf(Recording rec)
+        internal static bool IsSinglePointDebrisLeaf(Recording rec)
+        {
+            return IsSinglePointDebrisLeafForState(rec, IsTerminalSinglePointDebrisStubState);
+        }
+
+        internal static bool IsStopMetricsExemptSinglePointDebrisLeaf(Recording rec)
+        {
+            return IsSinglePointDebrisLeafForState(rec, IsPreservedSinglePointInFlightDebrisState);
+        }
+
+        private static bool IsSinglePointDebrisLeafForState(
+            Recording rec, Func<TerminalState, bool> statePredicate)
         {
             if (rec == null || rec.ChildBranchPointId != null) return false;
             if (rec.SidecarLoadFailed) return false;
-            if (!rec.IsDebris || rec.TerminalStateValue != TerminalState.Destroyed) return false;
+            if (!rec.IsDebris) return false;
             if (rec.Points.Count != 1) return false;
+            if (!rec.TerminalStateValue.HasValue
+                || !statePredicate(rec.TerminalStateValue.Value))
+                return false;
             if (rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue) return false;
-            return rec.TrackSections == null || rec.TrackSections.Count == 0;
+            return HasOnlyMirroredSinglePointTrackSection(rec);
+        }
+
+        private static bool IsTerminalSinglePointDebrisStubState(TerminalState state)
+        {
+            switch (state)
+            {
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                case TerminalState.Destroyed:
+                case TerminalState.Recovered:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsPreservedSinglePointInFlightDebrisState(TerminalState state)
+        {
+            switch (state)
+            {
+                case TerminalState.SubOrbital:
+                case TerminalState.Orbiting:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool HasOnlyMirroredSinglePointTrackSection(Recording rec)
+        {
+            // #447: accept section-backed single-point debris only when the section is just
+            // the mirrored seed point with no checkpoints. Anything richer than that is real
+            // data and must stay visible to either pruning or REC-002.
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0) return true;
+            if (rec.TrackSections.Count > 1) return false;
+            var section = rec.TrackSections[0];
+            int frames = section.frames?.Count ?? 0;
+            int checkpoints = section.checkpoints?.Count ?? 0;
+            return checkpoints == 0
+                && frames == 1
+                && TrajectoryPointEquals(section.frames[0], rec.Points[0]);
+        }
+
+        private static bool TrajectoryPointEquals(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            return a.ut == b.ut
+                && a.latitude == b.latitude
+                && a.longitude == b.longitude
+                && a.altitude == b.altitude
+                && a.rotation.x == b.rotation.x
+                && a.rotation.y == b.rotation.y
+                && a.rotation.z == b.rotation.z
+                && a.rotation.w == b.rotation.w
+                && a.velocity.x == b.velocity.x
+                && a.velocity.y == b.velocity.y
+                && a.velocity.z == b.velocity.z
+                && a.bodyName == b.bodyName
+                && a.funds == b.funds
+                && a.science == b.science
+                && a.reputation == b.reputation;
         }
 
         // Phase F: ComputeTreeDeltaFunds/Science/Reputation removed.
