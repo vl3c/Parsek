@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## v0.9-dev
+
+### Features
+
+- Phase 1: data model for Rewind to Staging (no user-visible behavior yet).
+
+---
+
 ## 0.8.2
 
 ### Features
