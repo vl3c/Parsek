@@ -335,7 +335,9 @@ namespace Parsek
         /// <summary>
         /// Rewrites any legacy persisted <see cref="GameStateEventType.PartPurchased"/>
         /// rows whose stored <c>cost=</c> token still means rollout <c>part.cost</c>
-        /// instead of the real R&amp;D debit captured by current stock semantics.
+        /// instead of the real historical R&amp;D debit captured by saved
+        /// <see cref="GameStateEventType.FundsChanged"/> history. Ambiguous or coalesced
+        /// windows are left untouched rather than guessed from current runtime state.
         /// Runs against the live in-memory list so recovery and load-time compatibility
         /// paths see corrected event data without a save-format bump.
         /// </summary>
@@ -411,15 +413,13 @@ namespace Parsek
             IReadOnlyList<GameStateEvent> sourceEvents,
             out float canonicalCost)
         {
-            canonicalCost = 0f;
-
             // Only trust the paired FundsChanged delta when the window contains a single
             // part purchase. Batched unlocks can coalesce multiple RnDPartPurchase deltas
-            // into one resource event, which is ambiguous per purchase.
-            if (TryGetUnambiguousPartPurchaseChargeFromFundsEvent(evt, sourceEvents, out canonicalCost))
-                return true;
-
-            return GameStateRecorder.TryResolveCanonicalPartPurchaseCharge(evt.key, out canonicalCost);
+            // into one resource event, which is ambiguous per purchase. Do not fall back
+            // to current difficulty or part metadata — that can silently rewrite old
+            // history using today's runtime semantics instead of the saved savefile facts.
+            return TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
+                evt, sourceEvents, out canonicalCost);
         }
 
         private static bool TryGetUnambiguousPartPurchaseChargeFromFundsEvent(

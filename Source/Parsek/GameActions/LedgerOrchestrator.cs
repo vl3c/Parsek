@@ -1812,10 +1812,11 @@ namespace Parsek
 
         /// <summary>
         /// Rewrites persisted legacy part-purchase ledger rows whose stored funds debit
-        /// still reflects rollout <c>part.cost</c> instead of stock KSP's real R&amp;D
-        /// charge semantics. Existing version-1 ledger files keep the same shape; the
-        /// compatibility path mutates the in-memory actions after load and before the
-        /// first recalculation walk.
+        /// still reflects rollout <c>part.cost</c> instead of the historical R&amp;D
+        /// charge proved by saved game-state events. Existing version-1 ledger files
+        /// keep the same shape; the compatibility path mutates the in-memory actions
+        /// after load and before the first recalculation walk. Ambiguous rows are
+        /// preserved as-is rather than guessed from current runtime semantics.
         /// </summary>
         internal static int RepairLegacyPartPurchaseActionsOnLoad(
             IReadOnlyList<GameStateEvent> events,
@@ -1878,8 +1879,7 @@ namespace Parsek
                 }
             }
 
-            return GameStateRecorder.TryResolveCanonicalPartPurchaseCharge(
-                action.DedupKey, out canonicalCost);
+            return false;
         }
 
         private static bool TryFindMatchingPartPurchasedEvent(
