@@ -200,9 +200,41 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   (CommitTombstones scans raw `Ledger.Actions` to BUILD the tombstone
   set; routing through ELS would be circular because ELS is defined as
   "ledger minus tombstones").
-- **Phase 10 (next)** — journaled staged commit: MergeJournal write/
+- ~~**Phase 10** — journaled staged commit: MergeJournal write/
   clear around the merge steps, failure-recovery finisher triggered by
-  journal presence on load (design §6.6 steps 7-16 / §7.45).
+  journal presence on load (design §6.6 steps 7-16 / §7.45).~~
+  New `MergeJournalOrchestrator.RunMerge` drives the 14 merge steps
+  through 5 crash-recovery checkpoints (Supersede, Tombstone, Finalize,
+  Durable1Done, RpReap) with an orchestrator-internal `Phase` enum
+  mirroring `MergeJournal.Phases` string constants; `RunFinisher` on
+  OnLoad switches on the persisted phase and either rolls back
+  (Phase ≤ Finalize: pre-merge snapshot still on disk; remove
+  session-provisional recording + clear marker + clear journal) or
+  drives the remaining steps to completion (Phase ≥ Durable1Done: tag
+  session-provisional RPs via `TagRpsForReap`, clear marker, durable
+  save, clear journal). `SupersedeCommit` refactored into
+  `AppendRelations` + `FlipMergeStateAndClearTransient` (with a
+  `preserveMarker` flag so the orchestrator can defer marker clear
+  until after Durable Save #1 per §6.6 sequencing); `CommitSupersede`
+  stays a thin wrapper for the phase-8/9 callers. `MergeDialog` routes
+  through the orchestrator + log-and-toast on exception so the
+  finisher can recover on next load. Durable saves are deferred to
+  the next natural `ScenarioModule.OnSave` in production (journal
+  phase string IS the durable barrier); tests inject
+  `DurableSaveForTesting` + `FaultInjectionPoint` to exercise every
+  crash window. Tests: 16 `MergeJournalOrchestratorTests` (happy path
+  + 4 rollback + 4 completion + 4 idempotency + 2 null-guard), 5
+  `MergeCrashRecoveryMatrixTests` (per-window state-invariant
+  assertions for the plan's 5-point matrix); two FLIGHT-scene in-game
+  tests (`MergeInterruptionRecoveryTest`,
+  `JournalFinisherMarkerPresentVariantTest`).
+  `MergeJournalOrchestrator.cs` added to
+  `scripts/ers-els-audit-allowlist.txt` (rollback path reads raw
+  committed list to remove the NotCommitted provisional that ERS
+  filters out).
+- **Phase 11 (next)** — RP quicksave reap + file deletion for the
+  session-provisional RPs that Phase 10 tags, session-end cleanup,
+  load-time sweep (design §6.8 / §6.9).
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so
