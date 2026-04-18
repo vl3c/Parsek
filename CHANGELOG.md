@@ -116,6 +116,7 @@ All notable changes to Parsek are documented here.
 
 - `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation`.
 - `#372` Removed orphaned synthetic-scenario test helpers.
+- `#454` `GameStateRecorder.Emit` and `GameStateStore.AddEvent` now take `ref GameStateEvent` so field stamps (`epoch`, `recordingId`) propagate to the caller's local — eliminates the value-type field-mirror bug class that produced #443.
 
 ---
 

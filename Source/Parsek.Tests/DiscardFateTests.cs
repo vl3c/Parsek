@@ -105,9 +105,8 @@ namespace Parsek.Tests
             var contractNode = new ConfigNode("CONTRACT");
             GameStateStore.AddContractSnapshot("guid-A", contractNode);
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-A", 100.0),
-                "test");
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, "guid-A", 100.0);
+            GameStateRecorder.Emit(ref evt, "test");
 
             var tree = MakeTree("tree001", "rec-A");
             RecordingStore.StashPendingTree(tree);
@@ -134,9 +133,8 @@ namespace Parsek.Tests
             var contractNode = new ConfigNode("CONTRACT");
             GameStateStore.AddContractSnapshot("guid-A", contractNode);
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-A", 100.0),
-                "test");
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, "guid-A", 100.0);
+            GameStateRecorder.Emit(ref evt, "test");
 
             var tree = MakeTree("tree001", "rec-A");
             RecordingStore.StashPendingTree(tree);
@@ -159,9 +157,8 @@ namespace Parsek.Tests
             GameStateRecorder.TagResolverForTesting = () => "";
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-KSC", 50.0),
-                "ksc");
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, "guid-KSC", 50.0);
+            GameStateRecorder.Emit(ref evt, "ksc");
 
             // Tree contains ids that don't match the KSC event's (empty) tag.
             var tree = MakeTree("tree001", "rec-A", "rec-B");
@@ -183,12 +180,12 @@ namespace Parsek.Tests
 
             // Emit one event per recording by swapping the resolver between calls.
             GameStateRecorder.TagResolverForTesting = () => "rec-parent";
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.TechResearched, "node-1", 100.0), "parent");
+            var evtParent = MakeEvent(GameStateEventType.TechResearched, "node-1", 100.0);
+            GameStateRecorder.Emit(ref evtParent, "parent");
 
             GameStateRecorder.TagResolverForTesting = () => "rec-eva";
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.TechResearched, "node-2", 200.0), "eva");
+            var evtEva = MakeEvent(GameStateEventType.TechResearched, "node-2", 200.0);
+            GameStateRecorder.Emit(ref evtEva, "eva");
 
             var tree = MakeTree("tree001", "rec-parent", "rec-eva");
             RecordingStore.StashPendingTree(tree);
@@ -207,7 +204,8 @@ namespace Parsek.Tests
         public void PreFixUntaggedEvent_TreeHasNonEmptyIds_EventSurvives()
         {
             // Directly seed an event with no tag (simulating a loaded pre-#431 save).
-            GameStateStore.AddEvent(MakeEvent(GameStateEventType.TechResearched, "legacy-tech", 10.0));
+            var legacyEvt = MakeEvent(GameStateEventType.TechResearched, "legacy-tech", 10.0);
+            GameStateStore.AddEvent(ref legacyEvt);
 
             var tree = MakeTree("tree001", "rec-A", "rec-B");
             RecordingStore.StashPendingTree(tree);
@@ -256,14 +254,14 @@ namespace Parsek.Tests
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
             var contractNode = new ConfigNode("CONTRACT");
             GameStateStore.AddContractSnapshot("guid-cross", contractNode);
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-cross", 10.0), "ksc");
+            var acceptEvt = MakeEvent(GameStateEventType.ContractAccepted, "guid-cross", 10.0);
+            GameStateRecorder.Emit(ref acceptEvt, "ksc");
 
             // Complete during the discarded mission (tagged).
             GameStateRecorder.TagResolverForTesting = () => "rec-A";
             HighLogic.LoadedScene = GameScenes.FLIGHT;
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractCompleted, "guid-cross", 200.0), "flight");
+            var completeEvt = MakeEvent(GameStateEventType.ContractCompleted, "guid-cross", 200.0);
+            GameStateRecorder.Emit(ref completeEvt, "flight");
 
             var tree = MakeTree("tree001", "rec-A");
             RecordingStore.StashPendingTree(tree);
@@ -288,10 +286,10 @@ namespace Parsek.Tests
             var contractNode = new ConfigNode("CONTRACT");
             GameStateStore.AddContractSnapshot("guid-mission", contractNode);
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-mission", 100.0), "flight");
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractCompleted, "guid-mission", 200.0), "flight");
+            var acceptEvt = MakeEvent(GameStateEventType.ContractAccepted, "guid-mission", 100.0);
+            GameStateRecorder.Emit(ref acceptEvt, "flight");
+            var completeEvt = MakeEvent(GameStateEventType.ContractCompleted, "guid-mission", 200.0);
+            GameStateRecorder.Emit(ref completeEvt, "flight");
 
             var tree = MakeTree("tree001", "rec-A");
             RecordingStore.StashPendingTree(tree);
@@ -323,9 +321,8 @@ namespace Parsek.Tests
             GameStateRecorder.TagResolverForTesting = null; // use the production resolver
             HighLogic.LoadedScene = GameScenes.SPACECENTER; // scene reads SPACECENTER mid-switch
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-switch", 100.0),
-                "LimboVesselSwitch-test");
+            var switchEvt = MakeEvent(GameStateEventType.ContractAccepted, "guid-switch", 100.0);
+            GameStateRecorder.Emit(ref switchEvt, "LimboVesselSwitch-test");
 
             var stored = GameStateStore.Events.Single(e => e.key == "guid-switch");
             Assert.Equal("rec-outgoing", stored.recordingId);
@@ -349,9 +346,8 @@ namespace Parsek.Tests
             GameStateRecorder.TagResolverForTesting = () => "rec-stale";
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.TechResearched, "node-manual", 100.0),
-                "drift-test");
+            var techEvt = MakeEvent(GameStateEventType.TechResearched, "node-manual", 100.0);
+            GameStateRecorder.Emit(ref techEvt, "drift-test");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[GameStateRecorder]") &&
@@ -364,8 +360,8 @@ namespace Parsek.Tests
             GameStateRecorder.TagResolverForTesting = () => "";
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.TechResearched, "node-clean", 100.0), "clean");
+            var cleanEvt = MakeEvent(GameStateEventType.TechResearched, "node-clean", 100.0);
+            GameStateRecorder.Emit(ref cleanEvt, "clean");
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[GameStateRecorder]") &&
@@ -380,8 +376,8 @@ namespace Parsek.Tests
             GameStateRecorder.TagResolverForTesting = () => "rec-detail";
             HighLogic.LoadedScene = GameScenes.FLIGHT;
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.MilestoneAchieved, "first-orbit", 500.0), "test");
+            var msEvt = MakeEvent(GameStateEventType.MilestoneAchieved, "first-orbit", 500.0);
+            GameStateRecorder.Emit(ref msEvt, "test");
 
             var original = GameStateStore.Events.First();
             bool updated = GameStateStore.UpdateEventDetail(
@@ -402,8 +398,8 @@ namespace Parsek.Tests
             GameStateRecorder.TagResolverForTesting = () => "rec-reset";
             HighLogic.LoadedScene = GameScenes.FLIGHT;
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.TechResearched, "node", 10.0), "test");
+            var techEvt = MakeEvent(GameStateEventType.TechResearched, "node", 10.0);
+            GameStateRecorder.Emit(ref techEvt, "test");
             RecordingStore.StashPendingTree(MakeTree("tree-reset", "rec-reset"));
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
@@ -449,8 +445,8 @@ namespace Parsek.Tests
             var contractNode = new ConfigNode("CONTRACT");
             GameStateStore.AddContractSnapshot("guid-flush", contractNode);
 
-            GameStateRecorder.Emit(
-                MakeEvent(GameStateEventType.ContractAccepted, "guid-flush", 100.0), "flight");
+            var flushEvt = MakeEvent(GameStateEventType.ContractAccepted, "guid-flush", 100.0);
+            GameStateRecorder.Emit(ref flushEvt, "flight");
 
             // Simulate F5 mid-flight — flush pulls the event into a committed milestone,
             // PruneProcessedEvents then removes it from the live events list.
@@ -489,8 +485,8 @@ namespace Parsek.Tests
             var tagged = MakeEvent(GameStateEventType.FundsChanged, "", 100.05,
                 recordingId: "rec-B", valueBefore: 2000, valueAfter: 3000);
 
-            GameStateStore.AddEvent(untagged);
-            GameStateStore.AddEvent(tagged);
+            GameStateStore.AddEvent(ref untagged);
+            GameStateStore.AddEvent(ref tagged);
 
             // Both events present — tag-equality gate prevented coalesce.
             var fundsEvents = GameStateStore.Events
@@ -508,8 +504,8 @@ namespace Parsek.Tests
             var second = MakeEvent(GameStateEventType.FundsChanged, "", 100.05,
                 recordingId: "rec-same", valueBefore: 1500, valueAfter: 2000);
 
-            GameStateStore.AddEvent(first);
-            GameStateStore.AddEvent(second);
+            GameStateStore.AddEvent(ref first);
+            GameStateStore.AddEvent(ref second);
 
             var fundsEvents = GameStateStore.Events
                 .Where(e => e.eventType == GameStateEventType.FundsChanged).ToList();
@@ -648,7 +644,7 @@ namespace Parsek.Tests
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
 
             var evt = MakeEvent(GameStateEventType.ContractCompleted, "guid-teardown", 100.0);
-            GameStateRecorder.Emit(evt, "teardown-test");
+            GameStateRecorder.Emit(ref evt, "teardown-test");
 
             // The #431 gate guards every `OnKscSpending(evt)` call:
             //    if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
