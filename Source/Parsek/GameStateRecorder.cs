@@ -1338,6 +1338,170 @@ namespace Parsek
 
         #endregion
 
+        #region Strategy Lifecycle (#439 Phase A)
+
+        /// <summary>
+        /// Called from the Harmony postfix on <c>Strategies.Strategy.Activate</c> when
+        /// <c>__result == true</c> (stock returns false on a CanBeActivated miss). Emits a
+        /// <see cref="GameStateEventType.StrategyActivated"/> event carrying the strategy's
+        /// configured setup costs; downstream <see cref="GameStateEventConverter"/> parses
+        /// the detail and the ledger's <see cref="LedgerOrchestrator.ClassifyAction"/>
+        /// reconciles the funds setup cost against the paired
+        /// <c>FundsChanged(StrategySetup)</c> event KSP fires inside <c>Activate()</c>.
+        ///
+        /// Respects <see cref="IsReplayingActions"/> so recalculation replays stay silent.
+        /// Internal static for testability — the Harmony postfix is the only production
+        /// call site.
+        /// </summary>
+        internal static void OnStrategyActivated(Strategies.Strategy strategy)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyActivated: suppressed during action replay");
+                return;
+            }
+            if (strategy == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyActivated: null strategy - skipped");
+                return;
+            }
+            if (strategy.Config == null)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    "OnStrategyActivated: strategy.Config is null - skipped");
+                return;
+            }
+
+            string key = strategy.Config.Name ?? "";
+            string title = strategy.Title ?? "";
+            string dept = strategy.DepartmentName ?? "";
+            float factor = strategy.Factor;
+            float setupFunds = strategy.InitialCostFunds;
+            float setupSci = strategy.InitialCostScience;
+            float setupRep = strategy.InitialCostReputation;
+
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.StrategyActivated,
+                key = key,
+                detail = BuildStrategyActivateDetail(title, dept, factor,
+                    setupFunds, setupSci, setupRep)
+            };
+            Emit(ref evt, "StrategyActivated");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: StrategyActivated '{key}' title='{title}' dept='{dept}' " +
+                $"factor={factor.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"setupFunds={setupFunds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"setupSci={setupSci.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"setupRep={setupRep.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            // KSC-side forwarding mirror: StrategyActivate actions with a non-zero setup
+            // cost need to land on the ledger immediately when the player activates from
+            // the Administration building (i.e. outside flight). The commit-time
+            // ConvertEvents path will also pick up flight-scope strategies. The #431 gate
+            // skips the ledger write when the event was tagged during a teardown window.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Called from the Harmony postfix on <c>Strategies.Strategy.Deactivate</c> when
+        /// <c>__result == true</c>. Emits <see cref="GameStateEventType.StrategyDeactivated"/>.
+        /// Stock Deactivate has no resource cost, so the classifier maps this to
+        /// <see cref="LedgerOrchestrator.KscReconcileClass.NoResourceImpact"/>.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void OnStrategyDeactivated(Strategies.Strategy strategy)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyDeactivated: suppressed during action replay");
+                return;
+            }
+            if (strategy == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyDeactivated: null strategy - skipped");
+                return;
+            }
+            if (strategy.Config == null)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    "OnStrategyDeactivated: strategy.Config is null - skipped");
+                return;
+            }
+
+            string key = strategy.Config.Name ?? "";
+            string title = strategy.Title ?? "";
+            string dept = strategy.DepartmentName ?? "";
+            float factor = strategy.Factor;
+            double now = Planetarium.GetUniversalTime();
+            double activeDurationSec = now - strategy.DateActivated;
+            if (activeDurationSec < 0) activeDurationSec = 0;
+
+            var evt = new GameStateEvent
+            {
+                ut = now,
+                eventType = GameStateEventType.StrategyDeactivated,
+                key = key,
+                detail = BuildStrategyDeactivateDetail(title, dept, factor, activeDurationSec)
+            };
+            Emit(ref evt, "StrategyDeactivated");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: StrategyDeactivated '{key}' title='{title}' dept='{dept}' " +
+                $"factor={factor.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"activeDurationSec={activeDurationSec.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            // Mirror the KSC-forwarding path even though StrategyDeactivate is a
+            // NoResourceImpact action — the ledger still needs the StrategyDeactivate row
+            // so StrategiesModule can pair activate/deactivate during the walk.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Pure: builds the semicolon-separated detail string for a StrategyActivated
+        /// event. Format: <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;setupFunds=&lt;sf&gt;;setupSci=&lt;ss&gt;;setupRep=&lt;sr&gt;</c>.
+        /// Numerics serialized with InvariantCulture "R" (round-trip) so comma-locale
+        /// hosts do not break the converter-side parse.
+        /// Internal static for direct unit testing without a KSP runtime.
+        /// </summary>
+        internal static string BuildStrategyActivateDetail(
+            string title, string dept, float factor,
+            float setupFunds, float setupSci, float setupRep)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return $"title={title ?? ""};" +
+                   $"dept={dept ?? ""};" +
+                   $"factor={factor.ToString("R", ic)};" +
+                   $"setupFunds={setupFunds.ToString("R", ic)};" +
+                   $"setupSci={setupSci.ToString("R", ic)};" +
+                   $"setupRep={setupRep.ToString("R", ic)}";
+        }
+
+        /// <summary>
+        /// Pure: builds the semicolon-separated detail string for a StrategyDeactivated
+        /// event. Format: <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;activeDurationSec=&lt;d&gt;</c>.
+        /// Internal static for direct unit testing.
+        /// </summary>
+        internal static string BuildStrategyDeactivateDetail(
+            string title, string dept, float factor, double activeDurationSec)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return $"title={title ?? ""};" +
+                   $"dept={dept ?? ""};" +
+                   $"factor={factor.ToString("R", ic)};" +
+                   $"activeDurationSec={activeDurationSec.ToString("R", ic)}";
+        }
+
+        #endregion
+
         #region Facility Polling
 
         /// <summary>

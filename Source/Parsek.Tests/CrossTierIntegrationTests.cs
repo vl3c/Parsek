@@ -137,14 +137,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ContractComplete_WithStrategyDiversion_FundsReducedScienceFieldTransformed()
+        public void ContractComplete_WithStrategyActive_TransformsAreIdentityAfterPhaseE1_5()
         {
-            // Scenario: contract completion with an active strategy diverts funds to science.
-            // FundsModule (second tier) sees the reduced TransformedFundsReward.
-            // ScienceModule (first tier) runs BEFORE the strategy transform, so it sees the
-            // original ScienceReward=0 — the diverted science is written to TransformedScienceReward
-            // but not credited to the science balance. This is a known limitation of the current
-            // tier ordering (ScienceModule is first tier, strategy is between tiers).
+            // #439 Phase A (Option B): StrategiesModule.TransformContractReward is now
+            // an identity no-op because KSP's CurrencyModifierQuery already transformed
+            // the reward before the FundsChanged event fired (which is what the
+            // recorder reads via contract.FundsCompletion). Applying Commitment a
+            // second time would double-divert. See
+            // docs/dev/plans/fix-439-strategy-lifecycle-capture.md section 3.5.
+            //
+            // This test pins the invariant at the cross-tier level: with an active
+            // strategy, TransformedFundsReward stays equal to FundsReward, and the
+            // downstream FundsModule credits the raw reward.
             var contracts = new ContractsModule();
             var strategies = new StrategiesModule();
             var science = new ScienceModule();
@@ -160,11 +164,9 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 new GameAction { UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 50000 },
-                // Activate strategy: diverts 25% of funds reward to science
                 new GameAction { UT = 10, Type = GameActionType.StrategyActivate,
                     StrategyId = "UnpaidResearch", SourceResource = StrategyResource.Funds,
                     TargetResource = StrategyResource.Science, Commitment = 0.25f, SetupCost = 0 },
-                // Contract accepted (advance) then completed
                 new GameAction { UT = 50, Type = GameActionType.ContractAccept,
                     ContractId = "C1", AdvanceFunds = 0 },
                 new GameAction { UT = 100, Type = GameActionType.ContractComplete,
@@ -174,32 +176,28 @@ namespace Parsek.Tests
 
             RecalculationEngine.Recalculate(actions);
 
-            // Contract is effective (first completion)
             var complete = actions.Find(a => a.Type == GameActionType.ContractComplete);
             Assert.True(complete.Effective);
 
-            // Strategy diverts 25% of 10000 funds = 2500 to science on the action fields
-            Assert.Equal(7500f, complete.TransformedFundsReward, 1f);
-            Assert.Equal(2500f, complete.TransformedScienceReward, 1f);
+            // Identity: no diversion applied; transformed == raw.
+            Assert.Equal(10000f, complete.TransformedFundsReward, 1f);
+            Assert.Equal(0f, complete.TransformedScienceReward, 1f);
 
-            // Funds balance: 50000 (seed) + 7500 (transformed reward) = 57500
-            Assert.Equal(57500.0, funds.GetRunningBalance(), 1);
+            // Funds balance: 50000 (seed) + 10000 (raw/identity reward) = 60000.
+            Assert.Equal(60000.0, funds.GetRunningBalance(), 1);
 
-            // Science balance: ScienceModule (first tier) processed ContractComplete BEFORE
-            // the strategy transform ran, so it saw TransformedScienceReward=0 (the reset
-            // value from ScienceReward=0). The diverted 2500 is on the field but not credited.
-            // This documents the current behavior — strategy-diverted science is a known gap.
+            // Science unchanged — ScienceReward was 0.
             Assert.Equal(0.0, science.GetRunningScience(), 1);
+
+            // Strategy still registered for slot accounting and display.
+            Assert.True(strategies.IsStrategyActive("UnpaidResearch"));
         }
 
         [Fact]
-        public void ContractComplete_WithStrategyDiversion_ScienceToRep_FieldsTransformed()
+        public void ContractComplete_WithStrategyActive_ScienceReward_StillIdentity()
         {
-            // Scenario: strategy diverts science reward to reputation.
-            // Verify the derived fields on the action are correctly transformed,
-            // and that second-tier modules (Funds, Reputation) see the transformed values.
-            // ScienceModule is first tier so it sees the PRE-transform value (same limitation
-            // as ContractComplete_WithStrategyDiversion_FundsReducedScienceFieldTransformed).
+            // #439 Phase A follow-up: even a science-bearing reward stays identity
+            // under an active science-diverting strategy — double-transform averted.
             var contracts = new ContractsModule();
             var strategies = new StrategiesModule();
             var science = new ScienceModule();
@@ -215,11 +213,9 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 new GameAction { UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 50000 },
-                // Strategy: diverts 10% of science reward to reputation
                 new GameAction { UT = 10, Type = GameActionType.StrategyActivate,
                     StrategyId = "ScienceForRep", SourceResource = StrategyResource.Science,
                     TargetResource = StrategyResource.Reputation, Commitment = 0.10f, SetupCost = 0 },
-                // Contract with science and rep rewards
                 new GameAction { UT = 100, Type = GameActionType.ContractComplete,
                     ContractId = "C1", RecordingId = "rec1",
                     FundsReward = 5000, ScienceReward = 100, RepReward = 10 }
@@ -230,24 +226,19 @@ namespace Parsek.Tests
             var complete = actions.Find(a => a.Type == GameActionType.ContractComplete);
             Assert.True(complete.Effective);
 
-            // Strategy transforms the action fields: 10% of 100 science = 10 diverted to rep
-            Assert.Equal(90f, complete.TransformedScienceReward, 1f);
-            Assert.Equal(20f, complete.TransformedRepReward, 1f); // 10 original + 10 diverted
-            Assert.Equal(5000f, complete.TransformedFundsReward, 1f); // unchanged
+            // Identity transform invariants.
+            Assert.Equal(100f, complete.TransformedScienceReward, 1f);
+            Assert.Equal(10f, complete.TransformedRepReward, 1f);
+            Assert.Equal(5000f, complete.TransformedFundsReward, 1f);
 
-            // ScienceModule (first tier) sees TransformedScienceReward BEFORE the strategy
-            // transform, so it credits the full 100 (reset value from ScienceReward=100).
             Assert.Equal(100.0, science.GetRunningScience(), 1);
-
-            // Funds: 50000 + 5000 = 55000 (unaffected by science strategy)
             Assert.Equal(55000.0, funds.GetRunningBalance(), 1);
 
-            // ReputationModule (second tier) sees TransformedRepReward=20 (10 original + 10 diverted)
-            // The reputation curve is applied, so the exact value depends on the curve at rep=0.
-            // At rep=0, gain curve multiplier is ~1.0, so effectiveRep ~ 20.
+            // ReputationModule applies its curve to the raw rep reward of 10. Around
+            // rep=0 the curve multiplier is ~1.0, so the final rep sits in [5, 15].
             float repAfterWalk = reputation.GetRunningRep();
-            Assert.True(repAfterWalk > 15f && repAfterWalk < 25f,
-                $"Expected rep ~20 (post-curve), actual={repAfterWalk}");
+            Assert.True(repAfterWalk > 5f && repAfterWalk < 15f,
+                $"Expected rep ~10 (post-curve, identity transform), actual={repAfterWalk}");
         }
     }
 }

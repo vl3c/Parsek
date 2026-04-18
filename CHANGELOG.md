@@ -53,6 +53,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
 - `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.
@@ -110,7 +111,7 @@ All notable changes to Parsek are documented here.
 
 ### Known Limitations
 
-- KSP career strategies (Leadership Initiative, Open-Source Tech Program, etc.) are not yet captured by the ledger. Activating a strategy that diverts or grants resources can produce `PatchFunds: suspicious drawdown` WARN lines in `KSP.log` and small balance corrections after scene transitions until strategy lifecycle capture lands (tracked as `#439`). Fresh careers that do not activate strategies are unaffected.
+- KSP career strategies with non-zero Science or Reputation setup costs still produce a single KSC reconciliation WARN line per activation on the Science or Reputation leg. Stock Admin-tier-1 strategies are funds-only and unaffected; the follow-up is tracked as `#439B` (multi-resource `KscActionExpectation`).
 
 ### Maintenance
 

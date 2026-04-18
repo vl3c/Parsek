@@ -146,113 +146,37 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Transforms contract reward fields on a ContractComplete action based on
-        /// active strategy commitments. Only transforms effective contract completions.
+        /// #439 Phase A: documented identity no-op.
         ///
-        /// For each active strategy whose source resource matches a reward field on
-        /// the contract, diverts commitment% of that reward into the target resource:
-        ///   diverted = rewardAmount * commitment
-        ///   sourceReward -= diverted
-        ///   targetReward += diverted
+        /// Stock KSP strategies (Strategies.Effects.CurrencyConverter /
+        /// CurrencyOperation) subscribe <c>GameEvents.Modifiers.OnCurrencyModifierQuery</c>
+        /// and mutate the pending currency query BEFORE KSP's Funding /
+        /// ReputationHandler / ResearchAndDevelopment code fires the final
+        /// <c>FundsChanged</c> / <c>ReputationChanged</c> / <c>ScienceChanged</c>
+        /// event. Our <see cref="GameStateRecorder.OnContractCompleted"/> captures
+        /// <c>contract.FundsCompletion</c> / <c>RepCompletion</c> / <c>ScienceCompletion</c>
+        /// which ARE the post-transform values — applying Commitment a second time here
+        /// would double-divert.
         ///
-        /// Uses the strategy's Commitment field (player's chosen commitment level,
-        /// 0.01 to 0.25) as the diversion fraction. Full per-strategy conversion
-        /// rates require KSP Strategy instances (deferred item D2).
-        /// Modifies the action in place (derived fields, not persisted).
+        /// The method is retained (not deleted) so the action walk still dispatches
+        /// ContractComplete through StrategiesModule for future extension (e.g. for
+        /// mod strategies that bypass the modifier-query path, or for a UI overlay that
+        /// needs to display "X% diverted" attribution). Phase A emits one VERBOSE line
+        /// per call so the no-op is observable in logs.
+        ///
+        /// See <c>docs/dev/plans/fix-439-strategy-lifecycle-capture.md</c> section 3.5
+        /// (option B) for the full rationale and option C deferral.
         /// </summary>
         internal void TransformContractReward(GameAction action)
         {
             if (action.Type != GameActionType.ContractComplete)
                 return;
 
-            if (!action.Effective)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TransformContractReward skipped (not effective): contractId='{action.ContractId ?? "(none)"}'");
-                return;
-            }
-
-            if (activeStrategies.Count == 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TransformContractReward skipped (no active strategies): contractId='{action.ContractId ?? "(none)"}'");
-                return;
-            }
-
-            foreach (var kvp in activeStrategies)
-            {
-                var strategy = kvp.Value;
-
-                // Only transform if the contract UT is within the strategy's active window.
-                // The strategy is active from ActivateUT onward (until a Deactivate removes it).
-                if (action.UT < strategy.ActivateUT)
-                {
-                    ParsekLog.Verbose(Tag,
-                        $"TransformContractReward: strategy='{strategy.StrategyId}' skipped for " +
-                        $"contractId='{action.ContractId ?? "(none)"}' (contract UT={action.UT.ToString("F1", IC)} " +
-                        $"< activateUT={strategy.ActivateUT.ToString("F1", IC)})");
-                    continue;
-                }
-
-                // Use the strategy's commitment level as the diversion fraction.
-                // Player-chosen commitment ranges from 0.01 to 0.25 (1% to 25%).
-                // Full per-strategy conversion rates require KSP Strategy instances
-                // which are unavailable during the pure recalculation walk (deferred D2).
-                float diversionFraction = strategy.Commitment;
-
-                float diverted;
-                switch (strategy.SourceResource)
-                {
-                    case StrategyResource.Funds:
-                        diverted = action.TransformedFundsReward * diversionFraction;
-                        action.TransformedFundsReward -= diverted;
-                        AddToTargetResource(action, strategy.TargetResource, diverted);
-                        LogTransform(strategy, action, "FundsReward", diverted, diversionFraction);
-                        break;
-
-                    case StrategyResource.Science:
-                        diverted = action.TransformedScienceReward * diversionFraction;
-                        action.TransformedScienceReward -= diverted;
-                        AddToTargetResource(action, strategy.TargetResource, diverted);
-                        LogTransform(strategy, action, "ScienceReward", diverted, diversionFraction);
-                        break;
-
-                    case StrategyResource.Reputation:
-                        diverted = action.TransformedRepReward * diversionFraction;
-                        action.TransformedRepReward -= diverted;
-                        AddToTargetResource(action, strategy.TargetResource, diverted);
-                        LogTransform(strategy, action, "RepReward", diverted, diversionFraction);
-                        break;
-                }
-            }
-        }
-
-        private static void AddToTargetResource(GameAction action, StrategyResource target, float amount)
-        {
-            switch (target)
-            {
-                case StrategyResource.Funds:
-                    action.TransformedFundsReward += amount;
-                    break;
-                case StrategyResource.Science:
-                    action.TransformedScienceReward += amount;
-                    break;
-                case StrategyResource.Reputation:
-                    action.TransformedRepReward += amount;
-                    break;
-            }
-        }
-
-        private static void LogTransform(
-            StrategyState strategy, GameAction action,
-            string sourceField, float diverted, float diversionFraction)
-        {
             ParsekLog.Verbose(Tag,
-                $"Transform: strategy='{strategy.StrategyId}' contractId='{action.ContractId}' " +
-                $"source={sourceField} diverted={diverted.ToString("F2", IC)} " +
-                $"diversionFraction={diversionFraction.ToString("F3", IC)} " +
-                $"target={strategy.TargetResource} added={diverted.ToString("F2", IC)} " +
-                $"ut={action.UT.ToString("F1", IC)}");
+                $"StrategiesModule.TransformContractReward: identity no-op (KSP " +
+                $"CurrencyModifierQuery already transformed contract reward pre-event) " +
+                $"contractId='{action.ContractId ?? "(none)"}' " +
+                $"activeStrategies={activeStrategies.Count}");
         }
 
         // ================================================================

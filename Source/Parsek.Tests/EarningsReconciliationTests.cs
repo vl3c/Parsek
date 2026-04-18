@@ -930,14 +930,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyAction_StrategyActivate_TransformedNotUntransformed()
+        public void ClassifyAction_StrategyActivate_Untransformed_PairsWithStrategySetup()
         {
-            // StrategyActivate currently skips (Phase E1.5 lifecycle capture) — not
-            // untransformed yet, per plan.
-            var a = new GameAction { Type = GameActionType.StrategyActivate };
+            // #439 Phase A: StrategyActivate now pairs its SetupCost against the
+            // FundsChanged(StrategySetup) event KSP fires inside Strategy.Activate()
+            // when InitialCostFunds is non-zero.
+            var a = new GameAction
+            {
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 100000f
+            };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp.Class);
-            Assert.Contains("Phase E1.5", exp.SkipReason);
+            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
+            Assert.Equal("StrategySetup", exp.ExpectedReasonKey);
+            Assert.Equal(-100000.0, exp.ExpectedDelta);
+        }
+
+        [Fact]
+        public void ClassifyAction_StrategyActivate_ZeroSetupCost_ShortCircuits()
+        {
+            // Free-to-activate strategies (e.g. mod strategies with all InitialCost* = 0)
+            // stay on the Untransformed classification but hit the zero-expected-delta
+            // early return in ReconcileKscAction — no paired event needed.
+            var a = new GameAction
+            {
+                Type = GameActionType.StrategyActivate,
+                SetupCost = 0f
+            };
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(0.0, exp.ExpectedDelta);
+
+            // Drive the reconcile path to confirm it stays silent on zero delta.
+            var events = new List<GameStateEvent>();
+            var ledger = new List<GameAction> { a };
+            ReconcileKsc(events, ledger, a, 500.0);
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ClassifyAction_StrategyDeactivate_NoResourceImpact()
+        {
+            var a = new GameAction { Type = GameActionType.StrategyDeactivate };
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+            Assert.Equal(LedgerOrchestrator.KscReconcileClass.NoResourceImpact, exp.Class);
         }
 
         // ---------- #448 / #451: part-purchase zero-delta bypass path ----------
