@@ -199,6 +199,16 @@ namespace Parsek
                 ReadFlagEventList(reader, rec.FlagEvents, stringTable);
                 ReadSegmentEventList(reader, rec.SegmentEvents, stringTable);
                 ReadTrackSections(reader, rec.TrackSections, stringTable, probe.FormatVersion, ref stats);
+                int preHealPointCount = rec.Points.Count;
+                int preHealOrbitSegmentCount = rec.OrbitSegments.Count;
+                bool healedMalformedFlatFallback = false;
+                if (!sectionAuthoritative &&
+                    probe.FormatVersion >= 1 &&
+                    rec.TrackSections.Count > 0)
+                {
+                    healedMalformedFlatFallback = RecordingStore.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
+                        rec, allowRelativeSections: true);
+                }
 
                 // #411 follow-up: promote-only. Never demote rec.RecordingFormatVersion from a
                 // higher in-memory value (e.g. a v4 stamp set by the tree/scenario legacy loop
@@ -230,7 +240,9 @@ namespace Parsek
                 {
                     ParsekLog.Verbose("RecordingStore",
                         $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
-                        $"used flat fallback path points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                        $"used flat fallback path healed={(healedMalformedFlatFallback ? "true" : "false")} " +
+                        $"prePoints={preHealPointCount} postPoints={rec.Points.Count} " +
+                        $"preOrbitSegments={preHealOrbitSegmentCount} postOrbitSegments={rec.OrbitSegments.Count} " +
                         $"trackSections={rec.TrackSections.Count} sparsePointLists={stats.SparsePointLists} " +
                         $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
                         $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");

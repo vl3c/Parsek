@@ -58,6 +58,77 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~459.~~ `Run All` cleanup destroys the watched ghost before watch mode exits, flooding `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` with NullReferenceExceptions
+
+**Source:** Playtest `2026-04-18_1947_450-b3-playtest/KSP.log`. At `19:46:21.679`, `InGameTestRunner.PerformBetweenRunCleanup("run-all")` started its teardown in FLIGHT and immediately called `ParsekFlight.DestroyAllTimelineGhosts()` while watch mode was still active on a ghost. The watched `state.ghost.transform` then became a destroyed Unity wrapper, but stock camera state still held it via `PlanetariumCamera.target` / `ScaledMovement.tgtRef`; on the next frame, stock `Sun.LateUpdate` and `FlightGlobals.UpdateInformation` started throwing every frame (about 8,750 exceptions over 60 seconds) until the player alt+F4'd.
+
+**Fix:** extracted `ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(...)` as the shared seam for this ordering guard. `InGameTestRunner.PerformBetweenRunCleanup` now calls it at the top of the `flight != null` block, before reading ghost counts or destroying anything. The helper first retargets stock camera state off the watched ghost without restoring the saved watch camera orbit: `FlightCamera` is rebound to the active vessel, and when map view is open `PlanetariumCamera` is rebound to the active vessel's `mapObject`, so stock `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` no longer retain the destroyed ghost transform. Only after that retarget does it call `ExitWatchMode(skipCameraRestore:true)` to clear Parsek's internal watch state without trying to restore the old camera pose. `ParsekFlight.DestroyAllTimelineGhosts()` also calls the same helper first so rewind and any future caller cannot destroy timeline ghosts while stock watch/camera state still points at one. Added `Patches/SunLateUpdateGuardPatch.cs` as symptom containment: Harmony prefix on `Sun.LateUpdate` returns early when `Sun.target` is null/destroyed and emits a one-shot `[CameraFollow]` WARN so regressions still leave a breadcrumb instead of a per-frame exception storm. Unit coverage in `WatchModeCleanupRegressionTests` now asserts the detach callback runs before the exit callback and that the `[CameraFollow] Exiting watch mode before timeline ghost cleanup` log precedes `[Engine] DestroyAllGhosts`; runtime coverage adds `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` plus `GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs` to watch the exact cleanup path and the adjacent low-altitude Kerbin spawn path for stock exception spam.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/Patches/SunLateUpdateGuardPatch.cs`, `Source/Parsek.Tests/WatchModeCleanupRegressionTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. `dotnet build` passes, `dotnet test --filter WatchModeCleanupRegressionTests` passes (3/3), and full `dotnet test` passes (7195/7196 with 1 pre-existing skipped Unity-runtime test). In-game runtime verification remains pending for the next playtest.
+
+---
+
+## ~~458.~~ Binary `.prec` flat-fallback loads skip the malformed-prefix healer
+
+**Source:** playtest `2026-04-18 1947`. `RuntimeTests.CommittedRecordingsHaveValidData` failed on recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) with `point 13 UT 155.840000000006 < previous 170.920000000014`. Hex-decoding the `.prec` confirmed the top-level flat point list duplicated the authoritative 13-frame prefix and then appended a terminal endpoint, while `TrackSection[0]` itself held the correct monotonically increasing frames. Root cause: commit `4474ba97` added `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`, but only the text `ConfigNode` load path (`DeserializeTrajectoryFrom`) called it. Real committed recordings hydrate through `TrajectorySidecarBinary.Read`, so the bad binary shape bypassed the healer entirely.
+
+**Fix:** `TrajectorySidecarBinary.Read` now runs the same healer in the non-section-authoritative branch after `ReadTrackSections`, with `allowRelativeSections: true` to match the text load path. The existing `ReadBinaryTrajectoryFile ... used flat fallback path` VERBOSE line now includes `healed=true/false` plus `prePoints/postPoints` and `preOrbitSegments/postOrbitSegments`, making it obvious in `KSP.log` whether a malformed flat fallback was rewritten on read. The healer already calls `rec.MarkFilesDirty()`, so a healed sidecar now flushes back out automatically on the next save. `RuntimeTests.CommittedRecordingsHaveValidData` also reports `trackSections=`, `prefixMatchCount=`, and `firstPostPrefixSource=` for any future monotonicity failure so the next playtest points directly at duplicated track-section payload vs flat-only tail data.
+
+**Files:** `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Bug458BinaryFlatFallbackHealTests.cs`.
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter Bug458BinaryFlatFallbackHealTests` (1/1). In-game verification is pending the next playtest bundle.
+
+---
+
+## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
+
+**Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
+
+**Fix:** decompiled `OrbitRendererBase.objectNode_OnClick(MapNode mn, Mouse.Buttons btns)` to confirm the button bitmask is already on the parameter list (KSP fills it via `Mouse.GetAllMouseButtonsUp()`), then bound that argument in the Harmony prefix by original index (`[HarmonyArgument(1)]`) instead of relying on external parameter-name metadata. The pure predicate `GhostIconClickPatch.IsLeftClickFromButtons` returns `true` only when the mask contains `Left` (or is `None`, the defensive default that preserves current UX); the production helper `GhostIconClickPatch.TryPassThroughNonLeftClick` now owns the non-left VERBOSE log + `return true` pass-through so the stock handler pins the caption, and the unit tests exercise that real helper instead of re-emitting the log line manually. Left-click is unchanged — still opens the Focus / Set As Target / Watch menu and suppresses the stock context menu.
+
+**Files:** `Source/Parsek/Patches/GhostVesselLoadPatch.cs`, `Source/Parsek.Tests/GhostIconClickButtonFilterTests.cs` (8 new unit tests).
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter GhostIconClickButtonFilterTests` (8/8). In-game verification is still deferred to the next playtest bundle.
+
+---
+
+## ~~456.~~ `CrewReservation` orphan placement fails when snapshot pid is synthetic (pid=100000 showcase ghost) and doesn't coincide with any live part pid
+
+**Source:** Playtest `2026-04-18_1859_450-phase-a-playtest/KSP.log:15428` and `:35915`. Both log lines:
+
+```
+[Parsek][WARN][CrewReservation] Orphan placement: no matching part with free seat in active vessel for
+  'Bill Kerman' -> 'Urdun Kerman' (snapshot pid=100000 name='mk1pod.v2') - stand-in left in roster
+```
+
+**Close cousin of #413.** #413 fixed the *serialization-side* variant: the matcher used to read `partNode.GetValue("pid")` instead of `persistentId`, so every orphan seat resolved with `PartPid=0` and tier-1 match failed. #456 is the *semantics-side* variant: the snapshot's `persistentId` IS now captured correctly, but for showcase ghosts it's the synthetic value `100000` (the canonical first AddPart-assigned PID — see `.claude/CLAUDE.md` "Ghost event <-> snapshot PID" gotcha), which can never match the KSP-assigned pid of a freshly-launched real vessel.
+
+**Root cause (matcher-side):** `CrewReservationManager.FindTargetPartForOrphan` had a two-tier match (`persistentId` -> `partInfo.name` + free seat) that walked the live vessel parts in list order and took the first match. Tier 1 missed (synthetic vs KSP-assigned pid). Tier 2 worked only when the first-in-order same-name part also had a free seat. No log signal distinguished "pid-hit placed it" from "name-fallback placed it" for playtest triage, so successful fallbacks looked the same as pid matches and missed the "this is a synthetic-pid ghost" pattern.
+
+**Fix:** extracted the matcher decision into a pure `internal static TryResolveActiveVesselPartForSeat(snapshotPid, snapshotPartName, activeParts) -> (partIndex, SeatMatchKind)` helper. Tier-1 pid-hit still wins (PidHit over NameHit); tier-2 name-hit now picks the **tightest fit** (minimum free seats) so single-seat cockpits win over multi-seat passenger cabins when both share a part name. `PlaceOrphanedReplacements` now counts `pidHits` vs `nameHitFallbacks`, surfacing both in the post-loop summary line and on the WARN when both tiers miss. A dedicated `match=name-fallback` INFO line fires on every successful fallback placement so future playtests can grep for it.
+
+**Files:** `Source/Parsek/CrewReservationManager.cs` (`TryResolveActiveVesselPartForSeat` pure helper + `ActivePartSeat` struct + `SeatMatchKind` enum, `FindTargetPartForOrphan` rewritten to call the helper, `PlaceOrphanedReplacements` counter + success INFO line + summary and WARN extensions), `Source/Parsek.Tests/CrewReservationNameHitFallbackTests.cs` (new - 13 unit tests: pid-hit wins over name-hit, name-hit unique / multi / tightest-fit / tie-first-wins, no-match, pid-coincidence, pid-full-falls-to-name, zero-pid-skips-tier-1, null/empty inputs, playtest regression with single-seat full pod, mutation and determinism invariants), `Source/Parsek/InGameTests/RuntimeTests.cs` (new `Bug456_OrphanPlacement_NameHitFallback_PlacesStandin` - builds a synthetic pid=100000 snapshot against the live active vessel, verifies placement via name-fallback, asserts the `match=name-fallback` INFO line and `nameHitFallbacks=1` counter both fired).
+
+**Scope:** Small. Decision-logic refactor + diagnostic-log expansion. No schema or save-format change.
+
+**Status:** ~~Fixed~~. Note: this fix does NOT rescue the exact playtest log line (the active vessel's single `mk1pod.v2` cockpit was already fully crewed, so tier 2 still finds no free seat) — the regression test pins that as a true no-match. What it DOES fix is every future variant where a real free seat exists on a same-named part with a mismatched pid, and surfaces the tier split in the summary log so a follow-up can decide whether to escalate (e.g., force-evict a replacement, or skip orphan placement entirely when the snapshot is a showcase ghost with synthetic pid).
+
+---
+
+## ~~455.~~ `PatchMilestones` WARN storm on one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …)
+
+**Status:** ~~Fixed~~. `PatchRepeatableRecordNode` now calls a new `IsRepeatableRecordType(ProgressNode)` helper as its first step. In normal runtime the helper matches `node.GetType().FullName` against the four stock repeatable subclasses (`KSPAchievements.RecordsAltitude`, `KSPAchievements.RecordsDepth`, `KSPAchievements.RecordsSpeed`, `KSPAchievements.RecordsDistance`) using string comparison so we do not take a compile-time dependency on `KSPAchievements`. The existing `SuppressUnityCallsForTesting` seam enables a simple-name fallback for xUnit stand-ins only, so unrelated same-name classes in other namespaces do not get misclassified in production. Non-record nodes return `false` silently, which flows them through `PatchProgressNodeTree`'s one-shot achieve/un-achieve branch — the correct behavior for one-shot body sub-achievements. Genuinely-record types that drift away from the stock field layout still hit the existing missing-stock-fields WARN as a structural-change alarm. Six unit tests in `KspStatePatcherTests.cs` pin the helper (null, four true stock cases, one name-collision false case, two one-shot false cases) and the `PatchRepeatableRecordNode` branches (one-shot returns false with no WARN; records-named synthetic without stock fields returns true and emits the WARN).
+
+**Source:** Playtest `logs/2026-04-18_1859_450-phase-a-playtest/KSP.log` produced 3,136 WARN lines across 392 unique node IDs of the shape `repeatable node 'Bop/Orbit' is missing stock record fields (record=False, rewardThreshold=False, rewardInterval=False) — skipping`. Root cause: `PatchProgressNodeTree` dispatches every node through `PatchRepeatableRecordNode`, which probed for the three record-specific fields and WARN'd + returned `true` (short-circuiting the caller's one-shot branch) when they were missing. Every non-record progress node (`Orbit`, `Landing`, `Flyby`, `Flight`, …) tripped that path on every recalculation.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs` (new `IsRepeatableRecordType` helper + early-return guard in `PatchRepeatableRecordNode`), `Source/Parsek.Tests/KspStatePatcherTests.cs` (6 regression tests + 6 synthetic `ProgressNode` subclasses exercising both branches).
+
+**Scope:** Small. One production helper, one guarded early return, six unit tests. The one-shot patch path for the 392 body sub-achievements is now reachable — previously `return true` from the records branch silently suppressed it.
+
+---
+
 ## ~~454.~~ `Emit`/`AddEvent` ref refactor — eliminate value-type field-mirror bug class
 
 **Status:** ~~Fixed~~. `GameStateStore.AddEvent` and `GameStateRecorder.Emit` now take `ref GameStateEvent`, so every field stamp (`epoch` via `AddEvent`, `recordingId` via `Emit`) propagates back to the caller's local. The explicit `evt.epoch = MilestoneStore.CurrentEpoch` and `evt.recordingId = ResolveCurrentRecordingTag()` mirrors that PR #443 added as defense-in-depth inside `RegisterPendingMilestoneEvent` are removed — the language guarantees the cached pending entry now carries the same stamps as the stored slot. 18 production `Emit` call sites in `GameStateRecorder.cs` (11 already on local `evt`, 7 rvalue `new GameStateEvent { … }` hoisted to named locals) and ~145 test call sites across 12 test files were rewritten to pass `ref`. Three new regression tests in `MilestoneRewardCaptureTests.cs` pin the ref-propagation guarantee: `AddEvent_Ref_PropagatesEpochStampToCaller`, `Emit_Ref_PropagatesRecordingIdAndEpochToCaller`, and `RegisterPendingMilestoneEvent_CachesStampedEvent_WithoutExplicitMirror`. The pre-#454 bug-reproduction test `EnrichPendingMilestoneRewards_CachedEpochZeroVsStoredLive_PostFixPatchesStore` (which depended on the value-type copy producing a cached `epoch=0` vs stored `epoch=7` mismatch) was rewritten to `EnrichPendingMilestoneRewards_CachedEpochMismatch_WarnsThenRegisterPendingSeamSucceeds`: it now forces the mismatch by manually clearing `evt.epoch` after `AddEvent`, keeping the defensive `Warn` path covered as a safety net against any future caller that copies the struct out of the ref call and mutates the field. `OnContractOfferedStoreTests.cs`'s IL-walker regression guard still works because the ref signature does not change `DeclaringType` / `Name` on the `MethodInfo` token.
@@ -118,18 +189,62 @@ Breakdown of the exceeded frame: 70% of the budget (28.11 / 40.1 ms) lived insid
 
 **Fix — Phase A (shipped): diagnostic first.** `PlaybackBudgetPhases` now carries an aggregate-and-heaviest-spawn breakdown of every `BuildGhostVisualsWithMetrics` call across four sub-phases (snapshot resolve, timeline-from-snapshot, dictionaries, reentry FX) plus a residual "other" bucket so `sum + other = spawnMax` reconciles. `GhostPlaybackEngine.TryPopulateGhostVisuals` hosts four pre-allocated Stopwatches using the #414 spawnStopwatch pattern (pre-call ElapsedTicks + post-call subtraction for per-call deltas; same objects accumulate across the frame for the aggregate). `BuildGhostVisualsWithMetrics.finally` latches the heaviest spawn's breakdown + a byte-backed `HeaviestSpawnBuildType` classification. A separate one-shot WARN (`s_buildBreakdownOneShotFired` — independent of #414's latch so Phase A collects data even when the session's first spike already consumed #414's latch before rollout) fires the very first time a budget-exceeded frame has `spawnMicroseconds > 0`. See `docs/dev/plan-450-build-breakdown.md`.
 
-**Phase B (gated on playtest data — NOT yet scheduled):** once the next real spike fires in a user install, the new `Playback spawn build breakdown` WARN will attribute the cost. The fix branch depends on the answer:
-- `timeline` dominates, heaviest-spawn < ~15 ms — **B1: per-frame build-time budget.** `MaxSpawnBuildMsPerFrame` const; new `GhostPlaybackLogic.ShouldThrottleSpawnByTime(frameSpawnTotalTicks, capTicks)`; `TryReserveSpawnSlot` ORs count-cap and time-cap.
-- `timeline` dominates, single spawn > ~15 ms — **B2: coroutine split of `TryPopulateGhostVisuals`.** Yield between (1) snapshot resolve, (2) timeline build, (3) dict populate, (4) reentry FX; extend `deferVisibilityUntilPlaybackSync` across yields.
-- `reentry` dominates — **B3: lazy reentry FX pre-warm.** Gate `TryBuildReentryFx` on first-frame-in-atmosphere + speed > floor, not on trajectory peak.
+**Phase B branch decision — data from the 2026-04-18 playtest:**
 
-**Files:** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch + `FormatHeaviestSpawnBuildType` helper), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs` (new), `docs/dev/plan-450-build-breakdown.md` (new).
+```
+heaviestSpawn[type=recording-start-snapshot
+              snapshot=0.00ms timeline=15.90ms dicts=1.28ms reentry=6.94ms
+              other=0.08ms total=24.20ms]
+```
 
-**Scope:** Phase A = Small (instrumentation-only, zero behaviour change). Phase B = scope depends on the chosen branch; held until playtest data lands.
+Timeline dominates (65.7 %) and reentry is a significant secondary
+contributor (28.7 %). Both B2 and B3 apply; B3 ships first (smaller blast
+radius), then B2 takes on the remaining `timeline` cost.
 
-**Dependencies:** #414 shipped (`TryReserveSpawnSlot` hook + per-phase breakdown framework are on main).
+**Phase B3 (shipped): lazy reentry FX pre-warm.** Defers
+`GhostVisualBuilder.TryBuildReentryFx` from spawn time to the first frame
+the ghost is actually inside a body's atmosphere. New
+`GhostPlaybackState.reentryFxPendingBuild` bool set at spawn when
+`HasReentryPotential(traj) == true`; cleared in
+`ClearLoadedVisualReferences` alongside `reentryFxInfo`. The lazy build
+fires from inside `UpdateReentryFx` after its existing body/atmosphere/
+altitude guards so there is no duplicate `FlightGlobals.Bodies.Find`.
+`MaxLazyReentryBuildsPerFrame = 2` per-frame cap mirrors
+`MaxSpawnsPerFrame` so a burst of same-frame atmosphere entries cannot
+relocate the bimodal hitch. New `reentryFxDeferredThisSession` counter
+tracks deferrals; the gap between deferrals and actual builds at session
+end is the count of trajectories that saved the full 6.94 ms by never
+entering atmosphere. Pure decision logic lives in
+`GhostPlaybackLogic.ShouldBuildLazyReentryFx` for unit testing without
+Unity. See `docs/dev/plan-450-b3-lazy-reentry.md`.
 
-**Status:** Phase A shipped — diagnostic instrumentation + one-shot WARN. Phase B: TODO, gated on next playtest's breakdown output. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns; not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Phase B2 (next): coroutine split of `BuildTimelineGhostFromSnapshot`.**
+Targets the dominant 15.90 ms timeline bucket. Not yet planned in detail;
+gated on confirmation from a post-B3 playtest that the `heaviestSpawn[reentry=…]`
+field has indeed dropped toward zero and the `timeline` field is the
+remaining problem.
+
+**Phase B1 (not planned):** the 15 ms latch threshold means #450's
+diagnostic only fires on bimodal cases, so the "spread across many
+spawns" case B1 targets is structurally out of scope of the evidence.
+#414's count cap already covers that pattern.
+
+**Files (B3):** `Source/Parsek/GhostPlaybackState.cs` (new pending flag
++ reset), `Source/Parsek/GhostPlaybackEngine.cs` (restructured
+`UpdateReentryFx` with lazy-build seam, new `TryPerformLazyReentryBuild`
+helper + per-frame cap, spawn-path defer, widened loop-pause call-site
+guard, test seams), `Source/Parsek/GhostPlaybackLogic.cs` (new pure
+`ShouldBuildLazyReentryFx` helper), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs`
+(new `reentryFxDeferredThisSession` counter), `Source/Parsek.Tests/Bug450B3LazyReentryTests.cs`
+(16 new tests), `docs/dev/plan-450-b3-lazy-reentry.md` (new).
+
+**Files (A — shipped previously):** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs`, `docs/dev/plan-450-build-breakdown.md`.
+
+**Scope:** Phase A = Small (instrumentation-only). Phase B3 = Small (defer one function call + cap). Phase B2 = Medium (coroutine split, new invariants).
+
+**Dependencies:** #414 shipped, Phase A shipped.
+
+**Status:** Phase A + Phase B3 shipped. Phase B2 TODO, gated on next playtest confirming `heaviestSpawn[reentry=…]` has dropped. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
 
 ---
 
@@ -988,7 +1103,7 @@ Added `ParsekSettings.CurrentOverrideForTesting` hook so unit tests can exercise
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Recording 393b82ccb697492bb7b35c6c621f9d07: point 13 UT 155.840000000006 < previous 170.920000000014`.
 
-**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the on-disk `.prec` sidecar from `logs/2026-04-14_1801_orbital-spawn-bug/parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt` showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
+**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the save-scoped `.prec` sidecar from the collected bundle (`logs/2026-04-14_1801_orbital-spawn-bug/saves/<save>/Parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt`; the script also emits a legacy `parsek/Recordings/` compatibility copy) showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
 
 **Concern:** Consumers that assume monotonic UTs (binary-search lookups, interpolation, playback cursor advance) behave unpredictably on the non-monotonic pair.
 
@@ -1943,6 +2058,8 @@ Start with **option 1** (SettingsWindowUI checkbox). It's enough for the feature
 
 Fixed by replacing the sequential-index loop in `MapMarkerRenderer.InitVesselTypeIcons` with a `StockIconIndexByVesselType` dict taken from the decompiled `KSP.UI.Screens.Mapview.MapNode` icon lookup, and consolidating the duplicate flight-scene copy in `ParsekUI.cs` into the same renderer. In-game runtime test `MapMarkerIconsMatchStockAtlas` pins every vessel type's UV against the live `MapNode.iconSprites` array.
 
+**Follow-up (2026-04-18 playtest, branch `fix/map-marker-multi-atlas`)**: playtest logs surfaced WARNs for `DeployedScienceController` (atlas `OrbitIcons_DeployedScience`) and `DeployedGroundPart` (atlas `ConstructionModeAppIcon`) — the original fix forced every sprite onto a single resolved atlas and silently skipped types whose sprite lived on a different atlas, dropping them to the diamond fallback. Converted `MapMarkerRenderer` from single-atlas + `Dictionary<VesselType, Rect>` to per-type `VesselIconEntry(Texture2D, Rect)` so each vessel type keeps its own atlas reference. The pure mapping pass is extracted into `BuildVesselIconEntries(SpriteAtlasRecord[])` so xUnit can drive it with synthetic multi-atlas sprite arrays (faked `Texture2D` via `FormatterServices.GetUninitializedObject`). Test-only accessors `VesselIconAtlasForTesting` / `VesselIconUVsForTesting` collapsed into `VesselIconEntriesForTesting`. The `MapMarkerIconsMatchStockAtlas` in-game test now asserts each type carries its own `sprites[idx].texture` reference instead of a single shared atlas, so `DeployedScienceController` and `DeployedGroundPart` are in-scope rather than skipped. Init summary now reads `loaded=N (atlasA=name:k atlasB=name:m …) outOfRange=… missingSprite=… missingTexture=… spriteCount=…` with a per-atlas breakdown; the obsolete `mismatchedAtlas` counter and "different from resolved atlas — skipping" WARN are gone.
+
 **Source:** maintenance request `2026-04-14`. Users report that Parsek's custom ghost icon in map view / tracking station sometimes looks different from the stock icon for the same vessel type. Root cause confirmed by decompiling `KSP.UI.Screens.Mapview.MapNode` — Parsek's atlas-indexing logic is wrong.
 
 **Concern:** `Source/Parsek/MapMarkerRenderer.cs` line `153`-`193` builds `vesselIconUVs` by reading `MapNode.iconSprites` (an obtained-via-reflection `Sprite[]`) and assigning entries by sequential array index:
@@ -2052,9 +2169,11 @@ A unit test is insufficient here — this needs the live `MapView` reflection ta
 
 ---
 
-## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2)
+## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2; hover-reveal removed in ghost-label-click-toggle follow-up)
 
 Fixed by adding a `stickyMarkers` set and `markerKey` parameter to `MapMarkerRenderer.DrawMarker`/`DrawMarkerAtScreen`, threading `rec.RecordingId` from both call sites (`ParsekUI.DrawMapMarkers`, `ParsekTrackingStation.OnGUI`), and resetting stickies on scene change from `ParsekFlight.OnSceneChangeRequested` + `ParsekTrackingStation.OnDestroy`. Click interaction is gated to `MapView.MapIsEnabled || TRACKSTATION` so flight main-window clicks don't double-fire.
+
+**Follow-up (`feat/ghost-label-click-toggle`):** hover-reveal removed per player feedback — the label now shows ONLY when sticky (click-pinned). Toggle stays on left-click only so non-left clicks keep flowing to KSP's stock handlers. `ShouldDrawLabel` dropped the `hover` parameter (single-arg `bool sticky`). New pure helper `IsToggleClick(EventType, int button)` covers MouseDown + button 0 only. Click INFO log line still includes `button=` so log reviews can verify the exact click path. Format owned by a new pure helper `FormatClickLogLine` that the tests pin directly.
 
 **Source:** maintenance request `2026-04-14`. Parsek's custom ghost map icon currently always draws a `"Ghost: <name>"` text label directly below it. Stock KSP vessel icons don't — they only show the name on hover (and clicking enters/pins the target). The ghost icon should match that behavior so the map view isn't cluttered with permanent text for every ghost.
 
@@ -2104,7 +2223,7 @@ There is no hover test, no click handling, and no per-marker "sticky" state. Bot
 - `Source/Parsek/ParsekUI.cs` — `DrawMapMarkers` (line `626`) passes `rec.RecordingId` to the new `DrawMarker` signature.
 - `Source/Parsek/ParsekTrackingStation.cs` — line `102` passes `rec.RecordingId` too.
 - `Source/Parsek/ParsekScenario.cs` — call `MapMarkerRenderer.ResetForSceneChange()` from the existing scene-teardown path.
-- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool hover, bool sticky) => hover || sticky` (or similar) so the decision is testable without Unity. Toggle logic can also be extracted into a pure method `ToggleSticky(string key, HashSet<string> set)` for the same reason.
+- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool sticky) => sticky` so the decision is testable without Unity. (Original sketch used `hover || sticky`; the hover-reveal branch was removed in the ghost-label-click-toggle follow-up.) Toggle logic can also be extracted into pure methods `ToggleSticky(string key, HashSet<string> set)` and `IsToggleClick(EventType type, int button)` for the same reason.
 - `CHANGELOG.md` under Unreleased: "Map view / tracking station ghost icons now match stock KSP: name label hidden by default, shows on hover, click to pin."
 
 **Open questions:**
@@ -2354,6 +2473,8 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 **Status:** DONE (PR #304). Size: S. Required a small runtime code change: `AddRealCareerRecordings` was extended to iterate `scenarioNode.GetNodes("RECORDING_TREE")` and forward trees via `ScenarioWriter.AddTree` (previously only standalone RECORDINGs were read, and standalone format is blocked by the T56 filter). All 5 Learstar recordings retained (root `1bbb50cf98654a23a60b3248848b0301` + 4 debris children) along with the `parsek_rw_0a74d6.sfs` rewind save placed under the new `DefaultCareer/Parsek/Saves/` subdirectory (the existing `CopyRealRecordingFiles` loop reads rewind saves from `sourceCareerDir/Parsek/Saves/`, not from the fixture root). `InjectAllRecordings` gained three assertions (`vesselName = Learstar A1`, `vesselName = Learstar A1 Debris`, `treeName = Learstar A1`). Fixture size: 1.1M → 1.7M (`du -sh`; +577098 bytes, dominated by the 385 KB rewind save and the 74 KB root `.prec`). Follow-up: nested the `Learstar A1 / Debris` group under the main `Learstar A1` group by adding a `GROUP_HIERARCHY` node to the fixture ParsekScenario and extending `ScenarioWriter` with `AddGroupHierarchyEntry(child, parent)` + emission in `BuildScenarioNode`; `AddRealCareerRecordings` now forwards every `GROUP_HIERARCHY/ENTRY` from the fixture so the UI shows debris as a collapsible sub-group of the main mission group instead of a flat sibling.
 
 **Reinjection gotcha:** running `dotnet test --filter InjectAllRecordings` from a sibling git worktree silently short-circuits (xUnit reports Passed in ~100 ms) because `ResolveKspRoot()` probes relative to `ProjectRoot` and does not find `Kerbal Space Program/` outside the worktree. The MSBuild `-p:KSPDir=...` property only wires up DLL references at build time. To actually reinject, set the `KSPDIR` environment variable for the test process: `KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program" dotnet test --filter InjectAllRecordings -p:KSPDir=...`.
+
+**Live-save hazard:** `InjectAllRecordings` rewrites the target save and its `Parsek/Recordings/` sidecars, so never aim it at the same `KSPDIR`/save a live KSP session is using; the preflight helper now probes `KSP.log` and refuses the inject when KSP appears active, but reinjection should still be treated as a closed-KSP operation.
 
 ---
 

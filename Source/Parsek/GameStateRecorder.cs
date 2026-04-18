@@ -1381,6 +1381,13 @@ namespace Parsek
             float setupFunds = strategy.InitialCostFunds;
             float setupSci = strategy.InitialCostScience;
             float setupRep = strategy.InitialCostReputation;
+            StrategyResource sourceResource;
+            StrategyResource targetResource;
+            if (!TryExtractStrategyResourceFlow(strategy, out sourceResource, out targetResource))
+            {
+                sourceResource = StrategyResource.Funds;
+                targetResource = StrategyResource.Funds;
+            }
 
             var evt = new GameStateEvent
             {
@@ -1388,7 +1395,8 @@ namespace Parsek
                 eventType = GameStateEventType.StrategyActivated,
                 key = key,
                 detail = BuildStrategyActivateDetail(title, dept, factor,
-                    setupFunds, setupSci, setupRep)
+                    setupFunds, setupSci, setupRep,
+                    sourceResource: sourceResource, targetResource: targetResource)
             };
             Emit(ref evt, "StrategyActivated");
 
@@ -1467,19 +1475,24 @@ namespace Parsek
 
         /// <summary>
         /// Pure: builds the semicolon-separated detail string for a StrategyActivated
-        /// event. Format: <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;setupFunds=&lt;sf&gt;;setupSci=&lt;ss&gt;;setupRep=&lt;sr&gt;</c>.
+        /// event. Format:
+        /// <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;source=&lt;src&gt;;target=&lt;tgt&gt;;setupFunds=&lt;sf&gt;;setupSci=&lt;ss&gt;;setupRep=&lt;sr&gt;</c>.
         /// Numerics serialized with InvariantCulture "R" (round-trip) so comma-locale
         /// hosts do not break the converter-side parse.
         /// Internal static for direct unit testing without a KSP runtime.
         /// </summary>
         internal static string BuildStrategyActivateDetail(
             string title, string dept, float factor,
-            float setupFunds, float setupSci, float setupRep)
+            float setupFunds, float setupSci, float setupRep,
+            StrategyResource sourceResource = StrategyResource.Funds,
+            StrategyResource targetResource = StrategyResource.Funds)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             return $"title={title ?? ""};" +
                    $"dept={dept ?? ""};" +
                    $"factor={factor.ToString("R", ic)};" +
+                   $"source={sourceResource};" +
+                   $"target={targetResource};" +
                    $"setupFunds={setupFunds.ToString("R", ic)};" +
                    $"setupSci={setupSci.ToString("R", ic)};" +
                    $"setupRep={setupRep.ToString("R", ic)}";
@@ -1498,6 +1511,111 @@ namespace Parsek
                    $"dept={dept ?? ""};" +
                    $"factor={factor.ToString("R", ic)};" +
                    $"activeDurationSec={activeDurationSec.ToString("R", ic)}";
+        }
+
+        internal static bool TryExtractStrategyResourceFlow(
+            Strategies.Strategy strategy,
+            out StrategyResource sourceResource,
+            out StrategyResource targetResource)
+        {
+            sourceResource = StrategyResource.Funds;
+            targetResource = StrategyResource.Funds;
+
+            if (strategy == null || strategy.Effects == null)
+                return false;
+
+            for (int i = 0; i < strategy.Effects.Count; i++)
+            {
+                object effect = strategy.Effects[i];
+                if (effect == null)
+                    continue;
+
+                if (TryExtractCurrencyConverterFlow(effect, out sourceResource, out targetResource))
+                    return true;
+
+                if (TryExtractCurrencyOperationFlow(effect, out sourceResource))
+                {
+                    targetResource = sourceResource;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryExtractCurrencyConverterFlow(
+            object effect,
+            out StrategyResource sourceResource,
+            out StrategyResource targetResource)
+        {
+            sourceResource = StrategyResource.Funds;
+            targetResource = StrategyResource.Funds;
+
+            Type effectType = effect.GetType();
+            if (!string.Equals(effectType.FullName, "Strategies.Effects.CurrencyConverter",
+                    StringComparison.Ordinal))
+                return false;
+
+            var inputField = effectType.GetField("input",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var outputField = effectType.GetField("output",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (inputField == null || outputField == null)
+                return false;
+
+            return TryParseStrategyCurrency(inputField.GetValue(effect), out sourceResource)
+                && TryParseStrategyCurrency(outputField.GetValue(effect), out targetResource);
+        }
+
+        private static bool TryExtractCurrencyOperationFlow(
+            object effect,
+            out StrategyResource resource)
+        {
+            resource = StrategyResource.Funds;
+
+            Type effectType = effect.GetType();
+            if (!string.Equals(effectType.FullName, "Strategies.Effects.CurrencyOperation",
+                    StringComparison.Ordinal))
+                return false;
+
+            var currencyField = effectType.GetField("currency",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            return currencyField != null
+                && TryParseStrategyCurrency(currencyField.GetValue(effect), out resource);
+        }
+
+        private static bool TryParseStrategyCurrency(
+            object rawCurrency,
+            out StrategyResource resource)
+        {
+            resource = StrategyResource.Funds;
+            if (rawCurrency == null)
+                return false;
+
+            int value;
+            try
+            {
+                value = Convert.ToInt32(rawCurrency, System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return false;
+            }
+
+            switch (value)
+            {
+                case 0:
+                    resource = StrategyResource.Funds;
+                    return true;
+                case 1:
+                    resource = StrategyResource.Science;
+                    return true;
+                case 2:
+                    resource = StrategyResource.Reputation;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         #endregion

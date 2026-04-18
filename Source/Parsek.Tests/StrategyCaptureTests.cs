@@ -62,17 +62,21 @@ namespace Parsek.Tests
                 factor: 0.25f,
                 setupFunds: 7500f,
                 setupSci: 0f,
-                setupRep: 0f);
+                setupRep: 0f,
+                sourceResource: StrategyResource.Reputation,
+                targetResource: StrategyResource.Science);
 
             Assert.Contains("title=Unpaid Research Program", s);
             Assert.Contains("dept=Science", s);
             Assert.Contains("factor=0.25", s);
+            Assert.Contains("source=Reputation", s);
+            Assert.Contains("target=Science", s);
             Assert.Contains("setupFunds=7500", s);
             Assert.Contains("setupSci=0", s);
             Assert.Contains("setupRep=0", s);
 
-            // Six semicolon-separated fields, order-stable.
-            Assert.Equal(5, s.Split(';').Length - 1);
+            // Eight semicolon-separated fields, order-stable.
+            Assert.Equal(7, s.Split(';').Length - 1);
         }
 
         [Fact]
@@ -117,6 +121,8 @@ namespace Parsek.Tests
             // so the converter's ExtractDetail can still index by key name.
             Assert.Contains("title=;", s);
             Assert.Contains("dept=;", s);
+            Assert.Contains("source=Funds", s);
+            Assert.Contains("target=Funds", s);
         }
 
         // ================================================================
@@ -133,13 +139,17 @@ namespace Parsek.Tests
                 key = "UnpaidResearchProgram",
                 detail = GameStateRecorder.BuildStrategyActivateDetail(
                     "Unpaid Research Program", "Science",
-                    factor: 0.25f, setupFunds: 7500f, setupSci: 0f, setupRep: 0f)
+                    factor: 0.25f, setupFunds: 7500f, setupSci: 0f, setupRep: 0f,
+                    sourceResource: StrategyResource.Reputation,
+                    targetResource: StrategyResource.Science)
             };
 
             var action = GameStateEventConverter.ConvertStrategyActivated(evt, "rec-1");
 
             Assert.Equal(GameActionType.StrategyActivate, action.Type);
             Assert.Equal("UnpaidResearchProgram", action.StrategyId);
+            Assert.Equal(StrategyResource.Reputation, action.SourceResource);
+            Assert.Equal(StrategyResource.Science, action.TargetResource);
             Assert.Equal(0.25f, action.Commitment);
             Assert.Equal(7500f, action.SetupCost);
             Assert.Equal(1234.0, action.UT);
@@ -185,6 +195,8 @@ namespace Parsek.Tests
 
             Assert.Equal(GameActionType.StrategyActivate, action.Type);
             Assert.Equal("BarebonesStrategy", action.StrategyId);
+            Assert.Equal(StrategyResource.Funds, action.SourceResource);
+            Assert.Equal(StrategyResource.Funds, action.TargetResource);
             Assert.Equal(0f, action.Commitment);
             Assert.Equal(0f, action.SetupCost);
         }
@@ -202,7 +214,9 @@ namespace Parsek.Tests
                     eventType = GameStateEventType.StrategyActivated,
                     key = "StratA",
                     detail = GameStateRecorder.BuildStrategyActivateDetail(
-                        "A", "Science", 0.1f, 5000f, 0f, 0f)
+                        "A", "Science", 0.1f, 5000f, 0f, 0f,
+                        sourceResource: StrategyResource.Reputation,
+                        targetResource: StrategyResource.Science)
                 },
                 new GameStateEvent
                 {
@@ -219,6 +233,8 @@ namespace Parsek.Tests
             Assert.Equal(2, actions.Count);
             Assert.Equal(GameActionType.StrategyActivate, actions[0].Type);
             Assert.Equal(GameActionType.StrategyDeactivate, actions[1].Type);
+            Assert.Equal(StrategyResource.Reputation, actions[0].SourceResource);
+            Assert.Equal(StrategyResource.Science, actions[0].TargetResource);
             Assert.Equal(5000f, actions[0].SetupCost);
         }
 
@@ -390,7 +406,9 @@ namespace Parsek.Tests
             // numeric fields survive the IC round-trip with full precision.
             string detail = GameStateRecorder.BuildStrategyActivateDetail(
                 "T", "D", factor: 0.125f, setupFunds: 12345.5f,
-                setupSci: 0f, setupRep: 0f);
+                setupSci: 0f, setupRep: 0f,
+                sourceResource: StrategyResource.Science,
+                targetResource: StrategyResource.Reputation);
             var evt = new GameStateEvent
             {
                 ut = 1.0,
@@ -400,6 +418,8 @@ namespace Parsek.Tests
             };
             var action = GameStateEventConverter.ConvertStrategyActivated(evt, null);
 
+            Assert.Equal(StrategyResource.Science, action.SourceResource);
+            Assert.Equal(StrategyResource.Reputation, action.TargetResource);
             Assert.Equal(0.125f, action.Commitment);
             Assert.Equal(12345.5f, action.SetupCost);
         }

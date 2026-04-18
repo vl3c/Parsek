@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -41,6 +42,7 @@ namespace Parsek.InGameTests
             }
 
             int valid = 0, skippedRoots = 0;
+            var monotonicFailures = new List<string>();
             foreach (var rec in recordings)
             {
                 InGameAssert.IsNotNull(rec.RecordingId, $"Recording has null ID");
@@ -55,15 +57,89 @@ namespace Parsek.InGameTests
                 }
 
                 // Time should be monotonically non-decreasing
+                bool monotonic = true;
                 for (int i = 1; i < rec.Points.Count; i++)
                 {
-                    InGameAssert.IsTrue(rec.Points[i].ut >= rec.Points[i - 1].ut,
-                        $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut} < previous {rec.Points[i - 1].ut}");
+                    if (rec.Points[i].ut < rec.Points[i - 1].ut)
+                    {
+                        int prefixMatchCount = CountTrackSectionPrefixMatches(rec);
+                        string firstPostPrefixSource = DescribeFirstPostPrefixPointSource(rec, prefixMatchCount);
+                        monotonicFailures.Add(
+                            $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"< previous {rec.Points[i - 1].ut.ToString("R", CultureInfo.InvariantCulture)}; " +
+                            $"trackSections={rec.TrackSections?.Count ?? 0} prefixMatchCount={prefixMatchCount} " +
+                            $"firstPostPrefixSource={firstPostPrefixSource}");
+                        monotonic = false;
+                        break;
+                    }
                 }
-                valid++;
+
+                if (monotonic)
+                    valid++;
             }
+
+            InGameAssert.IsTrue(monotonicFailures.Count == 0, string.Join(System.Environment.NewLine, monotonicFailures.ToArray()));
             ParsekLog.Verbose("TestRunner",
                 $"Validated {valid} committed recordings, {skippedRoots} tree root(s) skipped");
+
+            int CountTrackSectionPrefixMatches(Recording rec)
+            {
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                    return 0;
+
+                var rebuiltPoints = new List<TrajectoryPoint>();
+                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                int max = System.Math.Min(rebuiltPoints.Count, rec.Points.Count);
+                int prefixMatchCount = 0;
+                while (prefixMatchCount < max &&
+                    TrajectoryPointsEqual(rebuiltPoints[prefixMatchCount], rec.Points[prefixMatchCount]))
+                {
+                    prefixMatchCount++;
+                }
+
+                return prefixMatchCount;
+            }
+
+            string DescribeFirstPostPrefixPointSource(Recording rec, int prefixMatchCount)
+            {
+                if (rec.Points == null || prefixMatchCount < 0 || prefixMatchCount >= rec.Points.Count)
+                    return "none";
+
+                TrajectoryPoint target = rec.Points[prefixMatchCount];
+                for (int sectionIndex = 0; sectionIndex < rec.TrackSections.Count; sectionIndex++)
+                {
+                    List<TrajectoryPoint> frames = rec.TrackSections[sectionIndex].frames;
+                    if (frames == null)
+                        continue;
+
+                    for (int frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+                    {
+                        if (TrajectoryPointsEqual(frames[frameIndex], target))
+                            return $"section[{sectionIndex}] source={rec.TrackSections[sectionIndex].source} frame[{frameIndex}]";
+                    }
+                }
+
+                return "flat-only";
+            }
+
+            bool TrajectoryPointsEqual(TrajectoryPoint a, TrajectoryPoint b)
+            {
+                return a.ut == b.ut
+                    && a.latitude == b.latitude
+                    && a.longitude == b.longitude
+                    && a.altitude == b.altitude
+                    && a.rotation.x == b.rotation.x
+                    && a.rotation.y == b.rotation.y
+                    && a.rotation.z == b.rotation.z
+                    && a.rotation.w == b.rotation.w
+                    && a.velocity.x == b.velocity.x
+                    && a.velocity.y == b.velocity.y
+                    && a.velocity.z == b.velocity.z
+                    && a.bodyName == b.bodyName
+                    && a.funds == b.funds
+                    && a.science == b.science
+                    && a.reputation == b.reputation;
+            }
         }
 
         #endregion
@@ -426,12 +502,14 @@ namespace Parsek.InGameTests
 
         #region MapView icons (#387)
 
-        // Verify that MapMarkerRenderer's icon UVs match the live MapNode.iconSprites
-        // atlas for every vessel type in StockIconIndexByVesselType. Regressions here
-        // would mean ghost icons show a different vessel type's symbol (the symptom
-        // users reported before #387).
+        // Verify that MapMarkerRenderer's per-type icon entries match the live
+        // MapNode.iconSprites array for every vessel type in
+        // StockIconIndexByVesselType. Regressions here would mean ghost icons
+        // show a different vessel type's symbol (the symptom users reported
+        // before #387) OR — for the multi-atlas vessel types added by the
+        // #387 follow-up — fall back to the diamond instead of the stock icon.
         [InGameTest(Category = "MapView",
-            Description = "MapMarkerRenderer UVs match live MapNode.iconSprites for every stock vessel type (#387)")]
+            Description = "MapMarkerRenderer per-type atlas+UV entries match live MapNode.iconSprites (#387 + multi-atlas follow-up)")]
         public void MapMarkerIconsMatchStockAtlas()
         {
             InGameAssert.IsNotNull(MapView.fetch,
@@ -455,47 +533,51 @@ namespace Parsek.InGameTests
             // (InGameTestRunner coroutines don't always execute during OnGUI).
             MapMarkerRenderer.ForceInitForTesting();
 
-            Texture2D atlas = MapMarkerRenderer.VesselIconAtlasForTesting;
-            InGameAssert.IsNotNull(atlas,
-                "MapMarkerRenderer atlas should be resolved after a draw call");
-
-            var uvs = MapMarkerRenderer.VesselIconUVsForTesting;
-            InGameAssert.IsNotNull(uvs, "MapMarkerRenderer UV dict should be built");
+            var entries = MapMarkerRenderer.VesselIconEntriesForTesting;
+            InGameAssert.IsNotNull(entries, "MapMarkerRenderer icon entry dict should be built");
 
             int verified = 0, missing = 0;
             foreach (var kv in MapMarkerRenderer.StockIconIndexByVesselType)
             {
                 int idx = kv.Value;
+                // Under the per-type-atlas model (#387 follow-up) only
+                // structural gaps in the stock atlas should skip an entry.
                 if (idx < 0 || idx >= sprites.Length || sprites[idx] == null
-                    || sprites[idx].texture != atlas)
+                    || sprites[idx].texture == null)
                 {
-                    // Expected — renderer also skips these. Log and continue.
                     missing++;
                     ParsekLog.Verbose("TestRunner",
-                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite/atlas mismatch)");
+                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite or texture missing)");
                     continue;
                 }
 
+                Texture2D spriteTex = sprites[idx].texture;
                 Rect expectedRect = sprites[idx].textureRect;
                 Rect expectedUv = new Rect(
-                    expectedRect.x / atlas.width, expectedRect.y / atlas.height,
-                    expectedRect.width / atlas.width, expectedRect.height / atlas.height);
+                    expectedRect.x / spriteTex.width, expectedRect.y / spriteTex.height,
+                    expectedRect.width / spriteTex.width, expectedRect.height / spriteTex.height);
 
-                InGameAssert.IsTrue(uvs.TryGetValue(kv.Key, out Rect actualUv),
-                    $"UV dict missing entry for {kv.Key}");
+                InGameAssert.IsTrue(entries.TryGetValue(kv.Key, out MapMarkerRenderer.VesselIconEntry actual),
+                    $"Icon dict missing entry for {kv.Key}");
 
-                InGameAssert.ApproxEqual(expectedUv.x, actualUv.x);
-                InGameAssert.ApproxEqual(expectedUv.y, actualUv.y);
-                InGameAssert.ApproxEqual(expectedUv.width, actualUv.width);
-                InGameAssert.ApproxEqual(expectedUv.height, actualUv.height);
+                // Each type must carry its OWN texture reference — the multi-atlas
+                // vessel types (DeployedScienceController, DeployedGroundPart)
+                // used to be skipped because the renderer forced a single atlas.
+                InGameAssert.IsTrue(object.ReferenceEquals(actual.Atlas, spriteTex),
+                    $"Atlas for {kv.Key} should match sprites[{idx}].texture (got name='{(actual.Atlas != null ? actual.Atlas.name : "null")}' expected='{spriteTex.name}')");
+
+                InGameAssert.ApproxEqual(expectedUv.x, actual.UV.x);
+                InGameAssert.ApproxEqual(expectedUv.y, actual.UV.y);
+                InGameAssert.ApproxEqual(expectedUv.width, actual.UV.width);
+                InGameAssert.ApproxEqual(expectedUv.height, actual.UV.height);
 
                 verified++;
                 ParsekLog.Verbose("TestRunner",
-                    $"MapView icon {kv.Key} idx={idx} UV=({actualUv.x:F3},{actualUv.y:F3},{actualUv.width:F3},{actualUv.height:F3}) OK");
+                    $"MapView icon {kv.Key} idx={idx} tex={spriteTex.name} UV=({actual.UV.x:F3},{actual.UV.y:F3},{actual.UV.width:F3},{actual.UV.height:F3}) OK");
             }
 
             InGameAssert.IsTrue(verified > 0,
-                $"Expected at least one matching icon UV; verified={verified} missing={missing}");
+                $"Expected at least one matching icon entry; verified={verified} missing={missing}");
             ParsekLog.Info("TestRunner",
                 $"MapMarkerIconsMatchStockAtlas: verified={verified} missing={missing} total={MapMarkerRenderer.StockIconIndexByVesselType.Count}");
         }
@@ -832,6 +914,121 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one, which mutates the current FLIGHT session.",
+            Description = "Run All cleanup exits watch mode before ghost teardown so Sun.LateUpdate stays exception-free")]
+        public IEnumerator RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("no ActiveVessel");
+            if (FlightCamera.fetch == null)
+                InGameAssert.Skip("no FlightCamera");
+
+            int index;
+            GhostPlaybackState watchedState;
+            if (!TryFindWatchableSameBodyGhost(flight, out index, out watchedState))
+                InGameAssert.Skip("no same-body ghost available for watch-cleanup regression");
+
+            var captured = new List<string>();
+            Application.LogCallback callback = (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                    captured.Add(condition + "\n" + stackTrace);
+            };
+
+            flight.EnterWatchMode(index);
+            yield return null;
+
+            try
+            {
+                InGameAssert.IsTrue(flight.IsWatchingGhost, "should be in watch mode before cleanup");
+                InGameAssert.AreEqual(index, flight.WatchedRecordingIndex, "watching wrong index before cleanup");
+
+                Application.logMessageReceived += callback;
+                runner.PerformBetweenRunCleanup("ingame-watch-cleanup-regression");
+                yield return new WaitForSeconds(0.5f);
+
+                AssertNoSunOrFlightGlobalsExceptions(
+                    captured,
+                    $"watch-cleanup regression index={index} body={watchedState.lastInterpolatedBodyName}");
+                InGameAssert.IsFalse(flight.IsWatchingGhost,
+                    "cleanup should have exited watch mode before ghost teardown");
+            }
+            finally
+            {
+                Application.logMessageReceived -= callback;
+                if (flight.IsWatchingGhost)
+                    flight.ExitWatchMode();
+            }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Ghost creation near a Kerbin ~46 km playback point stays free of Sun.LateUpdate / FlightGlobals.UpdateInformation exception spam")]
+        public IEnumerator GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+
+            var engine = flight.Engine;
+            if (engine == null)
+                InGameAssert.Skip("no GhostPlaybackEngine");
+
+            var committed = RecordingStore.CommittedRecordings;
+            Recording rec;
+            int recordingIndex;
+            double primingUT;
+            double matchedAltitude;
+            if (!TryFindKerbinLowAltitudeRecording(committed, out rec, out recordingIndex, out primingUT, out matchedAltitude))
+                InGameAssert.Skip("needs a committed recording with a Kerbin point near 46 km");
+
+            int sentinelIndex = committed.Count + 1001;
+            if (engine.ghostStates.ContainsKey(sentinelIndex))
+                InGameAssert.Skip("sentinel index collision");
+
+            GhostPlaybackState state = null;
+            var captured = new List<string>();
+            Application.LogCallback callback = (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                    captured.Add(condition + "\n" + stackTrace);
+            };
+
+            Application.logMessageReceived += callback;
+            try
+            {
+                engine.SpawnGhost(sentinelIndex, rec as IPlaybackTrajectory, primingUT);
+                yield return null;
+                yield return null;
+                yield return new WaitForSeconds(0.5f);
+
+                bool found = engine.ghostStates.TryGetValue(sentinelIndex, out state);
+                InGameAssert.IsTrue(found,
+                    $"ghostStates should contain sentinel index {sentinelIndex} after SpawnGhost");
+                InGameAssert.IsNotNull(state, "state should not be null after SpawnGhost");
+                InGameAssert.IsNotNull(state.ghost, "state.ghost should not be null after SpawnGhost");
+
+                AssertNoSunOrFlightGlobalsExceptions(
+                    captured,
+                    $"low-altitude spawn recordingIndex={recordingIndex} vessel=\"{rec.VesselName}\" altitude={matchedAltitude:F1} ut={primingUT:F1}");
+
+                ParsekLog.Info("TestRunner",
+                    $"GhostSpawn_Kerbin46KmPoint: recordingIndex={recordingIndex} vessel=\"{rec.VesselName}\" " +
+                    $"matchedAltitude={matchedAltitude:F1} primingUT={primingUT:F1}");
+            }
+            finally
+            {
+                Application.logMessageReceived -= callback;
+                engine.ghostStates.Remove(sentinelIndex);
+                if (state != null && state.ghost != null)
+                    runner.TrackForCleanup(state.ghost);
+            }
+        }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "EnterWatchMode on a same-body ghost applies canonical fresh-entry angles, not the active vessel's camera state (PR #288 regression)")]
         public IEnumerator WatchEntry_SameBody_PreservesFreshEntryAngles()
@@ -918,6 +1115,99 @@ namespace Parsek.InGameTests
             }
 
             InGameAssert.IsFalse(ParsekFlight.Instance.IsWatchingGhost, "should have exited watch mode");
+        }
+
+        private static void AssertNoSunOrFlightGlobalsExceptions(
+            IEnumerable<string> captured,
+            string context)
+        {
+            foreach (var line in captured)
+            {
+                InGameAssert.IsFalse(line.Contains("Sun.LateUpdate"),
+                    $"expected zero Sun.LateUpdate exceptions during {context}, saw: {line}");
+                InGameAssert.IsFalse(line.Contains("FlightGlobals.UpdateInformation"),
+                    $"expected zero FlightGlobals.UpdateInformation exceptions during {context}, saw: {line}");
+            }
+        }
+
+        private static bool TryFindWatchableSameBodyGhost(
+            ParsekFlight flight,
+            out int index,
+            out GhostPlaybackState state)
+        {
+            index = -1;
+            state = null;
+
+            if (flight == null || flight.Engine == null || FlightGlobals.ActiveVessel == null)
+                return false;
+
+            var committed = RecordingStore.CommittedRecordings;
+            string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+
+            foreach (var kvp in flight.Engine.ghostStates)
+            {
+                var gs = kvp.Value;
+                if (gs == null) continue;
+                if (gs.lastInterpolatedBodyName != activeBodyName) continue;
+                if (gs.ghost == null) continue;
+                if (kvp.Key >= committed.Count) continue;
+                if (gs.lastDistance <= 0.0) continue;
+                if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
+
+                index = kvp.Key;
+                state = gs;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryFindKerbinLowAltitudeRecording(
+            IReadOnlyList<Recording> committed,
+            out Recording recording,
+            out int recordingIndex,
+            out double primingUT,
+            out double matchedAltitude)
+        {
+            recording = null;
+            recordingIndex = -1;
+            primingUT = 0.0;
+            matchedAltitude = 0.0;
+
+            if (committed == null)
+                return false;
+
+            double bestDelta = double.PositiveInfinity;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var candidate = committed[i];
+                if (candidate == null
+                    || candidate.GhostVisualSnapshot == null
+                    || candidate.Points == null
+                    || candidate.Points.Count < 2)
+                {
+                    continue;
+                }
+
+                foreach (var point in candidate.Points)
+                {
+                    if (!string.Equals(point.bodyName, "Kerbin")) continue;
+                    if (double.IsNaN(point.altitude) || double.IsInfinity(point.altitude)) continue;
+
+                    double delta = System.Math.Abs(point.altitude - 46000.0);
+                    if (delta >= bestDelta)
+                        continue;
+
+                    bestDelta = delta;
+                    recording = candidate;
+                    recordingIndex = i;
+                    primingUT = point.ut;
+                    matchedAltitude = point.altitude;
+                }
+            }
+
+            return recording != null;
         }
     }
 
@@ -1813,6 +2103,210 @@ namespace Parsek.InGameTests
                     RecordingStore.RemoveCommittedInternal(syntheticRecording);
 
                 // Verify rollback.
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: target part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
+                InGameAssert.AreEqual(savedCommittedCount, RecordingStore.CommittedRecordings.Count,
+                    $"Rollback failed: CommittedRecordings count not restored " +
+                    $"(expected={savedCommittedCount}, actual={RecordingStore.CommittedRecordings.Count})");
+                InGameAssert.AreEqual(savedReplacements.Count, CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
+            }
+        }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #456: orphan placement name-hit fallback places stand-in when snapshot pid=100000 (synthetic showcase) doesn't match any live part pid")]
+        public void Bug456_OrphanPlacement_NameHitFallback_PlacesStandin()
+        {
+            // End-to-end integration test for bug #456. The playtest symptom was:
+            //   [CrewReservation] Orphan placement: no matching part with free seat
+            //   in active vessel for 'Bill Kerman' → 'Urdun Kerman'
+            //   (snapshot pid=100000 name='mk1pod.v2')
+            //
+            // The snapshot carries a SYNTHETIC pid (100000, the canonical first
+            // AddPart-assigned value for showcase ghosts — see `.claude/CLAUDE.md`
+            // "Ghost event ↔ snapshot PID" gotcha) so tier-1 pid match always
+            // misses against a live vessel whose KSP-assigned part pid is a
+            // different random value. This test builds that exact shape — a
+            // snapshot with pid=100000 name=<live part name>, finds a free seat
+            // on the live vessel, then verifies PlaceOrphanedReplacements
+            // succeeds via the name-hit fallback tier and the summary log line
+            // increments `nameHitFallbacks`.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with a free seat to use as the placement target.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Sanity: the synthetic pid we will stamp into the snapshot must NOT
+            // coincide with the target part's live pid (otherwise the test would
+            // exercise the pid-hit tier instead of the name-hit fallback).
+            const uint SyntheticShowcasePid = 100000u;
+            if (target.persistentId == SyntheticShowcasePid)
+            {
+                InGameAssert.Skip("Target part's live pid coincides with the synthetic test pid — cannot exercise name-hit fallback");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            string fakeOriginal = "Bug456Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            // Save state for rollback.
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
+            int beforeCrewCount = target.protoModuleCrew.Count;
+
+            Recording syntheticRecording = null;
+            bool addedToCommitted = false;
+            bool placedCrew = false;
+
+            // Capture log output so we can assert on the name-fallback INFO line
+            // and the summary counter.
+            var logLines = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+
+                // Build a snapshot that DELIBERATELY uses a pid that does NOT
+                // match the live target — this forces tier-1 to miss and tier-2
+                // (name-hit) to carry the placement. The part NAME must match
+                // the live target's partInfo.name.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", target.partInfo.name);
+                partNode.AddValue("persistentId", SyntheticShowcasePid.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-orphan-456-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "Bug456TestVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+
+                RecordingStore.AddCommittedInternal(syntheticRecording);
+                addedToCommitted = true;
+
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+
+                InGameAssert.IsGreaterThan(placed, 0,
+                    $"PlaceOrphanedReplacements should have placed at least 1 stand-in via name-fallback (placed={placed})");
+                placedCrew = target.protoModuleCrew.Contains(standIn);
+                InGameAssert.IsTrue(placedCrew,
+                    $"Stand-in '{standIn.name}' should be in target part '{target.partInfo.title}' after name-hit fallback");
+                InGameAssert.AreEqual(beforeCrewCount + 1, target.protoModuleCrew.Count,
+                    $"Target part crew count should have increased by 1 " +
+                    $"(before={beforeCrewCount}, after={target.protoModuleCrew.Count})");
+
+                // Log-assertion: the dedicated "match=name-fallback" INFO line
+                // must have fired so future playtests can grep for it.
+                bool sawNameFallbackLog = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("match=name-fallback"))
+                    {
+                        sawNameFallbackLog = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawNameFallbackLog,
+                    "Expected a [CrewReservation] INFO line with 'match=name-fallback' — name-hit fallback path did not log its success");
+
+                // Log-assertion: the summary line must increment nameHitFallbacks.
+                bool sawNameHitCounter = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("Orphan placement pass:")
+                        && line.Contains("nameHitFallbacks=1"))
+                    {
+                        sawNameHitCounter = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawNameHitCounter,
+                    "Expected summary log with 'nameHitFallbacks=1' — counter did not increment on successful fallback");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug456 end-to-end: name-hit fallback placed '{standIn.name}' " +
+                    $"in '{target.partInfo.title}' from synthetic pid={SyntheticShowcasePid} snapshot");
+            }
+            finally
+            {
+                // Restore log sink first so cleanup doesn't pollute the captured lines.
+                ParsekLog.TestSinkForTesting = priorSink;
+
+                if (placedCrew && target.protoModuleCrew.Contains(standIn))
+                    target.RemoveCrewmember(standIn);
+
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+
+                if (addedToCommitted)
+                    RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
                 InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
                     $"Rollback failed: target part crew count not restored " +
                     $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
@@ -3335,6 +3829,86 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.TestSinkForTesting = prevSink;
             }
+        }
+
+        #endregion
+
+        #region Bug #450 B3 Lazy Reentry FX
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: TryBuildReentryFx on a real Unity GameObject returns null for an empty ghost root, and the lazy-build helper clears the pending flag without incrementing the builds counter.")]
+        public void Bug450B3_LazyBuild_OnEmptyGhostRoot_ClearsFlagWithoutCountingBuild()
+        {
+            // Residual-risk coverage for the plan's "in-game only" test gap: verifies
+            // the live-Unity lazy-build path wiring. We do NOT construct a real ghost
+            // (that requires an active snapshot + AvailablePart + Unity prefab), but
+            // we DO exercise TryBuildReentryFx with a genuine GameObject so the Unity
+            // APIs inside (GetComponentsInChildren, Mesh.CombineMeshes, ParticleSystem
+            // setup) run against a real scene. An empty ghost root produces no mesh
+            // coverage → TryBuildReentryFx returns null → the lazy-build wrapper must
+            // clear the flag and NOT bump reentryFxBuildsThisSession.
+            var ghostRoot = new GameObject("ParsekTestGhost_B3");
+            runner.TrackForCleanup(ghostRoot);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestB3",
+                ghost = ghostRoot,
+                reentryFxPendingBuild = true,
+                heatInfos = new System.Collections.Generic.Dictionary<uint, HeatGhostInfo>(),
+                reentryFxInfo = null,
+            };
+
+            // Use a fresh engine instance so the session-wide build counter reads
+            // cleanly from DiagnosticsState. The engine constructor is free of
+            // side-effects besides field initialisation.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            int buildsBefore = DiagnosticsState.health.reentryFxBuildsThisSession;
+
+            engine.TryPerformLazyReentryBuildForTesting(
+                recIdx: 999, state, vesselName: "TestB3",
+                bodyName: "Kerbin", altitude: 50_000);
+
+            // Flag clears regardless of build success (one-shot, no retry storm).
+            InGameAssert.IsFalse(state.reentryFxPendingBuild,
+                "Lazy build must clear reentryFxPendingBuild even when TryBuildReentryFx returns null");
+            // Counter only bumps on non-null build. Empty ghost root → null → no bump.
+            int buildsAfter = DiagnosticsState.health.reentryFxBuildsThisSession;
+            InGameAssert.AreEqual(buildsBefore, buildsAfter,
+                "reentryFxBuildsThisSession must NOT increment when TryBuildReentryFx returns null");
+            // A frame-slot IS consumed (we did invoke the build). Confirms the
+            // counter lives in the unthrottled-success path.
+            InGameAssert.AreEqual(1, engine.FrameLazyReentryBuildCountForTesting,
+                "A build attempt must consume one per-frame slot regardless of result");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
+        public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
+        {
+            // Pin the cross-file contract between the B3 helper's speed floor and
+            // TrajectoryMath.ReentryPotentialSpeedFloor. If these drift apart, a
+            // trajectory that `HasReentryPotential` accepts may be stranded in
+            // pending-forever state at spawn, or vice versa. The constant lives in
+            // TrajectoryMath so the floor is a single source of truth.
+            float floor = TrajectoryMath.ReentryPotentialSpeedFloor;
+            InGameAssert.IsTrue(floor >= 100f && floor <= 1000f,
+                $"ReentryPotentialSpeedFloor={floor} is outside the expected 100-1000 m/s sanity range; B3 speed gate may be miscalibrated");
+
+            // Just at the floor → build fires.
+            InGameAssert.IsTrue(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor, speedFloorMetersPerSecond: floor),
+                "At exactly the speed floor, the build must fire");
+            // Just below the floor → build does NOT fire.
+            InGameAssert.IsFalse(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor - 1f, speedFloorMetersPerSecond: floor),
+                "One m/s below the speed floor, the build must NOT fire");
         }
 
         #endregion
