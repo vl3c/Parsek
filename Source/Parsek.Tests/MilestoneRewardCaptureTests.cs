@@ -747,6 +747,12 @@ namespace Parsek.Tests
             var milestoneAction = GameStateEventConverter.ConvertMilestoneAchieved(
                 stored.Value, recordingId: null);
 
+            // #440B: ReconcileEarningsWindow reads post-walk EffectiveRep for the
+            // milestone rep leg. The converter does not populate it (the walk does);
+            // seed the identity-curve value here since this test bypasses
+            // RecalculateAndPatch.
+            milestoneAction.EffectiveRep = milestoneAction.MilestoneRepAwarded;
+
             // 4. Run reconciliation across the FundsChanged + ReputationChanged pair on
             //    the store side and the MilestoneAchievement action on the ledger side.
             //    Without the fix there is no MilestoneAchievement to balance the dropped
