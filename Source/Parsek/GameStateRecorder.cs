@@ -115,6 +115,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;
+            ClearPendingMilestoneEvents("ResetForTesting");
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
@@ -152,6 +153,7 @@ namespace Parsek
             if (subscribed) return;
             subscribed = true;
             pendingCrewEvents.Clear();
+            ClearPendingMilestoneEvents("Subscribe");
 
             // Contracts
             GameEvents.Contract.onOffered.Add(OnContractOffered);
@@ -199,6 +201,7 @@ namespace Parsek
         {
             if (!subscribed) return;
             subscribed = false;
+            ClearPendingMilestoneEvents("Unsubscribe");
 
             // Contracts
             GameEvents.Contract.onOffered.Remove(OnContractOffered);
@@ -972,11 +975,23 @@ namespace Parsek
         /// any save whose epoch has been bumped (every save with at least one revert).
         ///
         /// Entries are removed immediately after enrichment. Stale entries (if AwardProgress
-        /// never fires for a node) don't survive beyond the save session — on load the map
-        /// is empty.
+        /// never fires for a node) don't survive beyond the save session — Subscribe(),
+        /// Unsubscribe(), and ResetForTesting() all clear the map before a new session can
+        /// route rewards through it.
         /// </summary>
         internal static readonly Dictionary<string, GameStateEvent> PendingMilestoneEventById
             = new Dictionary<string, GameStateEvent>(StringComparer.Ordinal);
+
+        internal static void ClearPendingMilestoneEvents(string reason)
+        {
+            int cleared = PendingMilestoneEventById.Count;
+            if (cleared <= 0)
+                return;
+
+            PendingMilestoneEventById.Clear();
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Cleared {cleared} pending milestone reward entr{(cleared == 1 ? "y" : "ies")} ({reason ?? "unspecified"})");
+        }
 
         /// <summary>
         /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c>. Looks

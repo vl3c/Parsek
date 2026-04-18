@@ -262,6 +262,55 @@ namespace Parsek.Tests
             // Nothing to assert except no throw.
         }
 
+        [Fact]
+        public void ResetForTesting_ClearsPendingMilestoneEventById()
+        {
+            GameStateRecorder.PendingMilestoneEventById["RecordsDistance"] = new GameStateEvent
+            {
+                ut = 42,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+
+            GameStateRecorder.ResetForTesting();
+
+            Assert.Empty(GameStateRecorder.PendingMilestoneEventById);
+        }
+
+        [Fact]
+        public void RoutePostfix_AfterReset_IgnoresFormerStalePendingEntry()
+        {
+            // #443 review follow-up: re-keying the pending map from ProgressNode
+            // reference to milestone id made stale entries behaviorally dangerous.
+            // If a stale "RecordsDistance" entry survives a recorder reset / OnLoad
+            // resubscribe, RoutePostfix sees the key and takes the enrich branch instead
+            // of emitting the standalone milestone event the world-record path needs.
+            // That yields a store-miss WARN and silently drops the reward. Reset must
+            // drain the map so the post-reset route is the standalone append path.
+            GameStateRecorder.PendingMilestoneEventById["RecordsDistance"] = new GameStateEvent
+            {
+                ut = 99,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0),
+                epoch = 5
+            };
+
+            GameStateRecorder.ResetForTesting();
+
+            var node = new FakeProgressNode("RecordsDistance");
+            Parsek.Patches.ProgressRewardPatch.RoutePostfix(
+                node, funds: 4800f, science: 0f, reputation: 2f, ut: TestUt);
+
+            var stored = FindLastMilestoneEvent("RecordsDistance");
+            Assert.True(stored.HasValue);
+            Assert.Contains("funds=4800", stored.Value.detail);
+            Assert.Contains("rep=2", stored.Value.detail);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("store had no matching event"));
+        }
+
         // #443: regression coverage for the silent write-back failure on Kerbin/Landing
         // (and other OnProgressComplete-emitting nodes) reported in the v0.8.2 smoke test.
         // Two failure modes were proven from the code:
