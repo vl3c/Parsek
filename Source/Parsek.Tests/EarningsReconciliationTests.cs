@@ -2451,6 +2451,10 @@ namespace Parsek.Tests
                 recordingId: "rec-parent");
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("ReconcileEarningsWindow: skipped 1 event(s) tagged to other recordings") &&
+                l.Contains("scope='rec-parent'"));
         }
 
         [Fact]

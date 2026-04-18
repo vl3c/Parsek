@@ -80,6 +80,7 @@ namespace Parsek
             return result;
         }
 
+        // Mirrored in LedgerOrchestrator.EventMatchesRecordingScope; keep the two in sync.
         private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId))

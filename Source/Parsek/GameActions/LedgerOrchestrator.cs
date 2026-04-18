@@ -299,6 +299,7 @@ namespace Parsek
             double droppedFundsDelta = 0;
             double droppedRepDelta = 0;
             double droppedSciDelta = 0;
+            int scopeSkipped = 0;
 
             if (events != null)
             {
@@ -306,7 +307,11 @@ namespace Parsek
                 {
                     var e = events[i];
                     if (e.ut < startUT || e.ut > endUT) continue;
-                    if (!EventMatchesRecordingScope(e, recordingId)) continue;
+                    if (!EventMatchesRecordingScope(e, recordingId))
+                    {
+                        scopeSkipped++;
+                        continue;
+                    }
                     switch (e.eventType)
                     {
                         case GameStateEventType.FundsChanged:
@@ -320,6 +325,13 @@ namespace Parsek
                             break;
                     }
                 }
+            }
+
+            if (scopeSkipped > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReconcileEarningsWindow: skipped {scopeSkipped} event(s) tagged to other recordings " +
+                    $"(scope='{recordingId}', window=[{startUT:F1},{endUT:F1}])");
             }
 
             double emittedFundsDelta = 0;
@@ -4366,6 +4378,7 @@ namespace Parsek
             return summedExpected;
         }
 
+        // Mirrored in GameStateEventConverter.EventMatchesRecordingScope; keep the two in sync.
         private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId))
