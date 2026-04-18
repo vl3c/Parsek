@@ -4,23 +4,29 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## v0.9-dev
+## 0.9.0
 
 ### Features
 
-- Phase 1: data model for Rewind to Staging (no user-visible behavior yet).
-- Phase 2: ERS/ELS effective-state helper (no user-visible behavior yet).
-- Phase 3: raw recording/ledger readers routed through ERS/ELS helpers; CI grep-audit gate added.
-- Phase 4: rewind points captured at multi-controllable splits; quicksave deferred to next frame.
-- Phase 5: Unfinished Flights UI group (feature-preview cutoff; rewind invocation comes in Phase 6).
-- Phase 6: rewind button unlocked end-to-end — pre-load bundle capture + copy-to-save-root, scene reload, post-load Restore + Strip + Activate + atomic provisional/marker write in the new scenario's OnLoad. User-facing toast on failure.
-- Phase 7: session-suppressed subtree hides superseded ancestors during re-fly; kerbal dual-residence carve-out lets live re-fly crew bypass reservation lock.
-- Phase 8: rewind-session merge writes supersede relations for subtree; Immutable vs CommittedProvisional based on terminal kind.
-- Phase 9: narrow v1 tombstone scope — only kerbal-death ledger actions (plus bundled rep penalties) are retired on merge; career state stays sticky.
-- Phase 10: merge runs through MergeJournalOrchestrator with 5 crash-recovery checkpoints; on-load finisher resumes from any crash window.
-- Phase 11: rewind points reaped after merge; tree discard purges related rewind points, supersede relations, and tombstones.
-- Phase 12: Revert-during-re-fly dialog (Retry / Full Revert / Cancel) intercepts stock revert while a session is active.
-- Phase 13: OnLoad sweep validates re-fly session marker (6 fields), cleans up orphan provisionals and stray transient fields, logs summary.
+- **Rewind to Staging** — re-fly unfinished missions after multi-controllable splits. When a vessel stages, undocks, or EVAs into 2+ controllable pieces, Parsek captures a Rewind Point (a transient quicksave under `Parsek/RewindPoints/`). If any sibling ends badly — a destroyed booster, a dead kerbal EVA, a crashed lander — it appears in a read-only "Unfinished Flights" group with a Rewind button to replay the split moment. Merging the re-fly supersedes the retired sibling so the replayed attempt becomes the canonical playback; career state (contracts, milestones, facilities, strategies) is unchanged, but kerbal deaths in the retired attempt are reversed. A Revert-during-re-fly dialog offers Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying. Crash recovery is journaled so an F5, quit, or disk interruption mid-merge can resume cleanly on next load.
+- New Settings > Diagnostics line shows live rewind-point disk usage (directory size + file count, refreshed every 10 seconds).
+
+### Internals — Rewind to Staging rollout (reference)
+
+- Phase 1 — data model (MergeState tri-state, RewindPoint + ChildSlot + RecordingSupersedeRelation + LedgerTombstone + ReFlySessionMarker + MergeJournal; scenario persistence + one-shot legacy migration).
+- Phase 2 — EffectiveState helper (ERS / ELS with tombstone-only filter, SessionSuppressedSubtree forward-only closure, IsVisible / IsUnfinishedFlight / EffectiveRecordingId; StateVersion counters drive cache invalidation).
+- Phase 3 — route existing raw-recording/ledger readers through ERS/ELS; `scripts/grep-audit-ers-els.ps1` CI gate with per-file allowlist.
+- Phase 4 — rewind points captured at multi-controllable splits (`RewindPointAuthor.Begin`) with scene guard, warp-to-zero, deferred quicksave + safe-move.
+- Phase 5 — Unfinished Flights virtual UI group (membership derived from ERS filtered by IsUnfinishedFlight; cannot hide / cannot be drop target).
+- Phase 6 — rewind button end-to-end (`RewindInvoker`: 5-precondition gate, reconciliation bundle, quicksave copy to save-root, scene reload, post-load Restore + Strip + Activate + atomic provisional + marker write).
+- Phase 7 — session-suppressed subtree hides superseded ancestors during re-fly; kerbal dual-residence carve-out lets live re-fly crew bypass reservation lock.
+- Phase 8 — merge-time supersede relations + Immutable vs CommittedProvisional commit decision (`SupersedeCommit.CommitSupersede` + `TerminalKindClassifier`).
+- Phase 9 — narrow v1 tombstone scope: only kerbal-death actions (plus bundled rep penalties within a 1s window) are retired on merge; career state stays sticky.
+- Phase 10 — journaled staged commit (`MergeJournalOrchestrator` with 5 crash-recovery checkpoints; OnLoad finisher rolls back or drives-to-completion).
+- Phase 11 — rewind-point reap after merge (`RewindPointReaper`); tree discard purges related RPs, supersede relations, and tombstones (`TreeDiscardPurge`).
+- Phase 12 — Revert-during-re-fly dialog (Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying) intercepts `FlightDriver.RevertToLaunch` while a session is active.
+- Phase 13 — load-time sweep (`LoadTimeSweep.Run`): validates marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warns on orphan supersede/tombstone rows.
+- Phase 14 — polish + pre-release prep: disk-usage diagnostics line in Settings; rename persists + hide warns on Unfinished Flight rows; dialog copy polish (Merge + ReFlyRevert).
 
 ---
 

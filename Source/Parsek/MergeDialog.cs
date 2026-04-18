@@ -64,16 +64,24 @@ namespace Parsek
                 message += "\n\nNo flight branches produced a vessel that can continue flying. " +
                            "The recordings will play back as ghosts, but no vessel will be placed.";
 
-            // Phase 8 of Rewind-to-Staging (design §1.1): when merging during
-            // an active re-fly session, reinforce the narrow-scope advisory so
-            // the player knows the merge only swaps physical playback — it
-            // does not touch career state.
+            // Phase 8 / Phase 14 of Rewind-to-Staging (design §1.1 / §7.17):
+            // when merging during an active re-fly session, spell out the
+            // narrow-scope advisory so the player knows that "merge" here
+            // only swaps which attempt plays as the canonical sibling. The
+            // original attempt stays on record as a ghost; career state
+            // (contracts, milestones, facility damage, strategies) is
+            // untouched by the supersede. Kerbal deaths are the single
+            // exception — deaths in the retired attempt are un-bundled on
+            // merge.
             var reFlyScenario = ParsekScenario.Instance;
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
-                message += "\n\nNote: career state (contracts, milestones, facilities, strategies) " +
-                           "is unchanged by supersede.";
+                message += "\n\nRe-fly merge: this attempt becomes the canonical sibling " +
+                           "for the split; the retired attempt plays back as a ghost. " +
+                           "Career state (contracts, milestones, facilities, strategies) " +
+                           "is unchanged. Only kerbal deaths from the retired attempt are " +
+                           "reversed.";
             }
 
             var capturedDecisions = decisions;

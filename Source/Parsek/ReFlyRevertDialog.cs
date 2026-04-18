@@ -9,9 +9,9 @@ namespace Parsek
     /// 3-option popup:
     ///
     /// <list type="bullet">
-    ///   <item><description><b>Retry</b> — discard the current provisional, generate a fresh <c>SessionId</c>, and re-invoke the rewind via <see cref="RewindInvoker.StartInvoke"/> using the same <see cref="RewindPoint"/> + <see cref="ChildSlot"/>.</description></item>
-    ///   <item><description><b>Full Revert</b> — purge the entire tree via <see cref="TreeDiscardPurge.PurgeTree"/> (clears RPs, supersedes, tombstones, marker, journal) and then run the stock revert path.</description></item>
-    ///   <item><description><b>Cancel</b> — dismiss the popup and resume flight with no state changes.</description></item>
+    ///   <item><description><b>Retry from Rewind Point</b> — discard the current provisional, generate a fresh <c>SessionId</c>, and re-invoke the rewind via <see cref="RewindInvoker.StartInvoke"/> using the same <see cref="RewindPoint"/> + <see cref="ChildSlot"/>.</description></item>
+    ///   <item><description><b>Full Revert (Discard Re-fly)</b> — purge the entire tree via <see cref="TreeDiscardPurge.PurgeTree"/> (clears RPs, supersedes, tombstones, marker, journal) and then run the stock revert path.</description></item>
+    ///   <item><description><b>Continue Flying</b> — dismiss the popup and resume flight with no state changes.</description></item>
     /// </list>
     ///
     /// <para>
@@ -80,15 +80,18 @@ namespace Parsek
             const string title = "Revert during re-fly";
             const string body =
                 "You are re-flying an unfinished mission. What would you like to do?\n\n" +
-                "- Retry: restart the re-fly from the rewind point.\n" +
-                "- Full Revert: discard this subtree and return to the pre-re-fly state " +
-                "(supersedes and tombstones will be cleared).\n" +
-                "- Cancel: continue flying.";
+                "- Retry from Rewind Point: discard this attempt and re-load the " +
+                "rewind-point quicksave. The Unfinished Flight entry stays available " +
+                "so you can try again.\n" +
+                "- Full Revert (Discard Re-fly): throw away the entire re-fly subtree " +
+                "(supersedes, tombstones, and rewind points for this split are cleared) " +
+                "and return to the pre-re-fly state. Career state stays where it is now.\n" +
+                "- Continue Flying: keep the current attempt; do nothing.";
 
             // Button handlers. Each releases the input lock + clears the
             // visible flag before dispatching, so a callback that spawns its
             // own popup does not fight the lock.
-            DialogGUIButton retryButton = new DialogGUIButton("Retry", () =>
+            DialogGUIButton retryButton = new DialogGUIButton("Retry from Rewind Point", () =>
             {
                 DialogVisible = false;
                 ClearLock();
@@ -105,7 +108,7 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton fullRevertButton = new DialogGUIButton("Full Revert", () =>
+            DialogGUIButton fullRevertButton = new DialogGUIButton("Full Revert (Discard Re-fly)", () =>
             {
                 DialogVisible = false;
                 ClearLock();
@@ -122,7 +125,7 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton cancelButton = new DialogGUIButton("Cancel", () =>
+            DialogGUIButton cancelButton = new DialogGUIButton("Continue Flying", () =>
             {
                 DialogVisible = false;
                 ClearLock();
