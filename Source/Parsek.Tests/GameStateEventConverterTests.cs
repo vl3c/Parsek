@@ -822,5 +822,35 @@ namespace Parsek.Tests
             Assert.Equal("Bob Kerman", action.KerbalName);
             Assert.Null(action.KerbalRole);
         }
+
+        // ================================================================
+        // #438 gap #5 (converter-side half): world-first / progress reward
+        // enriched detail produced by ProgressRewardPatch must convert into a
+        // MilestoneAchievement action with all three *Awarded fields populated.
+        // The detail shape is the one GameStateRecorder.BuildMilestoneDetail
+        // emits: "funds=<val>;rep=<val>;sci=<val>". Key carries the qualified
+        // milestone id (e.g. "RecordsSpeed/Kerbin") produced by
+        // GameStateRecorder.QualifyMilestoneId.
+        // ================================================================
+
+        [Fact]
+        public void ConvertMilestoneAchieved_WorldFirstProgressReward_PopulatesAwardedFields()
+        {
+            // Shape matches GameStateRecorder.EmitStandaloneProgressReward +
+            // BuildMilestoneDetail output for a RecordsSpeed world-first over Kerbin.
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 100.0,
+                key: "RecordsSpeed/Kerbin",
+                detail: "funds=4800;rep=2;sci=0");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec-wf");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("RecordsSpeed/Kerbin", action.MilestoneId);
+            Assert.Equal(4800f, action.MilestoneFundsAwarded);
+            Assert.Equal(2f, action.MilestoneRepAwarded);
+            Assert.Equal(0f, action.MilestoneScienceAwarded);
+            Assert.Equal(100.0, action.UT);
+            Assert.Equal("rec-wf", action.RecordingId);
+        }
     }
 }

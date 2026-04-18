@@ -551,18 +551,23 @@ namespace Parsek
         /// <summary>
         /// StrategyActivated -> StrategyActivate. <c>StrategyId</c> comes from
         /// <c>evt.key</c> (strategy config Name). <c>Commitment</c> parses the
-        /// <c>factor</c> detail field. Setup costs parse from <c>setupFunds</c>,
-        /// <c>setupSci</c>, and <c>setupRep</c> so the action carries all three setup
-        /// resources through conversion, save/load, recalculation, and KSC
-        /// reconciliation. SourceResource / TargetResource default to
-        /// <see cref="StrategyResource.Funds"/>; stock strategies flow income through
-        /// <c>OnCurrencyModifierQuery</c> and our StrategiesModule transform is now a
-        /// no-op identity, so the source/target fields are unused by the walk.
+        /// <c>factor</c> detail field; <c>SourceResource</c> / <c>TargetResource</c>
+        /// parse the recorder-emitted <c>source</c> / <c>target</c> detail fields so
+        /// the Actions/Timeline/Career State UI preserves the real strategy flow.
+        /// Setup costs parse from <c>setupFunds</c>, <c>setupSci</c>, and
+        /// <c>setupRep</c> so the action carries all three setup resources through
+        /// conversion, save/load, recalculation, and KSC reconciliation.
         /// Internal static for testability.
         /// </summary>
         internal static GameAction ConvertStrategyActivated(GameStateEvent evt, string recordingId)
         {
             float factor = ParseDetailFloat(evt.detail, "factor");
+            StrategyResource sourceResource = ParseStrategyResource(
+                ExtractDetail(evt.detail, "source"),
+                StrategyResource.Funds);
+            StrategyResource targetResource = ParseStrategyResource(
+                ExtractDetail(evt.detail, "target"),
+                StrategyResource.Funds);
             float setupFunds = ParseDetailFloat(evt.detail, "setupFunds");
             float setupSci = ParseDetailFloat(evt.detail, "setupSci");
             float setupRep = ParseDetailFloat(evt.detail, "setupRep");
@@ -573,6 +578,8 @@ namespace Parsek
                 Type = GameActionType.StrategyActivate,
                 RecordingId = recordingId,
                 StrategyId = evt.key,
+                SourceResource = sourceResource,
+                TargetResource = targetResource,
                 Commitment = factor,
                 SetupCost = setupFunds,
                 SetupScienceCost = setupSci,
@@ -619,6 +626,26 @@ namespace Parsek
             if (raw != null)
                 float.TryParse(raw, NumberStyles.Float, IC, out value);
             return value;
+        }
+
+        private static StrategyResource ParseStrategyResource(
+            string rawValue,
+            StrategyResource fallback)
+        {
+            StrategyResource resource;
+            if (string.IsNullOrEmpty(rawValue))
+                return fallback;
+
+            if (Enum.TryParse(rawValue, true, out resource)
+                && Enum.IsDefined(typeof(StrategyResource), resource))
+                return resource;
+
+            int numericValue;
+            if (int.TryParse(rawValue, NumberStyles.Integer, IC, out numericValue)
+                && Enum.IsDefined(typeof(StrategyResource), numericValue))
+                return (StrategyResource)numericValue;
+
+            return fallback;
         }
     }
 }

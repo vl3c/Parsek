@@ -51,8 +51,9 @@ namespace Parsek
         // interval) could spawn many before expiration catches up.
         // #443: KSC cap lowered to 10 to match flight, in lockstep with
         // GhostPlaybackLogic.ComputeEffectiveLaunchCadence — the cadence is
-        // doubled until the concurrent-cycle count fits under this cap, so
-        // the cap is never exceeded and no cycle is ever silently culled.
+        // raised to the minimum value that fits the concurrent-cycle count
+        // under this cap, so the cap is never exceeded and no cycle is ever
+        // silently culled.
         private const int MaxOverlapGhostsPerRecording = 10;
 
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
