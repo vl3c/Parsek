@@ -131,3 +131,19 @@ Source/Parsek/RewindPointReaper.cs
 # through ELS would be circular (tombstones we are about to remove are
 # exactly what ELS uses to hide actions).
 Source/Parsek/TreeDiscardPurge.cs
+
+# --- Phase 13 ERS-exempt files ---
+# MarkerValidator.Validate looks up marker references in the RAW
+# committed list. The active re-fly recording the marker points at is
+# NotCommitted by definition (design §5.7 / §6.3 step 1), so ERS
+# filters it out. The whole point of marker validation is "does this
+# NotCommitted provisional still exist and is it still NotCommitted."
+Source/Parsek/MarkerValidator.cs
+
+# LoadTimeSweep.Run gathers zombie NotCommitted recordings from the
+# RAW committed list (design §6.9 step 4-6). NotCommitted recordings
+# are invisible to ERS, but they ARE the zombies the sweep exists to
+# discard. Also scans raw Ledger.Actions to classify orphan tombstones
+# (§6.9 step 8); routing through ELS would be circular because
+# tombstones ARE the ELS filter.
+Source/Parsek/LoadTimeSweep.cs
