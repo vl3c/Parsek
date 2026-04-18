@@ -40,6 +40,12 @@ namespace Parsek
         // TERMINAL metadata (for Terminal type)
         public string TerminalCause;           // "RECOVERED", "DESTROYED", "RECYCLED", "DESPAWNED"
 
+        // Rewind-to-Staging (design section 5.4). Non-null on multi-controllable
+        // split branch points once a RewindPoint has been written for the split.
+        // Null for single-controllable splits, pre-feature saves, and before the
+        // deferred quicksave coroutine succeeds.
+        public string RewindPointId;
+
         public override string ToString()
         {
             var ic = CultureInfo.InvariantCulture;

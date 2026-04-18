@@ -1165,6 +1165,10 @@ namespace Parsek
             if (bp.TerminalCause != null)
                 bpNode.AddValue("terminalCause", bp.TerminalCause);
 
+            // Rewind-to-Staging (design section 5.4)
+            if (!string.IsNullOrEmpty(bp.RewindPointId))
+                bpNode.AddValue("rewindPointId", bp.RewindPointId);
+
             ParsekLog.Verbose("RecordingTree",
                 $"SaveBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
                 (bp.SplitCause != null ? $" splitCause={bp.SplitCause}" : "") +
@@ -1254,6 +1258,10 @@ namespace Parsek
 
             // TERMINAL metadata
             bp.TerminalCause = bpNode.GetValue("terminalCause");
+
+            // Rewind-to-Staging (design section 5.4). Absent -> null.
+            string rpId = bpNode.GetValue("rewindPointId");
+            bp.RewindPointId = string.IsNullOrEmpty(rpId) ? null : rpId;
 
             ParsekLog.Verbose("RecordingTree",
                 $"LoadBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
