@@ -106,6 +106,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryRecoverBrokenLedgerOnLoad_LegacyBypassShapeWithoutFundsEvent_RewritesToZeroCost()
+        {
+            GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 200.0,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod",
+                detail = "cost=450",
+                valueBefore = 10450.0,
+                valueAfter = 10000.0
+            });
+
+            int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
+
+            Assert.Equal(1, recovered);
+
+            var repairedEvent = Assert.Single(GameStateStore.Events
+                .Where(evt => evt.eventType == GameStateEventType.PartPurchased));
+            Assert.Equal("cost=0", repairedEvent.detail);
+            Assert.Equal(10000.0, repairedEvent.valueBefore);
+            Assert.Equal(10000.0, repairedEvent.valueAfter);
+
+            var action = Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
+            Assert.Equal("mk1pod", action.DedupKey);
+            Assert.Equal(0f, action.FundsSpent);
+        }
+
+        [Fact]
+        public void RepairLegacyPartPurchaseActionsOnLoad_LegacyBypassShapeWithoutFundsEvent_RewritesPersistedFundsSpentToZero()
+        {
+            GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 200.0,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod",
+                detail = "cost=450",
+                valueBefore = 10450.0,
+                valueAfter = 10000.0
+            });
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 450f,
+                DedupKey = "mk1pod"
+            });
+
+            int repaired = LedgerOrchestrator.RepairLegacyPartPurchaseActionsOnLoad(
+                GameStateStore.Events, Ledger.Actions);
+
+            Assert.Equal(1, repaired);
+            Assert.Equal(0f, Ledger.Actions.Single().FundsSpent);
+        }
+
+        [Fact]
         public void RepairLegacyPartPurchaseActionsOnLoad_WithoutMatchingEvent_PreservesStoredCharge()
         {
             Ledger.AddAction(new GameAction
@@ -127,6 +190,8 @@ namespace Parsek.Tests
         [Fact]
         public void TryRecoverBrokenLedgerOnLoad_AmbiguousCoalescedFundsWindow_PreservesLegacyStoredCosts()
         {
+            GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = 200.00,

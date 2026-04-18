@@ -336,8 +336,12 @@ namespace Parsek
         /// Rewrites any legacy persisted <see cref="GameStateEventType.PartPurchased"/>
         /// rows whose stored <c>cost=</c> token still means rollout <c>part.cost</c>
         /// instead of the real historical R&amp;D debit captured by saved
-        /// <see cref="GameStateEventType.FundsChanged"/> history. Ambiguous or coalesced
-        /// windows are left untouched rather than guessed from current runtime state.
+        /// <see cref="GameStateEventType.FundsChanged"/> history. The only no-funds
+        /// fallback is the legacy stock-bypass shape: one stale part-purchase row,
+        /// zero paired <c>RnDPartPurchase</c> funds events, and a loaded save whose
+        /// difficulty still reports <c>BypassEntryPurchaseAfterResearch=true</c>.
+        /// Ambiguous or coalesced windows are left untouched rather than guessed from
+        /// current runtime state.
         /// Runs against the live in-memory list so recovery and load-time compatibility
         /// paths see corrected event data without a save-format bump.
         /// </summary>
@@ -413,13 +417,34 @@ namespace Parsek
             IReadOnlyList<GameStateEvent> sourceEvents,
             out float canonicalCost)
         {
+            canonicalCost = 0f;
+
             // Only trust the paired FundsChanged delta when the window contains a single
             // part purchase. Batched unlocks can coalesce multiple RnDPartPurchase deltas
             // into one resource event, which is ambiguous per purchase. Do not fall back
             // to current difficulty or part metadata — that can silently rewrite old
             // history using today's runtime semantics instead of the saved savefile facts.
-            return TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
-                evt, sourceEvents, out canonicalCost);
+            if (TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
+                evt, sourceEvents, out canonicalCost))
+            {
+                return true;
+            }
+
+            // Older stock-bypass saves never emitted RnDPartPurchase funds events at all,
+            // but pre-fix Parsek still persisted a non-zero PartPurchased row. Restore
+            // only that exact "single purchase, zero funds events" shape.
+            if (!IsKnownLegacyBypassPartPurchaseShape(evt, sourceEvents))
+                return false;
+
+            bool bypassEntryPurchaseAfterResearch;
+            if (!GameStateRecorder.TryGetBypassEntryPurchaseAfterResearch(
+                out bypassEntryPurchaseAfterResearch) || !bypassEntryPurchaseAfterResearch)
+            {
+                return false;
+            }
+
+            canonicalCost = 0f;
+            return true;
         }
 
         private static bool TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
@@ -428,12 +453,55 @@ namespace Parsek
             out float canonicalCost)
         {
             canonicalCost = 0f;
-            if (sourceEvents == null || sourceEvents.Count == 0)
-                return false;
-
             int partPurchasesInWindow = 0;
             int fundsEventsInWindow = 0;
             GameStateEvent fundsMatch = default(GameStateEvent);
+            ScanPartPurchaseWindow(
+                target,
+                sourceEvents,
+                out partPurchasesInWindow,
+                out fundsEventsInWindow,
+                out fundsMatch);
+
+            if (partPurchasesInWindow != 1 || fundsEventsInWindow != 1)
+                return false;
+
+            double delta = fundsMatch.valueAfter - fundsMatch.valueBefore;
+            if (delta >= -0.01)
+                return false;
+
+            canonicalCost = (float)(-delta);
+            return true;
+        }
+
+        private static bool IsKnownLegacyBypassPartPurchaseShape(
+            GameStateEvent target,
+            IReadOnlyList<GameStateEvent> sourceEvents)
+        {
+            int partPurchasesInWindow = 0;
+            int fundsEventsInWindow = 0;
+            GameStateEvent ignoredFundsEvent;
+            ScanPartPurchaseWindow(
+                target,
+                sourceEvents,
+                out partPurchasesInWindow,
+                out fundsEventsInWindow,
+                out ignoredFundsEvent);
+            return partPurchasesInWindow == 1 && fundsEventsInWindow == 0;
+        }
+
+        private static void ScanPartPurchaseWindow(
+            GameStateEvent target,
+            IReadOnlyList<GameStateEvent> sourceEvents,
+            out int partPurchasesInWindow,
+            out int fundsEventsInWindow,
+            out GameStateEvent fundsMatch)
+        {
+            partPurchasesInWindow = 0;
+            fundsEventsInWindow = 0;
+            fundsMatch = default(GameStateEvent);
+            if (sourceEvents == null || sourceEvents.Count == 0)
+                return;
 
             for (int i = 0; i < sourceEvents.Count; i++)
             {
@@ -456,16 +524,6 @@ namespace Parsek
                     fundsMatch = candidate;
                 }
             }
-
-            if (partPurchasesInWindow != 1 || fundsEventsInWindow != 1)
-                return false;
-
-            double delta = fundsMatch.valueAfter - fundsMatch.valueBefore;
-            if (delta >= -0.01)
-                return false;
-
-            canonicalCost = (float)(-delta);
-            return true;
         }
 
         #endregion

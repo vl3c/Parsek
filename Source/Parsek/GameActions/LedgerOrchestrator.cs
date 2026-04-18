@@ -1816,7 +1816,9 @@ namespace Parsek
         /// charge proved by saved game-state events. Existing version-1 ledger files
         /// keep the same shape; the compatibility path mutates the in-memory actions
         /// after load and before the first recalculation walk. Ambiguous rows are
-        /// preserved as-is rather than guessed from current runtime semantics.
+        /// preserved as-is rather than guessed from current runtime semantics; the
+        /// only no-funds fallback is the known stock-bypass save shape that rewrites
+        /// the matched <c>PartPurchased</c> event to zero-cost first.
         /// </summary>
         internal static int RepairLegacyPartPurchaseActionsOnLoad(
             IReadOnlyList<GameStateEvent> events,
