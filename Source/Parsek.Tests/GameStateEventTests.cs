@@ -112,6 +112,176 @@ namespace Parsek.Tests
             Assert.Equal(original.valueAfter, deserialized.valueAfter);
         }
 
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_FreeAutoUnlock_RewritesCostToZero()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2,otherPart"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(1, migrated);
+            Assert.Equal("cost=0;entryCost=800", events[1].detail);
+            Assert.Equal(events[1].valueAfter, events[1].valueBefore);
+        }
+
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_MatchingFundsDebit_KeepsPaidPurchase()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "RnDPartPurchase",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(0, migrated);
+            Assert.Equal("cost=800;entryCost=800", events[1].detail);
+            Assert.Equal(50000, events[1].valueBefore);
+            Assert.Equal(49200, events[1].valueAfter);
+        }
+
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_WithoutMatchingTechUnlock_SkipsMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(0, migrated);
+            Assert.Equal("cost=800;entryCost=800", events[0].detail);
+        }
+
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_MatchingTechInDifferentEpoch_SkipsMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 1,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 2,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(0, migrated);
+            Assert.Equal("cost=800;entryCost=800", events[1].detail);
+            Assert.Equal(50000, events[1].valueBefore);
+            Assert.Equal(49200, events[1].valueAfter);
+        }
+
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_DifferentEpochFundsDebit_DoesNotBlockMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 2,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 2,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    epoch = 1,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "RnDPartPurchase",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(1, migrated);
+            Assert.Equal("cost=0;entryCost=800", events[1].detail);
+            Assert.Equal(events[1].valueAfter, events[1].valueBefore);
+        }
+
         #endregion
 
         #region ContractSnapshot Serialization
@@ -401,7 +571,7 @@ namespace Parsek.Tests
             {
                 ut = 100.05,
                 eventType = GameStateEventType.FundsChanged,
-                key = "VesselRecovery",
+                key = "ContractReward",
                 valueBefore = 15000,
                 valueAfter = 18000
             });
@@ -436,6 +606,74 @@ namespace Parsek.Tests
             });
 
             Assert.Equal(2, GameStateStore.EventCount);
+        }
+
+        [Fact]
+        public void ResourceCoalescing_VesselRecoveryWithinEpsilon_DoesNotCoalesce()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 10000,
+                valueAfter = 12000
+            });
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.05,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 12000,
+                valueAfter = 13500
+            });
+
+            Assert.Equal(2, GameStateStore.EventCount);
+            Assert.Equal(12000, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(13500, GameStateStore.Events[1].valueAfter);
+        }
+
+        [Fact]
+        public void ResourceCoalescing_VesselRecoveryBarrier_DoesNotCoalesceAcrossOlderEvent()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.00,
+                eventType = GameStateEventType.FundsChanged,
+                key = "ContractReward",
+                valueBefore = 10000,
+                valueAfter = 12000
+            });
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.05,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 12000,
+                valueAfter = 13000
+            });
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.08,
+                eventType = GameStateEventType.FundsChanged,
+                key = "StrategySetup",
+                valueBefore = 13000,
+                valueAfter = 12900
+            });
+
+            Assert.Equal(3, GameStateStore.EventCount);
+            Assert.Equal("ContractReward", GameStateStore.Events[0].key);
+            Assert.Equal(12000, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(LedgerOrchestrator.VesselRecoveryReasonKey, GameStateStore.Events[1].key);
+            Assert.Equal("StrategySetup", GameStateStore.Events[2].key);
+            Assert.Equal(12900, GameStateStore.Events[2].valueAfter);
         }
 
         [Fact]

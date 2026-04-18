@@ -255,6 +255,23 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Returns true when an overlap cycle lifecycle event (ExplosionHoldStart / End)
+        /// should be ignored because it concerns a cycle the user is not watching.
+        /// Real cycle indices are >= 0; sentinel values (-1 ready-for-next, -2 holding)
+        /// never match a real event cycle index, so they too are ignored and cannot be
+        /// clobbered mid-flight. Relies on the invariant that
+        /// <c>GhostPlaybackEngine.UpdateExpireAndPositionOverlaps</c> (the only emission
+        /// site for these two action types, around line 1186) always populates
+        /// <c>NewCycleIndex</c> from the expiring ghost's non-negative
+        /// <c>loopCycleIndex</c>; a hypothetical negative emission would silently match
+        /// a sentinel.
+        /// </summary>
+        internal static bool ShouldIgnoreOverlapCycleEvent(long eventCycleIndex, long watchedCycleIndex)
+        {
+            return eventCycleIndex != watchedCycleIndex;
+        }
+
         private void DestroyOverlapCameraAnchor()
         {
             if (!IsUnityObjectAvailable(overlapCameraAnchor))
@@ -730,6 +747,21 @@ namespace Parsek
                     break;
 
                 case CameraActionType.ExplosionHoldStart:
+                    // Only react when the expiring cycle is the one we're watching.
+                    // Other cycles of the same recording expiring must not yank the camera.
+                    if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
+                    {
+                        // Rate-limit key is per (recording, action) — NOT per cycle index —
+                        // because cycle indices grow without bound over a session, which
+                        // would leak one rate-limit-state entry per expired non-watched
+                        // cycle in ParsekLog.rateLimitStateByKey. The message still carries
+                        // the cycle numbers for diagnostic value.
+                        ParsekLog.VerboseRateLimited("CameraFollow",
+                            $"overlap-hold-start-skip-{evt.Index}",
+                            $"Overlap: hold start for #{evt.Index} cycle={evt.NewCycleIndex} " +
+                            $"ignored (watching cycle={watchedOverlapCycleIndex})");
+                        break;
+                    }
                     overlapRetargetAfterUT = evt.HoldUntilUT;
                     watchedOverlapCycleIndex = -2;
                     watchNoTargetFrames = 0;
@@ -744,6 +776,15 @@ namespace Parsek
                     break;
 
                 case CameraActionType.ExplosionHoldEnd:
+                    if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
+                    {
+                        // See overlap-hold-start-skip above for why the key omits cycle index.
+                        ParsekLog.VerboseRateLimited("CameraFollow",
+                            $"overlap-hold-end-skip-{evt.Index}",
+                            $"Overlap: hold end for #{evt.Index} cycle={evt.NewCycleIndex} " +
+                            $"ignored (watching cycle={watchedOverlapCycleIndex})");
+                        break;
+                    }
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
                     watchNoTargetFrames = 0;
@@ -2871,9 +2912,19 @@ namespace Parsek
                 if (resolveDuration <= GhostPlaybackLogic.MinCycleDuration)
                     return fallbackUT;
 
+                // #443: engine's UpdateOverlapPlayback assigns loopCycleIndex using the
+                // cadence-adjusted cadence (ComputeEffectiveLaunchCadence). Watch mode MUST
+                // reconstruct cycleStartUT with the same effective cadence or the computed
+                // phase drifts by (effective - user) * loopCycleIndex. Dispatch (IsOverlapLoop
+                // above) still uses the user period — that matches the engine's dispatch at
+                // GhostPlaybackEngine.cs:900.
+                double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                    intervalSeconds, resolveDuration,
+                    GhostPlaybackEngine.MaxOverlapGhostsPerRecording);
+
                 return GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                     Planetarium.GetUniversalTime(), loopStartUT, resolveDuration,
-                    intervalSeconds, currentState.loopCycleIndex);
+                    effectiveCadence, currentState.loopCycleIndex);
             }
 
             if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -29,6 +30,10 @@ namespace Parsek
 
     public struct GameStateEvent
     {
+        private const double LegacyPartPurchaseCompatUtEpsilon = 0.1;
+        private const double LegacyPartPurchaseCompatFundsTolerance = 1.0;
+        private const double LegacyPartPurchaseCompatAmountTolerance = 0.01;
+
         public double ut;
         public GameStateEventType eventType;
         public string key;       // contract GUID, tech ID, kerbal name, facility ID
@@ -113,6 +118,163 @@ namespace Parsek
             e.recordingId = node.GetValue("recordingId") ?? "";
 
             return e;
+        }
+
+        /// <summary>
+        /// #451 follow-up: rewrites the predecessor commit's bad bypass=true auto-unlock
+        /// shape (<c>cost=&lt;entryCost&gt;;entryCost=&lt;entryCost&gt;</c>) back to a free
+        /// purchase on load. The migration is intentionally narrow:
+        /// <list type="bullet">
+        /// <item><description>the PartPurchased row must have both tokens with the same positive value;</description></item>
+        /// <item><description>its numeric before/after delta must match that value (the predecessor also wrote the wrong charged delta there);</description></item>
+        /// <item><description>a same-epoch TechResearched row must list this part in <c>parts=</c> at the same UT window; and</description></item>
+        /// <item><description>no same-epoch FundsChanged(<c>RnDPartPurchase</c>) debit may exist, which distinguishes the free bypass path from a real paid unlock.</description></item>
+        /// </list>
+        /// This covers both live event-store loads and committed milestone loads without
+        /// relying on the player's current difficulty setting.
+        /// </summary>
+        internal static int NormalizeLegacyPartPurchaseCostsForLoad(
+            List<GameStateEvent> events, string sourceLabel)
+        {
+            if (events == null || events.Count == 0)
+                return 0;
+
+            int migrated = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                string entryCostStr;
+                double entryCost;
+                if (!IsLegacyFreePartPurchaseCandidate(evt, out entryCostStr, out entryCost))
+                    continue;
+
+                if (!HasNearbyTechResearchedAutoUnlock(events, evt.ut, evt.epoch, evt.key))
+                    continue;
+
+                if (HasMatchingRnDPartPurchaseDebit(events, evt.ut, evt.epoch, entryCost))
+                    continue;
+
+                evt.detail = ReplaceDetailFieldValue(evt.detail, "cost", "0");
+                evt.valueBefore = evt.valueAfter;
+                events[i] = evt;
+                migrated++;
+
+                ParsekLog.Info("GameStateEvent",
+                    $"NormalizeLegacyPartPurchaseCostsForLoad: rewrote legacy free unlock " +
+                    $"part='{evt.key}' entryCost={entryCostStr} source='{sourceLabel ?? "(unknown)"}' " +
+                    $"ut={evt.ut.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
+            return migrated;
+        }
+
+        private static bool IsLegacyFreePartPurchaseCandidate(
+            GameStateEvent evt, out string entryCostStr, out double entryCost)
+        {
+            entryCostStr = null;
+            entryCost = 0;
+
+            if (evt.eventType != GameStateEventType.PartPurchased ||
+                string.IsNullOrEmpty(evt.detail))
+                return false;
+
+            string costStr = GameStateEventDisplay.ExtractDetailField(evt.detail, "cost");
+            entryCostStr = GameStateEventDisplay.ExtractDetailField(evt.detail, "entryCost");
+            if (string.IsNullOrEmpty(costStr) || string.IsNullOrEmpty(entryCostStr))
+                return false;
+
+            double cost;
+            if (!double.TryParse(costStr, NumberStyles.Float, CultureInfo.InvariantCulture, out cost) ||
+                !double.TryParse(entryCostStr, NumberStyles.Float, CultureInfo.InvariantCulture, out entryCost))
+                return false;
+
+            if (cost <= 0 || entryCost <= 0)
+                return false;
+
+            if (Math.Abs(cost - entryCost) > LegacyPartPurchaseCompatAmountTolerance)
+                return false;
+
+            double observedDelta = evt.valueBefore - evt.valueAfter;
+            if (Math.Abs(observedDelta - entryCost) > LegacyPartPurchaseCompatFundsTolerance)
+                return false;
+
+            return true;
+        }
+
+        private static bool HasNearbyTechResearchedAutoUnlock(
+            List<GameStateEvent> events, double partPurchaseUt, uint partPurchaseEpoch,
+            string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return false;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.TechResearched)
+                    continue;
+
+                if (evt.epoch != partPurchaseEpoch)
+                    continue;
+
+                if (Math.Abs(evt.ut - partPurchaseUt) > LegacyPartPurchaseCompatUtEpsilon)
+                    continue;
+
+                string parts = GameStateEventDisplay.ExtractDetailField(evt.detail, "parts");
+                if (string.IsNullOrEmpty(parts))
+                    continue;
+
+                string[] unlockedParts = parts.Split(',');
+                for (int j = 0; j < unlockedParts.Length; j++)
+                {
+                    if (string.Equals(unlockedParts[j].Trim(), partName, StringComparison.Ordinal))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasMatchingRnDPartPurchaseDebit(
+            List<GameStateEvent> events, double partPurchaseUt, uint partPurchaseEpoch,
+            double expectedEntryCost)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.FundsChanged ||
+                    !string.Equals(evt.key, "RnDPartPurchase", StringComparison.Ordinal))
+                    continue;
+
+                if (evt.epoch != partPurchaseEpoch)
+                    continue;
+
+                if (Math.Abs(evt.ut - partPurchaseUt) > LegacyPartPurchaseCompatUtEpsilon)
+                    continue;
+
+                double observedDelta = evt.valueAfter - evt.valueBefore;
+                if (Math.Abs(observedDelta + expectedEntryCost) <= LegacyPartPurchaseCompatFundsTolerance)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string ReplaceDetailFieldValue(string detail, string fieldName, string newValue)
+        {
+            if (string.IsNullOrEmpty(detail))
+                return detail;
+
+            string prefix = fieldName + "=";
+            string[] parts = detail.Split(';');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string trimmed = parts[i].Trim();
+                if (trimmed.StartsWith(prefix, StringComparison.Ordinal))
+                    parts[i] = prefix + newValue;
+            }
+
+            return string.Join(";", parts);
         }
     }
 

@@ -234,10 +234,17 @@ namespace Parsek
         }
 
         /// <summary>PartPurchased -> FundsSpending (part name=key, cost from detail).</summary>
+        /// <remarks>
+        /// #451: `cost=` is the authoritative charged amount. Post-#451 events may also
+        /// carry `entryCost=` for the raw stock unlock price, but bypass=true careers
+        /// persist `cost=0;entryCost=<raw>` and must reload as free purchases. Fall back
+        /// to `entryCost=` only when `cost=` is absent.
+        /// </remarks>
         private static GameAction ConvertPartPurchased(GameStateEvent evt, string recordingId)
         {
             float cost = 0f;
-            string costStr = ExtractDetail(evt.detail, "cost");
+            string costStr = ExtractDetail(evt.detail, "cost")
+                          ?? ExtractDetail(evt.detail, "entryCost");
             if (costStr != null)
                 float.TryParse(costStr, NumberStyles.Float, IC, out cost);
 

@@ -133,7 +133,7 @@ namespace Parsek
         /// LoopTimeUnit.Auto. Must be &gt;= GhostPlaybackLogic.MinCycleDuration. Overlap
         /// emerges when the period is shorter than the recording's duration.
         /// </summary>
-        public float autoLoopIntervalSeconds = 10.0f;
+        public float autoLoopIntervalSeconds = (float)GhostPlaybackLogic.DefaultLoopIntervalSeconds;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
         [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,

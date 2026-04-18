@@ -53,10 +53,12 @@ All notable changes to Parsek are documented here.
 - Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
 - `#375` Demoted chatty per-appearance `GhostAppearance` logs from Info to Verbose.
 - `#378` Added a rate-limited warn when on-save monotonicity rebuild exceeds 5 ms on a single recording, so save-time stutter is visible in `KSP.log`.
+- `#449` Merger boundary-discontinuity warnings now include inter-section `dt=`, velocity-implied gap, and a `cause=` tag so quickload-resume stitches are distinguishable from real recorder bugs in `KSP.log`.
 - `#376` Documented the dual-storage invariant for auto-assigned standalone group names.
 - Gloops Flight Recorder window now has a Close button at the bottom, matching other Parsek windows.
 - Recordings window opens wider by default (1280 px) so more columns fit without a horizontal scroll; the Info-expanded width scales up to match.
 - Group column in the Recordings table widened to match the Loop column so the G and X buttons sit under the header.
+- Main Parsek window now has a Close button in the footer, inline to the right of the version text (which moved from the right to the left).
 
 ### Tests
 
@@ -77,12 +79,21 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#441` Legacy flights whose net science or reputation was negative now reconcile cleanly on load instead of being skipped — the load-time migration injects a spending-side synthetic and the ledger purges it with the tree on discard. Long missions that overlap unrelated KSC activity (contract accept, part purchase) no longer silently drop their persisted residuals, and optimizer merges that absorb a tree's root recording retag any ledger synthetics to the new root so they survive subsequent reconcile passes.
-- Every non-revert tree-commit path (post-revert merge dialog, scene-exit auto-merge, Esc > Abort Mission auto-commit, and the OnSave safety-net auto-commit) now disarms the legacy lump-sum replay path on the just-committed tree, matching the in-flight Commit Flight behavior so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
+- `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
+- `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
+- `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.
+- `#441` Legacy flights whose net science or reputation was negative now reconcile cleanly on load (previously skipped), including long missions that overlap unrelated KSC activity. Optimizer merges that rewrite a tree's root also retag any ledger synthetics onto the new root so they survive subsequent reconcile passes.
+- `#447` Single-point debris leaves that land, splash, or are recovered are now pruned on commit (previously only `Destroyed` leaves were pruned, so the zero-duration stubs tripped recording-integrity checks on reload).
+- `#446` Discarding a Gloops Flight Recorder ghost-only recording no longer throws a `NullReferenceException` on the next UI frame.
+- `#445` Rollout costs for vessels cancelled before launch are now captured in the ledger; previously the build cost vanished when the player reverted to VAB/SPH without ever starting a recording.
+- `#444` Vessel recoveries from the tracking station or post-flight summary now reach the ledger; previously funds recovered outside a live recording window were silently dropped.
+- `#443` Milestone rewards now patch the stored event correctly on saves that have been reverted at least once; previously `Kerbin/Landing` and similar `OnProgressComplete` milestones landed in the ledger with `funds=0` on any save with a non-zero milestone epoch.
+- `#442` World-record progress nodes (`RecordsSpeed`/`Altitude`/`Distance`/`Depth`) now credit their funds and reputation rewards to the ledger; previously every world-first dropped its entire reward because the nodes call `AwardProgress` without firing `OnProgressComplete`.
+- Every non-revert tree-commit path now disarms the legacy lump-sum replay on the just-committed tree, matching in-flight Commit Flight so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
 - Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.
-- KSC-side ledger writes (part purchases, tech unlocks, facility upgrades/repairs, crew hires, contract advances) now key-match against their paired `FundsChanged`/`ScienceChanged` event in the game-state store and log a WARN when the event is missing or the delta disagrees, surfacing missing earning channels at the point they occur instead of accumulating silently. Transformed reward types (contract rewards, milestone rewards, reputation earnings) are skipped with a VERBOSE line until a post-walk reconciliation hook lands.
+- KSC-side ledger writes (part purchases, tech unlocks, facility upgrades/repairs, crew hires, contract advances) now key-match against their paired `FundsChanged`/`ScienceChanged` event and WARN on missing or mismatched deltas, surfacing missing earning channels at the point they occur. Transformed reward types (contract, milestone, reputation) are skipped with VERBOSE pending a post-walk reconciliation hook.
 - Removed the legacy tree lump-sum and per-recording resource replay paths; committed recordings are now the single source of truth for funds, science, and reputation.
-- `#434` KSP's stock crash/mission report (with its Revert buttons) now shows first on vessel destruction; Parsek's merge dialog no longer pre-empts it. Revert to Launch and Revert to VAB/SPH soft-clear the pending recording — sidecar files and captured events stay on disk so a flight quicksave can still be F9'd back into, while the bumped milestone epoch keeps reverted events out of the current ledger.
+- `#434` KSP's stock crash/mission report now shows first on vessel destruction; Parsek's merge dialog no longer pre-empts it. Revert to Launch/VAB/SPH soft-clears the pending recording so a flight quicksave can still be F9'd back in, with the bumped milestone epoch keeping reverted events out of the current ledger.
 - `#434` Fixed a NullReferenceException in `RevertDetector.Subscribe` that aborted `ParsekScenario.OnLoad` before the merge-dialog dispatch path could run, so going back to Space Center after a flight silently auto-committed the pending tree instead of showing the merge/discard dialog.
 - `#434` Revert to Launch no longer accidentally deletes the in-flight recording's files, so a flight F5 quicksave can still be F9'd back in after reverting. Stale science captured between the launch quicksave and the revert is also now cleared even when no recording was yet stashed.
 - `#433` The Recordings Manager enable checkbox is now purely visual: disabling a recording hides its ghost but no longer drops its vessel spawn, crew reservations, or any other career effect.
@@ -121,7 +132,7 @@ All notable changes to Parsek are documented here.
 - `#414` Ghost visual builds are now throttled to at most 2 per frame, amortizing the scene-load warm-up burst that produced zero-ghost spikes up to ~175 ms. Watch-mode and loop-cycle-rebuild spawns remain exempt so user-visible responsiveness is unaffected.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
-- Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestone rewards or other events that occurred after the rewind point. Contract deadlines that expired between the last pre-cutoff action and the rewind target also now correctly fail their contracts and apply the penalty. Tech-research affordability checks are scoped to the current universal time, so unlocking a node after a rewind no longer reads future science from the persisted ledger.
+- Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestones or other post-rewind events. Contract deadlines that expired between the last pre-cutoff action and the rewind target now correctly fail, and tech-research affordability checks use current UT so post-rewind unlocks cannot read future science.
 
 ### Known Limitations
 

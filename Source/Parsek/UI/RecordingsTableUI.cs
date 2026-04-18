@@ -3863,7 +3863,8 @@ namespace Parsek
                 {
                     var settings = ParsekSettings.Current;
                     double gv = settings != null
-                        ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit) : 10;
+                        ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
+                        : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
                     var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                     disabledText = ParsekUI.FormatLoopValue(gv, gu) + UnitSuffix(gu);
                 }
@@ -3884,7 +3885,7 @@ namespace Parsek
                 var settings = ParsekSettings.Current;
                 double globalVal = settings != null
                     ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                    : 10;
+                    : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
                 GUI.enabled = false;
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                 GUILayout.TextField(ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));

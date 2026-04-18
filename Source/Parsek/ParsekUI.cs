@@ -91,6 +91,11 @@ namespace Parsek
         // Runtime-only empty groups — delegated to RecordingsTableUI
         internal List<string> KnownEmptyGroups => recordingsTableUI.KnownEmptyGroups;
 
+        // Host-supplied callback invoked when the user clicks the main window Close
+        // button. Host (ParsekFlight / ParsekKSC) wires this to hide the window and
+        // un-press the toolbar button.
+        internal Action CloseMainWindow { get; set; }
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -294,18 +299,27 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Settings window toggled: {(settingsUI.IsOpen ? "open" : "closed")}");
             }
 
-            // --- Version footer ---
-            GUILayout.Space(SpacingSmall);
+            // --- Version footer (version on the left, Close button fills the rest) ---
+            GUILayout.Space(SpacingLarge);
             if (versionStyle == null)
             {
                 versionStyle = new GUIStyle(GUI.skin.label)
                 {
                     fontSize = 10,
-                    alignment = TextAnchor.MiddleRight,
-                    normal = { textColor = new Color(1f, 1f, 1f, 0.4f) }
+                    alignment = TextAnchor.MiddleLeft,
+                    normal = { textColor = new Color(1f, 1f, 1f, 0.4f) },
+                    contentOffset = new Vector2(0f, 3f)
                 };
             }
-            GUILayout.Label(VersionLabel, versionStyle);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(VersionLabel, versionStyle, GUILayout.ExpandWidth(false));
+            GUILayout.Space(10f);
+            if (GUILayout.Button("Close", GUILayout.ExpandWidth(true)))
+            {
+                ParsekLog.Verbose("UI", "Main window closed via button");
+                CloseMainWindow?.Invoke();
+            }
+            GUILayout.EndHorizontal();
 
             GUILayout.EndVertical();
 
