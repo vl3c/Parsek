@@ -21,7 +21,7 @@ namespace Parsek.Patches
     ///
     /// Both postfixes respect <see cref="GameStateRecorder.IsReplayingActions"/> so
     /// <see cref="KspStatePatcher"/>-driven recalculation replays do not re-emit events.
-    /// Defensive try/catch mirrors <see cref="ProgressRewardPatch"/> — never rethrow into
+    /// Defensive try/catch mirrors <see cref="ProgressRewardPatch"/> -- never rethrow into
     /// KSP's strategy pipeline.
     /// </summary>
     [HarmonyPatch(typeof(Strategies.Strategy), nameof(Strategies.Strategy.Activate))]

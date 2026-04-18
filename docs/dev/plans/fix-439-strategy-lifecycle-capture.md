@@ -9,16 +9,16 @@ Depends on: #436 Phase A shipped, #437 Phase B shipped, Phase C, Phase D (#343) 
 
 Ship to v0.8.2:
 
-- New event types: `StrategyActivated`, `StrategyDeactivated`. **DROP** `StrategyPayout` entirely — no stock hook drives it. Enum is append-only; adding later is cost-free when a concrete need arises.
+- New event types: `StrategyActivated`, `StrategyDeactivated`. **DROP** `StrategyPayout` entirely -- no stock hook drives it. Enum is append-only; adding later is cost-free when a concrete need arises.
 - Harmony postfix on `Strategy.Activate` / `Deactivate` (filter on `__result==true`, try/catch, respect `IsReplayingActions`).
 - Recorder emitters + pure-static detail formatters.
 - Converter routes to existing `StrategyActivate` / `StrategyDeactivate` `GameAction`s.
 - `ClassifyAction`: `StrategyActivate` -> `Untransformed`, Funds-only `ExpectedDelta = -SetupCost` paired against `FundsChanged(StrategySetup)`. `StrategyDeactivate` stays `NoResourceImpact`.
-- `StrategiesModule.TransformContractReward` -> documented no-op + VERBOSE log (required — populating `activeStrategies` activates the dormant double-count).
+- `StrategiesModule.TransformContractReward` -> documented no-op + VERBOSE log (required -- populating `activeStrategies` activates the dormant double-count).
 - `activeStrategies` populated (slot-accounting, reservation logic, Actions window display).
 - Flip the existing `ClassifyAction_StrategyActivate_TransformedNotUntransformed` test.
 - New `StrategyCaptureTests.cs`.
-- Audit `StrategiesModuleTests.cs` for any test asserting `TransformedFundsReward != FundsReward` under active strategy — update to the identity invariant.
+- Audit `StrategiesModuleTests.cs` for any test asserting `TransformedFundsReward != FundsReward` under active strategy -- update to the identity invariant.
 - CHANGELOG 1-liner; todo strike-through plus known-limitation note for Sci/Rep setup costs.
 
 **Known limitation shipped with Phase A**: strategies with non-zero `InitialCostScience` or `InitialCostReputation` will still emit a false-positive KSC-reconciliation WARN on those resource legs. Stock Admin-tier-1 strategies are funds-only, so most new careers never trip it. Follow-up entry filed for Phase B.

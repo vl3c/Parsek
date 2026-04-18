@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// #439 Phase A: strategy lifecycle capture coverage. These tests exercise the
     /// pure-static detail builders, the converter branches, the recorder emitters
     /// (exercised directly with a reflectively-constructed <c>Strategies.Strategy</c>
-    /// is not possible without a live KSP runtime — see the skipped test below), and
+    /// is not possible without a live KSP runtime -- see the skipped test below), and
     /// the classifier wiring. Harmony patch coverage itself is deferred to an in-game
     /// test: <c>Strategies.Strategy</c> requires a live <c>StrategyConfig</c> and
     /// PartLoader to construct, which xUnit cannot set up from scratch.
@@ -325,7 +325,7 @@ namespace Parsek.Tests
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(0.0, exp.ExpectedDelta);
 
-            // Reconcile with an empty event stream — must stay silent.
+            // Reconcile with an empty event stream -- must stay silent.
             LedgerOrchestrator.ReconcileKscAction(
                 new List<GameStateEvent>(),
                 new List<GameAction> { a },
