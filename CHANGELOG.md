@@ -31,6 +31,7 @@ All notable changes to Parsek are documented here.
 - Gloops Flight Recorder window now has a Close button at the bottom, matching other Parsek windows.
 - Recordings window opens wider by default (1280 px) so more columns fit without a horizontal scroll; the Info-expanded width scales up to match.
 - Group column in the Recordings table widened to match the Loop column so the G and X buttons sit under the header.
+- Main Parsek window now has a Close button in the footer, inline to the right of the version text (which moved from the right to the left).
 
 ### Tests
 

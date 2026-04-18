@@ -549,6 +549,12 @@ namespace Parsek
                 "Parsek/Textures/parsek_32",
                 MODNAME
             );
+
+            ui.CloseMainWindow = () =>
+            {
+                showUI = false;
+                if (toolbarControl != null) toolbarControl.SetFalse();
+            };
         }
 
         void Update()
@@ -840,6 +846,7 @@ namespace Parsek
 
             if (showUI)
             {
+                windowRect.height = 0f;
                 windowRect = ClickThruBlocker.GUILayoutWindow(
                     GetInstanceID(),
                     windowRect,
