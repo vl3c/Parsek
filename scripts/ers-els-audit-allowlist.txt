@@ -87,3 +87,12 @@ Source/Parsek/SessionSuppressionState.cs
 # recording is intentionally NotCommitted (§3.1), so ERS filters it out by
 # definition — the raw read is the only way to find it.
 Source/Parsek/CrewReservationManager.cs
+
+# --- Phase 8 ERS-exempt files ---
+# MergeDialog.TryCommitReFlySupersede looks up the provisional re-fly
+# recording by its id (marker.ActiveReFlyRecordingId) immediately after
+# CommitPendingTree migrates it from the pending tree into the committed
+# list. The provisional still carries MergeState=NotCommitted at this
+# point (Phase 8 step that flips it runs inside SupersedeCommit), so ERS
+# filters it out by definition — raw read is the only way to find it.
+Source/Parsek/MergeDialog.cs
