@@ -903,6 +903,10 @@ namespace Parsek.Tests
 
                 GameStateRecorder.Emit(ref evt, "test-454");
 
+                // Emit's drift-A guard fires here (non-empty tag + no live flight context)
+                // because the test sets a tag without entering FLIGHT scene — an expected
+                // side effect of the minimal fixture, not an assertion target.
+
                 // Both stamps must be visible on the caller's local under ref.
                 Assert.Equal("rec-bug454", evt.recordingId);
                 Assert.Equal(13u, evt.epoch);
