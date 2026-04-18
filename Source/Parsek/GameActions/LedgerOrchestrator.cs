@@ -3487,7 +3487,7 @@ namespace Parsek
         internal const double KscReconcileEpsilonSeconds = 0.1;
 
         // ================================================================
-        // #440 Phase E2 — Post-walk reconciliation (transformed reward types)
+        // #440 Phase E2 -- Post-walk reconciliation (transformed reward types)
         //
         // After RecalculationEngine.Recalculate populates TransformedFundsReward,
         // TransformedScienceReward, EffectiveRep, and EffectiveScience on each

@@ -1110,14 +1110,14 @@ namespace Parsek.Tests
         #region #440 post-walk tests
 
         // ================================================================
-        // #440 Phase E2 — post-walk reconciliation for strategy-transformed
+        // #440 Phase E2 -- post-walk reconciliation for strategy-transformed
         // and curve-applied reward types. The new LedgerOrchestrator.
         // ReconcilePostWalk pairs the derived Transformed*/EffectiveRep/
         // EffectiveScience values (set by RecalculationEngine.Recalculate)
         // against live KSP deltas captured in GameStateStore.Events.
         //
         // Gate zero: `PostWalk_ReputationCurveMatchesKsp` must pass before
-        // any rep-leg test is trustworthy — it pins our curve output
+        // any rep-leg test is trustworthy -- it pins our curve output
         // against the Spike A decompile of KSP's addReputation_granular.
         // ================================================================
 
@@ -1425,29 +1425,21 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_ReputationEarning_CurveMatch_NoWarn()
         {
-            // RepSource.Other has no paired event source -> ClassifyPostWalk returns
-            // Reconcile=false, so post-walk skips entirely. Use a mapped source.
+            // ReputationSource enum today has ContractComplete / Milestone / Other.
+            // RepSource.Other is synthetic -> ClassifyPostWalk returns Reconcile=false.
+            // Use ContractComplete so the test exercises the ContractReward key path.
             var events = new List<GameStateEvent>
             {
-                MakeKeyedRepChanged(700, 10, 17, "VesselRecovery")           // +7
+                MakeKeyedRepChanged(700, 10, 17, "ContractReward")           // +7
             };
             var action = new GameAction
             {
                 UT = 700,
                 Type = GameActionType.ReputationEarning,
                 NominalRep = 10f,
-                RepSource = (ReputationSource)99,   // sentinel; overridden below
+                RepSource = ReputationSource.ContractComplete,
                 EffectiveRep = 7f
             };
-            // Note: ReputationSource enum today only has ContractComplete/Milestone/Other;
-            // the production classifier treats Other as synthetic (skip). We deliberately
-            // choose ContractComplete as the mapped source so the test exercises the
-            // ContractReward key path.
-            action.RepSource = ReputationSource.ContractComplete;
-            // Re-emit the event under the right key:
-            events.Clear();
-            events.Add(MakeKeyedRepChanged(700, 10, 17, "ContractReward"));  // +7
-
             var actions = new List<GameAction> { action };
 
             LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
@@ -1604,6 +1596,57 @@ namespace Parsek.Tests
                 l.Contains("Earnings reconciliation (post-walk, funds)") &&
                 l.Contains("ContractComplete") &&
                 (l.Contains("no matching") || l.Contains("missing earning channel")));
+        }
+
+        [Fact]
+        public void PostWalk_DoubleWarnGuard_TransformedActionOnlyFiresOnce()
+        {
+            // Regression guard for plan invariant I2 and success-criterion #6:
+            // the existing per-action ReconcileKscAction path must NOT emit a
+            // WARN for an action classified as Transformed, even when the
+            // action genuinely diverges from the paired event. The post-walk
+            // hook is the sole emitter of "Earnings reconciliation (post-walk,"
+            // WARNs for the eight Transformed action types. If a future refactor
+            // accidentally re-enables per-action WARN for a Transformed type,
+            // this test catches the double-WARN regression.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 100000, 102000, "ContractReward"),
+                MakeKeyedRepChanged(500, 10, 10, "ContractReward"),
+                MakeKeyedScienceChanged(500, 0, 0, "ContractReward"),
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c_dbl",
+                Effective = true,
+                // Force a divergence: expected funds=+5000 but store saw +2000.
+                TransformedFundsReward = 5000f,
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f,
+            };
+            var actions = new List<GameAction> { action };
+
+            // Per-action KSC path (must stay silent on Transformed).
+            Ledger.ResetForTesting();
+            Ledger.AddAction(action);
+            ReconcileKsc(events, new List<GameAction> { action }, action, action.UT);
+
+            // Post-walk path (the only site allowed to WARN here).
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            // Post-walk must have emitted the mismatch WARN.
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("ContractComplete"));
+
+            // The KSC-path ReconcileKscAction must NOT have emitted a non-post-walk
+            // funds WARN for the same action (it VERBOSE-skips Transformed types).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation") &&
+                l.Contains("(funds)") &&
+                !l.Contains("(post-walk"));
         }
 
         #endregion
