@@ -36,6 +36,7 @@ namespace Parsek
     {
         private const string Tag = "Supersede";
         private const string SessionTag = "ReFlySession";
+        private const string LedgerSwapTag = "LedgerSwap";
 
         /// <summary>
         /// Idempotent: appends supersede relations for every id in the
@@ -70,6 +71,8 @@ namespace Parsek
 
             if (scenario.RecordingSupersedes == null)
                 scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            if (scenario.LedgerTombstones == null)
+                scenario.LedgerTombstones = new List<LedgerTombstone>();
 
             // Step 1: compute the forward-only merge-guarded subtree closure
             // rooted at the marker's origin child recording. Reuses the exact
@@ -134,7 +137,15 @@ namespace Parsek
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
 
-            // Step 5: bump supersede version so ERS cache invalidates and the
+            // Step 5: emit v1 narrow-scope tombstones for the supersede
+            // subtree's ledger actions (design §6.6 step 4 / §7.13-§7.17 /
+            // §7.41 / §7.44). Runs AFTER the supersede relations land (so the
+            // relations describe "what's superseded" before the ELS recomputes)
+            // and BEFORE the MergeState flip's version bump so a single ELS
+            // rebuild covers both changes.
+            CommitTombstones(marker, subtree, newRecordingId, ut, nowIso, scenario);
+
+            // Step 6: bump supersede version so ERS cache invalidates and the
             // superseded subtree disappears immediately.
             scenario.BumpSupersedeStateVersion();
 
@@ -142,18 +153,272 @@ namespace Parsek
                 $"provisional={newRecordingId ?? "<no-id>"} mergeState={newState} terminalKind={kind} " +
                 $"priorTarget={priorTarget ?? "<none>"}");
 
-            // Step 6: clear the active marker. The session is finished; Phase
+            // Step 7: clear the active marker. The session is finished; Phase
             // 7's SessionSuppressionState will emit the End transition log on
             // the next query.
             string sessionId = marker.SessionId;
             scenario.ActiveReFlySessionMarker = null;
             // Bumping again ensures the ERS cache that keyed on the old marker
-            // identity rebuilds; redundant with step 5 in most paths but cheap
+            // identity rebuilds; redundant with step 6 in most paths but cheap
             // and defensive against future ordering changes.
             scenario.BumpSupersedeStateVersion();
 
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={newRecordingId ?? "<no-id>"}");
+        }
+
+        /// <summary>
+        /// Phase 9 of Rewind-to-Staging (design §6.6 step 4 / §7.13-§7.17 /
+        /// §7.41 / §7.44 / §10.4): walk <see cref="Ledger.Actions"/> and
+        /// append <see cref="LedgerTombstone"/>s for every action in the
+        /// supersede subtree that is v1 tombstone-eligible.
+        ///
+        /// <para>
+        /// v1 narrow scope retires only <see cref="GameActionType.KerbalAssignment"/>
+        /// +Dead actions and the <see cref="GameActionType.ReputationPenalty"/>
+        /// bundled with them (see <see cref="TombstoneEligibility"/>). All
+        /// other action types — contract accepts / completes / fails /
+        /// cancels, milestones, facility upgrades / repairs / destruction,
+        /// strategies, tech research, science spending, funds spending,
+        /// vessel-destruction rep — stay in ELS even when their source
+        /// recording is superseded (§7.13-§7.15, §7.44).
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent: an action that already carries a tombstone (matched by
+        /// <see cref="GameAction.ActionId"/>) is skipped. Null-scoped actions
+        /// (<see cref="GameAction.RecordingId"/> == null) are never tombstoned
+        /// (§7.41).
+        /// </para>
+        ///
+        /// <para>
+        /// After appending, bumps
+        /// <see cref="ParsekScenario.TombstoneStateVersion"/> so the ELS cache
+        /// invalidates on the next <see cref="EffectiveState.ComputeELS"/>
+        /// call, then asks <see cref="CrewReservationManager.RecomputeAfterTombstones"/>
+        /// to re-derive the reservation dictionary — death-tombstoned kerbals
+        /// return to active (§7.16).
+        /// </para>
+        /// </summary>
+        internal static void CommitTombstones(
+            ReFlySessionMarker marker,
+            IReadOnlyCollection<string> subtreeIds,
+            string retiringRecordingId,
+            double mergeUT,
+            string nowIso,
+            ParsekScenario scenario)
+        {
+            if (scenario == null)
+            {
+                ParsekLog.Warn(LedgerSwapTag, "CommitTombstones: no scenario — skipping");
+                return;
+            }
+            if (scenario.LedgerTombstones == null)
+                scenario.LedgerTombstones = new List<LedgerTombstone>();
+
+            string originId = marker != null ? (marker.OriginChildRecordingId ?? "<no-origin>") : "<no-marker>";
+
+            // No subtree → nothing to retire. Still log the advisory line so
+            // the operational trace shows merge-time narrow-scope reinforcement.
+            if (subtreeIds == null || subtreeIds.Count == 0)
+            {
+                ParsekLog.Info(LedgerSwapTag,
+                    $"Tombstoned 0 (KerbalDeath=0, repBundled=0); 0 type-ineligible " +
+                    $"(Contract=0, Milestone=0, Facility=0, Strategy=0, Tech=0, Science=0, Funds=0, RepUnbundled=0)");
+                ParsekLog.Info(Tag,
+                    "Narrow v1 effects: tombstoned 0 actions; career state (contracts/milestones/facilities/strategies/tech) unchanged.");
+                CrewReservationManager.RecomputeAfterTombstones();
+                return;
+            }
+
+            // Pre-index existing tombstones by ActionId for O(1) idempotence.
+            var alreadyTombstoned = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var t = scenario.LedgerTombstones[i];
+                if (t == null || string.IsNullOrEmpty(t.ActionId)) continue;
+                alreadyTombstoned.Add(t.ActionId);
+            }
+
+            // Group actions in the subtree scope by RecordingId so the rep-
+            // bundling rule can scan a bounded slice per candidate. Materialize
+            // the subtree into a HashSet so InSupersedeScope gets O(1) lookup
+            // and the ICollection<string> contract is met.
+            var subtreeSet = new HashSet<string>(subtreeIds, StringComparer.Ordinal);
+            var actions = Ledger.Actions;
+            var sliceByRecording = new Dictionary<string, List<GameAction>>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null) continue;
+                if (!TombstoneAttributionHelper.InSupersedeScope(a, subtreeSet))
+                    continue;
+                List<GameAction> slice;
+                if (!sliceByRecording.TryGetValue(a.RecordingId, out slice))
+                {
+                    slice = new List<GameAction>();
+                    sliceByRecording[a.RecordingId] = slice;
+                }
+                slice.Add(a);
+            }
+
+            int kerbalDeathCount = 0;
+            int repBundledCount = 0;
+            int contractIneligible = 0;
+            int milestoneIneligible = 0;
+            int facilityIneligible = 0;
+            int strategyIneligible = 0;
+            int techIneligible = 0;
+            int scienceIneligible = 0;
+            int fundsIneligible = 0;
+            int repUnbundledIneligible = 0;
+            int otherIneligible = 0;
+
+            foreach (var kv in sliceByRecording)
+            {
+                var slice = kv.Value;
+                for (int i = 0; i < slice.Count; i++)
+                {
+                    var a = slice[i];
+                    if (string.IsNullOrEmpty(a.ActionId))
+                    {
+                        // Shouldn't happen post-Phase-1 (every action gets an
+                        // ActionId at construction / legacy hash on load) but
+                        // tolerate defensively; can't tombstone without an id.
+                        continue;
+                    }
+                    if (alreadyTombstoned.Contains(a.ActionId))
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"Skip: action '{a.ActionId}' already tombstoned (idempotent re-entry)");
+                        continue;
+                    }
+
+                    bool eligible = false;
+                    if (TombstoneEligibility.IsEligible(a))
+                    {
+                        eligible = true;
+                        kerbalDeathCount++;
+                    }
+                    else if (a.Type == GameActionType.ReputationPenalty)
+                    {
+                        GameAction paired;
+                        if (TombstoneEligibility.TryPairBundledRepPenalty(a, slice, out paired))
+                        {
+                            eligible = true;
+                            repBundledCount++;
+                        }
+                        else
+                        {
+                            repUnbundledIneligible++;
+                        }
+                    }
+                    else
+                    {
+                        CountIneligibleByType(a.Type,
+                            ref contractIneligible,
+                            ref milestoneIneligible,
+                            ref facilityIneligible,
+                            ref strategyIneligible,
+                            ref techIneligible,
+                            ref scienceIneligible,
+                            ref fundsIneligible,
+                            ref otherIneligible);
+                    }
+
+                    if (!eligible) continue;
+
+                    var tomb = new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_" + Guid.NewGuid().ToString("N"),
+                        ActionId = a.ActionId,
+                        RetiringRecordingId = retiringRecordingId,
+                        UT = mergeUT,
+                        CreatedRealTime = nowIso,
+                    };
+                    scenario.LedgerTombstones.Add(tomb);
+                    alreadyTombstoned.Add(a.ActionId);
+
+                    ParsekLog.Verbose(LedgerSwapTag,
+                        $"tomb={tomb.TombstoneId} action={a.ActionId} type={a.Type} " +
+                        $"rec={a.RecordingId} ut={a.UT.ToString("R", CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            int tombstoned = kerbalDeathCount + repBundledCount;
+            int typeIneligible = contractIneligible + milestoneIneligible + facilityIneligible
+                + strategyIneligible + techIneligible + scienceIneligible + fundsIneligible
+                + repUnbundledIneligible + otherIneligible;
+
+            ParsekLog.Info(LedgerSwapTag,
+                $"Tombstoned {tombstoned} (KerbalDeath={kerbalDeathCount}, repBundled={repBundledCount}); " +
+                $"{typeIneligible} type-ineligible " +
+                $"(Contract={contractIneligible}, Milestone={milestoneIneligible}, " +
+                $"Facility={facilityIneligible}, Strategy={strategyIneligible}, Tech={techIneligible}, " +
+                $"Science={scienceIneligible}, Funds={fundsIneligible}, RepUnbundled={repUnbundledIneligible})");
+
+            // §10.4 advisory log reinforcing the narrow scope for humans reading KSP.log.
+            ParsekLog.Info(Tag,
+                $"Narrow v1 effects: tombstoned {tombstoned} actions; career state " +
+                $"(contracts/milestones/facilities/strategies/tech) unchanged.");
+
+            if (tombstoned > 0)
+            {
+                scenario.BumpTombstoneStateVersion();
+            }
+
+            // Design §6.6 step 6 / §7.16: reservation walker re-derives so
+            // kerbals whose death was just tombstoned return to active.
+            CrewReservationManager.RecomputeAfterTombstones();
+        }
+
+        private static void CountIneligibleByType(
+            GameActionType type,
+            ref int contract,
+            ref int milestone,
+            ref int facility,
+            ref int strategy,
+            ref int tech,
+            ref int science,
+            ref int funds,
+            ref int other)
+        {
+            switch (type)
+            {
+                case GameActionType.ContractAccept:
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    contract++;
+                    break;
+                case GameActionType.MilestoneAchievement:
+                    milestone++;
+                    break;
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                case GameActionType.FacilityDestruction:
+                    facility++;
+                    break;
+                case GameActionType.StrategyActivate:
+                case GameActionType.StrategyDeactivate:
+                    strategy++;
+                    break;
+                case GameActionType.ScienceSpending:
+                    tech++;
+                    break;
+                case GameActionType.ScienceEarning:
+                case GameActionType.ScienceInitial:
+                    science++;
+                    break;
+                case GameActionType.FundsEarning:
+                case GameActionType.FundsSpending:
+                case GameActionType.FundsInitial:
+                    funds++;
+                    break;
+                default:
+                    other++;
+                    break;
+            }
         }
 
         private static bool RelationExists(
