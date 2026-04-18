@@ -37,6 +37,11 @@ namespace Parsek
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
         private HashSet<int> loggedReshow = new HashSet<int>();
 
+        // #443: Non-spamming cadence-adjustment log — one INFO per
+        // (recording index, userPeriod, effectiveCadence, duration) tuple.
+        private Dictionary<int, (double userPeriod, double effectiveCadence, double duration)>
+            lastLoggedKscCadence = new Dictionary<int, (double, double, double)>();
+
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
 
@@ -44,7 +49,11 @@ namespace Parsek
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
         // well-behaved recordings, but pathological cases (very short duration, very negative
         // interval) could spawn many before expiration catches up.
-        private const int MaxOverlapGhostsPerRecording = 20;
+        // #443: KSC cap lowered to 10 to match flight, in lockstep with
+        // GhostPlaybackLogic.ComputeEffectiveLaunchCadence — the cadence is
+        // doubled until the concurrent-cycle count fits under this cap, so
+        // the cap is never exceeded and no cycle is ever silently culled.
+        private const int MaxOverlapGhostsPerRecording = 10;
 
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
@@ -66,6 +75,12 @@ namespace Parsek
                 "Parsek/Textures/parsek_32",
                 ParsekFlight.MODNAME
             );
+
+            ui.CloseMainWindow = () =>
+            {
+                showUI = false;
+                if (toolbarControl != null) toolbarControl.SetFalse();
+            };
 
             // Build body lookup cache
             bodyCache = new Dictionary<string, CelestialBody>();
@@ -108,6 +123,7 @@ namespace Parsek
         {
             if (!showUI) return;
 
+            windowRect.height = 0f;
             windowRect = ClickThruBlocker.GUILayoutWindow(
                 GetInstanceID(), windowRect, ui.DrawWindow,
                 "Parsek", ui.GetOpaqueWindowStyle(), GUILayout.Width(250));
@@ -236,6 +252,35 @@ namespace Parsek
                     UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false, suppressVisualFx);
                 }
             }
+        }
+
+        /// <summary>
+        /// Emits exactly one INFO per (recordingIndex, userPeriod,
+        /// effectiveCadence, duration) tuple for the KSC overlap path.
+        /// Re-emits only when one of the inputs changes. Steady-state silent.
+        /// </summary>
+        private void LogKscCadenceIfChanged(
+            int recIdx, Recording rec,
+            double userPeriod, double effectiveCadence, double duration)
+        {
+            var tuple = (userPeriod, effectiveCadence, duration);
+            if (lastLoggedKscCadence.TryGetValue(recIdx, out var prev) && prev.Equals(tuple))
+                return;
+            lastLoggedKscCadence[recIdx] = tuple;
+
+            string vesselName = rec != null ? rec.VesselName ?? "?" : "?";
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            long cycleCount = duration > 0 && effectiveCadence > 0
+                ? (long)Math.Ceiling(duration / effectiveCadence)
+                : 0;
+            bool adjusted = Math.Abs(effectiveCadence - userPeriod) > 1e-6;
+            string verdict = adjusted
+                ? "auto-adjusted (cap reached)"
+                : "no adjustment";
+            ParsekLog.Info("KSC",
+                $"Loop cadence #{recIdx} \"{vesselName}\": requested={userPeriod.ToString("F2", ic)}s " +
+                $"duration={duration.ToString("F2", ic)}s cap={MaxOverlapGhostsPerRecording} " +
+                $"effective={effectiveCadence.ToString("F2", ic)}s (cycles={cycleCount}) {verdict}");
         }
 
         /// <summary>
@@ -371,12 +416,20 @@ namespace Parsek
                 return;
             }
 
-            // #381: cycleDuration = launch-to-launch period (clamped).
-            double cycleDuration = Math.Max(intervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+            // #443: effective cadence doubles the user period until
+            // ceil(duration/cadence) <= MaxOverlapGhostsPerRecording, so the
+            // per-recording cap is never exceeded and no cycle is silently
+            // culled mid-trajectory.
+            double loopDuration = loopEndUT - loopStartUT;
+            double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                intervalSeconds, loopDuration, MaxOverlapGhostsPerRecording);
+            LogKscCadenceIfChanged(recIdx, rec, intervalSeconds, effectiveCadence, loopDuration);
+
+            double cycleDuration = Math.Max(effectiveCadence, GhostPlaybackLogic.MinCycleDuration);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(currentUT, loopStartUT, loopEndUT,
-                intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
+                effectiveCadence, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
             List<GhostPlaybackState> overlaps;

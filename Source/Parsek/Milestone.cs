@@ -69,6 +69,9 @@ namespace Parsek
                     m.Events.Add(GameStateEvent.DeserializeFrom(eventNodes[i]));
             }
 
+            GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                m.Events, $"milestone:{m.MilestoneId ?? "(unknown)"}");
+
             return m;
         }
     }

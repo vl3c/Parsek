@@ -91,6 +91,51 @@ namespace Parsek.Tests
             Assert.Equal("rec3", action.RecordingId);
         }
 
+        // ---------- #451: charged cost is authoritative; entryCost is fallback-only ----------
+
+        [Fact]
+        public void ConvertEvent_PartPurchased_UsesCostToken_WhenEntryCostAlsoPresent()
+        {
+            // Post-#451 recorder output may include the raw stock entry price for
+            // diagnostics, but the ledger must honor the actual charged amount from
+            // `cost=`. This is the stock-default bypass=true shape.
+            var evt = MakeEvent(GameStateEventType.PartPurchased, 2100.0,
+                key: "solidBooster.v2", detail: "cost=0;entryCost=800");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-1");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(0f, action.FundsSpent);
+            Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
+        }
+
+        [Fact]
+        public void ConvertEvent_PartPurchased_CostOnly_StillParses()
+        {
+            // Save-format read-compat: pre-#451 events only have `cost=<value>` with no
+            // `entryCost=` token. That remains the authoritative amount.
+            var evt = MakeEvent(GameStateEventType.PartPurchased, 2200.0,
+                key: "mk1pod", detail: "cost=600");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-2");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(600f, action.FundsSpent);
+        }
+
+        [Fact]
+        public void ConvertEvent_PartPurchased_EntryCostOnly_FallsBackWhenCostMissing()
+        {
+            // Defensive fallback for malformed/future detail that omitted `cost=`.
+            var evt = MakeEvent(GameStateEventType.PartPurchased, 2300.0,
+                key: "liquidEngine", detail: "entryCost=1200");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-3");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(1200f, action.FundsSpent);
+        }
+
         // ================================================================
         // FacilityUpgraded -> FacilityUpgrade
         // ================================================================
