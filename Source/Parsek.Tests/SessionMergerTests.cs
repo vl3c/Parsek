@@ -1034,13 +1034,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyBoundaryDiscontinuity_NaNVelocity_DefaultsToSampleSkip()
+        public void ClassifyBoundaryDiscontinuity_NaNVelocity_TaggedInvalidData()
         {
-            // NaN-component velocity: vMag becomes NaN, so expectedMeters is NaN and
-            // tolerance is NaN. Both branch comparisons against NaN are false, so the
-            // classifier falls through to "sample-skip". This pins the silent-default
-            // so a future "fix" that drops NaN-velocity boundaries can't slip past
-            // review without updating this test.
+            // NaN-component velocity means the boundary data itself is broken. Do not
+            // fall through to a normal bucket — emit invalid-data so the WARN stays
+            // clearly suspicious instead of looking like a recorder gap.
             var prev = MakeSectionWithFrame(100, 0, 0, 70000,
                 new Vector3(float.NaN, 0, 0));
             var next = MakeSectionWithFrame(101, 0, 0, 70050, Vector3.zero);
@@ -1050,16 +1048,15 @@ namespace Parsek.Tests
             Assert.InRange(dt, 0.99, 1.01);
             Assert.True(double.IsNaN(expected),
                 $"Expected NaN expectedMeters with NaN velocity, got {expected}");
-            Assert.Equal("sample-skip", cause);
+            Assert.Equal("invalid-data", cause);
         }
 
         [Fact]
-        public void ClassifyBoundaryDiscontinuity_InfinityVelocity_DefaultsToSampleSkip()
+        public void ClassifyBoundaryDiscontinuity_InfinityVelocity_TaggedInvalidData()
         {
-            // Infinity-component velocity: same NaN-comparison pattern as the NaN
-            // case above. expectedMeters is Infinity, tolerance is Infinity, the
-            // discMeters <= Infinity branch is true → unrecorded-gap. Pin this so a
-            // future infinity-guard refactor doesn't silently flip the bucket.
+            // Infinity-component velocity previously forced any discontinuity into the
+            // benign unrecorded-gap bucket because the inferred tolerance became
+            // Infinity. That hides corrupted boundary data as "expected motion".
             var prev = MakeSectionWithFrame(100, 0, 0, 70000,
                 new Vector3(float.PositiveInfinity, 0, 0));
             var next = MakeSectionWithFrame(101, 0, 0, 70050, Vector3.zero);
@@ -1067,9 +1064,24 @@ namespace Parsek.Tests
                 prev, next, hasPrev: true, discMeters: 50f,
                 out double dt, out double expected, out string cause);
             Assert.InRange(dt, 0.99, 1.01);
-            Assert.True(double.IsPositiveInfinity(expected),
-                $"Expected +Infinity expectedMeters with +Infinity velocity, got {expected}");
-            Assert.Equal("unrecorded-gap", cause);
+            Assert.True(double.IsNaN(expected),
+                $"Expected NaN expectedMeters with +Infinity velocity, got {expected}");
+            Assert.Equal("invalid-data", cause);
+        }
+
+        [Fact]
+        public void ClassifyBoundaryDiscontinuity_NonFiniteUT_TaggedInvalidData()
+        {
+            var prev = MakeSectionWithFrame(100, 0, 0, 70000, new Vector3(130, 0, 0));
+            var next = MakeSectionWithFrame(double.NaN, 0, 0, 70050, Vector3.zero);
+            SessionMerger.ClassifyBoundaryDiscontinuity(
+                prev, next, hasPrev: true, discMeters: 50f,
+                out double dt, out double expected, out string cause);
+            Assert.True(double.IsNaN(dt),
+                $"Expected NaN dt with non-finite next.ut, got {dt}");
+            Assert.True(double.IsNaN(expected),
+                $"Expected NaN expectedMeters with non-finite UT, got {expected}");
+            Assert.Equal("invalid-data", cause);
         }
 
         // Parameterised so a regression that hard-codes a single cause (e.g. always
@@ -1116,6 +1128,32 @@ namespace Parsek.Tests
                 l.Contains("dt=") &&
                 l.Contains("expectedFromVel=") &&
                 l.Contains("cause=" + expectedCause));
+        }
+
+        [Fact]
+        public void MergeTree_DiscontinuityWarning_InvalidData_UsesExactCause()
+        {
+            const double boundaryUT = 1.0;
+            var prev = MakeSectionWithFrame(boundaryUT, 0, 0, 70000,
+                new Vector3(float.PositiveInfinity, 0, 0));
+            var next = MakeSectionWithFrame(boundaryUT + 1.0, 0, 0, 70050, Vector3.zero);
+            var prevTail = prev;
+            prevTail.startUT = 0.0;
+            prevTail.endUT = boundaryUT;
+            var nextHead = next;
+            nextHead.startUT = boundaryUT + 1.0;
+            nextHead.endUT = boundaryUT + 2.0;
+            var rec = MakeRecording("rec-449-invalid", "Diag Vessel",
+                new List<TrackSection> { prevTail, nextHead });
+            var tree = MakeTree("449 Invalid Data Test", rec);
+
+            SessionMerger.MergeTree(tree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("expectedFromVel=NaN") &&
+                l.Contains("cause=invalid-data"));
         }
 
         #endregion

@@ -247,6 +247,8 @@ namespace Parsek
         ///   the recorder couldn't sample through.</item>
         ///   <item><c>sample-skip</c> — discontinuity exceeds the velocity-implied gap;
         ///   points at a dropped-sample / drift bug or a source-tag mismatch.</item>
+        ///   <item><c>invalid-data</c> — boundary UTs or the previous tail velocity are
+        ///   non-finite, so the classifier refuses to downgrade the warning to a benign gap.</item>
         /// </list>
         /// Pure helper so unit tests can verify the classification independently of logging.
         /// </summary>
@@ -274,6 +276,13 @@ namespace Parsek
             TrajectoryPoint firstNext = next.frames[0];
 
             dtSeconds = firstNext.ut - lastPrev.ut;
+            if (!IsFinite(dtSeconds) || !IsFiniteVector3(lastPrev.velocity))
+            {
+                expectedMeters = double.NaN;
+                cause = "invalid-data";
+                return;
+            }
+
             // Magnitude of the recorded velocity at the prior section's tail. The
             // velocity field stores playback velocity captured from KSP — surface or
             // orbital depending on situation, but its magnitude is a reasonable
@@ -546,6 +555,18 @@ namespace Parsek
         }
 
         // --- Private helpers ---
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool IsFiniteVector3(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
 
         private static void AddEventsWithDedup(
             List<PartEvent> merged, HashSet<string> seen, List<PartEvent> events)
