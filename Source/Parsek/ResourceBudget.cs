@@ -373,20 +373,48 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(detail)) return 0;
 
+            // #451: prefer `entryCost=` (post-#451 PartPurchased detail) and fall
+            // back to the legacy `cost=` token. Mirrors the dual-token strategy in
+            // GameStateEventConverter.ConvertPartPurchased so MilestoneCommittedFunds
+            // (the only consumer of this helper for PartPurchased events) stays in
+            // lockstep if a future producer drops the legacy `cost=` token. Other
+            // event types that emit only `cost=` (CrewHired, TechResearch, etc.)
+            // continue to land on the cost= fallback unchanged.
             string[] parts = detail.Split(';');
+            double entryCost = 0;
+            bool entryCostFound = false;
+            double legacyCost = 0;
+            bool legacyCostFound = false;
             for (int i = 0; i < parts.Length; i++)
             {
                 string part = parts[i].Trim();
-                if (part.StartsWith("cost=", StringComparison.Ordinal))
+                if (!entryCostFound && part.StartsWith("entryCost=", StringComparison.Ordinal))
                 {
-                    double cost;
+                    double parsed;
+                    if (double.TryParse(part.Substring(10), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out parsed))
+                    {
+                        entryCost = parsed;
+                        entryCostFound = true;
+                    }
+                    else
+                        ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
+                }
+                else if (!legacyCostFound && part.StartsWith("cost=", StringComparison.Ordinal))
+                {
+                    double parsed;
                     if (double.TryParse(part.Substring(5), NumberStyles.Float,
-                        CultureInfo.InvariantCulture, out cost))
-                        return cost;
-
-                    ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
+                        CultureInfo.InvariantCulture, out parsed))
+                    {
+                        legacyCost = parsed;
+                        legacyCostFound = true;
+                    }
+                    else
+                        ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
                 }
             }
+            if (entryCostFound) return entryCost;
+            if (legacyCostFound) return legacyCost;
             return 0;
         }
 

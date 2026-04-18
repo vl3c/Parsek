@@ -496,6 +496,13 @@ namespace Parsek
             var detail = "cost=" + entryCost.ToString("R", ic) +
                          ";entryCost=" + entryCost.ToString("R", ic);
 
+            // valueBefore/valueAfter: no current consumer reads these fields for
+            // PartPurchased (every downstream reader — ConvertPartPurchased,
+            // GameStateEventDisplay, ReconcileKscAction — pulls the magnitude from
+            // the detail token instead). Updated to entryCost for semantic
+            // consistency with the new detail value, so future event-explorer UIs
+            // or CSV exports that derive deltas from valueBefore-valueAfter land on
+            // the same number as the detail-driven path.
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
