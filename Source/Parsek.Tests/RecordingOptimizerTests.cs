@@ -33,7 +33,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = 10.0,
+                LoopIntervalSeconds = GhostPlaybackLogic.DefaultLoopIntervalSeconds,
                 LoopAnchorVesselId = 0,
             };
             rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 50000 });
@@ -210,7 +210,7 @@ namespace Parsek.Tests
         {
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            b.LoopIntervalSeconds = 30.0;
+            b.LoopIntervalSeconds = GhostPlaybackLogic.DefaultLoopIntervalSeconds + 15.0;
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
         }
 

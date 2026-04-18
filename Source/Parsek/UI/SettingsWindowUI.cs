@@ -197,7 +197,7 @@ namespace Parsek
                 s.verboseLogging = true;
                 s.writeReadableSidecarMirrors = true;
                 s.SamplingDensityLevel = SamplingDensity.Medium;
-                s.autoLoopIntervalSeconds = 10.0f;
+                s.autoLoopIntervalSeconds = (float)GhostPlaybackLogic.DefaultLoopIntervalSeconds;
                 s.autoLoopTimeUnit = 0;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
                 s.showGhostsInTrackingStation = true;

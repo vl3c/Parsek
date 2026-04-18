@@ -59,7 +59,7 @@ namespace Parsek.Tests
             var b = new RecordingBuilder("Empty")
                 .WithLoopPlayback(loop: true, intervalSeconds: 0.0);
 
-            // No points → builder can't derive duration → DefaultLoopIntervalSeconds (10 s).
+            // No points → builder can't derive duration → DefaultLoopIntervalSeconds (30 s).
             Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, b.GetLoopIntervalSeconds());
             Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParseInterval(b.Build()));
         }

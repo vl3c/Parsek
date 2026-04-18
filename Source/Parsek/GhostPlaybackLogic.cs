@@ -16,7 +16,7 @@ namespace Parsek
         // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
-        internal const double DefaultLoopIntervalSeconds = 10.0;
+        internal const double DefaultLoopIntervalSeconds = 30.0;
         internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
         // #410: shared boundary tolerance for loop-phase comparisons. Used by
