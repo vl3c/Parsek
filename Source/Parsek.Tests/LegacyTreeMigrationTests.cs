@@ -10,11 +10,10 @@ namespace Parsek.Tests
     /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>).
     ///
     /// <para>Scope per reviewer: <b>zero-coverage trees only</b>. On load, a pre-Phase-F
-    /// committed tree with <c>ResourcesApplied=false</c> and any persisted
-    /// <c>DeltaFunds</c>/<c>DeltaScience</c>/<c>DeltaReputation</c> outside tolerance is
+    /// committed tree with a non-zero persisted legacy residual outside tolerance is
     /// migrated only when the ledger has NO action tagged to any of the tree's
     /// recordings within the tree's UT window. Partial-coverage trees log WARN and are
-    /// marked applied without injection — comparing pre-walk raw field sums to
+    /// marked fully applied without injection — comparing pre-walk raw field sums to
     /// post-walk persisted deltas (after ScienceModule cap, ReputationModule curve,
     /// StrategiesModule transform, Effective=false suppression) is structurally wrong.</para>
     ///
@@ -29,7 +28,7 @@ namespace Parsek.Tests
     /// <para>All synthetics carry <c>RecordingId=tree.RootRecordingId</c> so
     /// <see cref="Ledger.Reconcile"/> prunes them with the tree on deletion. Trees
     /// with empty <c>RootRecordingId</c> or <c>ComputeEndUT()==0</c> are marked
-    /// applied without injection to disarm <c>ApplyTreeLumpSum</c>.</para>
+    /// fully applied without injection.</para>
     ///
     /// <para>Tests live in <see cref="Collection"/> "Sequential" because they
     /// mutate the static <c>committedTrees</c> list on <see cref="RecordingStore"/>
@@ -68,10 +67,9 @@ namespace Parsek.Tests
         // ================================================================
 
         /// <summary>
-        /// Builds a single-recording tree with one trajectory point per UT. Caller
-        /// sets the delta fields before handing the tree off to the migration. Use
-        /// <paramref name="emptyPoints"/> to simulate the degraded-tree case
-        /// (<c>ComputeEndUT()==0</c>).
+        /// Builds a single-recording tree with one trajectory point per UT and
+        /// populates its transient legacy residual. Use <paramref name="emptyPoints"/>
+        /// to simulate the degraded-tree case (<c>ComputeEndUT()==0</c>).
         /// </summary>
         private static RecordingTree MakeTree(
             string treeId,
@@ -101,19 +99,29 @@ namespace Parsek.Tests
                 Id = treeId,
                 TreeName = "TestTree",
                 RootRecordingId = rootRecordingId,
-                ActiveRecordingId = rootRecordingId,
-                DeltaFunds = deltaFunds,
-                DeltaScience = deltaScience,
-                DeltaReputation = deltaRep,
-                ResourcesApplied = resourcesApplied
+                ActiveRecordingId = rootRecordingId
             };
             tree.Recordings[rec.RecordingId] = rec;
+            tree.SetLegacyResidualForTesting(
+                deltaFunds: deltaFunds,
+                deltaScience: deltaScience,
+                deltaReputation: deltaRep,
+                resourcesApplied: resourcesApplied);
             return tree;
         }
 
         private static void RegisterTree(RecordingTree tree)
         {
             RecordingStore.AddCommittedTreeForTesting(tree);
+        }
+
+        private static void AssertTreeRecordingsFullyApplied(RecordingTree tree)
+        {
+            foreach (var rec in tree.Recordings.Values)
+            {
+                int expected = rec.Points.Count > 0 ? rec.Points.Count - 1 : -1;
+                Assert.Equal(expected, rec.LastAppliedResourceIndex);
+            }
         }
 
         // ================================================================
@@ -135,7 +143,7 @@ namespace Parsek.Tests
             Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
             Assert.Equal("rec-root", synth.RecordingId);
             Assert.Equal(200.0, synth.UT);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         [Fact]
@@ -153,7 +161,7 @@ namespace Parsek.Tests
             Assert.Equal(42.5f, synth.ScienceAwarded, precision: 2);
             Assert.Equal("rec-sci", synth.RecordingId);
             Assert.Equal(200.0, synth.UT);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         [Fact]
@@ -171,7 +179,7 @@ namespace Parsek.Tests
             Assert.NotNull(synth);
             Assert.Equal(12.5f, synth.NominalRep, precision: 2);
             Assert.Equal(200.0, synth.UT);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         [Fact]
@@ -192,7 +200,7 @@ namespace Parsek.Tests
             Assert.Single(Ledger.Actions, a =>
                 a.Type == GameActionType.ReputationEarning
                 && a.RepSource == ReputationSource.Other);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         // ================================================================
@@ -221,8 +229,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.FundsEarning
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
-            Assert.True(tree.ResourcesApplied,
-                "partial-coverage tree is still marked applied to disarm the lump-sum path");
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("partial ledger coverage")
@@ -252,7 +259,7 @@ namespace Parsek.Tests
             Assert.Contains(Ledger.Actions, a =>
                 a.Type == GameActionType.FundsEarning
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         // ================================================================
@@ -271,7 +278,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
             Assert.Empty(Ledger.Actions);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("skipping degraded tree")
@@ -292,8 +299,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
             Assert.Empty(Ledger.Actions);
-            Assert.True(tree.ResourcesApplied,
-                "empty-root tree MUST be marked applied to disarm ApplyTreeLumpSum, even though residual is lost");
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("empty RootRecordingId")
@@ -301,11 +307,11 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // Edge: ResourcesApplied=true -> no-op
+        // Edge: resourcesApplied=true in the legacy residual -> no-op
         // ================================================================
 
         [Fact]
-        public void ResourcesAppliedTrue_NoSyntheticInjected()
+        public void LegacyResidualResourcesAppliedTrue_NoSyntheticInjected()
         {
             var tree = MakeTree("tree-applied", "rec-applied", 100.0, 200.0,
                 deltaFunds: 9999.0, resourcesApplied: true);
@@ -314,7 +320,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
             Assert.Empty(Ledger.Actions);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         // ================================================================
@@ -331,7 +337,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.MigrateLegacyTreeResources();
 
             Assert.Empty(Ledger.Actions);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         // ================================================================
@@ -356,7 +362,7 @@ namespace Parsek.Tests
             // v2 uses negative FundsEarning so the action is purged by RecordingId).
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.FundsSpending);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         [Fact]
@@ -415,7 +421,7 @@ namespace Parsek.Tests
             // No ScienceEarning synthesized (positive-residual path is not taken).
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.ScienceEarning);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("MigrateLegacyTreeResources: migrated tree")
@@ -467,7 +473,7 @@ namespace Parsek.Tests
             // No ReputationEarning synthesized.
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.ReputationEarning);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("MigrateLegacyTreeResources: migrated tree")
@@ -735,12 +741,46 @@ namespace Parsek.Tests
             Assert.Equal("rec-di", legacyAction.RecordingId);
         }
 
+        [Fact]
+        public void DoubleInjectGuard_PartialExistingSynthetics_OnlyInjectsMissingResources()
+        {
+            var tree = MakeTree(
+                "tree-di-partial",
+                "rec-di-partial",
+                100.0,
+                200.0,
+                deltaFunds: 34400.0,
+                deltaScience: 42.5);
+            RegisterTree(tree);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec-di-partial",
+                FundsAwarded = 34400f,
+                FundsSource = FundsEarningSource.LegacyMigration
+            });
+
+            LedgerOrchestrator.MigrateLegacyTreeResources();
+
+            Assert.Single(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.LegacyMigration
+                && a.RecordingId == "rec-di-partial"));
+            Assert.Single(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.ScienceEarning
+                && a.SubjectId == "LegacyMigration:tree-di-partial"
+                && a.RecordingId == "rec-di-partial"));
+            AssertTreeRecordingsFullyApplied(tree);
+        }
+
         // ================================================================
         // RecordingStore.MarkTreeAsApplied primitive (Phase C dependency)
         // ================================================================
 
         [Fact]
-        public void MarkTreeAsApplied_SetsResourcesAppliedAndAdvancesRecordings()
+        public void MarkTreeAsApplied_AdvancesRecordings()
         {
             var tree = MakeTree("tree-mark", "rec-mark", 100.0, 200.0);
             RegisterTree(tree);
@@ -758,7 +798,6 @@ namespace Parsek.Tests
             int advanced = RecordingStore.MarkTreeAsApplied(tree);
 
             Assert.Equal(2, advanced);
-            Assert.True(tree.ResourcesApplied);
             Assert.Equal(1, tree.Recordings["rec-mark"].LastAppliedResourceIndex); // 2 points - 1
             Assert.Equal(2, tree.Recordings["rec-mark-2"].LastAppliedResourceIndex); // 3 points - 1
         }
@@ -772,7 +811,6 @@ namespace Parsek.Tests
             int advanced = RecordingStore.MarkTreeAsApplied(tree);
 
             Assert.Equal(0, advanced);
-            Assert.True(tree.ResourcesApplied);
             Assert.Equal(-1, tree.Recordings["rec-mark-empty"].LastAppliedResourceIndex);
         }
 
@@ -870,7 +908,7 @@ namespace Parsek.Tests
             Assert.NotNull(synth);
             Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
             Assert.Equal("rec-crew", synth.RecordingId);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("partial ledger coverage")
@@ -912,7 +950,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.FundsEarning
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("partial ledger coverage")
@@ -953,7 +991,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.FundsEarning
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("partial ledger coverage")
@@ -1000,7 +1038,7 @@ namespace Parsek.Tests
             Assert.NotNull(synth);
             Assert.Equal(34400f, synth.FundsAwarded, precision: 0);
             Assert.Equal("rec-null-noflag", synth.RecordingId);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
             // No "partial ledger coverage" WARN — this is the zero-coverage path.
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
@@ -1092,7 +1130,7 @@ namespace Parsek.Tests
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
             Assert.NotNull(synth);
             Assert.Equal(1200f, synth.FundsAwarded, precision: 0);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         /// <summary>
@@ -1135,7 +1173,7 @@ namespace Parsek.Tests
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
             Assert.NotNull(synth);
             Assert.Equal(7500f, synth.FundsAwarded, precision: 0);
-            Assert.True(tree.ResourcesApplied);
+            AssertTreeRecordingsFullyApplied(tree);
         }
 
         // ================================================================

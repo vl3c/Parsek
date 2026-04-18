@@ -5826,7 +5826,7 @@ namespace Parsek
             // commit paths stay in lockstep.
             int markedCount = RecordingStore.MarkTreeAsApplied(activeTree);
             ParsekLog.Info("Flight",
-                $"CommitTreeFlight: ResourcesApplied=true, marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
+                $"CommitTreeFlight: marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
 
             // Get spawnable leaves before commit (tree is consumed by CommitTree)
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
