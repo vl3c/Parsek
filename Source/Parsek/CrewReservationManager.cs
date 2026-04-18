@@ -1030,6 +1030,97 @@ namespace Parsek
 
         #endregion
 
+        #region Phase 7 dual-residence carve-out (design §3.3.1)
+
+        /// <summary>
+        /// Phase 7 of Rewind-to-Staging (design §3.3.1 kerbal dual-residence
+        /// carve-out): returns true iff a re-fly session is live AND the given
+        /// kerbal is currently embodied on <see cref="FlightGlobals.ActiveVessel"/>'s
+        /// crew list AND the active vessel is the provisional re-fly vessel
+        /// (identified by <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        /// resolving to a committed recording whose
+        /// <see cref="Recording.VesselPersistentId"/> matches the active vessel's
+        /// persistentId).
+        ///
+        /// <para>Without this carve-out, a kerbal whose ledger
+        /// <see cref="KerbalDeath"/> event is still in ELS (tombstone lands at
+        /// merge) would be reservation-locked as dead, silently blocking EVA or
+        /// crew transfer during the re-fly.</para>
+        ///
+        /// <para>The overload taking a marker is the underlying decision — used
+        /// by the no-marker overload and by tests that want to inject a synthetic
+        /// marker without touching <see cref="ParsekScenario"/>.</para>
+        /// </summary>
+        internal static bool IsLiveReFlyCrew(ProtoCrewMember kerbal, ReFlySessionMarker marker)
+        {
+            if (kerbal == null) return false;
+            if (marker == null) return false;
+
+            var active = FlightGlobals.ActiveVessel;
+            if (active == null) return false;
+            if (!ActiveVesselMatchesReFlyRecording(active, marker))
+                return false;
+
+            var crew = active.GetVesselCrew();
+            if (crew == null) return false;
+            for (int i = 0; i < crew.Count; i++)
+            {
+                var pcm = crew[i];
+                if (pcm == null) continue;
+                if (string.Equals(pcm.name, kerbal.name, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Reads the live scenario's marker. Kept as a thin wrapper so callers
+        /// don't have to reach into <see cref="ParsekScenario"/> themselves.
+        /// </summary>
+        internal static bool IsLiveReFlyCrew(ProtoCrewMember kerbal)
+        {
+            return IsLiveReFlyCrew(kerbal, ParsekScenario.Instance?.ActiveReFlySessionMarker);
+        }
+
+        /// <summary>
+        /// Pure decision: does <paramref name="activeVessel"/>'s persistentId
+        /// match the provisional re-fly recording referenced by the marker? The
+        /// recording is resolved via <see cref="RecordingStore"/> (raw read —
+        /// session-provisional records sit in the same list as committed ones).
+        /// Exposed internally for test injection without a live FlightGlobals.
+        /// </summary>
+        internal static bool ActiveVesselMatchesReFlyRecording(Vessel activeVessel, ReFlySessionMarker marker)
+        {
+            if (activeVessel == null || marker == null) return false;
+            string reflyId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(reflyId)) return false;
+
+            // Raw read: the provisional re-fly recording is intentionally
+            // NotCommitted and therefore NOT in ERS. We specifically want to
+            // find it so we can correlate its VesselPersistentId against the
+            // active vessel. Allowlisted under the existing CrewReservationManager
+            // entry in the grep-audit allowlist.
+            // [ERS-exempt — Phase 7] The provisional re-fly recording sits in
+            // CommittedRecordings with MergeState=NotCommitted; ERS filters it
+            // out by definition (design §3.1), so routing this lookup through
+            // EffectiveState.ComputeERS() would return null and break the
+            // dual-residence carve-out.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+            uint activePid = activeVessel.persistentId;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (!string.Equals(rec.RecordingId, reflyId, System.StringComparison.Ordinal))
+                    continue;
+                return rec.VesselPersistentId == activePid;
+            }
+            return false;
+        }
+
+        #endregion
+
         #region Testing & Serialization
 
         /// <summary>

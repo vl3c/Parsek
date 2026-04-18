@@ -80,3 +80,10 @@ Source/Parsek/PostLoadStripper.cs
 # entries) and break every caller. The suppression predicate is itself the
 # gate that consumers use AFTER the raw lookup, so it must read the raw list.
 Source/Parsek/SessionSuppressionState.cs
+
+# CrewReservationManager.ActiveVesselMatchesReFlyRecording (§3.3.1 dual-
+# residence carve-out) looks up the provisional re-fly recording by id to
+# correlate its VesselPersistentId with the active vessel. The provisional
+# recording is intentionally NotCommitted (§3.1), so ERS filters it out by
+# definition — the raw read is the only way to find it.
+Source/Parsek/CrewReservationManager.cs
