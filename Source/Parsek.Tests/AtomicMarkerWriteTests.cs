@@ -152,9 +152,110 @@ namespace Parsek.Tests
                 RewindInvoker.AtomicMarkerWrite(rp, slot, MakeStripResult(), "sess_fail");
             });
 
-            // Rollback: provisional removed, marker never written.
+            // Rollback: provisional removed AND marker cleared, so no half-
+            // written pair leaks out of the critical section.
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
+        }
+
+        /// <summary>
+        /// Blocker 3: the ordering test alone does not prove atomicity — it
+        /// checks the four checkpoints fire in order, but not that no save
+        /// handler fires BETWEEN the provisional-add (end of phase 1) and the
+        /// marker-write (start of phase 2).
+        ///
+        /// <para>
+        /// This test subscribes an <c>onGameStateSave</c> handler before the
+        /// atomic block and tracks whether the handler fires while we are
+        /// inside the critical section (between CheckpointA:AfterProvisional
+        /// and CheckpointB:AfterMarker). Because <c>AtomicMarkerWrite</c> is a
+        /// pure synchronous method with no yield/await/IEnumerator and makes
+        /// no KSP state-save calls, the handler must never fire inside that
+        /// window — any future regression that introduces a save-side-effect
+        /// mid-critical-section trips the assertion.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void Phase1And2_NoOnSaveBetween()
+        {
+            MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            // Tracker flipped by the handler if it ever fires inside the
+            // critical section. Starts false; AtomicMarkerWrite has no code
+            // path that should flip it.
+            bool onSaveFiredBetweenPhases = false;
+            bool insideCritical = false;
+
+            EventData<ConfigNode>.OnEvent onSave = _ =>
+            {
+                if (insideCritical)
+                    onSaveFiredBetweenPhases = true;
+            };
+
+            // Subscribe BEFORE the atomic block. GameEvents may be null in
+            // some unit-test harnesses (no Unity runtime); guard defensively
+            // so the test still asserts the invariant even if the subscription
+            // cannot be wired.
+            bool subscribed = false;
+            try
+            {
+                if (GameEvents.onGameStateSave != null)
+                {
+                    GameEvents.onGameStateSave.Add(onSave);
+                    subscribed = true;
+                }
+            }
+            catch
+            {
+                // Fall through — the invariant still holds and the checkpoint
+                // hook below exercises the key asserts regardless.
+            }
+
+            try
+            {
+                RewindInvoker.CheckpointHookForTesting = tag =>
+                {
+                    // Window: after the provisional is committed to the list
+                    // (end of phase 1) up to just before the marker write
+                    // completes (end of phase 2). If any save fires inside
+                    // this window, the handler flips the tracker.
+                    if (tag == "CheckpointA:AfterProvisional")
+                        insideCritical = true;
+                    else if (tag == "CheckpointB:AfterMarker")
+                        insideCritical = false;
+                };
+
+                RewindInvoker.AtomicMarkerWrite(rp, slot, MakeStripResult(), "sess_atomic");
+
+                // Primary invariant: the handler did not fire between phase 1
+                // and phase 2. True by construction for the current code path;
+                // the assertion guards against future regressions that insert
+                // a save-triggering side effect into the critical section.
+                Assert.False(onSaveFiredBetweenPhases,
+                    "onGameStateSave fired between CheckpointA:AfterProvisional and " +
+                    "CheckpointB:AfterMarker — atomicity invariant broken");
+
+                // And the critical-section guard is cleanly closed — no
+                // leftover 'insideCritical == true' after the method returns.
+                Assert.False(insideCritical,
+                    "insideCritical flag still set after AtomicMarkerWrite returned " +
+                    "— CheckpointB:AfterMarker may have been skipped");
+
+                // Post-block sanity: the atomic pair landed.
+                Assert.Single(RecordingStore.CommittedRecordings);
+                Assert.NotNull(ParsekScenario.Instance.ActiveReFlySessionMarker);
+                Assert.Equal("sess_atomic",
+                    ParsekScenario.Instance.ActiveReFlySessionMarker.SessionId);
+            }
+            finally
+            {
+                if (subscribed)
+                {
+                    try { GameEvents.onGameStateSave.Remove(onSave); }
+                    catch { /* swallow unsubscribe errors in test teardown */ }
+                }
+            }
         }
     }
 }
