@@ -56,7 +56,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
 - `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
 - `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
 - `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
@@ -65,6 +64,8 @@ All notable changes to Parsek are documented here.
 - `#387` Ghost map icons for `DeployedScienceController` and `DeployedGroundPart` now render the stock icon instead of the generic diamond fallback; their sprites live on separate atlas textures that the single-atlas init path used to silently reject.
 - Loop period cells now show the runtime-effective overlap cadence when the 10-ghost cap raises a recording's launch cadence; clamped rows render in amber, explain the clamp in the Recordings window tooltip area, and still preserve the raw stored value when you start editing.
 - Overlap cadence clamping now snaps directly to the minimum cap-safe cadence instead of overshooting in powers of two.
+- Fix #440: post-walk reconciliation now covers strategy-transformed and curve-applied reward types (contract complete/fail/cancel, milestone, reputation earning/penalty, KSC-path funds/science earning), emitting a warning when post-walk derived values diverge from observed KSP deltas. Does not close #439B.
+- Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
 - `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.

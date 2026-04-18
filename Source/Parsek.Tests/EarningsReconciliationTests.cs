@@ -1107,6 +1107,550 @@ namespace Parsek.Tests
             }
         }
 
+        #region #440 post-walk tests
+
+        // ================================================================
+        // #440 Phase E2 -- post-walk reconciliation for strategy-transformed
+        // and curve-applied reward types. The new LedgerOrchestrator.
+        // ReconcilePostWalk pairs the derived Transformed*/EffectiveRep/
+        // EffectiveScience values (set by RecalculationEngine.Recalculate)
+        // against live KSP deltas captured in GameStateStore.Events.
+        //
+        // Gate zero: `PostWalk_ReputationCurveMatchesKsp` must pass before
+        // any rep-leg test is trustworthy -- it pins our curve output
+        // against the Spike A decompile of KSP's addReputation_granular.
+        // ================================================================
+
+        // Pre-captured reference values from the Spike A KSP decompile of
+        // addReputation_granular + the reputationAddition / reputationSubtraction
+        // AnimationCurve keyframes (see docs/dev/done/game-actions/
+        // game-actions-spike-findings.md). If these change, the curve has drifted.
+        //
+        // Values computed offline against the exact keyframes and algorithm in
+        // ReputationModule.cs.
+        private const float KspRefDelta_Nominal25_Rep0   = 24.980690f;
+        private const float KspRefDelta_Nominal10_Rep200 =  9.471328f;
+        private const float KspRefDelta_NegNom5_Rep150   = -5.737427f;
+        private const float KspRefDelta_Nominal50_Rep500 = 23.845410f;
+
+        [Fact]
+        public void PostWalk_ReputationCurveMatchesKsp()
+        {
+            // Gate zero: feed known (nominal rep, runningRep) tuples into the curve
+            // and assert output matches the KSP-decompile reference within 0.1.
+            // If this fails, the curve has drifted and #440 rep-leg reconciliation
+            // would false-WARN on every contract completion.
+
+            var r1 = ReputationModule.ApplyReputationCurve(25f, 0f);
+            var r2 = ReputationModule.ApplyReputationCurve(10f, 200f);
+            var r3 = ReputationModule.ApplyReputationCurve(-5f, 150f);
+            var r4 = ReputationModule.ApplyReputationCurve(50f, 500f);
+
+            const float tol = 0.1f;
+            Assert.InRange(r1.actualDelta, KspRefDelta_Nominal25_Rep0   - tol, KspRefDelta_Nominal25_Rep0   + tol);
+            Assert.InRange(r2.actualDelta, KspRefDelta_Nominal10_Rep200 - tol, KspRefDelta_Nominal10_Rep200 + tol);
+            Assert.InRange(r3.actualDelta, KspRefDelta_NegNom5_Rep150   - tol, KspRefDelta_NegNom5_Rep150   + tol);
+            Assert.InRange(r4.actualDelta, KspRefDelta_Nominal50_Rep500 - tol, KspRefDelta_Nominal50_Rep500 + tol);
+
+            // Log-capture assertion: invoke ProcessRepEarning so the module logs a
+            // VERBOSE line, and assert the log shape carries the curve output. This
+            // ties the curve-fidelity assertion to an observable log line consumed
+            // by the reconcile hook's diagnostic path.
+            var action = new GameAction
+            {
+                UT = 100,
+                Type = GameActionType.ReputationEarning,
+                NominalRep = 25f,
+                RepSource = ReputationSource.Other
+            };
+            var module = new ReputationModule();
+            module.ProcessAction(action);
+
+            Assert.InRange(action.EffectiveRep,
+                KspRefDelta_Nominal25_Rep0 - tol,
+                KspRefDelta_Nominal25_Rep0 + tol);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reputation]") && l.Contains("RepEarning") && l.Contains("effective="));
+        }
+
+        // ---------- MakeKeyedRepChanged helper ----------
+
+        private static GameStateEvent MakeKeyedRepChanged(double ut, double before, double after, string reason)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = reason,
+                valueBefore = before,
+                valueAfter = after
+            };
+        }
+
+        // ---------- ContractComplete: all three legs match -> no WARN ----------
+
+        [Fact]
+        public void PostWalk_ContractComplete_AllLegsMatch_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 20000, 24700, "ContractReward"),   // +4700
+                MakeKeyedRepChanged(500, 0, 7, "ContractReward"),             // +7
+                MakeKeyedScienceChanged(500, 0, 3, "ContractReward")          // +3
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c1",
+                Effective = true,
+                TransformedFundsReward = 4700f,
+                EffectiveRep = 7f,
+                TransformedScienceReward = 3f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_ContractComplete_FundsMismatch_OnlyFundsWarn()
+        {
+            // Funds leg diverges by 500; rep and sci match. Only the funds WARN fires.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 20000, 24700, "ContractReward"),   // observed +4700
+                MakeKeyedRepChanged(500, 0, 7, "ContractReward"),
+                MakeKeyedScienceChanged(500, 0, 3, "ContractReward")
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c1",
+                Effective = true,
+                TransformedFundsReward = 5200f,   // diverges by +500
+                EffectiveRep = 7f,
+                TransformedScienceReward = 3f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("ContractComplete"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, rep)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+        }
+
+        [Fact]
+        public void PostWalk_ContractComplete_RepMismatch_OnlyRepWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 20000, 24700, "ContractReward"),
+                MakeKeyedRepChanged(500, 0, 12, "ContractReward"),            // observed +12
+                MakeKeyedScienceChanged(500, 0, 3, "ContractReward")
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c1",
+                Effective = true,
+                TransformedFundsReward = 4700f,
+                EffectiveRep = 7f,               // diverges from +12
+                TransformedScienceReward = 3f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)") &&
+                l.Contains("ContractComplete"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+        }
+
+        [Fact]
+        public void PostWalk_ContractComplete_SciMismatch_OnlySciWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 20000, 24700, "ContractReward"),
+                MakeKeyedRepChanged(500, 0, 7, "ContractReward"),
+                MakeKeyedScienceChanged(500, 0, 8.5, "ContractReward")       // observed +8.5
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c1",
+                Effective = true,
+                TransformedFundsReward = 4700f,
+                EffectiveRep = 7f,
+                TransformedScienceReward = 3f    // diverges from +8.5
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)") &&
+                l.Contains("ContractComplete"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, rep)"));
+        }
+
+        // ---------- ContractFail / ContractCancel (ContractPenalty key) ----------
+
+        [Fact]
+        public void PostWalk_ContractFail_RepCurve_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(800, 20000, 19000, "ContractPenalty"),  // -1000
+                MakeKeyedRepChanged(800, 10, 7, "ContractPenalty")            // -3 (curve-compressed)
+            };
+            var action = new GameAction
+            {
+                UT = 800,
+                Type = GameActionType.ContractFail,
+                ContractId = "c2",
+                FundsPenalty = 1000f,
+                RepPenalty = 5f,          // raw nominal
+                EffectiveRep = -3f        // curve output
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_ContractCancel_FundsAndRep_Match_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(900, 20000, 19500, "ContractPenalty"),  // -500
+                MakeKeyedRepChanged(900, 10, 8, "ContractPenalty")            // -2
+            };
+            var action = new GameAction
+            {
+                UT = 900,
+                Type = GameActionType.ContractCancel,
+                ContractId = "c3",
+                FundsPenalty = 500f,
+                RepPenalty = 3f,
+                EffectiveRep = -2f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        // ---------- MilestoneAchievement (Progression key, Effective gate) ----------
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_EffectiveTrue_AllLegsMatch_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 22000, "Progression"),     // +2000
+                MakeKeyedRepChanged(600, 0, 4, "Progression"),               // +4
+                MakeKeyedScienceChanged(600, 0, 6, "Progression")            // +6
+            };
+            var action = new GameAction
+            {
+                UT = 600,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 2000f,
+                MilestoneRepAwarded = 5f,     // nominal
+                EffectiveRep = 4f,            // curve output
+                MilestoneScienceAwarded = 6f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_EffectiveFalseDuplicate_Skipped_NoWarn()
+        {
+            // Two milestone actions with the same id. The second is Effective=false
+            // (duplicate; MilestonesModule already credited the first). The live
+            // FundsChanged(Progression) event reflects only the first credit.
+            // Post-walk must NOT reconcile the second -> no WARN.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 22000, "Progression")      // +2000 from first
+            };
+            var firstMilestone = new GameAction
+            {
+                UT = 600,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 2000f
+            };
+            var dupMilestone = new GameAction
+            {
+                UT = 700,   // different UT, no matching event in window
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = false,           // duplicate
+                MilestoneFundsAwarded = 2000f
+            };
+            var actions = new List<GameAction> { firstMilestone, dupMilestone };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        // ---------- ReputationEarning / ReputationPenalty ----------
+
+        [Fact]
+        public void PostWalk_ReputationEarning_CurveMatch_NoWarn()
+        {
+            // ReputationSource enum today has ContractComplete / Milestone / Other.
+            // RepSource.Other is synthetic -> ClassifyPostWalk returns Reconcile=false.
+            // Use ContractComplete so the test exercises the ContractReward key path.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedRepChanged(700, 10, 17, "ContractReward")           // +7
+            };
+            var action = new GameAction
+            {
+                UT = 700,
+                Type = GameActionType.ReputationEarning,
+                NominalRep = 10f,
+                RepSource = ReputationSource.ContractComplete,
+                EffectiveRep = 7f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, rep)"));
+        }
+
+        [Fact]
+        public void PostWalk_ReputationEarning_CurveDiverges_Warn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                // Observed +12 from KSP, but walk's curve output was +7 -> 5 rep mismatch
+                MakeKeyedRepChanged(700, 10, 22, "ContractReward")           // +12
+            };
+            var action = new GameAction
+            {
+                UT = 700,
+                Type = GameActionType.ReputationEarning,
+                NominalRep = 10f,
+                RepSource = ReputationSource.ContractComplete,
+                EffectiveRep = 7f     // diverges from observed +12
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)") &&
+                l.Contains("ReputationEarning"));
+        }
+
+        [Fact]
+        public void PostWalk_ReputationPenalty_CurveMatch_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedRepChanged(900, 20, 17, "ContractPenalty")          // -3
+            };
+            var action = new GameAction
+            {
+                UT = 900,
+                Type = GameActionType.ReputationPenalty,
+                NominalPenalty = 5f,
+                RepPenaltySource = ReputationPenaltySource.ContractFail,
+                EffectiveRep = -3f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        // ---------- KSC-path FundsEarning / ScienceEarning ----------
+
+        [Fact]
+        public void PostWalk_FundsEarning_KscPath_Match_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                // Keyed "Other" to represent a generic KSC-path funds earning whose
+                // emitter did not attach a strategy/recovery/contract reason.
+                MakeKeyedFundsChanged(1100, 20000, 21000, "Other")
+            };
+            var action = new GameAction
+            {
+                UT = 1100,
+                Type = GameActionType.FundsEarning,
+                FundsSource = FundsEarningSource.Other,
+                Effective = true,
+                FundsAwarded = 1000f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, funds)"));
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_SubjectCapApplied_Match_NoWarn()
+        {
+            // ScienceEarning with EffectiveScience already post-cap. Observed matches.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(1200, 0, 8.5, "ScienceTransmission")
+            };
+            var action = new GameAction
+            {
+                UT = 1200,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "crewReport@KerbinSrfLanded",
+                Effective = true,
+                ScienceAwarded = 10f,            // raw pre-cap
+                EffectiveScience = 8.5f          // post-cap
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+        }
+
+        // ---------- utCutoff ----------
+
+        [Fact]
+        public void PostWalk_UtCutoff_FiltersFutureActions_NoWarn()
+        {
+            // A ContractComplete at UT=500 with a funds-leg divergence. With utCutoff=200,
+            // the action is filtered out and NO WARN fires (matches walk behavior).
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 20000, 24700, "ContractReward")
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c_future",
+                Effective = true,
+                TransformedFundsReward = 9999f,   // gross divergence that WOULD warn
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: 200.0);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        // ---------- No matching event ----------
+
+        [Fact]
+        public void PostWalk_NoMatchingEvent_WarnsMissingChannel()
+        {
+            var events = new List<GameStateEvent>();  // no events at all
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c_orphan",
+                Effective = true,
+                TransformedFundsReward = 4700f,
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("ContractComplete") &&
+                (l.Contains("no matching") || l.Contains("missing earning channel")));
+        }
+
+        [Fact]
+        public void PostWalk_DoubleWarnGuard_TransformedActionOnlyFiresOnce()
+        {
+            // Regression guard for plan invariant I2 and success-criterion #6:
+            // the existing per-action ReconcileKscAction path must NOT emit a
+            // WARN for an action classified as Transformed, even when the
+            // action genuinely diverges from the paired event. The post-walk
+            // hook is the sole emitter of "Earnings reconciliation (post-walk,"
+            // WARNs for the eight Transformed action types. If a future refactor
+            // accidentally re-enables per-action WARN for a Transformed type,
+            // this test catches the double-WARN regression.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(500, 100000, 102000, "ContractReward"),
+                MakeKeyedRepChanged(500, 10, 10, "ContractReward"),
+                MakeKeyedScienceChanged(500, 0, 0, "ContractReward"),
+            };
+            var action = new GameAction
+            {
+                UT = 500,
+                Type = GameActionType.ContractComplete,
+                ContractId = "c_dbl",
+                Effective = true,
+                // Force a divergence: expected funds=+5000 but store saw +2000.
+                TransformedFundsReward = 5000f,
+                EffectiveRep = 0f,
+                TransformedScienceReward = 0f,
+            };
+            var actions = new List<GameAction> { action };
+
+            // Per-action KSC path (must stay silent on Transformed).
+            Ledger.ResetForTesting();
+            Ledger.AddAction(action);
+            ReconcileKsc(events, new List<GameAction> { action }, action, action.UT);
+
+            // Post-walk path (the only site allowed to WARN here).
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            // Post-walk must have emitted the mismatch WARN.
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("ContractComplete"));
+
+            // The KSC-path ReconcileKscAction must NOT have emitted a non-post-walk
+            // funds WARN for the same action (it VERBOSE-skips Transformed types).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation") &&
+                l.Contains("(funds)") &&
+                !l.Contains("(post-walk"));
+        }
+
+        #endregion
+
         [Fact]
         public void ReconcileKsc_PartPurchase_BypassOff_LegacyCostMismatch_WarnsDelta()
         {

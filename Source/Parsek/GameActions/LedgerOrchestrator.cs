@@ -939,6 +939,12 @@ namespace Parsek
 
             RecalculationEngine.Recalculate(actions, utCutoff);
 
+            // #440 Phase E2: post-walk reconciliation for strategy-transformed
+            // and curve-applied reward types. Runs once per walk, log-only,
+            // after derived fields (Transformed*Reward/EffectiveRep/
+            // EffectiveScience) are populated and before KSP state is patched.
+            ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
+
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
             // rewind-style cutoff walks; normal same-branch recalculations preserve the
@@ -3258,33 +3264,32 @@ namespace Parsek
                 case GameActionType.ContractComplete:
                     // FundsReward/RepReward/ScienceReward subject to StrategiesModule's
                     // TransformedFundsReward/Rep/Science during the walk; RepReward also
-                    // passes through ApplyReputationCurve. Post-walk reconciliation hook
-                    // will live in Phase D's RecalculationEngine changes.
+                    // passes through ApplyReputationCurve. Per-action KSC path stays
+                    // silent; post-walk hook reconciles (#440).
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Transformed,
-                        SkipReason = "contract rewards transformed by strategy + rep curve"
+                        SkipReason = "contract rewards -- post-walk hook reconciles (#440)"
                     };
 
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                     // FundsPenalty is raw, but RepPenalty passes through the reputation
-                    // curve. Partial coverage would be awkward; skip until the walk-aware
-                    // hook exists.
+                    // curve. Post-walk hook reconciles both legs (#440).
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Transformed,
-                        SkipReason = "contract penalty rep curve not yet post-walk-aware"
+                        SkipReason = "contract penalty -- post-walk hook reconciles (#440)"
                     };
 
                 case GameActionType.MilestoneAchievement:
-                    // Current modules do not strategy-transform milestone rewards, but
-                    // some stock/stock-alike mods divert. Skip for safety until the
-                    // post-walk hook lands.
+                    // Rep leg goes through the curve; funds/sci are identity today but
+                    // post-walk hook reconciles all three legs (#440) for regression
+                    // safety if a mod introduces a transform.
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Transformed,
-                        SkipReason = "milestone rewards may be mod-transformed"
+                        SkipReason = "milestone rewards -- post-walk hook reconciles (#440)"
                     };
 
                 case GameActionType.ReputationEarning:
@@ -3292,19 +3297,19 @@ namespace Parsek
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Transformed,
-                        SkipReason = "reputation curve not yet post-walk-aware"
+                        SkipReason = "reputation curve -- post-walk hook reconciles (#440)"
                     };
 
                 case GameActionType.FundsEarning:
                 case GameActionType.ScienceEarning:
                     // Earning actions on the KSC path would be direct deposits (not seen
-                    // today — recovery/contract/milestone flow through their own action
-                    // types). Skip to be safe; strategy payout income will land here once
-                    // Phase E1.5 captures it.
+                    // today -- recovery/contract/milestone flow through their own action
+                    // types). Post-walk hook reconciles the safety path (#440); strategy
+                    // payout income will land here once #439 Phase C captures it.
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Transformed,
-                        SkipReason = "direct earning may be strategy-transformed"
+                        SkipReason = "direct earning -- post-walk hook reconciles (#440)"
                     };
 
                 // ---- No resource impact: short-circuit silently. ----
@@ -3517,6 +3522,508 @@ namespace Parsek
         /// </para>
         /// </summary>
         internal const double KscReconcileEpsilonSeconds = 0.1;
+
+        // ================================================================
+        // #440 Phase E2 -- Post-walk reconciliation (transformed reward types)
+        //
+        // After RecalculationEngine.Recalculate populates TransformedFundsReward,
+        // TransformedScienceReward, EffectiveRep, and EffectiveScience on each
+        // action, ReconcilePostWalk iterates the same (cutoff-filtered) action
+        // list and compares those derived values against live KSP deltas in
+        // GameStateStore. WARN on divergence, VERBOSE on match. Log-only: does
+        // not mutate the ledger, the KSP state, or any module.
+        //
+        // Scope: the eight action types ClassifyAction routes to the Transformed
+        // bucket (ContractComplete, ContractFail, ContractCancel,
+        // MilestoneAchievement, ReputationEarning, ReputationPenalty, KSC-path
+        // FundsEarning and ScienceEarning). Other action types are reconciled
+        // per-action by ReconcileKscAction and return Reconcile=false here.
+        //
+        // See docs/dev/plans/fix-440-post-walk-reconciliation.md.
+        // ================================================================
+
+        /// <summary>
+        /// UT window (seconds) used by <see cref="ReconcilePostWalk"/> to pair a
+        /// transformed-type action with its resource-changed event. Matches the
+        /// <see cref="KscReconcileEpsilonSeconds"/> rationale: same coalesce
+        /// invariant, kept independent so a future tune cannot inadvertently
+        /// couple the two paths.
+        /// </summary>
+        internal const double PostWalkReconcileEpsilonSeconds = 0.1;
+
+        /// <summary>
+        /// One resource leg of a <see cref="PostWalkExpectation"/>. Populated
+        /// only when the leg applies for the action type; otherwise the leg is
+        /// default-zeroed (Applies=false).
+        /// </summary>
+        internal struct PostWalkLeg
+        {
+            public bool Applies;
+            public double Expected;
+            public string ReasonKey;
+            public GameStateEventType EventType;
+        }
+
+        /// <summary>
+        /// Classification output for one action in the post-walk reconcile pass.
+        /// Up to three legs (funds/rep/sci) may apply independently. Returns
+        /// Reconcile=false for action types outside #440 scope.
+        /// </summary>
+        internal struct PostWalkExpectation
+        {
+            public bool Reconcile;
+            public PostWalkLeg Funds;
+            public PostWalkLeg Rep;
+            public PostWalkLeg Sci;
+        }
+
+        /// <summary>
+        /// Pure classifier: maps a Transformed-bucket <see cref="GameAction"/>
+        /// to its post-walk expected delta(s) and the TransactionReasons key
+        /// the emitter stamps on the paired GameStateEvent. Action types
+        /// outside #440 scope (everything ClassifyAction returns as
+        /// Untransformed or NoResourceImpact) return Reconcile=false.
+        /// <para>
+        /// Reviewer-corrected event keys (see plan sections 3.1-3.6):
+        /// <list type="bullet">
+        /// <item><c>ContractComplete</c> -> <c>ContractReward</c> (all three legs)</item>
+        /// <item><c>ContractFail</c> / <c>ContractCancel</c> -> <c>ContractPenalty</c></item>
+        /// <item><c>MilestoneAchievement</c> -> <c>Progression</c> (all three legs, via
+        /// the generic resource-event path; <c>MilestoneAchieved.detail</c> is NOT parsed)</item>
+        /// <item><c>ReputationEarning</c> maps by <see cref="ReputationSource"/>;
+        /// <c>Other</c> returns Reconcile=false (synthetic, no paired event).</item>
+        /// <item><c>ReputationPenalty</c> maps by <see cref="ReputationPenaltySource"/>;
+        /// <c>Other</c> returns Reconcile=false.</item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        internal static PostWalkExpectation ClassifyPostWalk(GameAction action)
+        {
+            var exp = new PostWalkExpectation();
+            if (action == null) return exp;
+
+            switch (action.Type)
+            {
+                case GameActionType.ContractComplete:
+                    // All three legs when Effective; duplicate completions (Effective=false)
+                    // are filtered by MilestonesModule/ContractsModule and the modules
+                    // skip crediting, so the observed delta is 0 for those. Post-walk
+                    // mirrors the module gate by skipping entirely.
+                    if (!action.Effective) return exp;
+                    exp.Reconcile = true;
+                    exp.Funds = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.TransformedFundsReward,
+                        ReasonKey = "ContractReward",
+                        EventType = GameStateEventType.FundsChanged
+                    };
+                    exp.Rep = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.EffectiveRep,
+                        ReasonKey = "ContractReward",
+                        EventType = GameStateEventType.ReputationChanged
+                    };
+                    exp.Sci = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.TransformedScienceReward,
+                        ReasonKey = "ContractReward",
+                        EventType = GameStateEventType.ScienceChanged
+                    };
+                    return exp;
+
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    // Penalties fire unconditionally (no Effective gate in the modules).
+                    // Funds leg: FundsModule deducts FundsPenalty directly (no transform
+                    // today). Rep leg: EffectiveRep from the curve (negative).
+                    exp.Reconcile = true;
+                    exp.Funds = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = -(double)action.FundsPenalty,
+                        ReasonKey = "ContractPenalty",
+                        EventType = GameStateEventType.FundsChanged
+                    };
+                    exp.Rep = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.EffectiveRep,
+                        ReasonKey = "ContractPenalty",
+                        EventType = GameStateEventType.ReputationChanged
+                    };
+                    return exp;
+
+                case GameActionType.MilestoneAchievement:
+                    // All three legs gated on Effective (duplicates skip).
+                    if (!action.Effective) return exp;
+                    exp.Reconcile = true;
+                    exp.Funds = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.MilestoneFundsAwarded,
+                        ReasonKey = "Progression",
+                        EventType = GameStateEventType.FundsChanged
+                    };
+                    exp.Rep = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.EffectiveRep,
+                        ReasonKey = "Progression",
+                        EventType = GameStateEventType.ReputationChanged
+                    };
+                    exp.Sci = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.MilestoneScienceAwarded,
+                        ReasonKey = "Progression",
+                        EventType = GameStateEventType.ScienceChanged
+                    };
+                    return exp;
+
+                case GameActionType.ReputationEarning:
+                {
+                    // Map source -> key. Synthetic sources (Other, and LegacyMigration if
+                    // re-introduced on the rep enum later) return Reconcile=false.
+                    string key;
+                    switch (action.RepSource)
+                    {
+                        case ReputationSource.ContractComplete:
+                            key = "ContractReward"; break;
+                        case ReputationSource.Milestone:
+                            key = "Progression"; break;
+                        case ReputationSource.Other:
+                        default:
+                            return exp; // synthetic, no paired event
+                    }
+                    exp.Reconcile = true;
+                    exp.Rep = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.EffectiveRep,
+                        ReasonKey = key,
+                        EventType = GameStateEventType.ReputationChanged
+                    };
+                    return exp;
+                }
+
+                case GameActionType.ReputationPenalty:
+                {
+                    string key;
+                    switch (action.RepPenaltySource)
+                    {
+                        case ReputationPenaltySource.ContractFail:
+                            key = "ContractPenalty"; break;
+                        case ReputationPenaltySource.ContractDecline:
+                            key = "ContractDecline"; break;
+                        case ReputationPenaltySource.KerbalDeath:
+                            key = "CrewKilled"; break;
+                        case ReputationPenaltySource.Strategy:
+                        case ReputationPenaltySource.Other:
+                        default:
+                            return exp; // synthetic / no stock emitter today
+                    }
+                    exp.Reconcile = true;
+                    exp.Rep = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.EffectiveRep,
+                        ReasonKey = key,
+                        EventType = GameStateEventType.ReputationChanged
+                    };
+                    return exp;
+                }
+
+                case GameActionType.FundsEarning:
+                {
+                    // KSC-path direct earnings (source != Recovery / ContractComplete /
+                    // Milestone). Recovery/ContractComplete/Milestone arrive as their own
+                    // action types and are handled above. This branch is a safety net
+                    // for direct "Other"-source KSC payouts (today: none from stock; mod
+                    // strategy payouts could land here once #439 Phase C captures them).
+                    if (!action.Effective) return exp;
+                    if (action.FundsSource == FundsEarningSource.LegacyMigration) return exp;
+                    if (action.FundsSource == FundsEarningSource.Recovery) return exp;
+                    if (action.FundsSource == FundsEarningSource.ContractComplete) return exp;
+                    if (action.FundsSource == FundsEarningSource.ContractAdvance) return exp;
+                    if (action.FundsSource == FundsEarningSource.Milestone) return exp;
+                    exp.Reconcile = true;
+                    exp.Funds = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.FundsAwarded,
+                        ReasonKey = "Other",
+                        EventType = GameStateEventType.FundsChanged
+                    };
+                    return exp;
+                }
+
+                case GameActionType.ScienceEarning:
+                {
+                    // Post-cap EffectiveScience (ScienceModule sets this on walk).
+                    if (!action.Effective) return exp;
+                    exp.Reconcile = true;
+                    exp.Sci = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.EffectiveScience,
+                        ReasonKey = "ScienceTransmission",
+                        EventType = GameStateEventType.ScienceChanged
+                    };
+                    return exp;
+                }
+
+                default:
+                    return exp; // Reconcile stays false
+            }
+        }
+
+        /// <summary>
+        /// Post-walk reconciliation. Runs once per <see cref="RecalculateAndPatch"/>
+        /// after <see cref="RecalculationEngine.Recalculate"/> returns and before
+        /// <see cref="KspStatePatcher.PatchAll"/>. Iterates actions in stored
+        /// order; for each Transformed-bucket action whose UT survives the
+        /// cutoff, compares the post-walk derived delta against the live KSP
+        /// delta (<c>valueAfter - valueBefore</c>) summed across matching
+        /// <see cref="GameStateStore"/> events within
+        /// <see cref="PostWalkReconcileEpsilonSeconds"/> of <c>action.UT</c>.
+        /// WARN on divergence per leg; VERBOSE rate-limited on match. Emits a
+        /// single INFO summary after the iteration. Log-only.
+        /// <para>
+        /// Parameterized for testability — production calls pass
+        /// <see cref="GameStateStore.Events"/> and <see cref="Ledger.Actions"/>.
+        /// </para>
+        /// </summary>
+        internal static void ReconcilePostWalk(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            if (actions == null || actions.Count == 0) return;
+
+            const double fundsTol = 1.0;
+            const double repTol = 0.1;
+            const double sciTol = 0.1;
+
+            int walked = 0;
+            int matched = 0;
+            int mismatchFunds = 0;
+            int mismatchRep = 0;
+            int mismatchSci = 0;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+
+                // Respect the same filter as RecalculationEngine.Recalculate: seed
+                // types always pass; non-seed actions pass when UT <= cutoff.
+                if (utCutoff.HasValue &&
+                    !RecalculationEngine.IsSeedType(action.Type) &&
+                    action.UT > utCutoff.Value)
+                {
+                    continue;
+                }
+
+                var exp = ClassifyPostWalk(action);
+                if (!exp.Reconcile) continue;
+                walked++;
+
+                bool anyMismatch = false;
+                if (exp.Funds.Applies)
+                {
+                    if (!CompareLeg(action, "funds", exp.Funds, fundsTol, events, actions, utCutoff))
+                    {
+                        mismatchFunds++;
+                        anyMismatch = true;
+                    }
+                }
+                if (exp.Rep.Applies)
+                {
+                    if (!CompareLeg(action, "rep", exp.Rep, repTol, events, actions, utCutoff))
+                    {
+                        mismatchRep++;
+                        anyMismatch = true;
+                    }
+                }
+                if (exp.Sci.Applies)
+                {
+                    if (!CompareLeg(action, "sci", exp.Sci, sciTol, events, actions, utCutoff))
+                    {
+                        mismatchSci++;
+                        anyMismatch = true;
+                    }
+                }
+
+                if (!anyMismatch) matched++;
+            }
+
+            string cutoffLabel = utCutoff.HasValue
+                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
+                : "null";
+            ParsekLog.Info(Tag,
+                $"Post-walk reconcile: actions={walked}, matches={matched}, " +
+                $"mismatches(funds/rep/sci)={mismatchFunds}/{mismatchRep}/{mismatchSci}, " +
+                $"cutoffUT={cutoffLabel}");
+        }
+
+        /// <summary>
+        /// Compares one resource leg for a transformed action. Returns true on
+        /// match (WARN suppressed, VERBOSE rate-limited), false on mismatch or
+        /// missing event (WARN fired). Observed delta =
+        /// <c>sum(valueAfter - valueBefore)</c> across events with matching
+        /// type + key within <see cref="PostWalkReconcileEpsilonSeconds"/> of
+        /// <c>action.UT</c>.
+        /// </summary>
+        private static bool CompareLeg(
+            GameAction action,
+            string legTag,
+            PostWalkLeg leg,
+            double tolerance,
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            double summedExpected = SumExpectedPostWalkWindow(
+                action, leg, tolerance, actions, utCutoff);
+
+            double observed = 0.0;
+            int observedCount = 0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.eventType != leg.EventType) continue;
+                    if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                    string eventKey = e.key ?? "";
+                    if (!string.Equals(eventKey, leg.ReasonKey, StringComparison.Ordinal))
+                        continue;
+                    observed += (e.valueAfter - e.valueBefore);
+                    observedCount++;
+                }
+            }
+
+            // Zero-expected + zero-observed is silent match (no event fired, none
+            // expected). Zero-expected + non-zero observed is a mismatch: the walk
+            // produced nothing but KSP credited a delta.
+            if (Math.Abs(summedExpected) <= tolerance && observedCount == 0)
+                return true;
+
+            string id = ActionIdForPostWalk(action);
+
+            if (observedCount == 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
+                    $"id={id} expected={summedExpected:F1} but no matching {leg.EventType} event " +
+                    $"keyed '{leg.ReasonKey}' within {PostWalkReconcileEpsilonSeconds:F1}s of " +
+                    $"ut={action.UT:F1} -- missing earning channel or stale event?");
+                return false;
+            }
+
+            if (Math.Abs(summedExpected - observed) > tolerance)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
+                    $"id={id} expected={summedExpected:F1}, observed={observed:F1} across " +
+                    $"{observedCount} event(s) keyed '{leg.ReasonKey}' at ut={action.UT:F1} " +
+                    $"-- post-walk delta mismatch");
+                return false;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag,
+                $"post-walk-match:{action.Type}:{legTag}",
+                $"Post-walk match: {action.Type} {legTag} id={id} " +
+                $"expected={summedExpected:F1}, observed={observed:F1}, ut={action.UT:F1}");
+            return true;
+        }
+
+        /// <summary>
+        /// Sums the expected post-walk delta across all actions that classify to the
+        /// same (EventType, ReasonKey) pair within the coalesce window. Mirrors the
+        /// observed-side event coalescing so same-UT reward bursts do not falsely warn.
+        /// </summary>
+        private static double SumExpectedPostWalkWindow(
+            GameAction anchorAction,
+            PostWalkLeg anchorLeg,
+            double tolerance,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            double summedExpected = 0.0;
+            int expectedCount = 0;
+
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var other = actions[i];
+                    if (other == null) continue;
+                    if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
+                        continue;
+                    if (utCutoff.HasValue &&
+                        !RecalculationEngine.IsSeedType(other.Type) &&
+                        other.UT > utCutoff.Value)
+                    {
+                        continue;
+                    }
+
+                    var otherExp = ClassifyPostWalk(other);
+                    if (!otherExp.Reconcile) continue;
+
+                    AccumulateMatchingPostWalkLeg(
+                        otherExp.Funds, anchorLeg, tolerance,
+                        ref summedExpected, ref expectedCount);
+                    AccumulateMatchingPostWalkLeg(
+                        otherExp.Rep, anchorLeg, tolerance,
+                        ref summedExpected, ref expectedCount);
+                    AccumulateMatchingPostWalkLeg(
+                        otherExp.Sci, anchorLeg, tolerance,
+                        ref summedExpected, ref expectedCount);
+                }
+            }
+
+            if (expectedCount == 0)
+                return anchorLeg.Expected;
+
+            return summedExpected;
+        }
+
+        private static void AccumulateMatchingPostWalkLeg(
+            PostWalkLeg candidate,
+            PostWalkLeg anchorLeg,
+            double tolerance,
+            ref double summedExpected,
+            ref int expectedCount)
+        {
+            if (!candidate.Applies) return;
+            if (candidate.EventType != anchorLeg.EventType) return;
+
+            string candidateKey = candidate.ReasonKey ?? "";
+            string anchorKey = anchorLeg.ReasonKey ?? "";
+            if (!string.Equals(candidateKey, anchorKey, StringComparison.Ordinal))
+                return;
+
+            if (Math.Abs(candidate.Expected) <= tolerance)
+                return;
+
+            summedExpected += candidate.Expected;
+            expectedCount++;
+        }
+
+        /// <summary>Pure: best-effort identifier for post-walk log lines.</summary>
+        private static string ActionIdForPostWalk(GameAction action)
+        {
+            if (action == null) return "null";
+            if (!string.IsNullOrEmpty(action.ContractId)) return action.ContractId;
+            if (!string.IsNullOrEmpty(action.MilestoneId)) return action.MilestoneId;
+            if (!string.IsNullOrEmpty(action.SubjectId)) return action.SubjectId;
+            if (!string.IsNullOrEmpty(action.RecordingId)) return action.RecordingId;
+            return "(none)";
+        }
 
         /// <summary>
         /// Test-only seam for the "now UT" used by <see cref="CanAffordScienceSpending"/>
