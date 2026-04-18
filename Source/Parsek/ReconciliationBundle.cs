@@ -27,6 +27,16 @@ namespace Parsek
         public List<Recording> Recordings;
 
         /// <summary>
+        /// Shallow snapshot of <see cref="RecordingStore.CommittedTrees"/> at
+        /// capture time. The parallel tree list must round-trip alongside
+        /// <see cref="Recordings"/> because ghost playback, EffectiveState, and
+        /// every tree-aware consumer reads it directly — without the snapshot,
+        /// a restore-after-load would leave trees empty even though the
+        /// recordings list was re-installed.
+        /// </summary>
+        public List<RecordingTree> Trees;
+
+        /// <summary>
         /// Snapshot of <see cref="Ledger.Actions"/>. Preserves ordering.
         /// </summary>
         public List<GameAction> Actions;
@@ -68,6 +78,7 @@ namespace Parsek
             var bundle = new ReconciliationBundle
             {
                 Recordings = new List<Recording>(),
+                Trees = new List<RecordingTree>(),
                 Actions = new List<GameAction>(),
                 RewindPoints = new List<RewindPoint>(),
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),
@@ -86,6 +97,14 @@ namespace Parsek
             {
                 for (int i = 0; i < committed.Count; i++)
                     bundle.Recordings.Add(committed[i]);
+            }
+
+            // Trees: shallow snapshot parallel to Recordings.
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                    bundle.Trees.Add(committedTrees[i]);
             }
 
             // Ledger actions snapshot.
@@ -127,7 +146,8 @@ namespace Parsek
                 bundle.Milestones.AddRange(milestones);
 
             ParsekLog.Info("ReconciliationBundle",
-                $"Captured: recs={bundle.Recordings.Count} actions={bundle.Actions.Count} " +
+                $"Captured: recs={bundle.Recordings.Count} trees={bundle.Trees.Count} " +
+                $"actions={bundle.Actions.Count} " +
                 $"rps={bundle.RewindPoints.Count} supersedes={bundle.RecordingSupersedes.Count} " +
                 $"tombstones={bundle.LedgerTombstones.Count} " +
                 $"marker={(bundle.ActiveReFlySessionMarker != null)} " +
@@ -146,13 +166,21 @@ namespace Parsek
         /// </summary>
         public static void Restore(ReconciliationBundle bundle)
         {
-            // RecordingStore: clear + re-add via the internal helpers so the
-            // StateVersion bumps exactly once.
+            // RecordingStore: clear + re-add via the internal helpers. Trees
+            // and recordings are parallel lists that MUST round-trip together
+            // — clear both, install both — otherwise the ERS/ELS cache sees a
+            // tree-less state and drops tree-scoped events on restore.
             RecordingStore.ClearCommittedInternal();
+            RecordingStore.ClearCommittedTreesInternal();
             if (bundle.Recordings != null)
             {
                 for (int i = 0; i < bundle.Recordings.Count; i++)
                     RecordingStore.AddCommittedInternal(bundle.Recordings[i]);
+            }
+            if (bundle.Trees != null)
+            {
+                for (int i = 0; i < bundle.Trees.Count; i++)
+                    RecordingStore.AddCommittedTreeInternal(bundle.Trees[i]);
             }
 
             // Ledger actions.
@@ -210,7 +238,8 @@ namespace Parsek
             }
 
             ParsekLog.Info("ReconciliationBundle",
-                $"Restored: recs={(bundle.Recordings?.Count ?? 0)} actions={(bundle.Actions?.Count ?? 0)} " +
+                $"Restored: recs={(bundle.Recordings?.Count ?? 0)} trees={(bundle.Trees?.Count ?? 0)} " +
+                $"actions={(bundle.Actions?.Count ?? 0)} " +
                 $"rps={(bundle.RewindPoints?.Count ?? 0)} supersedes={(bundle.RecordingSupersedes?.Count ?? 0)} " +
                 $"tombstones={(bundle.LedgerTombstones?.Count ?? 0)} " +
                 $"marker={(bundle.ActiveReFlySessionMarker != null)} " +

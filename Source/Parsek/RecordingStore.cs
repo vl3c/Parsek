@@ -529,6 +529,35 @@ namespace Parsek
             BumpStateVersion();
         }
 
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// adds a tree to <see cref="committedTrees"/> without re-running
+        /// <see cref="FinalizeTreeCommit"/>'s full commit pipeline (no session
+        /// merge, no group assignment, no milestone creation). The bundle
+        /// restore path uses this to re-install pre-load trees verbatim after
+        /// a scene reload wiped the parallel list; the trees' recordings are
+        /// re-installed via <see cref="AddCommittedInternal"/> in the same
+        /// restore pass.
+        /// </summary>
+        internal static void AddCommittedTreeInternal(RecordingTree tree)
+        {
+            if (tree == null) return;
+            committedTrees.Add(tree);
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging: companion to <see cref="AddCommittedTreeInternal"/>.
+        /// Clears <see cref="committedTrees"/> without touching the parallel
+        /// <see cref="committedRecordings"/> list — the bundle-restore caller
+        /// manages both lists in lockstep.
+        /// </summary>
+        internal static void ClearCommittedTreesInternal()
+        {
+            committedTrees.Clear();
+            BumpStateVersion();
+        }
+
         public static void ClearCommitted()
         {
             int count = committedRecordings.Count;
