@@ -40,10 +40,56 @@ namespace Parsek
         /// <summary>Wall-clock timestamp at which the staged-commit began (ISO 8601 UTC; design §5.8).</summary>
         public string StartedRealTime;
 
-        /// <summary>Phase vocabulary (design doc sections 5.8 + 6.6).</summary>
+        /// <summary>
+        /// Phase vocabulary (design doc sections 5.8 + 6.6). Phase 10 of the
+        /// rewind-to-staging rollout extends the single <see cref="Begin"/>
+        /// marker with the intermediate staged-commit checkpoints written by
+        /// <c>MergeJournalOrchestrator.RunMerge</c>. The on-load finisher
+        /// branches on these strings to decide whether the interrupted merge
+        /// should roll back (Phase less-than-or-equal <see cref="Finalize"/>)
+        /// or be driven to completion (Phase greater-than-or-equal
+        /// <see cref="Durable1Done"/>).
+        /// </summary>
         public static class Phases
         {
             public const string Begin = "Begin";
+            public const string Supersede = "Supersede";
+            public const string Tombstone = "Tombstone";
+            public const string Finalize = "Finalize";
+            public const string Durable1Done = "Durable1Done";
+            public const string RpReap = "RpReap";
+            public const string MarkerCleared = "MarkerCleared";
+            public const string Durable2Done = "Durable2Done";
+            public const string Complete = "Complete";
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="phase"/> represents a checkpoint at
+        /// or before the first durable save — i.e. on-disk state is still the
+        /// pre-merge snapshot and any recovery must roll the in-memory merge
+        /// back (design §6.6 failure-recovery matrix).
+        /// </summary>
+        public static bool IsPreDurablePhase(string phase)
+        {
+            return phase == Phases.Begin
+                || phase == Phases.Supersede
+                || phase == Phases.Tombstone
+                || phase == Phases.Finalize;
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="phase"/> represents a checkpoint
+        /// after Durable Save #1 — the first durable save wrote the merged
+        /// state to disk, so recovery must complete the remaining steps
+        /// instead of rolling back.
+        /// </summary>
+        public static bool IsPostDurablePhase(string phase)
+        {
+            return phase == Phases.Durable1Done
+                || phase == Phases.RpReap
+                || phase == Phases.MarkerCleared
+                || phase == Phases.Durable2Done
+                || phase == Phases.Complete;
         }
 
         internal const string NodeName = "MERGE_JOURNAL";
