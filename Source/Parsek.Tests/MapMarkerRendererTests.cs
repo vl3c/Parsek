@@ -181,6 +181,18 @@ namespace Parsek.Tests
             Assert.False(MapMarkerRenderer.InitAttemptedForTesting);
         }
 
+        [Theory]
+        [InlineData(0, 1, 0, true)]
+        [InlineData(0, 0, 1, true)]
+        [InlineData(0, 0, 0, false)]
+        [InlineData(1, 5, 5, false)]
+        public void ShouldRetryIconInit_OnlyForZeroLoadedTransientMisses(
+            int loaded, int missingSprite, int missingTexture, bool expected)
+        {
+            Assert.Equal(expected,
+                MapMarkerRenderer.ShouldRetryIconInit(loaded, missingSprite, missingTexture));
+        }
+
         // #387 follow-up (2026-04-18 playtest). The original fix forced every
         // sprite onto a single resolved atlas and silently dropped sprites
         // whose texture differed — losing DeployedScienceController (atlas

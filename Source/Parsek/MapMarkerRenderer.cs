@@ -382,6 +382,19 @@ namespace Parsek
                 out int outOfRange, out int missingSprite, out int missingTexture,
                 out string perAtlasSummary, out string perTypeUvDetail);
 
+            if (ShouldRetryIconInit(loaded, missingSprite, missingTexture))
+            {
+                // Transient: the sprite array exists but none of the stock-indexed
+                // entries carry a usable Texture2D yet. Keep the latch open so the
+                // next frame can retry instead of pinning the whole scene to the
+                // fallback diamond with an empty entry cache.
+                vesselIconEntries = null;
+                ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "InitVesselTypeIcons: no usable icon entries yet (missingSprite={0} missingTexture={1} spriteCount={2}) — will retry next frame",
+                    missingSprite, missingTexture, sprites.Length));
+                return;
+            }
+
             // Init succeeded — latch so we don't re-reflect on every frame.
             initAttempted = true;
 
@@ -529,6 +542,9 @@ namespace Parsek
             perTypeUvDetail = uvDetail.ToString();
             return result;
         }
+
+        internal static bool ShouldRetryIconInit(int loaded, int missingSprite, int missingTexture)
+            => loaded == 0 && (missingSprite > 0 || missingTexture > 0);
 
         private static string FormatPerAtlasSummary(List<int> counts, List<string> names)
         {
