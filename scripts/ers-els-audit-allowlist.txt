@@ -50,3 +50,23 @@ Source/Parsek/UI/SettingsWindowUI.cs
 # RecordingSupersede relation (§6.6). Documented at the call site with an
 # inline [ERS-exempt] comment.
 Source/Parsek/RewindPointAuthor.cs
+
+# --- Phase 6 ERS-exempt files ---
+# RewindInvoker orchestrates the invocation flow; it reads the committed list
+# exactly once (FindRecordingById) to locate the origin child recording by its
+# OriginChildRecordingId. Supersede-aware lookups would mis-resolve the origin
+# by walking to the effective recording, which is precisely the id we need to
+# store as SupersedeTargetId on the provisional re-fly record (design §6.3).
+Source/Parsek/RewindInvoker.cs
+
+# ReconciliationBundle (design §6.4) captures the raw committed list + raw
+# ledger actions so the restore-after-load path can re-install them verbatim.
+# Routing through ERS/ELS would drop superseded/tombstoned entries from the
+# snapshot, breaking the reconciliation invariant.
+Source/Parsek/ReconciliationBundle.cs
+
+# PostLoadStripper (design §6.4 step 4) correlates live vessels to slot indices
+# via raw Vessel.persistentId / rootPart.persistentId against the RP's
+# PidSlotMap / RootPartPidMap. This is a physical identity correlation at load
+# time, not a supersede-aware recording lookup.
+Source/Parsek/PostLoadStripper.cs
