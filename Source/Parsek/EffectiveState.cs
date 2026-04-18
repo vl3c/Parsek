@@ -73,6 +73,8 @@ namespace Parsek
         /// origin returns null. Null / empty supersede list is treated as
         /// chain-length 0 (origin is already effective).
         /// </summary>
+        // TODO(phase >=3): halt walk at cross-tree boundaries once cross-tree supersedes are producible (design §5.2).
+        // Tracked in docs/dev/todo-and-known-bugs.md (Phase 3+ work).
         public static string EffectiveRecordingId(
             string originRecordingId,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
@@ -148,6 +150,8 @@ namespace Parsek
         /// semantics will be wired in later phases; the classifier is centralized
         /// here so the upgrade lands in one place.
         /// </summary>
+        // TODO(phase >=3): flip Immutable->CommittedProvisional once the classifier emits CommittedProvisional (design §3.1).
+        // Tracked in docs/dev/todo-and-known-bugs.md (Phase 3+ work).
         public static bool IsUnfinishedFlight(Recording rec)
         {
             if (rec == null) return false;
@@ -214,6 +218,8 @@ namespace Parsek
         /// through this helper; future phases will extend to BG-crash once
         /// the <c>TerminalKind</c> abstraction exists.
         /// </summary>
+        // TODO(phase >=3): widen TerminalState.Destroyed to include BGCrash/Crashed once TerminalKind lands (design §5.11).
+        // Tracked in docs/dev/todo-and-known-bugs.md (Phase 3+ work).
         public static bool IsTerminalCrashed(Recording rec)
         {
             if (rec == null) return false;
@@ -462,9 +468,9 @@ namespace Parsek
                         if (string.IsNullOrEmpty(childId)) continue;
                         if (result.Contains(childId)) continue;
 
-                        // Mixed-parent halt: only stop at Dock / Board merges whose
-                        // ParentRecordingIds contain an outside parent.
-                        if (IsMergeBranchPoint(bp) && HasOutsideParent(bp, result))
+                        // Any BranchPoint with a parent outside the suppressed set halts the walk
+                        // (dock/board merges are the common case but this is type-agnostic per design §3.3).
+                        if (HasOutsideParent(bp, result))
                         {
                             mixedParentHalts++;
                             ParsekLog.Verbose("ReFlySession",
@@ -532,12 +538,6 @@ namespace Parsek
                     return bp;
             }
             return null;
-        }
-
-        private static bool IsMergeBranchPoint(BranchPoint bp)
-        {
-            if (bp == null) return false;
-            return bp.Type == BranchPointType.Dock || bp.Type == BranchPointType.Board;
         }
 
         private static bool HasOutsideParent(BranchPoint bp, HashSet<string> suppressed)
