@@ -1108,6 +1108,14 @@ namespace Parsek
                 return;
             }
 
+            // Phase 11 of Rewind-to-Staging (design §3.5 invariant 7 / §6.10):
+            // tree discard is the ONLY purge path for RewindPoints, supersede
+            // relations, and ledger tombstones whose endpoints tie back to
+            // the discarded tree. Runs BEFORE the recording list mutations
+            // below so the purge can still resolve ids -> Recording /
+            // GameAction for in-tree classification.
+            TreeDiscardPurge.PurgeTree(pendingTree.Id);
+
             // #431: collect every recording id in the tree and purge tagged events first.
             // Runs before file deletion so a later failure in DeleteRecordingFiles still
             // leaves the event store in the correct post-discard shape.
