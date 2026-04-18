@@ -58,6 +58,30 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~459.~~ `Run All` cleanup destroys the watched ghost before watch mode exits, flooding `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` with NullReferenceExceptions
+
+**Source:** Playtest `2026-04-18_1947_450-b3-playtest/KSP.log`. At `19:46:21.679`, `InGameTestRunner.PerformBetweenRunCleanup("run-all")` started its teardown in FLIGHT and immediately called `ParsekFlight.DestroyAllTimelineGhosts()` while watch mode was still active on a ghost. The watched `state.ghost.transform` then became a destroyed Unity wrapper, but stock camera state still held it via `PlanetariumCamera.target` / `ScaledMovement.tgtRef`; on the next frame, stock `Sun.LateUpdate` and `FlightGlobals.UpdateInformation` started throwing every frame (about 8,750 exceptions over 60 seconds) until the player alt+F4'd.
+
+**Fix:** extracted `ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(...)` as the shared seam for this ordering guard. `InGameTestRunner.PerformBetweenRunCleanup` now calls it at the top of the `flight != null` block, before reading ghost counts or destroying anything. The helper first retargets stock camera state off the watched ghost without restoring the saved watch camera orbit: `FlightCamera` is rebound to the active vessel, and when map view is open `PlanetariumCamera` is rebound to the active vessel's `mapObject`, so stock `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` no longer retain the destroyed ghost transform. Only after that retarget does it call `ExitWatchMode(skipCameraRestore:true)` to clear Parsek's internal watch state without trying to restore the old camera pose. `ParsekFlight.DestroyAllTimelineGhosts()` also calls the same helper first so rewind and any future caller cannot destroy timeline ghosts while stock watch/camera state still points at one. Added `Patches/SunLateUpdateGuardPatch.cs` as symptom containment: Harmony prefix on `Sun.LateUpdate` returns early when `Sun.target` is null/destroyed and emits a one-shot `[CameraFollow]` WARN so regressions still leave a breadcrumb instead of a per-frame exception storm. Unit coverage in `WatchModeCleanupRegressionTests` now asserts the detach callback runs before the exit callback and that the `[CameraFollow] Exiting watch mode before timeline ghost cleanup` log precedes `[Engine] DestroyAllGhosts`; runtime coverage adds `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` plus `GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs` to watch the exact cleanup path and the adjacent low-altitude Kerbin spawn path for stock exception spam.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/Patches/SunLateUpdateGuardPatch.cs`, `Source/Parsek.Tests/WatchModeCleanupRegressionTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. `dotnet build` passes, `dotnet test --filter WatchModeCleanupRegressionTests` passes (3/3), and full `dotnet test` passes (7195/7196 with 1 pre-existing skipped Unity-runtime test). In-game runtime verification remains pending for the next playtest.
+
+---
+
+## ~~458.~~ Binary `.prec` flat-fallback loads skip the malformed-prefix healer
+
+**Source:** playtest `2026-04-18 1947`. `RuntimeTests.CommittedRecordingsHaveValidData` failed on recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) with `point 13 UT 155.840000000006 < previous 170.920000000014`. Hex-decoding the `.prec` confirmed the top-level flat point list duplicated the authoritative 13-frame prefix and then appended a terminal endpoint, while `TrackSection[0]` itself held the correct monotonically increasing frames. Root cause: commit `4474ba97` added `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`, but only the text `ConfigNode` load path (`DeserializeTrajectoryFrom`) called it. Real committed recordings hydrate through `TrajectorySidecarBinary.Read`, so the bad binary shape bypassed the healer entirely.
+
+**Fix:** `TrajectorySidecarBinary.Read` now runs the same healer in the non-section-authoritative branch after `ReadTrackSections`, with `allowRelativeSections: true` to match the text load path. The existing `ReadBinaryTrajectoryFile ... used flat fallback path` VERBOSE line now includes `healed=true/false` plus `prePoints/postPoints` and `preOrbitSegments/postOrbitSegments`, making it obvious in `KSP.log` whether a malformed flat fallback was rewritten on read. The healer already calls `rec.MarkFilesDirty()`, so a healed sidecar now flushes back out automatically on the next save. `RuntimeTests.CommittedRecordingsHaveValidData` also reports `trackSections=`, `prefixMatchCount=`, and `firstPostPrefixSource=` for any future monotonicity failure so the next playtest points directly at duplicated track-section payload vs flat-only tail data.
+
+**Files:** `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Bug458BinaryFlatFallbackHealTests.cs`.
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter Bug458BinaryFlatFallbackHealTests` (1/1). In-game verification is pending the next playtest bundle.
+
+---
+
 ## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
 
 **Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
@@ -165,18 +189,62 @@ Breakdown of the exceeded frame: 70% of the budget (28.11 / 40.1 ms) lived insid
 
 **Fix — Phase A (shipped): diagnostic first.** `PlaybackBudgetPhases` now carries an aggregate-and-heaviest-spawn breakdown of every `BuildGhostVisualsWithMetrics` call across four sub-phases (snapshot resolve, timeline-from-snapshot, dictionaries, reentry FX) plus a residual "other" bucket so `sum + other = spawnMax` reconciles. `GhostPlaybackEngine.TryPopulateGhostVisuals` hosts four pre-allocated Stopwatches using the #414 spawnStopwatch pattern (pre-call ElapsedTicks + post-call subtraction for per-call deltas; same objects accumulate across the frame for the aggregate). `BuildGhostVisualsWithMetrics.finally` latches the heaviest spawn's breakdown + a byte-backed `HeaviestSpawnBuildType` classification. A separate one-shot WARN (`s_buildBreakdownOneShotFired` — independent of #414's latch so Phase A collects data even when the session's first spike already consumed #414's latch before rollout) fires the very first time a budget-exceeded frame has `spawnMicroseconds > 0`. See `docs/dev/plan-450-build-breakdown.md`.
 
-**Phase B (gated on playtest data — NOT yet scheduled):** once the next real spike fires in a user install, the new `Playback spawn build breakdown` WARN will attribute the cost. The fix branch depends on the answer:
-- `timeline` dominates, heaviest-spawn < ~15 ms — **B1: per-frame build-time budget.** `MaxSpawnBuildMsPerFrame` const; new `GhostPlaybackLogic.ShouldThrottleSpawnByTime(frameSpawnTotalTicks, capTicks)`; `TryReserveSpawnSlot` ORs count-cap and time-cap.
-- `timeline` dominates, single spawn > ~15 ms — **B2: coroutine split of `TryPopulateGhostVisuals`.** Yield between (1) snapshot resolve, (2) timeline build, (3) dict populate, (4) reentry FX; extend `deferVisibilityUntilPlaybackSync` across yields.
-- `reentry` dominates — **B3: lazy reentry FX pre-warm.** Gate `TryBuildReentryFx` on first-frame-in-atmosphere + speed > floor, not on trajectory peak.
+**Phase B branch decision — data from the 2026-04-18 playtest:**
 
-**Files:** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch + `FormatHeaviestSpawnBuildType` helper), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs` (new), `docs/dev/plan-450-build-breakdown.md` (new).
+```
+heaviestSpawn[type=recording-start-snapshot
+              snapshot=0.00ms timeline=15.90ms dicts=1.28ms reentry=6.94ms
+              other=0.08ms total=24.20ms]
+```
 
-**Scope:** Phase A = Small (instrumentation-only, zero behaviour change). Phase B = scope depends on the chosen branch; held until playtest data lands.
+Timeline dominates (65.7 %) and reentry is a significant secondary
+contributor (28.7 %). Both B2 and B3 apply; B3 ships first (smaller blast
+radius), then B2 takes on the remaining `timeline` cost.
 
-**Dependencies:** #414 shipped (`TryReserveSpawnSlot` hook + per-phase breakdown framework are on main).
+**Phase B3 (shipped): lazy reentry FX pre-warm.** Defers
+`GhostVisualBuilder.TryBuildReentryFx` from spawn time to the first frame
+the ghost is actually inside a body's atmosphere. New
+`GhostPlaybackState.reentryFxPendingBuild` bool set at spawn when
+`HasReentryPotential(traj) == true`; cleared in
+`ClearLoadedVisualReferences` alongside `reentryFxInfo`. The lazy build
+fires from inside `UpdateReentryFx` after its existing body/atmosphere/
+altitude guards so there is no duplicate `FlightGlobals.Bodies.Find`.
+`MaxLazyReentryBuildsPerFrame = 2` per-frame cap mirrors
+`MaxSpawnsPerFrame` so a burst of same-frame atmosphere entries cannot
+relocate the bimodal hitch. New `reentryFxDeferredThisSession` counter
+tracks deferrals; the gap between deferrals and actual builds at session
+end is the count of trajectories that saved the full 6.94 ms by never
+entering atmosphere. Pure decision logic lives in
+`GhostPlaybackLogic.ShouldBuildLazyReentryFx` for unit testing without
+Unity. See `docs/dev/plan-450-b3-lazy-reentry.md`.
 
-**Status:** Phase A shipped — diagnostic instrumentation + one-shot WARN. Phase B: TODO, gated on next playtest's breakdown output. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns; not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Phase B2 (next): coroutine split of `BuildTimelineGhostFromSnapshot`.**
+Targets the dominant 15.90 ms timeline bucket. Not yet planned in detail;
+gated on confirmation from a post-B3 playtest that the `heaviestSpawn[reentry=…]`
+field has indeed dropped toward zero and the `timeline` field is the
+remaining problem.
+
+**Phase B1 (not planned):** the 15 ms latch threshold means #450's
+diagnostic only fires on bimodal cases, so the "spread across many
+spawns" case B1 targets is structurally out of scope of the evidence.
+#414's count cap already covers that pattern.
+
+**Files (B3):** `Source/Parsek/GhostPlaybackState.cs` (new pending flag
++ reset), `Source/Parsek/GhostPlaybackEngine.cs` (restructured
+`UpdateReentryFx` with lazy-build seam, new `TryPerformLazyReentryBuild`
+helper + per-frame cap, spawn-path defer, widened loop-pause call-site
+guard, test seams), `Source/Parsek/GhostPlaybackLogic.cs` (new pure
+`ShouldBuildLazyReentryFx` helper), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs`
+(new `reentryFxDeferredThisSession` counter), `Source/Parsek.Tests/Bug450B3LazyReentryTests.cs`
+(16 new tests), `docs/dev/plan-450-b3-lazy-reentry.md` (new).
+
+**Files (A — shipped previously):** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs`, `docs/dev/plan-450-build-breakdown.md`.
+
+**Scope:** Phase A = Small (instrumentation-only). Phase B3 = Small (defer one function call + cap). Phase B2 = Medium (coroutine split, new invariants).
+
+**Dependencies:** #414 shipped, Phase A shipped.
+
+**Status:** Phase A + Phase B3 shipped. Phase B2 TODO, gated on next playtest confirming `heaviestSpawn[reentry=…]` has dropped. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
 
 ---
 
