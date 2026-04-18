@@ -117,6 +117,9 @@ namespace Parsek
         // Tooltip state
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
+        private GUIStyle zeroHeightLabelStyle;
+        private GUIStyle wrappedTooltipStyle;
+        private string recordingsWindowTooltipText = "";
 
         // Expanded stats columns
         private bool showExpandedStats;
@@ -133,6 +136,8 @@ namespace Parsek
         private Rect loopPeriodEditRect;
 
         private const float ColW_Period = 90f;
+        private const float SpacingSmall = 3f;
+        private static readonly Color LoopPeriodClampColor = new Color(1.0f, 0.8f, 0.4f);
 
         // R/FF button state tracking for transition logging
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
@@ -984,6 +989,7 @@ namespace Parsek
 
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
+            recordingsWindowTooltipText = string.Empty;
 
             // Bug #279 follow-up: drop watch-transition cache entries whose
             // RecordingId is no longer in the committed list (rewind, truncate,
@@ -1175,6 +1181,7 @@ namespace Parsek
             }
 
             DrawRecordingsBottomBar(committed);
+            DrawRecordingsWindowTooltip();
         }
 
         /// <summary>
@@ -1358,7 +1365,7 @@ namespace Parsek
             // applied to single-button body cells (DrawBodyCenteredButton).
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
             GUILayout.Space(BodyCellButtonLeftInset);
-            DrawLoopPeriodCell(rec, ri, dur);
+            DrawLoopPeriodCell(rec, ri);
             GUILayout.EndHorizontal();
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPeriod");
 
@@ -3468,7 +3475,7 @@ namespace Parsek
 
         // --- Loop period cell ---
 
-        private void DrawLoopPeriodCell(Recording rec, int ri, double dur)
+        private void DrawLoopPeriodCell(Recording rec, int ri)
         {
             // All states use same [value area][unit button] layout. val + Space(4) + unit fills
             // ColW_Period - BodyCellButtonLeftInset. The wrapping BeginHorizontal at the call
@@ -3517,22 +3524,48 @@ namespace Parsek
             else
             {
                 // Manual mode: editable text field with edit buffer.
+                double loopDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+                bool displayClamped;
+                double displayedSeconds = ComputeDisplayedLoopPeriod(
+                    rec.LoopIntervalSeconds, loopDuration,
+                    GhostPlaybackEngine.MaxOverlapGhostsPerRecording,
+                    out displayClamped);
+                string displayText = FormatLoopPeriodDisplayText(
+                    displayedSeconds, rec.LoopTimeUnit, displayClamped);
+                string clampTooltip = displayClamped
+                    ? BuildLoopPeriodClampTooltip(
+                        rec.LoopIntervalSeconds, displayedSeconds, loopDuration,
+                        GhostPlaybackEngine.MaxOverlapGhostsPerRecording)
+                    : string.Empty;
                 if (loopPeriodFocusedRi != ri)
                 {
-                    // Not editing: show model value, click to start editing
-                    double displayValue = ParsekUI.ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit);
-                    string displayText = ParsekUI.FormatLoopValue(displayValue, rec.LoopTimeUnit);
+                    // Not editing: show runtime-effective value, but seed the edit buffer
+                    // from the stored raw value when the field gains focus.
                     string controlName = "LoopPeriod_" + ri;
                     GUI.SetNextControlName(controlName);
-                    string newText = GUILayout.TextField(displayText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                    Color prevContentColor = GUI.contentColor;
+                    if (displayClamped)
+                        GUI.contentColor = LoopPeriodClampColor;
+                    try
+                    {
+                        GUILayout.TextField(displayText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                    }
+                    finally
+                    {
+                        GUI.contentColor = prevContentColor;
+                    }
+                    Rect valueRect = GUILayoutUtility.GetLastRect();
+                    if (displayClamped && valueRect.Contains(Event.current.mousePosition))
+                        recordingsWindowTooltipText = clampTooltip;
                     if (GUI.GetNameOfFocusedControl() == controlName)
                     {
-                        loopPeriodEditText = newText;
+                        loopPeriodEditText = FormatLoopPeriodEditStartText(
+                            rec.LoopIntervalSeconds, rec.LoopTimeUnit);
                         loopPeriodFocusedRi = ri;
-                        loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                        loopPeriodEditRect = valueRect;
                         ParsekLog.Verbose("UI",
                             $"Recording '{rec.VesselName}' loop period edit started: " +
-                            $"value='{newText}' unit={ParsekUI.UnitLabel(rec.LoopTimeUnit)}");
+                            $"value='{loopPeriodEditText}' unit={ParsekUI.UnitLabel(rec.LoopTimeUnit)}");
                     }
                 }
                 else
@@ -3567,6 +3600,100 @@ namespace Parsek
                 ParsekLog.Info("UI",
                     $"Recording '{rec.VesselName}' loop unit changed to {newUnit}");
             }
+        }
+
+        internal static double ComputeDisplayedLoopPeriod(
+            double storedSeconds, double loopDurationSeconds, int cap, out bool clamped)
+        {
+            double effectiveSeconds = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                storedSeconds, loopDurationSeconds, cap);
+            clamped = double.IsNaN(storedSeconds)
+                || double.IsInfinity(storedSeconds)
+                || Math.Abs(effectiveSeconds - storedSeconds) > 1e-6;
+            return effectiveSeconds;
+        }
+
+        internal static string FormatLoopPeriodDisplayText(
+            double displayedSeconds, LoopTimeUnit unit, bool preserveSecondResolution)
+        {
+            double displayValue = ParsekUI.ConvertFromSeconds(displayedSeconds, unit);
+            if (!preserveSecondResolution)
+                return ParsekUI.FormatLoopValue(displayValue, unit);
+
+            return displayValue.ToString("0.######", CultureInfo.InvariantCulture);
+        }
+
+        internal static string FormatLoopPeriodEditStartText(
+            double storedSeconds, LoopTimeUnit unit)
+        {
+            double displayValue = ParsekUI.ConvertFromSeconds(storedSeconds, unit);
+            if (double.IsNaN(displayValue) || double.IsInfinity(displayValue))
+                displayValue = ParsekUI.ConvertFromSeconds(GhostPlaybackLogic.MinCycleDuration, unit);
+            if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
+                return displayValue.ToString("G17", CultureInfo.InvariantCulture);
+
+            return ParsekUI.FormatLoopValue(displayValue, unit);
+        }
+
+        internal static string BuildLoopPeriodClampTooltip(
+            double storedSeconds, double effectiveSeconds, double loopDurationSeconds, int cap)
+        {
+            if (double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds)
+                || Math.Abs(effectiveSeconds - storedSeconds) <= 1e-6)
+            {
+                if (!(double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds)))
+                    return string.Empty;
+            }
+
+            bool invalidStored = double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds);
+            double minAdjustedSeconds = invalidStored
+                ? GhostPlaybackLogic.MinCycleDuration
+                : Math.Max(storedSeconds, GhostPlaybackLogic.MinCycleDuration);
+            bool minAdjusted = invalidStored
+                || storedSeconds < GhostPlaybackLogic.MinCycleDuration - 1e-6;
+            bool capAdjusted = loopDurationSeconds > 0.0 && cap > 0
+                && effectiveSeconds - minAdjustedSeconds > 1e-6;
+
+            string effectiveText = effectiveSeconds.ToString("0.######", CultureInfo.InvariantCulture);
+            string requestedText = invalidStored
+                ? "invalid"
+                : storedSeconds.ToString("0.######", CultureInfo.InvariantCulture);
+            string durationText = loopDurationSeconds.ToString("0.######", CultureInfo.InvariantCulture);
+            string minText = GhostPlaybackLogic.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
+
+            if (capAdjusted && minAdjusted)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, minimum period: {3}s, duration: {4}s).",
+                    effectiveText, cap, requestedText, minText, durationText);
+            }
+
+            if (capAdjusted)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, duration: {3}s).",
+                    effectiveText, cap, requestedText, durationText);
+            }
+
+            if (minAdjusted)
+            {
+                if (invalidStored)
+                {
+                    return string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Runtime cadence repaired to {0}s from an invalid stored value (minimum period: {1}s).",
+                        effectiveText, minText);
+                }
+
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Runtime cadence raised to {0}s because the minimum period is {1}s (requested: {2}s).",
+                    effectiveText, minText, requestedText);
+            }
+
+            return string.Empty;
         }
 
         private void CommitLoopPeriodEdit(IReadOnlyList<Recording> committed)
@@ -3623,6 +3750,44 @@ namespace Parsek
             tooltipLabelStyle = new GUIStyle(GUI.skin.label);
             tooltipLabelStyle.wordWrap = false;
             tooltipLabelStyle.fontSize = 11;
+        }
+
+        private void EnsureWindowTooltipStyles()
+        {
+            if (zeroHeightLabelStyle == null)
+            {
+                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fixedHeight = 0f,
+                    stretchHeight = false,
+                    wordWrap = false
+                };
+                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedTooltipStyle == null)
+            {
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                {
+                    wordWrap = true,
+                    alignment = TextAnchor.UpperLeft
+                };
+            }
+        }
+
+        private void DrawRecordingsWindowTooltip()
+        {
+            EnsureWindowTooltipStyles();
+
+            string tooltip = !string.IsNullOrEmpty(recordingsWindowTooltipText)
+                ? recordingsWindowTooltipText
+                : (GUI.tooltip ?? string.Empty);
+            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
+            GUILayout.Label(
+                tooltip.Length > 0 ? tooltip : string.Empty,
+                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
+                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
         }
 
         private void EnsureStatusStyles()
