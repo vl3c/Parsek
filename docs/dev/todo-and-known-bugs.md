@@ -18,6 +18,103 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy
+
+**Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
+
+```
+[01:20:32.161] [VERBOSE][TestRunner] Running: FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+[01:20:32.163] [WARN][TestRunner]    FAILED: ... - Object reference not set to an instance of an object
+[01:20:32.169] [VERBOSE][TestRunner] Running: FlightIntegrationTests.FailedActivation_DoesNotEmitEvent
+[01:20:32.170] [WARN][TestRunner]    FAILED: ... - Object reference not set to an instance of an object
+```
+
+~2ms from `Running:` → `FAILED:` on both, so the NRE fires very early in the test body. Save is career (`saves/c1/persistent.sfs` shows `Mode = CAREER`), so the career-mode and `StrategySystem.Instance != null` guards at `RuntimeTests.cs:3915-3932` both pass. The NRE happens further in — likely around `FindActivatableStockStrategy()` (`:3891-3907`) reading `strategy.Config.Name` when `Config` is momentarily null, `SnapshotFinancials()` (`:3847-3855`, defensive — probably not it), or `strategy.Activate()` call path (`:3975`) throwing in stock code for some reason.
+
+**Concern:** these are both `#439` Phase A regression tests for `StrategyLifecyclePatch`. A failure here means one of: (a) the patch is throwing and bypassing the expected StrategyActivated emission, (b) the test helpers are fragile against the particular career-save state, (c) stock's `Strategy.Activate()` itself NREs on this save shape. Without a stack trace the three can't be distinguished from the log alone — the test runner reports `ex.Message` only.
+
+**Fix:** first widen the test runner's failure capture so we get the stack trace. Add one line to whatever catches the test exception (grep for `FAILED:` emit site in `InGameTestRunner.cs`) to log `ex.ToString()` at WARN instead of just `ex.Message` — a stack trace turns this into a 5-minute fix instead of a week of guessing. Once the stack lands, root-cause the NRE:
+
+- If it's `strategy.Config.Name` → tighten the null guard in `FindActivatableStockStrategy` to also require `s.Config.Name != null`.
+- If it's inside `StrategyLifecyclePatch` postfix → the patch is throwing in a stock code path it didn't previously handle; fix the patch.
+- If it's inside stock's `Activate()` → log a skip with the offending strategy's configName so future investigation has the signal, and move on.
+
+Separately: the same save-state shape may make #439 Phase A behaviour unreliable in production, not just in the test harness. If the post-fix investigation reveals `StrategyLifecyclePatch` is the thrower, that's a shipped bug, not just a test fail.
+
+**Files:** `Source/Parsek/InGameTests/InGameTestRunner.cs` (add `ex.ToString()` to the FAIL log), `Source/Parsek/InGameTests/RuntimeTests.cs:3891-3907` (possibly harden `FindActivatableStockStrategy`), `Source/Parsek/Patches/StrategyLifecyclePatch.cs` (if the postfix is implicated).
+
+**Scope:** Small after the stack trace lands. Investigate first — don't patch blindly.
+
+**Dependencies:** none (the other StrategyLifecycle work is on main already).
+
+**Status:** TODO. Priority: medium — test regression on main, user-visible if the underlying NRE also fires during normal career play.
+
+---
+
+## 479. `FlightIntegrationTests.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` fails in FLIGHT — `sit` field not refreshed from the live vessel after stable-terminal re-snapshot
+
+**Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:18, 41`.
+
+```
+FAIL  FlightIntegrationTests.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty (1.0ms)
+      Snapshot sit field must be refreshed from the live vessel, not preserved from the stale source
+```
+
+**Concern:** the #289 re-snapshot invariant is that when `FinalizeIndividualRecording` runs on a stable-terminal recording (`TerminalStateValue` set) with a live active vessel, the recording's `VesselSnapshot` gets replaced by a fresh snapshot from that vessel, and `sit` should reflect the vessel's actual situation (LANDED/SPLASHED/etc.), not the stale "FLYING" from the original snapshot. The test at `RuntimeTests.cs:3219-3286` builds a recording with `TerminalStateValue = Landed` and a stale `sit=FLYING` snapshot, invokes `FinalizeIndividualRecording(rec, ..., isSceneExit: true)`, then asserts `sit != "FLYING"` — and that assertion fails (`:3276-3277`). So the current code either (a) doesn't replace the snapshot at all, (b) replaces it with a fresh snapshot whose `sit` was also written as FLYING (bug in `BackupVessel()` or equivalent), or (c) replaces it but doesn't persist the new `sit` value.
+
+Corresponding post-#289 re-snapshot path in `ParsekFlight.cs` is around `:6917-6928` (the `backfilled TerminalOrbitBody=` logs visible in earlier collected logs confirm this path fires). Check whether the path calls `vessel.BackupVessel()` and writes the returned ConfigNode to `rec.VesselSnapshot`, or whether it only updates specific fields and skips `sit`.
+
+**Concern (downstream):** if the re-snapshot keeps the stale FLYING sit, the spawn path at `VesselSpawner` (`ShouldUseRecordedTerminalOrbitSpawnState`, `:707`) or `SpawnAtPosition`'s situation override (`:317-320`) will receive a recording whose snapshot sit contradicts the terminal state — the spawner already has defensive overrides for this shape (`#176 / #264` per code comments), but the re-snapshot path fighting them is a separate source of drift and may silently persist the wrong sit to the sidecar (next load sees FLYING).
+
+**Fix:** trace the re-snapshot invocation site and confirm it calls `vessel.BackupVessel()` fully, then writes the result to `rec.VesselSnapshot` (the full ConfigNode, not field-by-field). If it already does that, check whether `BackupVessel()` for a LANDED-situation vessel actually emits `sit = LANDED` (some stock KSP snapshot paths capture from a cached state that may still read FLYING for one frame after situation transition — a `yield return null` / physics-frame wait before the re-snapshot closes that). Add an explicit `sit` override on the fresh snapshot derived from `rec.TerminalStateValue` so the stored value always matches the declared terminal, regardless of when the snapshot capture fires relative to KSP's situation-update tick.
+
+Test should keep passing once the path writes a consistent `sit`; no other assertion in the test needs changes.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (re-snapshot path near `:6917`), possibly `Source/Parsek/VesselSpawner.cs` (`BackupVessel` usage), `Source/Parsek/InGameTests/RuntimeTests.cs:3219-3286` (no changes — the test is correct as-is).
+
+**Scope:** Small. Likely a 5-line fix to force-set `sit` from the terminal state after `BackupVessel()`.
+
+**Dependencies:** #289 original fix (shipped). This is the regression test catching a hole the original fix left.
+
+**Status:** TODO. Priority: medium-high — silent sidecar drift on every stable-terminal finalize with a mismatched-sit live vessel, reloads see stale FLYING, affects spawn decisions downstream.
+
+---
+
+## 478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only
+
+**Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:15, 21, 24, 434-438`.
+
+```
+[MapView]
+  RuntimeTests.MapMarkerIconsMatchStockAtlas
+    EDITOR         FAILED  (0.1ms) — MapView.fetch should exist — test requires flight or tracking station scene
+    FLIGHT         PASSED  (0.5ms)
+    MAINMENU       FAILED  (1.5ms) — MapView.fetch should exist — test requires flight or tracking station scene
+    SPACECENTER    FAILED  (0.2ms) — MapView.fetch should exist — test requires flight or tracking station scene
+    TRACKSTATION   PASSED  (3.4ms)
+```
+
+**Concern:** the `[InGameTest(Category = "MapView", ...)]` attribute at `RuntimeTests.cs:511-512` has no `Scene =` property, which defaults to `InGameTestAttribute.AnyScene = (GameScenes)(-1)` (`InGameTestAttribute.cs:18,21`). The test body requires `MapView.fetch` (available only in FLIGHT and TRACKSTATION per KSP's scene model) and correctly asserts its existence, but surfaces that assertion as a FAIL rather than a skip. Net effect: 3 of 5 scenes report FAIL for a test that is *expected* to only run in 2 scenes.
+
+The `InGameTestAttribute` only supports a single `GameScenes` value; it can't express "FLIGHT OR TRACKSTATION" directly. Two valid fixes:
+
+1. **Extend the attribute to accept a scene set.** Add a `GameScenes[] Scenes` property (or convert `Scene` to a `[Flags]`-like mask) and update `InGameTestRunner` scene-filter logic to match if any listed scene equals the current scene. More invasive; future-proofs other tests.
+2. **Skip at the top of the test body** (`RuntimeTests.cs:513-…`) when `HighLogic.LoadedScene` is not FLIGHT or TRACKSTATION: `if (HighLogic.LoadedScene != GameScenes.FLIGHT && HighLogic.LoadedScene != GameScenes.TRACKSTATION) { InGameAssert.Skip("requires MapView scene"); return; }`. One-method change, keeps other callers of the attribute unaffected.
+
+Option 2 is the cheapest and matches what several other tests already do internally (see `StrategyLifecycle` tests at `:3915-3932` for the skip pattern). Option 1 is worth doing only if a batch of other tests would benefit.
+
+**Fix:** option 2 — add the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Optionally also audit other `Category = "MapView"` / `Category = "TrackingStation"` tests for the same scoping issue; grep `InGameTest\(Category = "\(MapView\|TrackingStation\)"` and verify each either sets `Scene = GameScenes.FLIGHT` / `TRACKSTATION` or skips internally.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs:513` (add skip), optionally `Source/Parsek/InGameTests/InGameTestAttribute.cs` if option 1 is chosen.
+
+**Scope:** Trivial. 3-line skip + audit of adjacent tests.
+
+**Dependencies:** none.
+
+**Status:** TODO. Priority: low — pure test hygiene, no user-visible impact. But 3 false FAILs per test run drowns the signal in the report and should be closed.
+
+---
+
 ## 477. Ledger walk over-counts milestone rewards — post-walk reconciliation `expected` sum is a 2× / 3× multiple of the actual stock enrichment
 
 **Source:** `logs/2026-04-19_0117_thorough-check/KSP.log`. Worked example for one Mun/Flyby milestone:
