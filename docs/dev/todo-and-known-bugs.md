@@ -170,7 +170,7 @@ All three are plausible on the evidence alone. Investigation must disambiguate.
 
 ---
 
-## 447. `RecordingStopMetricsValid` fails on single-point landed debris leaves
+## ~~447. `RecordingStopMetricsValid` fails on single-point landed debris leaves~~
 
 **Source:** in-game test run 2026-04-18 02:25 on save `c5`. `Kerbal Space Program/parsek-test-results.txt` reports `LogContractTests.RecordingStopMetricsValid` FAILED in FLIGHT with `REC-002: Recording e30c5a11537f40a89f2998b18da4f8c5 has 1 points (minimum 2)`. The recording is a breakup debris leaf:
 
@@ -203,7 +203,7 @@ Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` i
 
 **Scope:** Small. Single-branch widening of one predicate + 2 test variants. No schema change, no serialization change.
 
-**Status:** TODO. Priority: medium. User-invisible in normal play (REC-002 fires only under Ctrl+Shift+T), but the leaf it represents is dead data taking 42 KB sidecar space per occurrence, and the underlying creation gap will keep producing these until fixed. Pair with any future follow-up to #359.
+**Status:** ~~Fixed~~ — `IsSinglePointDestroyedDebrisLeaf` widened and renamed to `IsSinglePointDebrisLeaf` (with corresponding `PruneSinglePointDebrisLeaves` / `CollectSinglePointDebrisLeafIds` renames). The predicate now accepts any terminal state for a debris leaf with exactly 1 trajectory point, no orbit segments, no `SurfacePos`, and at most 1 TRACK_SECTION whose only payload is the same single point (no checkpoints). Three new unit-test variants in `Bug278FinalizeLimboTests.cs` cover Landed, Recovered, and the section-backed Landed shape from save `c5`; one negative test pins multi-frame sections as keep. The upstream creation gap in `CreateBreakupChildRecording` is left as-is — every commit/revert sweeps the dead leaf, and seeding a synthetic tail point would force every downstream consumer to learn to ignore it (rejected in the original spec).
 
 ---
 
@@ -2841,6 +2841,8 @@ The reverse-order rollback path (`RestoreCommittedSidecarChange` and friends) do
 **Root cause:** loaded background recordings could already hold data in both top-level `Points`/`OrbitSegments` and nested `TrackSections`. Later flushes appended the same section payload again using only a single-boundary-element dedupe, so multi-point overlaps produced duplicated / non-monotonic flat tails that survived session merge. Separately, the crash/continuation coalescer could leave one-point destroyed debris leaf recordings in the tree, which then polluted stop-metric expectations unless pruned.
 
 **Fix:** background append/merge now performs suffix/prefix overlap matching and refuses to preserve flat extensions that are not monotonic past the authoritative section payload. Finalize/revert also prune single-point destroyed debris leaves while explicitly protecting the tree root and active recording IDs. The stale in-game runtime-log assertion was updated to the current logging contract.
+
+**Follow-up #447:** the same predicate was later widened to cover any terminal state (Landed / Recovered / Splashed / Destroyed) and to accept up to one TRACK_SECTION whose only payload is the same single point. The original `Destroyed`-only guard let section-backed Landed debris stubs slip past commit and trip REC-002 on reload. Renamed to `PruneSinglePointDebrisLeaves` / `IsSinglePointDebrisLeaf`.
 
 **Status:** ~~Fixed~~
 

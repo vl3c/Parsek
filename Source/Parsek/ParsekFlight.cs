@@ -6515,7 +6515,7 @@ namespace Parsek
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
             PruneZeroPointLeaves(tree);
-            PruneSinglePointDestroyedDebrisLeaves(tree);
+            PruneSinglePointDebrisLeaves(tree);
 
             // Phase F: tree-level resource delta capture removed. The ledger is
             // the single source of truth for funds/science/reputation; per-recording
@@ -6978,20 +6978,23 @@ namespace Parsek
                 "zero-point leaf recording(s)");
         }
 
-        internal static void PruneSinglePointDestroyedDebrisLeaves(RecordingTree tree)
+        internal static void PruneSinglePointDebrisLeaves(RecordingTree tree)
         {
-            var toPrune = CollectSinglePointDestroyedDebrisLeafIds(tree);
+            var toPrune = CollectSinglePointDebrisLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)
                 return;
 
             // Same-frame breakup debris can die inside the coalescing window and only retain
             // the split seed point. These stubs are non-playable, fail the data-health
-            // contract, and never contribute a meaningful ghost or spawn path.
+            // contract, and never contribute a meaningful ghost or spawn path. #447 widened
+            // this to include any terminal state (Landed / Recovered / Splashed / Destroyed)
+            // because a 1-point 0-duration debris leaf carries no playable trajectory
+            // regardless of how the leaf finalized.
             PruneLeafRecordings(
                 tree,
                 toPrune,
-                "PruneSinglePointDestroyedDebrisLeaves",
-                "single-point destroyed debris stub(s)");
+                "PruneSinglePointDebrisLeaves",
+                "single-point debris stub(s)");
         }
 
         private static void PruneLeafRecordings(
@@ -7055,7 +7058,7 @@ namespace Parsek
             return result;
         }
 
-        internal static List<string> CollectSinglePointDestroyedDebrisLeafIds(RecordingTree tree)
+        internal static List<string> CollectSinglePointDebrisLeafIds(RecordingTree tree)
         {
             List<string> result = null;
             foreach (var kvp in tree.Recordings)
@@ -7064,7 +7067,7 @@ namespace Parsek
                     continue;
 
                 var rec = kvp.Value;
-                if (IsSinglePointDestroyedDebrisLeaf(rec))
+                if (IsSinglePointDebrisLeaf(rec))
                 {
                     if (result == null) result = new List<string>();
                     result.Add(kvp.Key);
@@ -7086,14 +7089,24 @@ namespace Parsek
                 && !rec.SurfacePos.HasValue;
         }
 
-        internal static bool IsSinglePointDestroyedDebrisLeaf(Recording rec)
+        internal static bool IsSinglePointDebrisLeaf(Recording rec)
         {
             if (rec == null || rec.ChildBranchPointId != null) return false;
             if (rec.SidecarLoadFailed) return false;
-            if (!rec.IsDebris || rec.TerminalStateValue != TerminalState.Destroyed) return false;
+            if (!rec.IsDebris) return false;
             if (rec.Points.Count != 1) return false;
             if (rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue) return false;
-            return rec.TrackSections == null || rec.TrackSections.Count == 0;
+            // #447: also accept section-backed single-point debris (1 TrackSection that
+            // contains at most the same single trajectory point and no orbit checkpoints).
+            // These appear when a Breakup leaf seeded from CrashCoalescer.GetPreCapturedTrajectoryPoint
+            // lands or TTL-expires before any additional background sample is appended; the
+            // section wrapper is empty data even though its presence used to keep the leaf alive.
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0) return true;
+            if (rec.TrackSections.Count > 1) return false;
+            var section = rec.TrackSections[0];
+            int frames = section.frames?.Count ?? 0;
+            int checkpoints = section.checkpoints?.Count ?? 0;
+            return frames <= 1 && checkpoints == 0;
         }
 
         // Phase F: ComputeTreeDeltaFunds/Science/Reputation removed.
