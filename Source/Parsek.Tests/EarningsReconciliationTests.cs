@@ -966,15 +966,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyAction_PartPurchase_ZeroCost_StaysUntransformed()
+        public void ClassifyAction_PartPurchase_BypassOff_StaysUntransformed()
         {
-            var action = new GameAction
+            try
             {
-                Type = GameActionType.FundsSpending,
-                FundsSpendingSource = FundsSpendingSource.Other,
-                FundsSpent = 0f
-            };
-            var exp = LedgerOrchestrator.ClassifyAction(action);
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
 
                 var a = new GameAction
                 {
@@ -991,48 +987,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
-            }
-        }
-
-        [Fact]
-        public void ReconcileKsc_PartPurchase_BypassOn_NoMatchingEvent_VerboseSkipNoWarn()
-        {
-            // Reproduces the smoke-test shape: a FundsSpending(RnDPartPurchase) action
-            // with no matching FundsChanged event in the store — exactly the situation
-            // that produced 8 WARNs at ut=201.3 in logs/2026-04-18_0221_v0.8.2-smoke.
-            // Under Bypass=true the reconciler must log a rate-limited VERBOSE skip
-            // line and emit ZERO WARN lines.
-            try
-            {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
-
-                var events = new List<GameStateEvent>(); // no FundsChanged at all
-                var action = new GameAction
-                {
-                    UT = 201.3,
-                    Type = GameActionType.FundsSpending,
-                    FundsSpendingSource = FundsSpendingSource.Other,
-                    FundsSpent = 150f,
-                    DedupKey = "solidBooster.v2"
-                };
-                var ledger = new List<GameAction> { action };
-
-                ReconcileKsc(events, ledger, action, 201.3);
-
-                Assert.DoesNotContain(logLines, l =>
-                    l.Contains("[LedgerOrchestrator]") &&
-                    l.Contains("KSC reconciliation (funds)") &&
-                    l.Contains("no matching"));
-                Assert.Contains(logLines, l =>
-                    l.Contains("[LedgerOrchestrator]") &&
-                    l.Contains("KSC reconciliation:") &&
-                    l.Contains("FundsSpending") &&
-                    l.Contains("BypassEntryPurchaseAfterResearch"));
-            }
-            finally
-            {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
             }
         }
 
@@ -1044,7 +999,7 @@ namespace Parsek.Tests
             // emit the existing "no matching" WARN.
             try
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
 
                 var events = new List<GameStateEvent>();
                 var action = new GameAction
@@ -1068,7 +1023,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
             }
         }
 
@@ -1084,7 +1039,7 @@ namespace Parsek.Tests
             // reconciler stays silent.
             try
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
 
                 // solidBooster.v2 numbers from the bug report: cost=450, entryCost=800.
                 // Pre-#451 the action carried 450 and the event carried 800 -> WARN.
@@ -1111,7 +1066,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
             }
         }
 
@@ -1125,7 +1080,7 @@ namespace Parsek.Tests
             // diagnostic that fires when ledger and KSP disagree on which field to use.
             try
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
 
                 var events = new List<GameStateEvent>
                 {
@@ -1150,54 +1105,9 @@ namespace Parsek.Tests
             }
             finally
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
             }
         }
 
-        [Fact]
-        public void ClassifyAction_PartPurchase_BypassToggledMidFixture_ReclassifiesPerCall()
-        {
-            // #448 hardening: the bypass classifier must NOT cache its provider read.
-            // A future regression that memoizes IsBypassEntryPurchaseAfterResearch
-            // (or its provider lookup) for the lifetime of the process / fixture would
-            // freeze the first-seen value and silently break players who toggle the
-            // KSP difficulty mid-session. Drive both branches in a single fixture by
-            // swapping the provider between two ClassifyAction calls — action 1 must
-            // classify Transformed under bypass=true, action 2 must classify
-            // Untransformed once the same provider returns false.
-            try
-            {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
-
-                var action1 = new GameAction
-                {
-                    Type = GameActionType.FundsSpending,
-                    FundsSpendingSource = FundsSpendingSource.Other,
-                    FundsSpent = 600f
-                };
-                var exp1 = LedgerOrchestrator.ClassifyAction(action1);
-                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp1.Class);
-                Assert.Contains("BypassEntryPurchaseAfterResearch", exp1.SkipReason);
-
-                // Flip the provider — same fixture, same static helper, no reset.
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
-
-                var action2 = new GameAction
-                {
-                    Type = GameActionType.FundsSpending,
-                    FundsSpendingSource = FundsSpendingSource.Other,
-                    FundsSpent = 400f
-                };
-                var exp2 = LedgerOrchestrator.ClassifyAction(action2);
-                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp2.Class);
-                Assert.Equal(GameStateEventType.FundsChanged, exp2.EventType);
-                Assert.Equal("RnDPartPurchase", exp2.ExpectedReasonKey);
-                Assert.Equal(-400, exp2.ExpectedDelta);
-            }
-            finally
-            {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
-            }
-        }
     }
 }

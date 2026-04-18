@@ -179,12 +179,12 @@ namespace Parsek.Tests
         {
             try
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
                 Assert.Equal(0f, GameStateRecorder.ComputePartPurchaseFundsSpent(800f));
             }
             finally
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
             }
         }
 
@@ -193,12 +193,12 @@ namespace Parsek.Tests
         {
             try
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
                 Assert.Equal(800f, GameStateRecorder.ComputePartPurchaseFundsSpent(800f));
             }
             finally
             {
-                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
             }
         }
 
