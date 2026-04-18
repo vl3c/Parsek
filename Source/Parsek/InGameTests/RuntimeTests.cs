@@ -3870,9 +3870,12 @@ namespace Parsek.InGameTests
             }
             if (Reputation.Instance != null)
             {
-                float delta = repBefore - Reputation.Instance.reputation;
-                if (Mathf.Abs(delta) > 0.01f)
-                    Reputation.Instance.AddReputation(delta, TransactionReasons.None);
+                // Mirror KspStatePatcher.PatchReputation: SetReputation (NOT
+                // AddReputation) because AddReputation applies KSP's reputation
+                // curve, which would leave permanent drift on any rep-costing
+                // strategy. SetReputation writes the absolute value directly.
+                if (Mathf.Abs(repBefore - Reputation.Instance.reputation) > 0.01f)
+                    Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
             }
         }
 
