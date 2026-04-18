@@ -487,8 +487,16 @@ namespace Parsek
             {
                 hitRateStr = "N/A";
             }
+            // Bug #450 B3: `deferred` + `neverBuilt` surface the B3 savings signal —
+            // `deferred` counts spawns that entered the lazy-build queue;
+            // `neverBuilt` = deferred - built is the count of trajectories that saved
+            // the full ~7 ms build cost entirely (never entered atmosphere in the
+            // session). Without these fields the post-ship validation requires
+            // log-archaeology across a session's trajectory lifecycle.
+            int reentryNeverBuilt = h.reentryFxDeferredThisSession - h.reentryFxBuildsThisSession;
+            if (reentryNeverBuilt < 0) reentryNeverBuilt = 0;
             sb.AppendFormat(Inv,
-                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8}",
+                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8} deferred {9} neverBuilt {10}",
                 hitRateStr,
                 h.waypointCacheMisses,
                 totalLookups,
@@ -497,7 +505,9 @@ namespace Parsek
                 h.ghostBuildsThisSession,
                 h.ghostDestroysThisSession,
                 h.reentryFxBuildsThisSession,
-                h.reentryFxSkippedThisSession);
+                h.reentryFxSkippedThisSession,
+                h.reentryFxDeferredThisSession,
+                reentryNeverBuilt);
             sb.AppendLine();
 
             // GC gen0

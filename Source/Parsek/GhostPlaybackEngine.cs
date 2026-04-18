@@ -1819,8 +1819,16 @@ namespace Parsek
             // checks above. If the build is throttled or fails, return — next frame
             // will retry (flag cleared only when the build actually fires, see
             // TryPerformLazyReentryBuild). Below this point info is guaranteed non-null.
+            //
+            // Under warp-suppression the FX subsystem would drive-to-zero anyway
+            // (see GhostPlaybackLogic.ShouldSuppressVisualFx); doing a ~7 ms build
+            // of FX we immediately hide contradicts the suppression policy. Defer
+            // one more frame past the warp drop-out — the ghost hasn't moved
+            // meaningfully during warp anyway.
             if (state.reentryFxPendingBuild)
             {
+                if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+                    return;
                 TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);
                 info = state.reentryFxInfo;
                 if (info == null) return;
@@ -1878,7 +1886,12 @@ namespace Parsek
             if (frameLazyReentryBuildCount >= MaxLazyReentryBuildsPerFrame)
             {
                 frameLazyReentryBuildDeferred++;
-                ParsekLog.VerboseRateLimited("ReentryFx", "lazy-throttle",
+                // Per-index rate-limit key so a burst of same-frame throttles does
+                // not collapse into a single shared-key log line — the counter
+                // captures the count, but the per-ghost identity matters for
+                // post-playtest diagnosis. 1-second window still bounds volume per
+                // ghost.
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-throttle-{recIdx}",
                     $"Lazy reentry build throttled: #{recIdx} deferred to next frame " +
                     $"(used {frameLazyReentryBuildCount}/{MaxLazyReentryBuildsPerFrame})", 1.0);
                 return;  // Flag stays true — retry next frame while still in atmosphere.
@@ -1892,7 +1905,7 @@ namespace Parsek
             if (state.heatInfos == null)
             {
                 state.reentryFxPendingBuild = false;
-                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-nohheat-{recIdx}",
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-noheat-{recIdx}",
                     $"Lazy reentry build skipped for #{recIdx} \"{vesselName}\" — " +
                     $"state.heatInfos is null (rebuild likely in flight); clearing flag", 5.0);
                 return;
@@ -1900,14 +1913,27 @@ namespace Parsek
 
             frameLazyReentryBuildCount++;
             state.reentryFxPendingBuild = false;  // One-shot: clear even if build fails.
-            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+            var built = GhostVisualBuilder.TryBuildReentryFx(
                 state.ghost, state.heatInfos, recIdx, vesselName);
-            DiagnosticsState.health.reentryFxBuildsThisSession++;
-
-            ParsekLog.Verbose("ReentryFx",
-                $"Lazy reentry build fired for ghost #{recIdx} \"{vesselName}\" — " +
-                $"body={bodyName} alt={altitude:F0}m " +
-                $"(deferred at spawn, built on first atmospheric frame)");
+            state.reentryFxInfo = built;
+            // Count actual builds only — the counter semantic is "FX objects produced",
+            // used by the diagnostics `reentryFx built X` line. A failed TryBuildReentryFx
+            // (returns null) is observable via `deferred - built > expected` and is NOT
+            // a build.
+            if (built != null)
+            {
+                DiagnosticsState.health.reentryFxBuildsThisSession++;
+                ParsekLog.Verbose("ReentryFx",
+                    $"Lazy reentry build fired for ghost #{recIdx} \"{vesselName}\" — " +
+                    $"body={bodyName} alt={altitude:F0}m " +
+                    $"(deferred at spawn, built on first atmospheric frame)");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-buildnull-{recIdx}",
+                    $"Lazy reentry build returned null for #{recIdx} \"{vesselName}\" — " +
+                    $"body={bodyName} alt={altitude:F0}m (flag cleared, no retry)", 5.0);
+            }
         }
 
         private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude,

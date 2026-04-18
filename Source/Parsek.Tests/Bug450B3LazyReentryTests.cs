@@ -190,6 +190,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryPerformLazyReentryBuild_Throttle_UsesPerIndexLogKey()
+        {
+            // Per-index key so a burst of same-frame throttles doesn't collapse into
+            // one shared-key log line. Without per-index keys a 5-ghost simultaneous
+            // atmosphere-entry would log "Lazy reentry build throttled" only ONCE and
+            // hide the per-ghost identities from the post-playtest diagnosis — the
+            // frameLazyReentryBuildDeferred counter would still be 3, but we'd lose
+            // the `#N` data.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            engine.SetFrameLazyReentryBuildCountForTesting(GhostPlaybackEngine.MaxLazyReentryBuildsPerFrame);
+
+            var state3 = BuildPendingState();
+            var state4 = BuildPendingState();
+            engine.TryPerformLazyReentryBuildForTesting(3, state3, "A", "Kerbin", 50_000);
+            engine.TryPerformLazyReentryBuildForTesting(4, state4, "B", "Kerbin", 50_000);
+
+            // Both deferrals log — the rate limiter keys on `lazy-throttle-{recIdx}`,
+            // not on a shared `lazy-throttle` key that would collapse them.
+            Assert.Contains(logLines, l =>
+                l.Contains("Lazy reentry build throttled") && l.Contains("#3"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Lazy reentry build throttled") && l.Contains("#4"));
+            Assert.Equal(2, engine.FrameLazyReentryBuildDeferredForTesting);
+        }
+
+        [Fact]
         public void TryPerformLazyReentryBuild_CapExhausted_DefersAndLogs()
         {
             // 3 ghosts want to lazy-build in the same frame, cap = 2. The third must
@@ -270,6 +296,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HealthCounters_DeferredAndBuiltCountersAreIndependent()
+        {
+            // Spawn-path increments `deferred`, lazy-build site increments `built`.
+            // The two counters are separate fields so a session can show
+            // `deferred > built` (ghosts that never entered atmosphere — the B3
+            // savings signal) or `built > deferred` would be impossible unless
+            // something bypassed the normal flow. Fails if a future refactor
+            // accidentally shares a backing field.
+            DiagnosticsState.ResetForTesting();
+            DiagnosticsState.health.reentryFxDeferredThisSession = 10;
+            DiagnosticsState.health.reentryFxBuildsThisSession = 3;
+
+            Assert.Equal(10, DiagnosticsState.health.reentryFxDeferredThisSession);
+            Assert.Equal(3, DiagnosticsState.health.reentryFxBuildsThisSession);
+            Assert.NotEqual(
+                DiagnosticsState.health.reentryFxDeferredThisSession,
+                DiagnosticsState.health.reentryFxBuildsThisSession);
+        }
+
+        [Fact]
         public void HealthCounters_Reset_ZerosReentryFxDeferred()
         {
             // Reset must zero the new counter alongside the other session metrics.
@@ -278,6 +324,42 @@ namespace Parsek.Tests
             counters.Reset();
 
             Assert.Equal(0, counters.reentryFxDeferredThisSession);
+        }
+
+        // ----- Diagnostics report format -----
+
+        [Fact]
+        public void DiagnosticsReport_IncludesDeferredAndNeverBuiltCounters()
+        {
+            // B3's post-ship validation relies on `deferred - built = neverBuilt`
+            // being visible in the diagnostics snapshot. Fails if the
+            // DiagnosticsComputation report format drops the new counters —
+            // otherwise validating B3's savings requires log-archaeology.
+            DiagnosticsState.ResetForTesting();
+            DiagnosticsState.health.reentryFxBuildsThisSession = 3;
+            DiagnosticsState.health.reentryFxSkippedThisSession = 5;
+            DiagnosticsState.health.reentryFxDeferredThisSession = 10;
+
+            // FormatReport reads DiagnosticsState.health directly for the Health line;
+            // passing a default snapshot is sufficient for this assertion.
+            string report = DiagnosticsComputation.FormatReport(default);
+
+            Assert.Contains("reentryFx built 3 skipped 5 deferred 10 neverBuilt 7", report);
+        }
+
+        [Fact]
+        public void DiagnosticsReport_NeverBuiltFloorsAtZero()
+        {
+            // Defensive: if a test or a future bug makes `built > deferred`
+            // (shouldn't happen — deferrals precede builds — but we survive it),
+            // the report must show neverBuilt = 0 rather than a negative number.
+            DiagnosticsState.ResetForTesting();
+            DiagnosticsState.health.reentryFxBuildsThisSession = 10;
+            DiagnosticsState.health.reentryFxDeferredThisSession = 3;
+
+            string report = DiagnosticsComputation.FormatReport(default);
+
+            Assert.Contains("deferred 3 neverBuilt 0", report);
         }
     }
 }
