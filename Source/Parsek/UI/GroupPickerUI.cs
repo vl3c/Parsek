@@ -10,6 +10,64 @@ namespace Parsek
     /// </summary>
     internal class GroupPickerUI
     {
+        /// <summary>
+        /// Phase 5 of Rewind-to-Staging (design §7.25). Pure-static predicate:
+        /// returns <c>false</c> iff <paramref name="rec"/> is currently an
+        /// Unfinished Flight per <see cref="EffectiveState.IsUnfinishedFlight"/>
+        /// AND <paramref name="targetGroup"/> is a manual (user-defined or
+        /// auto-generated tree) group — i.e. any non-system group. The
+        /// virtual Unfinished Flights group has no stored membership to
+        /// uncheck, so removals and system-group targets always return
+        /// <c>true</c>. Factored out of <see cref="ApplyGroupPopupChanges"/>
+        /// so unit tests can exercise the gate without a live Unity popup.
+        /// </summary>
+        internal static bool CanAddToUserGroup(Recording rec, string targetGroup)
+        {
+            if (rec == null) return true;
+            if (string.IsNullOrEmpty(targetGroup)) return true;
+
+            // System groups are never valid drop targets; callers should
+            // consult GroupHierarchyStore.IsDropTargetAllowed for that gate.
+            // If somehow we get asked about a system-group target here,
+            // treat as reject.
+            if (!GroupHierarchyStore.IsDropTargetAllowed(targetGroup))
+                return false;
+
+            // The only additional rule in Phase 5: Unfinished Flights
+            // recordings cannot be moved into manual groups (§7.25).
+            if (EffectiveState.IsUnfinishedFlight(rec))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Phase 5 of Rewind-to-Staging. Emits the toast + log when a
+        /// manual-group add is rejected. Shared by the popup apply path and
+        /// unit tests (tests pass null for <c>targetGroup</c> to skip the
+        /// ScreenMessages call which requires a live KSP runtime).
+        /// </summary>
+        internal static void LogAndToastRejectAdd(string recordingId, string targetGroup)
+        {
+            string recId = string.IsNullOrEmpty(recordingId) ? "<no-id>" : recordingId;
+            string grp = string.IsNullOrEmpty(targetGroup) ? "<no-group>" : targetGroup;
+            ParsekLog.Verbose("UnfinishedFlights",
+                $"Drag reject: rec={recId} target={grp}");
+
+            // ScreenMessages is a Unity singleton that may be null in tests;
+            // guard so the log path is always taken even without a UI host.
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    "Cannot move Unfinished Flights to manual groups",
+                    3f, ScreenMessageStyle.UPPER_CENTER);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UnfinishedFlights",
+                    $"Drag reject toast suppressed (no ScreenMessages host): {ex.GetType().Name}");
+            }
+        }
         private readonly ParsekUI parentUI;
 
         // Group picker popup state
@@ -411,11 +469,44 @@ namespace Parsek
                 var removed = new HashSet<string>(groupPopupOriginal);
                 removed.ExceptWith(groupPopupChecked);
 
+                // Phase 5 (design §7.25): consult CanAddToUserGroup for each
+                // chain member and each add target. If ANY member of the chain
+                // is an Unfinished Flight, the whole add is rejected for that
+                // target group (chains are all-or-nothing for group membership
+                // in this popup). Removes are always allowed.
+                var chainMemberIndices = RecordingStore.GetChainMemberIndices(groupPopupChainId);
+                var rejectedAdds = new HashSet<string>();
                 foreach (var g in added)
+                {
+                    bool reject = false;
+                    string rejectRecId = null;
+                    for (int m = 0; m < chainMemberIndices.Count; m++)
+                    {
+                        int ri = chainMemberIndices[m];
+                        if (ri < 0 || ri >= committed.Count) continue;
+                        var memberRec = committed[ri];
+                        if (!CanAddToUserGroup(memberRec, g))
+                        {
+                            reject = true;
+                            rejectRecId = memberRec != null ? memberRec.RecordingId : null;
+                            break;
+                        }
+                    }
+                    if (reject)
+                    {
+                        rejectedAdds.Add(g);
+                        LogAndToastRejectAdd(rejectRecId, g);
+                    }
+                }
+
+                foreach (var g in added)
+                {
+                    if (rejectedAdds.Contains(g)) continue;
                     RecordingStore.AddChainToGroup(groupPopupChainId, g);
+                }
                 foreach (var g in removed)
                     RecordingStore.RemoveChainFromGroup(groupPopupChainId, g);
-                ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
+                ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}] rejected=[{string.Join(", ", rejectedAdds)}]");
             }
             else if (groupPopupRecIndices != null && groupPopupRecIndices.Count > 0)
             {
@@ -424,17 +515,32 @@ namespace Parsek
                 var removed = new HashSet<string>(groupPopupOriginal);
                 removed.ExceptWith(groupPopupChecked);
 
+                int addsAttempted = 0, addsRejected = 0;
                 for (int i = 0; i < groupPopupRecIndices.Count; i++)
                 {
                     int ri = groupPopupRecIndices[i];
+                    var rec = (ri >= 0 && ri < committed.Count) ? committed[ri] : null;
                     foreach (var g in added)
+                    {
+                        addsAttempted++;
+                        // Phase 5 (design §7.25): gate per-recording so that a
+                        // bulk selection mixing Unfinished Flights with regular
+                        // recordings only rejects the Unfinished ones; the
+                        // regular members are still added.
+                        if (!CanAddToUserGroup(rec, g))
+                        {
+                            addsRejected++;
+                            LogAndToastRejectAdd(rec != null ? rec.RecordingId : null, g);
+                            continue;
+                        }
                         RecordingStore.AddRecordingToGroup(ri, g);
+                    }
                     foreach (var g in removed)
                         RecordingStore.RemoveRecordingFromGroup(ri, g);
                 }
 
                 ParsekLog.Info("UI",
-                    $"Recording selection [{string.Join(", ", groupPopupRecIndices)}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
+                    $"Recording selection [{string.Join(", ", groupPopupRecIndices)}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}] addsAttempted={addsAttempted} addsRejected={addsRejected}");
             }
             else if (groupPopupRecIdx >= 0 && groupPopupRecIdx < committed.Count)
             {
@@ -444,11 +550,23 @@ namespace Parsek
                 var removed = new HashSet<string>(groupPopupOriginal);
                 removed.ExceptWith(groupPopupChecked);
 
+                var rec = committed[groupPopupRecIdx];
+                var rejectedAdds = new HashSet<string>();
                 foreach (var g in added)
+                {
+                    // Phase 5 (design §7.25): Unfinished Flights cannot be
+                    // moved into manual groups; silently skip + toast + log.
+                    if (!CanAddToUserGroup(rec, g))
+                    {
+                        rejectedAdds.Add(g);
+                        LogAndToastRejectAdd(rec != null ? rec.RecordingId : null, g);
+                        continue;
+                    }
                     RecordingStore.AddRecordingToGroup(groupPopupRecIdx, g);
+                }
                 foreach (var g in removed)
                     RecordingStore.RemoveRecordingFromGroup(groupPopupRecIdx, g);
-                ParsekLog.Info("UI", $"Recording [{groupPopupRecIdx}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
+                ParsekLog.Info("UI", $"Recording [{groupPopupRecIdx}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}] rejected=[{string.Join(", ", rejectedAdds)}]");
             }
         }
     }

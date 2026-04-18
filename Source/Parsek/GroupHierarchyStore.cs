@@ -59,6 +59,32 @@ namespace Parsek
             return hiddenGroups.Contains(groupName);
         }
 
+        /// <summary>
+        /// Phase 5 of Rewind-to-Staging (design §7.25). Returns <c>false</c>
+        /// for system groups (currently only
+        /// <see cref="UnfinishedFlightsGroup.GroupName"/>) so manual drag-into
+        /// / group-assign attempts silently reject. Returns <c>true</c> for
+        /// every user-defined group and every auto-generated tree group.
+        /// </summary>
+        internal static bool IsDropTargetAllowed(string groupName)
+        {
+            if (string.IsNullOrEmpty(groupName)) return false;
+            return !UnfinishedFlightsGroup.IsSystemGroup(groupName);
+        }
+
+        /// <summary>
+        /// Phase 5 of Rewind-to-Staging (design §7.30). Returns <c>false</c>
+        /// for system groups — the Unfinished Flights row renders without a
+        /// hide checkbox because the list is a diagnostic of the player's
+        /// unresolved split siblings. Returns <c>true</c> for every
+        /// user-defined group and every auto-generated tree group.
+        /// </summary>
+        internal static bool CanHide(string groupName)
+        {
+            if (string.IsNullOrEmpty(groupName)) return false;
+            return !UnfinishedFlightsGroup.IsSystemGroup(groupName);
+        }
+
         /// <summary>Try to get the parent of a group.</summary>
         internal static bool TryGetGroupParent(string groupName, out string parentName)
         {
