@@ -1864,12 +1864,135 @@ namespace Parsek
             if (!string.IsNullOrEmpty(path))
             {
                 Ledger.LoadFromFile(path);
+                int repairedLegacyPartPurchaseEvents =
+                    GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
+                int repairedLegacyPartPurchaseActions =
+                    RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+                if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
+                {
+                    ParsekLog.Info(Tag,
+                        $"OnLoad: repaired legacy R&D part-purchase rows " +
+                        $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
+                }
                 ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
             }
             else
             {
                 ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
             }
+        }
+
+        /// <summary>
+        /// Rewrites persisted legacy part-purchase ledger rows whose stored funds debit
+        /// still reflects rollout <c>part.cost</c> instead of the historical R&amp;D
+        /// charge proved by saved game-state events. Existing version-1 ledger files
+        /// keep the same shape; the compatibility path mutates the in-memory actions
+        /// after load and before the first recalculation walk. Ambiguous rows are
+        /// preserved as-is rather than guessed from current runtime semantics; the
+        /// only no-funds fallback is the known stock-bypass save shape that rewrites
+        /// the matched <c>PartPurchased</c> event to zero-cost first.
+        /// </summary>
+        internal static int RepairLegacyPartPurchaseActionsOnLoad(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            if (ledgerActions == null || ledgerActions.Count == 0)
+                return 0;
+
+            int repaired = 0;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (!IsPartPurchaseFundsSpendingAction(action))
+                    continue;
+
+                float canonicalCost;
+                if (!TryResolveCanonicalPartPurchaseChargeForAction(action, events, out canonicalCost))
+                    continue;
+
+                if (Math.Abs(action.FundsSpent - canonicalCost) <= 0.01f)
+                    continue;
+
+                action.FundsSpent = canonicalCost;
+                repaired++;
+            }
+
+            return repaired;
+        }
+
+        private static bool IsPartPurchaseFundsSpendingAction(GameAction action)
+        {
+            return action != null &&
+                   action.Type == GameActionType.FundsSpending &&
+                   action.FundsSpendingSource == FundsSpendingSource.Other;
+        }
+
+        private static bool TryResolveCanonicalPartPurchaseChargeForAction(
+            GameAction action,
+            IReadOnlyList<GameStateEvent> events,
+            out float canonicalCost)
+        {
+            canonicalCost = 0f;
+            if (action == null)
+                return false;
+
+            GameStateEvent matchedEvent;
+            if (TryFindMatchingPartPurchasedEvent(events, action, out matchedEvent))
+            {
+                GameStateEvent rewrittenEvent;
+                if (GameStateStore.TryRewriteLegacyPartPurchaseEvent(
+                    matchedEvent, events, out rewrittenEvent))
+                {
+                    matchedEvent = rewrittenEvent;
+                }
+
+                if (GameStateStore.TryGetStoredPartPurchaseCost(
+                    matchedEvent.detail, out canonicalCost))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryFindMatchingPartPurchasedEvent(
+            IReadOnlyList<GameStateEvent> events,
+            GameAction action,
+            out GameStateEvent matchedEvent)
+        {
+            matchedEvent = default(GameStateEvent);
+            if (events == null || action == null)
+                return false;
+
+            string partName = action.DedupKey;
+            int fallbackCount = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.PartPurchased)
+                    continue;
+                if (Math.Abs(evt.ut - action.UT) > KscReconcileEpsilonSeconds)
+                    continue;
+
+                if (!string.IsNullOrEmpty(partName))
+                {
+                    if (string.Equals(evt.key, partName, StringComparison.Ordinal))
+                    {
+                        matchedEvent = evt;
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                matchedEvent = evt;
+                fallbackCount++;
+                if (fallbackCount > 1)
+                    return false;
+            }
+
+            return fallbackCount == 1;
         }
 
         /// <summary>
@@ -1888,6 +2011,7 @@ namespace Parsek
         internal static int TryRecoverBrokenLedgerOnLoad()
         {
             Initialize();
+            GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
 
             int recoveredFundsParts = 0;
             int recoveredContracts = 0;
@@ -2600,7 +2724,10 @@ namespace Parsek
                     // ConvertPartPurchased → source=Other); vessel build comes from the
                     // flight path, facility/hire/strategy use their own action types.
                     // Strategy input (source=Strategy) is not yet captured on KSC (Phase
-                    // E1.5) — skip if we ever see it.
+                    // E1.5) — skip if we ever see it. Stock bypass=true part unlocks
+                    // now record a zero charged cost in GameStateRecorder, so they stay
+                    // on the untransformed path here and short-circuit later via the
+                    // zero-expected-delta early return in ReconcileKscAction.
                     if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
                     {
                         return new KscActionExpectation
@@ -2793,11 +2920,21 @@ namespace Parsek
                 case KscReconcileClass.Transformed:
                     // Rate-limited VERBOSE so a long session with many contract completions
                     // doesn't drown the log, but one line always lands on the first call
-                    // per type so the skip is observable during debugging.
+                    // per (action type, skip reason) pair so the skip is observable during
+                    // debugging. Multiple skip causes share this branch — Phase E1.5
+                    // strategy spending, and #448's RnDPartPurchase suppression under
+                    // BypassEntryPurchaseAfterResearch=true. Both can fire for the SAME
+                    // action.Type (FundsSpending), so a key keyed only on action.Type
+                    // would let whichever cause hits first suppress the other for the
+                    // entire rate-limit window. Include a hash of the SkipReason so each
+                    // distinct cause gets its own slot.
+                    int skipKeyHash = expectation.SkipReason != null
+                        ? expectation.SkipReason.GetHashCode()
+                        : 0;
                     ParsekLog.VerboseRateLimited(Tag,
-                        $"ksc-reconcile-skip:{action.Type}",
+                        $"ksc-reconcile-skip:{action.Type}:{skipKeyHash}",
                         $"KSC reconciliation: {action.Type} skipped " +
-                        $"(transformation not yet post-walk-aware: {expectation.SkipReason}) ut={ut:F1}");
+                        $"({expectation.SkipReason}) ut={ut:F1}");
                     return;
 
                 case KscReconcileClass.Untransformed:

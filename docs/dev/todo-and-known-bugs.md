@@ -58,6 +58,16 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~451. `OnPartPurchased` encoded the wrong funds charge for R&D unlocks~~
+
+**Status:** ~~Fixed~~ — `GameStateRecorder.OnPartPurchased` now mirrors stock KSP's real debit rule: `cost=0` when `Difficulty.BypassEntryPurchaseAfterResearch=true`, otherwise `cost=part.entryCost`. The event still uses the legacy `cost=` token for save-format compatibility, but the value behind that key is now the amount KSP actually charged. Load-time compatibility rewrites existing version-1 `PartPurchased` events / `FundsSpending(Other)` ledger rows only when the saved history still contains either an unambiguous `FundsChanged(RnDPartPurchase)` delta for that unlock or the known legacy bypass-only shape (one stale `PartPurchased` row, no paired funds event, and a loaded save that still reports `BypassEntryPurchaseAfterResearch=true`); ambiguous/coalesced windows are preserved instead of being guessed from current difficulty or part metadata. This closes both failure modes discovered during #448 review:
+- stock-default careers no longer hide a real funds over-debit behind reconciliation suppression, because bypass-mode purchases now land as zero-cost actions;
+- harder no-bypass careers no longer debit rollout `part.cost` and now match the real `FundsChanged(RnDPartPurchase)` delta of `-entryCost`.
+
+Tests cover the pure event synthesis (`GameStateRecorderPartPurchaseTests`), zero-cost KSC ledger writes (`GameStateRecorderLedgerTests`), and the reconciliation no-WARN zero-delta path (`EarningsReconciliationTests`).
+
+---
+
 ## ~~453. Watch camera horizon log occasionally shows `playbackVel=(0,0,0) rawAlignment=fallback` for one frame~~
 
 **Source:** post-#361 log audit `2026-04-18` (`logs/2026-04-18_1106_ghosts-stuck-at-pad/KSP.log` lines 15020, 16853, 17507, 18080). Flagged as "possibly other bugs" during investigation of the stuck-at-pad report; root cause traced here after #361 shipped.
@@ -152,44 +162,13 @@ Both halves are correctly tagged `Active` because they came from the same source
 
 ---
 
-## 448. KSC reconciliation: `FundsSpending(RnDPartPurchase)` has no matching `FundsChanged` event
+## ~~448. KSC reconciliation: `FundsSpending(RnDPartPurchase)` has no matching `FundsChanged` event~~
 
-**Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:10191,10245,10298,10352,10407,10554,10612,10671` — 8 WARNs in the session, all at the same UT:
+**Status:** ~~Fixed~~ — the missing-event WARNs were a symptom of incorrect action synthesis, not a classifier problem. Stock KSP fires `OnPartPurchased` even when `Difficulty.BypassEntryPurchaseAfterResearch=true`, but charges 0 funds and therefore emits no paired `FundsChanged(RnDPartPurchase)` event. The fix moved to the source of truth:
+- `GameStateRecorder.OnPartPurchased` now records a zero-cost purchase in bypass mode, so `ReconcileKscAction` short-circuits on the zero expected delta and emits no WARN;
+- when bypass is off, the same handler now records `part.entryCost`, so the untransformed reconciliation path continues to match the real `RnDPartPurchase` funds event instead of comparing against rollout `part.cost`.
 
-```
-[LedgerOrchestrator] KSC reconciliation (funds): action FundsSpending
-expected delta=-150.0 (reason='RnDPartPurchase') but no matching FundsChanged
-event within 0.1s of ut=201.3 — missing earning channel or stale event?
-```
-
-Deltas across the 8 WARNs: -150, -150, -400, -1200, -1200, -50, -100, -200 (sum = -3450 funds). Each line corresponds to one `FundsSpending(RnDPartPurchase)` action in the ledger. **The actions themselves were captured correctly** — the #405 fix added the `OnKscSpending(evt)` call inside `OnPartPurchased` at `Source/Parsek/GameStateRecorder.cs:497-498`, so every part purchase writes a ledger action. What's missing is the corresponding `FundsChanged` event in `GameStateStore.Events`, which `ReconcileKscAction` expects within a 0.1 s window for the "untransformed" action class (`RnDPartPurchase` is listed at todo #437's line 353 in the "Untransformed (WARN on missing or mismatched event)" bucket).
-
-**Concern:** the split between "action captured" and "event missing" points at one of three causes:
-
-1. **KSP does not fire `Funding.onFundsChanged` on `AvailablePart` purchase in R&D.** The `OnPartPurchased` handler subscribes to `GameEvents.OnPartPurchased` (`GameStateRecorder.cs:166`), which fires when the player buys a locked part in the R&D screen. The actual funds deduction inside KSP's stock code path may bypass `Funding.AddFunds(-cost)` (and therefore `onFundsChanged`) — the cost is debited directly against `Funding.Instance.Funds`. If so, there is no `FundsChanged` event for the reconciler to match and every RnDPartPurchase action will trip this WARN by construction. Easy to verify: `ilspycmd` on `PartPurchasePopup`/`RDController` and check whether part-purchase goes through `AddFunds` or a direct setter. If direct setter, KSP never emits `onFundsChanged` and our converter has nothing to convert.
-2. **Batch purchase in the same physics tick collapses events.** All 8 WARNs share `ut=201.3` — a batch of part buys through a tech-node unlock or a "buy all parts in node" R&D UI affordance. If KSP does fire `onFundsChanged` but all 8 fire within one tick, `GameStateStore.AddEvent`'s dedup key (by `eventType`/`key`/`ut` bucket) may collapse them to a single stored event, and the reconciler then matches only one of the 8 actions.
-3. **Timing-window mismatch.** The `FundsChanged` event fires, but at a UT that falls outside the 0.1 s window around ut=201.3 (e.g., the purchase records at scene-transition UT while KSP's `onFundsChanged` fires after a small async delay). Less likely given the `TransactionReasons.RnDPartPurchase` matching key is specific enough that a simple window widen should resolve it, but worth ruling out before code changes.
-
-All three are plausible on the evidence alone. Investigation must disambiguate.
-
-**Investigation steps:**
-1. Decompile KSP's part-purchase path (`ilspycmd` on `Assembly-CSharp.dll`, classes `PartPurchasePopup`, `RDController`, `RDPartActionMenu`). Confirm whether the funds deduction goes through `Funding.AddFunds(-cost, TransactionReasons.RnDPartPurchase)` (which fires `onFundsChanged`) or a direct field mutation.
-2. If KSP fires `onFundsChanged`: add a one-shot VERBOSE log inside `GameStateRecorder.OnFundsChanged` that prints `reason + delta + ut` for every `RnDPartPurchase` delta. Re-run the smoke test. If zero lines appear at ut=201.3, KSP didn't fire the event (cause 1). If 8 lines appear but only 1 event sticks in `GameStateStore`, the dedup is collapsing them (cause 2). If 8 lines appear at a different UT than 201.3, it's a window-width problem (cause 3).
-3. If cause (1) is confirmed, the fix is structural: `OnPartPurchased` must emit a synthetic `FundsChanged` event (in addition to the ledger action) at the purchase UT with `reason=RnDPartPurchase` so the reconciler has something to match against. Alternative: widen `ReconcileKscAction`'s RnDPartPurchase bucket to NOT require a matching event (classify it as "action is authoritative, no reconciliation needed").
-4. If cause (2) is confirmed, the dedup logic in `GameStateStore.AddEvent` needs a monotonic counter appended to the key for high-frequency batch events. This is a schema-sensitive change — coordinate with the event format to ensure old saves still load.
-
-**Fix:** depends on which cause the investigation pins. Most likely path (cause 1):
-- Add a helper `GameStateRecorder.EmitSyntheticFundsChanged(float delta, TransactionReasons reason)` that writes a `FundsChanged` `GameStateEvent` with `valueBefore`/`valueAfter` derived from the current `Funding.Instance.Funds` snapshot.
-- Call it from `OnPartPurchased` at the top of the handler, symmetric to the ledger-action write at line 498.
-- Add a regression test in `GameStateRecorderLedgerTests.cs` asserting that an `OnPartPurchased` call produces both a `PartPurchased` event AND a `FundsChanged(RnDPartPurchase)` event, and that `ReconcileKscAction` does not WARN.
-
-**Files:** `Source/Parsek/GameStateRecorder.cs:468-499` (OnPartPurchased — add synthetic event emit), `Source/Parsek/GameActions/LedgerOrchestrator.cs` (ReconcileKscAction — verify the window-match path), `Source/Parsek/GameStateEventConverter.cs` (make sure the synthetic event is NOT converted to a second `FundsSpending` action — must stay a ledger-silent event, only used for reconciliation). Tests: `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs`.
-
-**Scope:** Small once the investigation identifies the cause; 1-2 hours if cause (1) holds.
-
-**Dependencies:** #405 shipped (which added the OnKscSpending call that causes this WARN to fire in the first place — without #405, there'd be no `FundsSpending` action and therefore no reconciliation target). #437 shipped (which added `ReconcileKscAction`). #442 and #443 are separate ledger-channel gaps and do not overlap with this one.
-
-**Status:** TODO. Priority: medium. Diagnostic-only today (the ledger walk still reconciles the KSP funds pool correctly because the action itself is authoritative), but a session with 8 false-positive WARNs per recalc loop drowns real issues. Not release-blocking for v0.8.2; should ship in v0.8.3 alongside the broader reconciliation cleanup.
+This preserves the useful WARN on genuine no-bypass mismatches while eliminating the stock-default false positives without hiding real debit bugs.
 
 ---
 

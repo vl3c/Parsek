@@ -356,6 +356,200 @@ namespace Parsek
             return removed;
         }
 
+        /// <summary>
+        /// Rewrites any legacy persisted <see cref="GameStateEventType.PartPurchased"/>
+        /// rows whose stored <c>cost=</c> token still means rollout <c>part.cost</c>
+        /// instead of the real historical R&amp;D debit captured by saved
+        /// <see cref="GameStateEventType.FundsChanged"/> history. The only no-funds
+        /// fallback is the legacy stock-bypass shape: one stale part-purchase row,
+        /// zero paired <c>RnDPartPurchase</c> funds events, and a loaded save whose
+        /// difficulty still reports <c>BypassEntryPurchaseAfterResearch=true</c>.
+        /// Ambiguous or coalesced windows are left untouched rather than guessed from
+        /// current runtime state.
+        /// Runs against the live in-memory list so recovery and load-time compatibility
+        /// paths see corrected event data without a save-format bump.
+        /// </summary>
+        internal static int RepairLegacyPartPurchaseEventsForCurrentSemantics()
+        {
+            return RepairLegacyPartPurchaseEventsForCurrentSemantics(events);
+        }
+
+        internal static int RepairLegacyPartPurchaseEventsForCurrentSemantics(IList<GameStateEvent> sourceEvents)
+        {
+            if (sourceEvents == null || sourceEvents.Count == 0)
+                return 0;
+
+            IReadOnlyList<GameStateEvent> readOnlySource =
+                sourceEvents as IReadOnlyList<GameStateEvent> ??
+                new List<GameStateEvent>(sourceEvents);
+
+            int repaired = 0;
+            for (int i = 0; i < sourceEvents.Count; i++)
+            {
+                GameStateEvent rewritten;
+                if (!TryRewriteLegacyPartPurchaseEvent(sourceEvents[i], readOnlySource, out rewritten))
+                    continue;
+
+                sourceEvents[i] = rewritten;
+                repaired++;
+            }
+
+            return repaired;
+        }
+
+        internal static bool TryRewriteLegacyPartPurchaseEvent(
+            GameStateEvent evt,
+            IReadOnlyList<GameStateEvent> sourceEvents,
+            out GameStateEvent rewritten)
+        {
+            rewritten = evt;
+            if (evt.eventType != GameStateEventType.PartPurchased)
+                return false;
+
+            float storedCost;
+            if (!TryGetStoredPartPurchaseCost(evt.detail, out storedCost))
+                return false;
+
+            float canonicalCost;
+            if (!TryResolveLegacyPartPurchaseCharge(evt, sourceEvents, out canonicalCost))
+                return false;
+
+            double storedDelta = evt.valueBefore - evt.valueAfter;
+            if (Math.Abs(storedCost - canonicalCost) <= 0.01f &&
+                Math.Abs(storedDelta - canonicalCost) <= 0.01)
+            {
+                return false;
+            }
+
+            rewritten.detail = "cost=" + canonicalCost.ToString("R", CultureInfo.InvariantCulture);
+            rewritten.valueBefore = evt.valueAfter + canonicalCost;
+            return true;
+        }
+
+        internal static bool TryGetStoredPartPurchaseCost(string detail, out float partPurchaseCost)
+        {
+            partPurchaseCost = 0f;
+
+            string costStr = GameStateEventDisplay.ExtractDetailField(detail, "cost");
+            return !string.IsNullOrEmpty(costStr) &&
+                   float.TryParse(costStr, NumberStyles.Float, CultureInfo.InvariantCulture,
+                       out partPurchaseCost);
+        }
+
+        private static bool TryResolveLegacyPartPurchaseCharge(
+            GameStateEvent evt,
+            IReadOnlyList<GameStateEvent> sourceEvents,
+            out float canonicalCost)
+        {
+            canonicalCost = 0f;
+
+            // Only trust the paired FundsChanged delta when the window contains a single
+            // part purchase. Batched unlocks can coalesce multiple RnDPartPurchase deltas
+            // into one resource event, which is ambiguous per purchase. Do not fall back
+            // to current difficulty or part metadata — that can silently rewrite old
+            // history using today's runtime semantics instead of the saved savefile facts.
+            if (TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
+                evt, sourceEvents, out canonicalCost))
+            {
+                return true;
+            }
+
+            // Older stock-bypass saves never emitted RnDPartPurchase funds events at all,
+            // but pre-fix Parsek still persisted a non-zero PartPurchased row. Restore
+            // only that exact "single purchase, zero funds events" shape.
+            if (!IsKnownLegacyBypassPartPurchaseShape(evt, sourceEvents))
+                return false;
+
+            bool bypassEntryPurchaseAfterResearch;
+            if (!GameStateRecorder.TryGetBypassEntryPurchaseAfterResearch(
+                out bypassEntryPurchaseAfterResearch) || !bypassEntryPurchaseAfterResearch)
+            {
+                return false;
+            }
+
+            canonicalCost = 0f;
+            return true;
+        }
+
+        private static bool TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
+            GameStateEvent target,
+            IReadOnlyList<GameStateEvent> sourceEvents,
+            out float canonicalCost)
+        {
+            canonicalCost = 0f;
+            int partPurchasesInWindow = 0;
+            int fundsEventsInWindow = 0;
+            GameStateEvent fundsMatch = default(GameStateEvent);
+            ScanPartPurchaseWindow(
+                target,
+                sourceEvents,
+                out partPurchasesInWindow,
+                out fundsEventsInWindow,
+                out fundsMatch);
+
+            if (partPurchasesInWindow != 1 || fundsEventsInWindow != 1)
+                return false;
+
+            double delta = fundsMatch.valueAfter - fundsMatch.valueBefore;
+            if (delta >= -0.01)
+                return false;
+
+            canonicalCost = (float)(-delta);
+            return true;
+        }
+
+        private static bool IsKnownLegacyBypassPartPurchaseShape(
+            GameStateEvent target,
+            IReadOnlyList<GameStateEvent> sourceEvents)
+        {
+            int partPurchasesInWindow = 0;
+            int fundsEventsInWindow = 0;
+            GameStateEvent ignoredFundsEvent;
+            ScanPartPurchaseWindow(
+                target,
+                sourceEvents,
+                out partPurchasesInWindow,
+                out fundsEventsInWindow,
+                out ignoredFundsEvent);
+            return partPurchasesInWindow == 1 && fundsEventsInWindow == 0;
+        }
+
+        private static void ScanPartPurchaseWindow(
+            GameStateEvent target,
+            IReadOnlyList<GameStateEvent> sourceEvents,
+            out int partPurchasesInWindow,
+            out int fundsEventsInWindow,
+            out GameStateEvent fundsMatch)
+        {
+            partPurchasesInWindow = 0;
+            fundsEventsInWindow = 0;
+            fundsMatch = default(GameStateEvent);
+            if (sourceEvents == null || sourceEvents.Count == 0)
+                return;
+
+            for (int i = 0; i < sourceEvents.Count; i++)
+            {
+                var candidate = sourceEvents[i];
+                if (candidate.epoch != target.epoch)
+                    continue;
+                if (Math.Abs(candidate.ut - target.ut) > ResourceCoalesceEpsilon)
+                    continue;
+
+                if (candidate.eventType == GameStateEventType.PartPurchased)
+                {
+                    partPurchasesInWindow++;
+                    continue;
+                }
+
+                if (candidate.eventType == GameStateEventType.FundsChanged &&
+                    string.Equals(candidate.key, "RnDPartPurchase", StringComparison.Ordinal))
+                {
+                    fundsEventsInWindow++;
+                    fundsMatch = candidate;
+                }
+            }
+        }
+
         #endregion
 
         #region Committed Science Subjects
