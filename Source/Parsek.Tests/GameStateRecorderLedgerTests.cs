@@ -17,6 +17,11 @@ namespace Parsek.Tests
     /// take KSP-only types (Contract, AvailablePart) which can't be constructed in unit
     /// tests. We therefore test the narrow contract the handlers rely on: given a well-
     /// formed GameStateEvent, OnKscSpending lands a matching GameAction in the ledger.
+    ///
+    /// Also covers #444 vessel-recovery routing tests at the bottom of the file —
+    /// these use <c>RecordingStore</c> as a fixture dependency (lookup of the matching
+    /// committed recording for the recovery payout's RecordingId tag), so the setup
+    /// adds <c>RecordingStore.ResetForTesting()</c> on top of the §A baseline.
     /// </summary>
     [Collection("Sequential")]
     public class GameStateRecorderLedgerTests : IDisposable
@@ -454,6 +459,262 @@ namespace Parsek.Tests
             Assert.NotNull(match);
             Assert.Null(match.RecordingId);
             Assert.Equal(500f, match.FundsAwarded);
+        }
+
+        // -------- #444 review round 1 follow-ups --------
+
+        [Fact]
+        public void OnVesselRecoveryFunds_BackToBackRecoveriesWithinEpsilon_PairToDistinctEvents()
+        {
+            // Review item 1: bulk-recover two debris in the same physics frame fires two
+            // onVesselRecovered callbacks. KSP's two FundsChanged events coalesce in
+            // GameStateStore (resource-coalesce window is 0.1 s, see GameStateStore.cs),
+            // so both calls compete for ONE event in the store with a combined +800 delta.
+            //
+            // The pre-fix bug: reverse-search picks that coalesced event twice with no
+            // "consumed" marking, so the ledger gets TWO actions, each tagged with the
+            // coalesced amount (+800). Funds end up double-counted (+1600 vs the +800 KSP
+            // actually awarded).
+            //
+            // Post-fix behavior with consumed-index tracking: the first call latches the
+            // event (+800 — the coalesced sum equals A+B, which is what the player gained),
+            // the second call's reverse-search finds the index already consumed, falls
+            // through to "no paired event" and WARNs. Net ledger delta matches KSP.
+            //
+            // Use distinct UTs to distinguish the two store positions if KSP ever stops
+            // coalescing in a future patch (the test still passes either way: the consumed-
+            // index guard prevents a second entry whether one or two events sit in the store).
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 3000.00,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 0.0,
+                valueAfter = 100.0   // A = +100
+            });
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 3000.04,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 100.0,
+                valueAfter = 800.0   // B = +700; coalesces with A in the store → single event valueAfter=800
+            });
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "DebrisB", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "DebrisA", fromTrackingStation: true);
+
+            var recoveries = Ledger.Actions
+                .Where(a => a.Type == GameActionType.FundsEarning && a.FundsSource == FundsEarningSource.Recovery)
+                .ToList();
+
+            // Net awarded must equal what KSP credited (+800), regardless of whether the
+            // store coalesced into one event or kept two.
+            float totalAwarded = recoveries.Sum(r => r.FundsAwarded);
+            Assert.Equal(800f, totalAwarded);
+
+            // Pre-fix: 2 entries, each +800 (total 1600). Post-fix: at most one entry per
+            // store-side event index, so the count never exceeds the number of distinct
+            // FundsChanged(VesselRecovery) events sitting in the store within the window.
+            int eventsInStore = GameStateStore.Events.Count(e =>
+                e.eventType == GameStateEventType.FundsChanged &&
+                e.key == LedgerOrchestrator.VesselRecoveryReasonKey);
+            Assert.True(recoveries.Count <= eventsInStore,
+                $"Recovery actions ({recoveries.Count}) must not exceed paired events in store ({eventsInStore}); " +
+                "indicates the consumed-index guard regressed.");
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_BracketingRecordingPreferredOverLatestByEndUt()
+        {
+            // Review item 2: spec text says RecordingId = nearest-recording-by-name, but the
+            // first commit picked "max EndUT for matching name" which diverges for a long
+            // mission whose EndUT extends past the recovery UT. The follow-up picker prefers
+            // the recording whose [StartUT, EndUT] brackets the recovery UT.
+            //
+            // recA — does NOT bracket: window=[4000, 5000], later than the recovery UT.
+            // recB — DOES bracket: window=[3200, 3800], contains the recovery UT 3500.
+            // Old "max EndUT" picks recA (5000 > 3800). New picker picks recB (brackets).
+            var recA = new Recording
+            {
+                RecordingId = "rec-A-long-mission",
+                VesselName = "Twinned",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            recA.Points.Add(new TrajectoryPoint { ut = 4000.0, funds = 40000.0 });
+            recA.Points.Add(new TrajectoryPoint { ut = 5000.0, funds = 40000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+
+            var recB = new Recording
+            {
+                RecordingId = "rec-B-bracketing",
+                VesselName = "Twinned",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            recB.Points.Add(new TrajectoryPoint { ut = 3200.0, funds = 38000.0 });
+            recB.Points.Add(new TrajectoryPoint { ut = 3800.0, funds = 38000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 3500.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 38000.0,
+                valueAfter = 39500.0
+            });
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(3500.0, "Twinned", fromTrackingStation: true);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 3500.0) < 0.01);
+            Assert.NotNull(match);
+            Assert.Equal("rec-B-bracketing", match.RecordingId);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_FallsBackToMostRecentEndedBeforeUt()
+        {
+            // Review item 2: when no recording brackets ut, the picker must prefer the
+            // most-recent flight that ended at or before ut (semantic: the flight this
+            // recovery belongs to is one that has already finished). Only fall back to the
+            // global latest by EndUT when nothing has ended yet at ut (e.g., metadata drift).
+            var early = new Recording
+            {
+                RecordingId = "rec-early",
+                VesselName = "Reusable",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            early.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            early.Points.Add(new TrajectoryPoint { ut = 500.0, funds = 40000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(early);
+
+            var mid = new Recording
+            {
+                RecordingId = "rec-mid",
+                VesselName = "Reusable",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            mid.Points.Add(new TrajectoryPoint { ut = 600.0, funds = 38000.0 });
+            mid.Points.Add(new TrajectoryPoint { ut = 1500.0, funds = 38000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(mid);
+
+            // A recording that hasn't ended yet at the recovery UT (start=3000, end=5000;
+            // recovery at ut=2000). It does not bracket and has not ended — should NOT win.
+            var future = new Recording
+            {
+                RecordingId = "rec-future",
+                VesselName = "Reusable",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            future.Points.Add(new TrajectoryPoint { ut = 3000.0, funds = 36000.0 });
+            future.Points.Add(new TrajectoryPoint { ut = 5000.0, funds = 36000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(future);
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 2000.0);
+            // Tier 1 empty (no recording brackets 2000), tier 2 = max EndUT with EndUT<=2000
+            // → rec-mid (1500). rec-future has EndUT=5000 but EndUT>ut so it's tier 3 only.
+            Assert.Equal("rec-mid", pick);
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_SameUtDifferentReasonKey_PicksVesselRecoveryEvent()
+        {
+            // Review item 3a: the gate filters on key == VesselRecoveryReasonKey. If two
+            // FundsChanged events fall within the pairing epsilon but carry different
+            // reason keys (e.g., the player accepts a strategy that changes funds in the
+            // same window a vessel is recovered), the routing must pick the VesselRecovery
+            // one — not just "the most recent FundsChanged regardless of reason".
+            //
+            // GameStateStore coalesces resource events that share the same eventType AND
+            // recordingId tag within 0.1 s. To produce two distinct pair-candidate events
+            // at nearly the same UT, use different recordingId tags so coalescing skips.
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 7000.00,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                recordingId = "tag-recovery",
+                valueBefore = 10000.0,
+                valueAfter = 12000.0   // recovery: +2000
+            });
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 7000.05,   // within pairing epsilon AND within coalesce epsilon, but distinct tag
+                eventType = GameStateEventType.FundsChanged,
+                key = "Strategies",
+                recordingId = "tag-strategy",
+                valueBefore = 12000.0,
+                valueAfter = 11500.0   // strategy fee: -500, more recent in store, different key
+            });
+
+            // Both events sit within VesselRecoveryEventEpsilonSeconds of ut=7000.05.
+            // Reverse-search hits the Strategies event first; the key gate must reject it
+            // and continue back to the VesselRecovery event.
+            LedgerOrchestrator.OnVesselRecoveryFunds(7000.05, "RecoveredProbe", fromTrackingStation: true);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+            Assert.NotNull(match);
+            // Must be the VesselRecovery delta (+2000), not the Strategies one (-500).
+            Assert.Equal(2000f, match.FundsAwarded);
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_PreSeededInFlightRecoveryAction_DocumentsLackOfInMethodDedup()
+        {
+            // Review item 3b: there is no in-method dedup against pre-existing
+            // FundsEarning(Recovery) actions in the ledger — the FLIGHT-scene gate in
+            // ParsekScenario.OnVesselRecovered is the load-bearing protection. This test
+            // pins that contract: pre-seed a FundsEarning(Recovery) action that simulates
+            // an in-flight CreateVesselCostActions emission, then call OnVesselRecoveryFunds
+            // (i.e., simulate the gate failing). Today this produces a SECOND entry; the
+            // assertion makes the gate's importance visible to anyone who weakens the gate.
+            //
+            // If a future change adds in-method dedup, this test should be updated (and the
+            // FLIGHT-scene gate can be relaxed). Until then, "two entries" is the documented
+            // current behavior.
+            var preSeeded = new GameAction
+            {
+                UT = 9000.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec-in-flight",
+                FundsAwarded = 1500f,
+                FundsSource = FundsEarningSource.Recovery,
+                Sequence = 1
+            };
+            Ledger.AddAction(preSeeded);
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 9000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 10000.0,
+                valueAfter = 11500.0
+            });
+
+            int before = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(9000.0, "InFlightRecovery", fromTrackingStation: false);
+
+            int after = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+
+            // Documents the lack of in-method dedup — exactly one new entry was added.
+            // The gate in ParsekScenario.OnVesselRecovered is what prevents this in production.
+            Assert.Equal(before + 1, after);
         }
     }
 }
