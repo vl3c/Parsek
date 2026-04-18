@@ -96,7 +96,12 @@ namespace Parsek
         private readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
         private float nextProximityCheckTime;
         private const float ProximityCheckIntervalSec = 1.5f;
-        internal const double NearbySpawnRadius = 500.0;
+        internal const double NearbySpawnRadius = 250.0;
+        // Real Spawn Control: maximum surface-frame relative speed (m/s) between the
+        // active vessel and a ghost for the ghost to qualify as a spawn candidate.
+        // Tight enough to require a deliberate rendezvous (matched orbits, station-keeping)
+        // before fast-forward is offered.
+        internal const double MaxRelativeSpeed = 2.0;
         private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
         private int proximityCheckGeneration;
         internal int ProximityCheckGeneration => proximityCheckGeneration;
@@ -11196,11 +11201,14 @@ namespace Parsek
 
             if (FlightGlobals.ActiveVessel == null) return;
 
-            Vector3d activePos = FlightGlobals.ActiveVessel.GetWorldPos3D();
+            var activeVessel = FlightGlobals.ActiveVessel;
+            Vector3d activePos = activeVessel.GetWorldPos3D();
+            Vector3d activeSrfVel = activeVessel.srf_velocity;
+            string activeBodyName = activeVessel.mainBody != null ? activeVessel.mainBody.name : null;
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
 
-            CollectNearbySpawnCandidates(activePos, currentUT, committed);
+            CollectNearbySpawnCandidates(activePos, activeSrfVel, activeBodyName, currentUT, committed);
 
             // Sort by distance (closest first)
             nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
@@ -11213,8 +11221,12 @@ namespace Parsek
         /// Scans active ghosts for spawn-eligible recordings within proximity range.
         /// Populates nearbySpawnCandidates with qualifying entries.
         /// </summary>
-        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
+        private void CollectNearbySpawnCandidates(
+            Vector3d activePos, Vector3d activeSrfVel, string activeBodyName,
+            double currentUT, IReadOnlyList<Recording> committed)
         {
+            int skippedBody = 0;
+            int skippedSpeed = 0;
             foreach (var kvp in ghostStates)
             {
                 int i = kvp.Key;
@@ -11251,6 +11263,24 @@ namespace Parsek
                 if (dist > NearbySpawnRadius)
                     continue;
 
+                // Bodies must match — surface-frame velocities are body-relative, and a
+                // sub-250m proximity across two bodies is geometrically impossible anyway.
+                if (string.IsNullOrEmpty(activeBodyName) ||
+                    string.IsNullOrEmpty(state.lastInterpolatedBodyName) ||
+                    activeBodyName != state.lastInterpolatedBodyName)
+                {
+                    skippedBody++;
+                    continue;
+                }
+
+                // Both ghost and active vessel velocities are surface-frame (body-relative).
+                double relSpeed = (activeSrfVel - (Vector3d)state.lastInterpolatedVelocity).magnitude;
+                if (relSpeed > MaxRelativeSpeed)
+                {
+                    skippedSpeed++;
+                    continue;
+                }
+
                 var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
                 {
@@ -11264,6 +11294,12 @@ namespace Parsek
                     destination = depInfo.destination
                 });
             }
+
+            if ((skippedBody > 0 || skippedSpeed > 0) && ParsekLog.IsVerboseEnabled)
+                ParsekLog.Verbose("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Proximity check: skipped {0} (body mismatch) + {1} (rel-speed > {2:F1} m/s)",
+                        skippedBody, skippedSpeed, MaxRelativeSpeed));
         }
 
         /// <summary>
@@ -11302,8 +11338,8 @@ namespace Parsek
             if (ParsekLog.IsVerboseEnabled && nearbySpawnCandidates.Count > 0)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: {0} candidate(s) within {1:F0}m",
-                        nearbySpawnCandidates.Count, NearbySpawnRadius));
+                        "Proximity check: {0} candidate(s) within {1:F0}m and rel-speed <= {2:F1} m/s",
+                        nearbySpawnCandidates.Count, NearbySpawnRadius, MaxRelativeSpeed));
         }
 
         /// <summary>

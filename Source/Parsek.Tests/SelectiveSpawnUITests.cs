@@ -31,7 +31,8 @@ namespace Parsek.Tests
             Assert.True(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 200, currentUT: 100,
                 needsSpawn: true, chainSuppressed: false,
-                distance: 300, proximityRadius: 500));
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
         }
 
         [Fact]
@@ -40,7 +41,8 @@ namespace Parsek.Tests
             Assert.False(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 50, currentUT: 100,
                 needsSpawn: true, chainSuppressed: false,
-                distance: 300, proximityRadius: 500));
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
         }
 
         [Fact]
@@ -49,7 +51,8 @@ namespace Parsek.Tests
             Assert.False(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 200, currentUT: 100,
                 needsSpawn: false, chainSuppressed: false,
-                distance: 300, proximityRadius: 500));
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
         }
 
         [Fact]
@@ -58,7 +61,8 @@ namespace Parsek.Tests
             Assert.False(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 200, currentUT: 100,
                 needsSpawn: true, chainSuppressed: true,
-                distance: 300, proximityRadius: 500));
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
         }
 
         [Fact]
@@ -67,7 +71,8 @@ namespace Parsek.Tests
             Assert.False(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 200, currentUT: 100,
                 needsSpawn: true, chainSuppressed: false,
-                distance: 600, proximityRadius: 500));
+                distance: 300, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
         }
 
         [Fact]
@@ -76,7 +81,8 @@ namespace Parsek.Tests
             Assert.True(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 200, currentUT: 100,
                 needsSpawn: true, chainSuppressed: false,
-                distance: 500, proximityRadius: 500));
+                distance: 250, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
         }
 
         [Fact]
@@ -85,7 +91,38 @@ namespace Parsek.Tests
             Assert.False(SelectiveSpawnUI.IsSpawnCandidate(
                 endUT: 100, currentUT: 100,
                 needsSpawn: true, chainSuppressed: false,
-                distance: 300, proximityRadius: 500));
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 1.0, maxRelativeSpeed: 2.0));
+        }
+
+        [Fact]
+        public void IsSpawnCandidate_AboveMaxRelativeSpeed_False()
+        {
+            Assert.False(SelectiveSpawnUI.IsSpawnCandidate(
+                endUT: 200, currentUT: 100,
+                needsSpawn: true, chainSuppressed: false,
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 2.5, maxRelativeSpeed: 2.0));
+        }
+
+        [Fact]
+        public void IsSpawnCandidate_AtExactMaxRelativeSpeed_True()
+        {
+            Assert.True(SelectiveSpawnUI.IsSpawnCandidate(
+                endUT: 200, currentUT: 100,
+                needsSpawn: true, chainSuppressed: false,
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 2.0, maxRelativeSpeed: 2.0));
+        }
+
+        [Fact]
+        public void IsSpawnCandidate_ZeroRelativeSpeed_True()
+        {
+            Assert.True(SelectiveSpawnUI.IsSpawnCandidate(
+                endUT: 200, currentUT: 100,
+                needsSpawn: true, chainSuppressed: false,
+                distance: 200, proximityRadius: 250,
+                relativeSpeed: 0.0, maxRelativeSpeed: 2.0));
         }
 
         // ── FindNextSpawnCandidate ──

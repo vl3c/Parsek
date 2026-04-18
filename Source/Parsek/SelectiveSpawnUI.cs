@@ -59,17 +59,20 @@ namespace Parsek
 
         /// <summary>
         /// Pure: determine whether a ghost qualifies as a spawn candidate.
-        /// True when endUT is in the future, spawn is needed, not suppressed, and within range.
+        /// True when endUT is in the future, spawn is needed, not suppressed,
+        /// within range, and the surface-frame relative speed is within tolerance.
         /// </summary>
         internal static bool IsSpawnCandidate(
             double endUT, double currentUT,
             bool needsSpawn, bool chainSuppressed,
-            double distance, double proximityRadius)
+            double distance, double proximityRadius,
+            double relativeSpeed, double maxRelativeSpeed)
         {
             return endUT > currentUT
                 && needsSpawn
                 && !chainSuppressed
-                && distance <= proximityRadius;
+                && distance <= proximityRadius
+                && relativeSpeed <= maxRelativeSpeed;
         }
 
         /// <summary>
