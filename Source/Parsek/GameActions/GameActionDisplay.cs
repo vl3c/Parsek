@@ -80,8 +80,13 @@ namespace Parsek
                         FormatFundsSource(action.FundsSource), action.FundsAwarded);
 
                 case GameActionType.FundsSpending:
-                    return string.Format(IC, "{0} -{1:0}",
+                {
+                    string label = string.Format(IC, "{0} -{1:0}",
                         FormatFundsSpendingSource(action.FundsSpendingSource), action.FundsSpent);
+                    if (IsUnclaimedRolloutAction(action))
+                        label += " (cancelled rollout)";
+                    return label;
+                }
 
                 case GameActionType.FundsInitial:
                     return string.Format(IC, "Starting funds: {0:0}", action.InitialFunds);
@@ -196,6 +201,25 @@ namespace Parsek
         }
 
         // ---- Formatting helpers ----
+
+        /// <summary>
+        /// Bug #452: a <see cref="FundsSpendingSource.VesselBuild"/> action that has no
+        /// owning recording but carries the <c>"rollout:"</c> dedup tag set by
+        /// <see cref="LedgerOrchestrator.OnVesselRolloutSpending"/> represents a rollout
+        /// the player never adopted by launching+committing a recording (typically a
+        /// rolled-out vessel cancelled before launch). We render those with a
+        /// <c>"(cancelled rollout)"</c> suffix so they're visibly distinguishable from
+        /// adopted (recording-tagged) build costs in the Actions / Ledger UI.
+        /// </summary>
+        internal static bool IsUnclaimedRolloutAction(GameAction action)
+        {
+            if (action == null) return false;
+            if (action.Type != GameActionType.FundsSpending) return false;
+            if (action.FundsSpendingSource != FundsSpendingSource.VesselBuild) return false;
+            if (!string.IsNullOrEmpty(action.RecordingId)) return false;
+            if (string.IsNullOrEmpty(action.DedupKey)) return false;
+            return action.DedupKey.StartsWith("rollout:", System.StringComparison.Ordinal);
+        }
 
         private static string FormatFundsSource(FundsEarningSource source)
         {

@@ -58,15 +58,15 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 452. Cancelled-rollout ledger entries should label the vessel name (or flag as "cancelled rollout")
+## ~~452.~~ Cancelled-rollout ledger entries should label the vessel name (or flag as "cancelled rollout")
 
 **Source:** review pass on PR `fix/445-rollout-cost-leak`. After #445, a cancelled-rollout `FundsSpending(VesselBuild)` action correctly persists in the ledger so the funds total stays in sync with KSP's deduction. However the Ledger / Actions UI currently renders the entry as a generic `"Vessel build"` label with no recording link — there's no way for the player to see which vessel the cost belonged to or that it was a cancellation. Cross-reference #445.
 
-**Fix:** When rendering a `FundsSpending(VesselBuild)` action whose `RecordingId == null` and `DedupKey` starts with `"rollout:"`, surface either the vessel name (would require capturing it in `OnVesselRolloutSpending` — KSP's `FundsChanged` event doesn't expose it directly, may need a `VesselRolloutEvent` Harmony patch on `EditorLogic.OnLaunchBtnClicked` or `LaunchPad.Launch`) or at minimum a "(cancelled rollout)" suffix on the existing label so the entry is distinguishable from an adopted (recording-tagged) build cost.
+**Fix:** Took the minimum/path-(a) option from the original spec. When rendering a `FundsSpending(VesselBuild)` action whose `RecordingId == null` and `DedupKey` starts with `"rollout:"`, both `GameActionDisplay.GetDescription` (Actions / Ledger window) and `TimelineEntryDisplay.GetGameActionText` (Timeline window) now append a `" (cancelled rollout)"` suffix to the existing label. The discriminator lives in a new `GameActionDisplay.IsUnclaimedRolloutAction` helper so both renderers stay consistent. Adopted rollouts (whose `DedupKey` is cleared by `TryAdoptRolloutAction`) and ordinary recording-tagged build costs continue to render with the existing label. Vessel-name capture (path b) was rejected — it would require a new Harmony patch on `EditorLogic.OnLaunchBtnClicked` / `LaunchPad.Launch` and a thread through `OnFundsChanged` → `OnVesselRolloutSpending`, which is more code than the priority warrants.
 
-**Files:** Likely `Source/Parsek/UI/ActionsWindowUI.cs` (or wherever `FundsSpending(VesselBuild)` is rendered); possibly `Source/Parsek/GameStateRecorder.cs` and `Source/Parsek/GameActions/LedgerOrchestrator.cs:OnVesselRolloutSpending` for vessel-name capture.
+**Files:** `Source/Parsek/GameActions/GameActionDisplay.cs`, `Source/Parsek/Timeline/TimelineEntryDisplay.cs`, `Source/Parsek.Tests/Bug452RolloutLabelTests.cs` (13 new unit tests).
 
-**Status:** TODO. Priority: low (cosmetic — funds total is correct; only the human-readable description is generic).
+**Status:** ~~Fixed~~ in this PR.
 
 ---
 

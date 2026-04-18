@@ -331,7 +331,12 @@ namespace Parsek
                         case FundsSpendingSource.Strategy:        source = "Strategy"; break;
                         default:                                  source = "Expense"; break;
                     }
-                    return string.Format(IC, "{0} -{1:0}", source, action.FundsSpent);
+                    string label = string.Format(IC, "{0} -{1:0}", source, action.FundsSpent);
+                    // Bug #452: distinguish unclaimed cancelled-rollout entries from
+                    // adopted (recording-tagged) build costs in the timeline view.
+                    if (GameActionDisplay.IsUnclaimedRolloutAction(action))
+                        label += " (cancelled rollout)";
+                    return label;
                 }
 
                 case GameActionType.ScienceSpending:
