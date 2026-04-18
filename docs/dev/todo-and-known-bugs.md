@@ -18,6 +18,32 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 472. Watch-mode camera pitch/heading jumps when playback hands off to the next segment within a recording tree (e.g. flying → landed)
+
+**Source:** user playtest report — "when watching a recording, maintain the camera watch angle exactly the same when transitioning to another recording segment (right now it moves when vessel is going from flying to landed for example)."
+
+**Concern:** inside a single tree (chain/branch) the active playback ghost changes at each segment boundary (flying recording ends, landed recording's ghost becomes the new camera target). `WatchModeController` has a `RetargetToNewGhost` handler (`Source/Parsek/WatchModeController.cs:711-721` for single-ghost and `:731-740` for overlap) that swaps the FlightCamera target transform to the new ghost's pivot. The swap is implemented via `FlightCamera.SetTargetTransform(GetWatchTarget(evt.GhostPivot))` — which snaps the camera to the new target but does NOT re-apply the remembered pitch/heading. Even though `WatchCameraTransitionState` (`:25`) captures `Pitch`/`Heading` in degrees and `RememberWatchCameraState` persists it (`:1012-1057`) for enter/exit transitions, the per-frame segment retarget skips that restoration path. Net effect: the camera yanks to whatever pitch/heading the new ghost's default orientation implies.
+
+The existing loop-cycle-boundary code path (`CameraActionType.RetargetToNewGhost` inside `HandleLoopCameraAction`) has the same shape — if the bug reproduces at loop boundaries too, the fix covers both. Confirm during fix.
+
+**Fix:** in both `RetargetToNewGhost` branches (`WatchModeController.cs:711-721`, `:731-740`), before the `SetTargetTransform` call, capture the current `flightCamera.camPitch` / `camHdg` (radians), then after the retarget re-apply them via the same `ApplyCameraState`-style helper used on watch-mode entry (`:486-525` writes pitch/heading back to the camera). The `WatchCameraTransitionState` struct already carries both fields in the right unit (degrees) — the helper path is ready; it just needs to fire on segment-boundary retargets too, not only on enter/exit.
+
+Edge cases to cover in the test matrix:
+- `HorizonLocked` mode (default on entry) — pitch/heading are relative to the horizon and must survive the target swap
+- `Free` mode — same requirement, but the relative frame is the ghost's local frame
+- Overlap retarget vs non-overlap — both code paths at `:711` and `:731`
+- Loop cycle boundary — verify same issue/fix
+
+**Files:** `Source/Parsek/WatchModeController.cs` (retarget sites + helper plumbing). Test: in-game test (xUnit cannot observe `FlightCamera`) that enters watch mode on a multi-segment tree recording, waits for the segment boundary to trigger retarget, asserts `flightCamera.camPitch` / `camHdg` remain within a small epsilon of their pre-retarget values.
+
+**Scope:** Small — pitch/heading capture-and-reapply around each retarget call. Main complexity is the test harness driving a real segment boundary; if too coupled, add a test seam on `HandleLoopCameraAction` / `HandleOverlapCameraAction` to drive the `RetargetToNewGhost` branch directly from a synthetic `CameraActionEvent`.
+
+**Dependencies:** none.
+
+**Status:** TODO. Priority: medium — user-visible camera jerk every time playback crosses a segment/terminal state boundary.
+
+---
+
 ## 471. Gloops recordings should not loop by default; commit path should set `LoopPlayback=false` and `LoopIntervalSeconds=0` (auto)
 
 **Source:** user request — "gloops recordings should no longer be looped by default and their loop period should be set to auto when they are created."
