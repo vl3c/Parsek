@@ -62,11 +62,11 @@ are fixed in the same PR branch with additional commits:
 
 **Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
 
-**Fix:** decompiled `OrbitRendererBase.objectNode_OnClick(MapNode mn, Mouse.Buttons btns)` to confirm the button bitmask is already on the parameter list (KSP fills it via `Mouse.GetAllMouseButtonsUp()`), then used Harmony parameter injection by name to receive `Mouse.Buttons btns` in the prefix. The pure predicate `GhostIconClickPatch.IsLeftClickFromButtons` returns `true` only when the mask contains `Left` (or is `None`, the defensive default that preserves current UX); non-left clicks now log a single VERBOSE under `GhostMap` and `return true` so the stock handler pins the caption. Left-click is unchanged — still opens the Focus / Set As Target / Watch menu and suppresses the stock context menu.
+**Fix:** decompiled `OrbitRendererBase.objectNode_OnClick(MapNode mn, Mouse.Buttons btns)` to confirm the button bitmask is already on the parameter list (KSP fills it via `Mouse.GetAllMouseButtonsUp()`), then bound that argument in the Harmony prefix by original index (`[HarmonyArgument(1)]`) instead of relying on external parameter-name metadata. The pure predicate `GhostIconClickPatch.IsLeftClickFromButtons` returns `true` only when the mask contains `Left` (or is `None`, the defensive default that preserves current UX); the production helper `GhostIconClickPatch.TryPassThroughNonLeftClick` now owns the non-left VERBOSE log + `return true` pass-through so the stock handler pins the caption, and the unit tests exercise that real helper instead of re-emitting the log line manually. Left-click is unchanged — still opens the Focus / Set As Target / Watch menu and suppresses the stock context menu.
 
 **Files:** `Source/Parsek/Patches/GhostVesselLoadPatch.cs`, `Source/Parsek.Tests/GhostIconClickButtonFilterTests.cs` (8 new unit tests).
 
-**Status:** ~~Fixed~~. In-game verification deferred to the next playtest bundle — deployed DLL UTF-16 grep confirms the pass-through log string is present in the built assembly.
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter GhostIconClickButtonFilterTests` (8/8). In-game verification is still deferred to the next playtest bundle.
 
 ---
 

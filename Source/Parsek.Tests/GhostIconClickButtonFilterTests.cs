@@ -74,18 +74,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NonLeftClick_LogsVerbosePassThroughUnderGhostMapTag()
+        public void TryPassThroughNonLeftClick_Right_ReturnsTrue_AndLogsVerbosePassThroughUnderGhostMapTag()
         {
-            // The production Prefix logs a single VERBOSE on the pass-through
-            // branch. We exercise the same log call directly since Prefix itself
-            // needs a live OrbitRendererBase/Vessel to reach the guard — the
-            // pure predicate + the log emission form the full contract.
             Mouse.Buttons btns = Mouse.Buttons.Right;
-            bool isLeft = GhostIconClickPatch.IsLeftClickFromButtons(btns);
-            Assert.False(isLeft);
-
-            ParsekLog.Verbose("GhostMap",
-                $"Ghost icon non-left click (button={btns}) — passing through to stock handler for default pin-text");
+            bool passedThrough = GhostIconClickPatch.TryPassThroughNonLeftClick(btns);
+            Assert.True(passedThrough);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]")
@@ -96,12 +89,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LeftClick_DoesNotLogPassThrough()
+        public void TryPassThroughNonLeftClick_Left_ReturnsFalse_AndDoesNotLog()
         {
-            // Sanity check: the left-click branch must NOT emit the pass-through
-            // log line — only the existing "Ghost icon clicked" verbose.
             Mouse.Buttons btns = Mouse.Buttons.Left;
-            Assert.True(GhostIconClickPatch.IsLeftClickFromButtons(btns));
+            bool passedThrough = GhostIconClickPatch.TryPassThroughNonLeftClick(btns);
+            Assert.False(passedThrough);
 
             Assert.DoesNotContain(logLines, l => l.Contains("non-left click"));
             Assert.DoesNotContain(logLines, l => l.Contains("passing through"));

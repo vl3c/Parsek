@@ -238,7 +238,19 @@ namespace Parsek.Patches
             return (btns & Mouse.Buttons.Left) != 0;
         }
 
-        static bool Prefix(OrbitRendererBase __instance, Mouse.Buttons btns)
+        internal static bool TryPassThroughNonLeftClick(Mouse.Buttons btns)
+        {
+            if (IsLeftClickFromButtons(btns))
+                return false;
+
+            ParsekLog.Verbose("GhostMap",
+                $"Ghost icon non-left click (button={btns}) — passing through to stock handler for default pin-text");
+            return true;
+        }
+
+        // Bind by original-argument index so the patch does not depend on KSP's
+        // external parameter-name metadata staying exactly "btns".
+        static bool Prefix(OrbitRendererBase __instance, [HarmonyArgument(1)] Mouse.Buttons btns)
         {
             if (__instance.vessel == null) return true;
             if (!GhostMapPresence.IsGhostMapVessel(__instance.vessel.persistentId)) return true;
@@ -247,12 +259,8 @@ namespace Parsek.Patches
             // Button filter: only left-click opens the Parsek menu. Right/middle/etc.
             // fall through to KSP's own objectNode_OnClick so the stock pin-text
             // behavior (toggles MapNode.pinned in the MapNode.OnPointerUp path) fires.
-            if (!IsLeftClickFromButtons(btns))
-            {
-                ParsekLog.Verbose("GhostMap",
-                    $"Ghost icon non-left click (button={btns}) — passing through to stock handler for default pin-text");
+            if (TryPassThroughNonLeftClick(btns))
                 return true;
-            }
 
             Vessel v = __instance.vessel;
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
