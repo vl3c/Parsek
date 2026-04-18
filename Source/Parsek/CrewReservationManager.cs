@@ -1030,6 +1030,78 @@ namespace Parsek
 
         #endregion
 
+        #region Phase 9 reservation recompute after tombstones (design §6.6 step 6 / §7.16)
+
+        /// <summary>
+        /// Phase 9 of Rewind-to-Staging (design §6.6 step 6 / §7.16 / §10.4):
+        /// re-derives the crew reservation dictionary after
+        /// <see cref="SupersedeCommit.CommitTombstones"/> has appended new
+        /// <see cref="LedgerTombstone"/>s.
+        ///
+        /// <para>
+        /// Walks the Effective Ledger Set (tombstoned actions filtered out per
+        /// §3.2) and replays every surviving <see cref="GameActionType.KerbalAssignment"/>
+        /// action through <see cref="KerbalsModule.ProcessAction"/>, then calls
+        /// <see cref="KerbalsModule.PostWalk"/> and
+        /// <see cref="KerbalsModule.ApplyToRoster"/> so the
+        /// <see cref="CrewReservationManager"/> replacement dictionary is
+        /// refreshed. Kerbals whose <see cref="KerbalEndState.Dead"/> action
+        /// was just tombstoned fall out of the reservation set and their
+        /// stand-ins get cleaned up through the usual <see cref="ApplyToRoster"/>
+        /// step.
+        /// </para>
+        ///
+        /// <para>
+        /// Safe to call with no module wired (e.g. early boot, unit tests): the
+        /// method short-circuits with a Verbose log.
+        /// </para>
+        /// </summary>
+        public static void RecomputeAfterTombstones()
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            if (kerbals == null)
+            {
+                ParsekLog.Verbose("CrewReservations",
+                    "RecomputeAfterTombstones: no KerbalsModule — skipping");
+                return;
+            }
+
+            // ELS = ledger minus tombstones (design §3.2). This is the only
+            // source of truth for "which kerbal assignments are still effective."
+            var els = EffectiveState.ComputeELS();
+            var kerbalAssignments = new List<GameAction>();
+            if (els != null)
+            {
+                for (int i = 0; i < els.Count; i++)
+                {
+                    var a = els[i];
+                    if (a == null) continue;
+                    if (a.Type != GameActionType.KerbalAssignment) continue;
+                    kerbalAssignments.Add(a);
+                }
+            }
+
+            kerbals.Reset();
+            kerbals.PrePass(kerbalAssignments);
+            for (int i = 0; i < kerbalAssignments.Count; i++)
+                kerbals.ProcessAction(kerbalAssignments[i]);
+            kerbals.PostWalk();
+
+            // ApplyToRoster refreshes the replacement dictionary via
+            // ClearReplacementsInternal + SetReplacement. Roster may be absent
+            // in headless / test contexts; ApplyToRoster logs and no-ops.
+            kerbals.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+
+            int remaining = 0;
+            foreach (var _ in kerbals.Reservations)
+                remaining++;
+
+            ParsekLog.Info("CrewReservations",
+                $"Recomputed after tombstones: {remaining} reservations remain.");
+        }
+
+        #endregion
+
         #region Phase 7 dual-residence carve-out (design §3.3.1)
 
         /// <summary>

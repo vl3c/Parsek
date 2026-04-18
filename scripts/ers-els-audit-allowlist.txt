@@ -96,3 +96,13 @@ Source/Parsek/CrewReservationManager.cs
 # point (Phase 8 step that flips it runs inside SupersedeCommit), so ERS
 # filters it out by definition — raw read is the only way to find it.
 Source/Parsek/MergeDialog.cs
+
+# --- Phase 9 ERS-exempt files ---
+# SupersedeCommit.CommitTombstones scans the RAW ledger to BUILD the
+# tombstone set for the superseded subtree (design §6.6 step 4). Routing
+# the scan through ELS would be circular — ELS is defined as "ledger minus
+# tombstones" (design §3.2), so reading it here would hide actions that
+# exist in the ledger and thus need tombstones emitted for them. The tomb
+# write itself bumps TombstoneStateVersion so downstream ELS consumers
+# see the retirement on their next call.
+Source/Parsek/SupersedeCommit.cs

@@ -771,7 +771,19 @@ namespace Parsek
             // tagged action via some other path.
             PurgeGhostOnlyActionsFromLedger();
 
-            var actions = new List<GameAction>(Ledger.Actions);
+            // Phase 9 of Rewind-to-Staging (design §3.2): route the walk input
+            // through the Effective Ledger Set so any tombstoned action is
+            // excluded. Tombstones are the only filter — the recording-level
+            // filter (v0.4) was explicitly dropped in v0.5's narrow-supersede
+            // design, and ComputeELS implements exactly that rule. Pre-Phase-9
+            // behavior (Ledger.Actions raw) matches the Phase 9 output on a
+            // save with no tombstones (trivially), so this is a drop-in for
+            // existing behavior plus the new tombstone filter.
+            //
+            // NOTE: Ghost-only actions are purged from Ledger.Actions above,
+            // so ComputeELS (which derives from Ledger.Actions) correctly
+            // reflects the post-purge state.
+            var actions = new List<GameAction>(EffectiveState.ComputeELS());
 
             // Count how many actions survive the cutoff filter for the log summary.
             // Matches the filter in RecalculationEngine.Recalculate (seeds always pass).
@@ -2492,7 +2504,10 @@ namespace Parsek
             // Run a recalculation to get current state (may already be current).
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
-            var actions = new System.Collections.Generic.List<GameAction>(Ledger.Actions);
+            // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
+            // any tombstoned action (kerbal deaths + bundled rep penalties) is
+            // excluded from the affordability probe's walk.
+            var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);
 
@@ -2523,7 +2538,10 @@ namespace Parsek
 
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
-            var actions = new System.Collections.Generic.List<GameAction>(Ledger.Actions);
+            // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
+            // any tombstoned action (kerbal deaths + bundled rep penalties) is
+            // excluded from the affordability probe's walk.
+            var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);
 
