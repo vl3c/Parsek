@@ -2043,9 +2043,11 @@ A unit test is insufficient here — this needs the live `MapView` reflection ta
 
 ---
 
-## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2)
+## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2; hover-reveal removed in ghost-label-click-toggle follow-up)
 
 Fixed by adding a `stickyMarkers` set and `markerKey` parameter to `MapMarkerRenderer.DrawMarker`/`DrawMarkerAtScreen`, threading `rec.RecordingId` from both call sites (`ParsekUI.DrawMapMarkers`, `ParsekTrackingStation.OnGUI`), and resetting stickies on scene change from `ParsekFlight.OnSceneChangeRequested` + `ParsekTrackingStation.OnDestroy`. Click interaction is gated to `MapView.MapIsEnabled || TRACKSTATION` so flight main-window clicks don't double-fire.
+
+**Follow-up (`feat/ghost-label-click-toggle`):** hover-reveal removed per player feedback — the label now shows ONLY when sticky (click-pinned) and right-click is now a second toggle button alongside left-click. `ShouldDrawLabel` dropped the `hover` parameter (single-arg `bool sticky`). New pure helper `IsToggleClick(EventType, int button)` covers MouseDown + button 0/1. Click INFO log line extended with `button=` so log reviews can distinguish left vs. right toggles. Format owned by a new pure helper `FormatClickLogLine` that the tests pin directly.
 
 **Source:** maintenance request `2026-04-14`. Parsek's custom ghost map icon currently always draws a `"Ghost: <name>"` text label directly below it. Stock KSP vessel icons don't — they only show the name on hover (and clicking enters/pins the target). The ghost icon should match that behavior so the map view isn't cluttered with permanent text for every ghost.
 
@@ -2095,7 +2097,7 @@ There is no hover test, no click handling, and no per-marker "sticky" state. Bot
 - `Source/Parsek/ParsekUI.cs` — `DrawMapMarkers` (line `626`) passes `rec.RecordingId` to the new `DrawMarker` signature.
 - `Source/Parsek/ParsekTrackingStation.cs` — line `102` passes `rec.RecordingId` too.
 - `Source/Parsek/ParsekScenario.cs` — call `MapMarkerRenderer.ResetForSceneChange()` from the existing scene-teardown path.
-- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool hover, bool sticky) => hover || sticky` (or similar) so the decision is testable without Unity. Toggle logic can also be extracted into a pure method `ToggleSticky(string key, HashSet<string> set)` for the same reason.
+- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool sticky) => sticky` so the decision is testable without Unity. (Original sketch used `hover || sticky`; the hover-reveal branch was removed in the ghost-label-click-toggle follow-up.) Toggle logic can also be extracted into pure methods `ToggleSticky(string key, HashSet<string> set)` and `IsToggleClick(EventType type, int button)` for the same reason.
 - `CHANGELOG.md` under Unreleased: "Map view / tracking station ghost icons now match stock KSP: name label hidden by default, shows on hover, click to pin."
 
 **Open questions:**
