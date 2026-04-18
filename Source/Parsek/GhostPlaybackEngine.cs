@@ -1052,9 +1052,22 @@ namespace Parsek
                 });
 
                 GhostPlaybackLogic.ResetReentryFx(state, index);
-                DestroyGhost(index, traj, flags, reason: "loop cycle boundary");
-                ghostActive = false;
-                state = null;
+
+                // #406 follow-up: reuse the ghost GameObject across the loop
+                // cycle boundary instead of destroy+spawn. The reuse preserves
+                // the ghost hierarchy, reentryFxInfo, reentryFxPendingBuild
+                // (#450 B3), all info dictionaries, cameraPivot identity,
+                // and horizonProxy; it resets playback iterators, explosionFired,
+                // pauseHidden, rcsSuppressed, lightPlaybackStates, fakeCanopies,
+                // logicalPartIds (re-materialised from snapshot), and part
+                // visibility (previous-cycle decoupled parts get reactivated).
+                // This path does NOT consume a #414 spawn slot and does NOT
+                // increment frameLazyReentryBuildCount. See
+                // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
+                // preservation table.
+                ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+                // state is the same object; ghostActive stays true. Skip the
+                // "state == null" first-spawn branch below.
             }
 
             // Looped ghost distance gating
@@ -1066,19 +1079,13 @@ namespace Parsek
 
             if (state == null)
             {
-                // Bug #414: two paths reach here:
-                //   (a) very first loop-ghost spawn for this trajectory — safe to throttle
-                //       because nothing visible is being replaced; a 1-frame delay on first
-                //       appearance is invisible.
-                //   (b) the single-ghost cycle-rebuild branch above that destroyed the
-                //       prior ghost and nulled state — NOT safe to throttle. Under sustained
-                //       spawn backlog, a throttled cycle-rebuild can leave the recording
-                //       ghostless for multiple frames, which the ExplosionHoldEnd camera
-                //       anchor only masks for the expected 1-frame gap.
-                // The `cycleChanged` flag (captured at line 852) is true iff we're in case
-                // (b). The OVERLAP-loop cycle change (UpdateOverlapPlayback) is exempt for
-                // the same reason via its unconditional overlap-move-before-spawn sequence.
-                if (!cycleChanged && !TryReserveSpawnSlot(index, "loop-first-spawn"))
+                // True first-spawn path: no ghost has ever existed this session
+                // for this recording. Safe to throttle via the #414 spawn slot
+                // cap because nothing visible is being replaced. Post-#406 the
+                // cycle-rebuild branch above never falls through here — it
+                // always reuses the existing ghost — so the throttle is always
+                // safe on this line.
+                if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
                     return;
                 SpawnGhost(index, traj, loopUT);
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
@@ -2319,9 +2326,158 @@ namespace Parsek
         #region Ghost lifecycle
 
         /// <summary>
+        /// #406 follow-up: reuse the existing ghost GameObject across a
+        /// loop-cycle boundary instead of destroy+spawn. The ghost hierarchy
+        /// (parts, particle systems, audio sources, cloned materials) and
+        /// reentry FX resources (mesh, particle system, glow materials) survive;
+        /// only playback iterators, per-cycle flags, and transient per-cycle
+        /// state are reset. Visibility of parts hidden by prior-cycle events
+        /// (decouple/destroy/inventory placed) is restored via
+        /// <see cref="GhostPlaybackLogic.ReactivateGhostPartHierarchyForLoopRewind"/>
+        /// and the initial-spawn visibility baseline re-applied. Does NOT
+        /// consume a #414 spawn slot, does NOT increment
+        /// <c>frameSpawnCount</c>, does NOT fire <c>OnGhostCreated</c> (the
+        /// ghost was never destroyed). Fires
+        /// <c>OnLoopCameraAction(RetargetToNewGhost)</c> at the end so the
+        /// host (WatchModeController / ParsekFlight) can re-snap the camera
+        /// to the ghost's post-wrap position — the <c>cameraPivot</c>
+        /// Transform identity is preserved across the reuse so any hard
+        /// references held by the camera code remain valid.
+        /// </summary>
+        internal void ReusePrimaryGhostAcrossCycle(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            GhostPlaybackState state, double playbackUT, long newCycleIndex)
+        {
+            if (state == null || state.ghost == null)
+            {
+                ParsekLog.Warn("Engine",
+                    $"ReusePrimaryGhostAcrossCycle: #{index} called with null ghost — skipping");
+                return;
+            }
+
+            long previousCycle = state.loopCycleIndex;
+
+            // Step 0: parity with SpawnGhost + DestroyGhost dedupe hygiene —
+            // the prior-cycle end may have fired a trajectory completion event
+            // (added to completedEventFired) and emitted a missing-audio-clip
+            // warning (tracked in GhostVisualBuilder.ClearMissingAudioClipWarnings).
+            // Today's destroy+spawn path clears both. Mirroring here so reuse
+            // does not suppress the new cycle's legitimate completion event
+            // nor over-dedupe the audio warning across cycles.
+            completedEventFired.Remove(index);
+            GhostVisualBuilder.ClearMissingAudioClipWarnings(state.ghost.name);
+
+            // Step 1: pure-static per-cycle state reset. See
+            // GhostPlaybackLogic.ResetForLoopCycle for the field-by-field
+            // preservation table in
+            // docs/dev/plan-406-ghost-reuse-loop-cycles.md.
+            GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex);
+
+            // Step 1b: Unity-touching cleanup that cannot live inside the
+            // pure-logic ResetForLoopCycle (xUnit JIT-verify would trip
+            // SecurityException on Unity type references). These were
+            // originally called from inside ResetForLoopCycle and moved out
+            // after a review finding — ordering is preserved: restore RCS
+            // emitters before downstream code re-inspects `rcsSuppressed`,
+            // destroy fake canopy GameObjects so stale decouple stubs from
+            // the prior cycle do not linger in the scene.
+            GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+
+            // Step 2: re-activate any part GameObjects hidden by prior-cycle
+            // events (decouple, destroy, inventory placed, pause-window
+            // HideAllGhostParts). Without this, a Learstar-class ghost that
+            // jettisoned stages on the previous cycle would start the new
+            // cycle with those stages invisible.
+            int reactivated = GhostPlaybackLogic.ReactivateGhostPartHierarchyForLoopRewind(state);
+
+            // Step 3: restore the logical-part-id set to the full snapshot
+            // baseline — prior-cycle decouple/destroy events pruned pids out
+            // of this set. The same helper is used by the spawn path, so
+            // semantics match identically.
+            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
+            if (snapshot != null)
+                state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
+
+            // Step 4: re-apply the spawn-time visibility baseline for
+            // inventory placements and compound parts. Inventory parts
+            // whose first event is InventoryPartPlaced start hidden;
+            // compound parts whose target is missing start hidden. Both
+            // helpers are idempotent and safe to re-run.
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
+            GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+
+            // Step 5: rebuild the reentry emission mesh to include the
+            // now-active parts. RebuildReentryMeshes uses GetComponentsInChildren
+            // (active only), so without this rebuild the mesh would stay
+            // stale (only the post-decouple subset from the prior cycle)
+            // until the new cycle fires its own decouple event. For the
+            // Learstar A1 class (decouples precede reentry), the
+            // user-visible impact is nil — but on recordings where the
+            // new cycle re-enters atmosphere BEFORE the first decouple,
+            // the stale mesh would make reentry FX emit from too few
+            // verts. Skipped when reentryFxInfo is null (showcase/EVA or
+            // #450 B3 still pending build) — RebuildReentryMeshes itself
+            // early-returns on null anyway, the null check here just
+            // avoids the MeshFilter scan.
+            if (state.reentryFxInfo != null)
+                GhostVisualBuilder.RebuildReentryMeshes(state.ghost, state.reentryFxInfo);
+
+            // Step 5b: re-apply spawn-time module baselines that ResetForLoopCycle
+            // cannot touch because they are Unity-touching: heat parts back to
+            // cold, deployables re-stowed, jettison panels re-attached, and —
+            // for zero-engine-event recordings (pure debris boosters) — the
+            // orphan engine/audio auto-start. Fresh-spawn behaviour in
+            // TryPopulateGhostVisuals does each of these; without this step the
+            // second cycle onward would inherit the prior cycle's end-state
+            // (hot + deployed + jettisoned + silent) instead of replaying from
+            // the same baseline the first cycle did. See the helper's XML doc
+            // for the per-branch rationale.
+            GhostPlaybackLogic.ReapplySpawnTimeModuleBaselinesForLoopCycle(state, traj);
+
+            // Step 6: re-prime the ghost at the new cycle's playbackUT.
+            // PrimeLoadedGhostForPlaybackUT resets playbackIndex+partEventIndex
+            // (already 0 post-reset, but it's cheap and idempotent),
+            // positions the ghost, applies ApplyFrameVisuals with
+            // allowTransientEffects: false so decouple puffs do not re-fire,
+            // hides the ghost GO, and resets appearance tracking. Same call
+            // the spawn path uses, so reuse and spawn converge on identical
+            // post-condition state.
+            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
+
+            DiagnosticsState.health.ghostReusedAcrossCycleThisSession++;
+
+            // Distinctive UTF-16 string for the DLL verification recipe.
+            ParsekLog.VerboseRateLimited("Engine", $"reuse-{index}",
+                $"Ghost #{index} \"{state.vesselName}\" ghost reused across loop cycle: " +
+                $"from cycle={previousCycle} to cycle={newCycleIndex} " +
+                $"(reactivated={reactivated} parts, " +
+                $"reentryFxPendingBuild={state.reentryFxPendingBuild}, " +
+                $"reentryFxInfo={(state.reentryFxInfo != null ? "present" : "null")})", 1.0);
+
+            // Camera handshake: same event the spawn path fires so the host
+            // can re-snap to the ghost's post-wrap pivot position. The pivot
+            // Transform identity is preserved, but the underlying GameObject
+            // has moved (PrimeLoadedGhostForPlaybackUT -> positioner.PositionLoop
+            // placed it at loopUT on the new cycle), so the retarget is
+            // essential for watch-mode follow.
+            OnLoopCameraAction?.Invoke(new CameraActionEvent
+            {
+                Index = index,
+                Action = CameraActionType.RetargetToNewGhost,
+                NewCycleIndex = newCycleIndex,
+                GhostPivot = state.cameraPivot,
+                Trajectory = traj,
+                Flags = flags
+            });
+        }
+
+        /// <summary>
         /// Spawns a timeline ghost for the given trajectory at the specified index.
         /// Builds the ghost mesh from the snapshot, or falls back to a sphere.
-        /// Populates all ghost info dictionaries and reentry FX.
+        /// Populates all ghost info dictionaries and reentry FX. Called for the
+        /// first appearance of a ghost in a session; subsequent loop cycles go
+        /// through <see cref="ReusePrimaryGhostAcrossCycle"/> instead.
         /// </summary>
         internal void SpawnGhost(int index, IPlaybackTrajectory traj, double playbackUT)
         {
