@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 - Phase 6: rewind button unlocked end-to-end — pre-load bundle capture + copy-to-save-root, scene reload, post-load Restore + Strip + Activate + atomic provisional/marker write in the new scenario's OnLoad. User-facing toast on failure.
 - Phase 7: session-suppressed subtree hides superseded ancestors during re-fly; kerbal dual-residence carve-out lets live re-fly crew bypass reservation lock.
 - Phase 8: rewind-session merge writes supersede relations for subtree; Immutable vs CommittedProvisional based on terminal kind.
+- Phase 9: narrow v1 tombstone scope — only kerbal-death ledger actions (plus bundled rep penalties) are retired on merge; career state stays sticky.
 
 ---
 

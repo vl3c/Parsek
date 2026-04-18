@@ -165,13 +165,44 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `MergeCrashedReFlyCreatesCPSupersedeTest`). `MergeDialog.cs` added to
   `scripts/ers-els-audit-allowlist.txt` with inline justification (raw
   lookup targets a `NotCommitted` provisional that ERS filters out).
-  Phase 8 does NOT yet implement the journaled staged commit (Phase 10),
-  ledger tombstones (Phase 9), or RP reap (Phase 11).
-- **Phase 9 (next)** — merge: v1 tombstone-eligible scope +
-  `LedgerTombstones`. Narrow v1: tombstone kerbal-death + bundled-rep
-  hits from the superseded subtree's ledger actions; contracts /
-  milestones / facilities / strategies untouched. See §6.6 step 4 and
-  §1.1 narrow-scope advisory.
+  Phase 8 does NOT yet implement the journaled staged commit (Phase 10)
+  or RP reap (Phase 11).
+- ~~**Phase 9**~~ — **done**: merge-time v1 tombstone scope (design §6.6
+  step 4 / §7.13-§7.17 / §7.41 / §7.44 / §10.4). New
+  `TombstoneEligibility` (KerbalAssignment+Dead directly eligible;
+  ReputationPenalty eligible iff paired with a same-recording kerbal
+  death within a 1s UT window) + `TombstoneAttributionHelper` (subtree
+  membership check; null RecordingId never in scope per §7.41).
+  `SupersedeCommit.CommitSupersede` extended with `CommitTombstones`
+  step between the supersede-relation append and the MergeState flip:
+  groups in-scope ledger actions by RecordingId for bounded rep-pairing,
+  skips actions with existing tombstones (idempotent), emits
+  `LedgerTombstone`s for eligible actions, logs `[LedgerSwap]` counters
+  + `[Supersede]` advisory line per §10.4, bumps
+  `TombstoneStateVersion`, then calls
+  `CrewReservationManager.RecomputeAfterTombstones` (new — replays ELS
+  kerbal assignments through the live `KerbalsModule` so death-tombstoned
+  kerbals return to active per §7.16). `LedgerOrchestrator` recalculation
+  entry points (`RecalculateAndPatch`, `CanAffordScienceSpending`,
+  `CanAffordFundsSpending`) now feed `RecalculationEngine` from
+  `EffectiveState.ComputeELS` instead of raw `Ledger.Actions` so the
+  tombstone filter takes effect on every career-state pass (§3.2 —
+  tombstone-only filter; no recording-level gate). Contracts,
+  milestones, facility upgrades, strategies, tech, science, funds,
+  vessel-destruction rep remain in ELS. Tests: 23
+  `TombstoneEligibilityTests` (full type matrix + pairing window
+  boundaries), 10 `SupersedeCommitTombstoneTests` (subtree scoping,
+  idempotence, log counters, cache invalidation), 4
+  `CrewReservationRecomputeTests` (dead → active + no-op safe paths);
+  two FLIGHT-scene in-game tests
+  (`ContractStickyAcrossSupersedeTest`, `KerbalRecoveryOnSupersedeTest`).
+  `SupersedeCommit.cs` added to `scripts/ers-els-audit-allowlist.txt`
+  (CommitTombstones scans raw `Ledger.Actions` to BUILD the tombstone
+  set; routing through ELS would be circular because ELS is defined as
+  "ledger minus tombstones").
+- **Phase 10 (next)** — journaled staged commit: MergeJournal write/
+  clear around the merge steps, failure-recovery finisher triggered by
+  journal presence on load (design §6.6 steps 7-16 / §7.45).
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so
