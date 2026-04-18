@@ -235,5 +235,134 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
         }
+
+        // ================================================================
+        // #455 — IsRepeatableRecordType type pre-filter + missing-stock-field WARN silence
+        //
+        // Before the fix, PatchRepeatableRecordNode probed reflection for record/
+        // rewardThreshold/rewardInterval on every ProgressNode and WARN'd when any
+        // were missing. For the 392 per-body one-shots (Bop/Orbit, Dres/Flight, …)
+        // none of those fields exist, producing 3,136 WARN lines in a single playtest
+        // and short-circuiting the one-shot patch path. The pre-filter distinguishes
+        // "not a record subclass" (return false silently, let the one-shot path run)
+        // from "is a record subclass but missing stock fields" (keep the WARN).
+        // ================================================================
+
+        /// <summary>
+        /// Synthetic stand-ins for KSPAchievements.RecordsAltitude/Depth/Speed/Distance.
+        /// The production code matches on <c>Type.Name</c>, so nested classes with these
+        /// names drive the same branch without a compile-time reference to KSPAchievements.
+        /// None of them carry the stock <c>record</c>/<c>rewardThreshold</c>/<c>rewardInterval</c>
+        /// fields — they exist only to exercise the type-pre-filter.
+        /// </summary>
+        private class RecordsAltitude : ProgressNode
+        {
+            public RecordsAltitude() : base("RecordsAltitude", startReached: false) { }
+        }
+        private class RecordsDepth : ProgressNode
+        {
+            public RecordsDepth() : base("RecordsDepth", startReached: false) { }
+        }
+        private class RecordsSpeed : ProgressNode
+        {
+            public RecordsSpeed() : base("RecordsSpeed", startReached: false) { }
+        }
+        private class RecordsDistance : ProgressNode
+        {
+            public RecordsDistance() : base("RecordsDistance", startReached: false) { }
+        }
+
+        /// <summary>
+        /// Stand-in for one-shot per-body nodes (Orbit, Landing, Flyby, Flight, …).
+        /// Any class name other than the four <c>Records*</c> names must drop out of
+        /// the repeatable-record branch.
+        /// </summary>
+        private class OrbitNode : ProgressNode
+        {
+            public OrbitNode() : base("Orbit", startReached: false) { }
+        }
+        private class FlightNode : ProgressNode
+        {
+            public FlightNode() : base("Flight", startReached: false) { }
+        }
+
+        [Fact]
+        public void IsRepeatableRecordType_NullNode_ReturnsFalse()
+        {
+            Assert.False(KspStatePatcher.IsRepeatableRecordType(null));
+        }
+
+        [Fact]
+        public void IsRepeatableRecordType_RecordsSubclasses_ReturnTrue()
+        {
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsAltitude()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsDepth()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsSpeed()));
+            Assert.True(KspStatePatcher.IsRepeatableRecordType(new RecordsDistance()));
+        }
+
+        [Fact]
+        public void IsRepeatableRecordType_OneShotSubclasses_ReturnFalse()
+        {
+            Assert.False(KspStatePatcher.IsRepeatableRecordType(new OrbitNode()));
+            Assert.False(KspStatePatcher.IsRepeatableRecordType(new FlightNode()));
+        }
+
+        [Fact]
+        public void PatchRepeatableRecordNode_NonRecordType_ReturnsFalseAndDoesNotWarn()
+        {
+            // The playtest log signature was 3,136 copies of:
+            //   [Parsek][WARN][KspStatePatcher] PatchMilestones: repeatable node 'Bop/Orbit' is missing stock record fields (…) — skipping
+            // After the fix the WARN must be gone AND the caller's one-shot path must
+            // get a chance to run, which requires the function to return false (not true).
+            var reachedField = typeof(ProgressNode).GetField("reached",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var completeField = typeof(ProgressNode).GetField("complete",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(reachedField);
+            Assert.NotNull(completeField);
+
+            var node = new OrbitNode();
+            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
+                node, effectiveCount: 0, qualifiedId: "Bop/Orbit",
+                reachedField, completeField,
+                authoritativeRepeatableRecordState: false,
+                out bool changed);
+
+            Assert.False(recognized); // falls through to one-shot branch in PatchProgressNodeTree
+            Assert.False(changed);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("is missing stock record fields"));
+        }
+
+        [Fact]
+        public void PatchRepeatableRecordNode_RecordsSubclassWithoutStockFields_StillWarns()
+        {
+            // The WARN must survive for genuinely-record types that drift away from
+            // the stock API — that is a real structural change and should page someone.
+            // Our synthetic RecordsAltitude has the matching class name but no stock
+            // record/rewardThreshold/rewardInterval fields, so the reflection-miss
+            // branch is reachable without a live KSP runtime.
+            var reachedField = typeof(ProgressNode).GetField("reached",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var completeField = typeof(ProgressNode).GetField("complete",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            var node = new RecordsAltitude();
+            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
+                node, effectiveCount: 0, qualifiedId: "RecordsAltitude",
+                reachedField, completeField,
+                authoritativeRepeatableRecordState: false,
+                out bool changed);
+
+            // Genuine "recognized-but-malformed" case: true so the caller counts it as
+            // handled, but the WARN must still fire as a structural-change alarm.
+            Assert.True(recognized);
+            Assert.False(changed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("RecordsAltitude")
+                && l.Contains("is missing stock record fields"));
+        }
     }
 }
