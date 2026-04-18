@@ -109,6 +109,16 @@ namespace Parsek
     {
         // ---- Common fields (all action types) ----
 
+        /// <summary>
+        /// Stable immutable identifier for this action (design doc section 5.6 +
+        /// section 9). New actions auto-assign <c>"act_" + Guid.NewGuid("N")</c>
+        /// at construction. Load-time migration re-hydrates a deterministic id
+        /// for pre-feature actions via
+        /// <see cref="ComputeLegacyActionId(double, GameActionType, string, int)"/>.
+        /// Referenced by <see cref="LedgerTombstone.ActionId"/>.
+        /// </summary>
+        public string ActionId = "act_" + Guid.NewGuid().ToString("N");
+
         /// <summary>Universal time when the action occurred.</summary>
         public double UT;
 
@@ -366,6 +376,33 @@ namespace Parsek
         private static readonly NumberStyles NS = NumberStyles.Float;
 
         /// <summary>
+        /// Computes a deterministic legacy <see cref="ActionId"/> for
+        /// pre-Rewind-to-Staging actions that lack a persisted id
+        /// (design doc section 5.6 + 9). The hash input is the concatenation
+        /// <c>UT.ToString("R", InvariantCulture) + "|" + Type + "|" +
+        /// (RecordingId ?? "") + "|" + Sequence</c>; the output is
+        /// <c>"act_legacy_" + first 16 hex chars of SHA1(input)</c>. Idempotent:
+        /// the same inputs always produce the same id, so repeated loads do not
+        /// drift.
+        /// </summary>
+        internal static string ComputeLegacyActionId(double ut, GameActionType type, string recordingId, int sequence)
+        {
+            string input = ut.ToString("R", IC) + "|"
+                + type.ToString() + "|"
+                + (recordingId ?? "") + "|"
+                + sequence.ToString(IC);
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            {
+                byte[] hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+                var sb = new System.Text.StringBuilder("act_legacy_", 11 + 16);
+                int take = System.Math.Min(8, hash.Length); // 8 bytes = 16 hex chars
+                for (int i = 0; i < take; i++)
+                    sb.Append(hash[i].ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>
         /// Serializes this action into a GAME_ACTION ConfigNode under the given parent.
         /// Only writes fields relevant to the action type — does not write nulls or defaults.
         /// </summary>
@@ -374,6 +411,13 @@ namespace Parsek
             ConfigNode node = parent.AddNode("GAME_ACTION");
             node.AddValue("ut", UT.ToString("R", IC));
             node.AddValue("type", ((int)Type).ToString(IC));
+
+            // Rewind-to-Staging (design section 5.6) — every action has an ActionId.
+            // Auto-assigned at construction for new actions; deterministically rehydrated
+            // on load for legacy actions (see DeserializeFrom + ComputeLegacyActionId).
+            if (string.IsNullOrEmpty(ActionId))
+                ActionId = "act_" + Guid.NewGuid().ToString("N");
+            node.AddValue("actionId", ActionId);
 
             if (RecordingId != null)
                 node.AddValue("recordingId", RecordingId);
@@ -484,6 +528,20 @@ namespace Parsek
             string seqStr = node.GetValue("seq");
             if (seqStr != null)
                 int.TryParse(seqStr, NumberStyles.Integer, IC, out a.Sequence);
+
+            // Rewind-to-Staging (design section 5.6 + 9). Legacy actions without
+            // `actionId` get a deterministic hash-based id so tombstones remain
+            // stable across reloads. Counter bumped for the one-shot Info log.
+            string actionIdStr = node.GetValue("actionId");
+            if (!string.IsNullOrEmpty(actionIdStr))
+            {
+                a.ActionId = actionIdStr;
+            }
+            else
+            {
+                a.ActionId = ComputeLegacyActionId(a.UT, a.Type, a.RecordingId, a.Sequence);
+                Ledger.BumpLegacyActionIdMigrationCounterForTesting();
+            }
 
             switch (a.Type)
             {
