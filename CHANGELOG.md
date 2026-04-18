@@ -65,6 +65,7 @@ All notable changes to Parsek are documented here.
 - `#446` Discarding a Gloops Flight Recorder ghost-only recording no longer throws a `NullReferenceException` on the next UI frame.
 - `#445` Rollout costs for vessels cancelled before launch are now captured in the ledger; previously the build cost vanished when the player reverted to VAB/SPH without ever starting a recording.
 - `#444` Vessel recoveries from the tracking station or post-flight summary now reach the ledger; previously funds recovered outside a live recording window were silently dropped.
+- Fix `#436` (Phase F): remove tree-level `DeltaFunds`/`DeltaScience`/`DeltaReputation` and the standalone resource applier. Legacy saves still migrate on first load via Phase A, and `TreeFormatVersion` now warns if a pre-Phase-F save cannot be recovered.
 - `#443` Milestone rewards now patch the stored event correctly on saves that have been reverted at least once; previously `Kerbin/Landing` and similar `OnProgressComplete` milestones landed in the ledger with `funds=0` on any save with a non-zero milestone epoch.
 - `#442` World-record progress nodes (`RecordsSpeed`/`Altitude`/`Distance`/`Depth`) now credit their funds and reputation rewards to the ledger; previously every world-first dropped its entire reward because the nodes call `AwardProgress` without firing `OnProgressComplete`.
 - Every non-revert tree-commit path now disarms the legacy lump-sum replay on the just-committed tree, matching in-flight Commit Flight so the next FLIGHT scene cannot re-credit those resources on top of the ledger.

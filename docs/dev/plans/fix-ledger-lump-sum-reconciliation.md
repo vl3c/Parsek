@@ -1,6 +1,6 @@
 # Fix: Ledger / Lump-Sum Resource Reconciliation
 
-Status: plan v3, awaiting review against current main (1ce5cdc5).
+Status: delivered in v0.8.2. Phase F landed in [`638eba53`](https://github.com/vl3c/Parsek/commit/638eba536097aa67b517b6d00548218420cbb270).
 Reproducer log: `logs/2026-04-17_2158_revert-stress-test/KSP.log` (line 9863, "PatchFunds: suspicious drawdown delta=-30395.0").
 
 ## Diagnosis
@@ -43,7 +43,7 @@ A per-tree corollary holds *only* when every income flow during the tree's UT wi
 
 ## Phasing
 
-Sequence: **A → B → C → D → E1 → E1.5 → E2 → F**. Each on its own worktree+branch. Phases A through E ride one release; **Phase F ships in the next release** so legacy saves auto-migrate before the deleted fields disappear.
+Sequence: **A → B → C → D → E1 → E1.5 → E2 → F**. Each on its own worktree+branch. A through F now ship in v0.8.2, with `TreeFormatVersion` as the user-visible safety net for rare legacy saves that Phase A cannot recover.
 
 ---
 
@@ -188,12 +188,14 @@ Each channel commit also flips its corresponding `[Skip]` test in Phase B.
 
 **Branch:** `chore/remove-tree-deltas-and-standalone-applier`
 
-**Pre-flight:** Phase A must have shipped in a release. Phase F-only changes do NOT auto-fix legacy saves; that work is in A.
+**Status:** shipped in v0.8.2 via [`638eba53`](https://github.com/vl3c/Parsek/commit/638eba536097aa67b517b6d00548218420cbb270).
+
+**Load/save invariant that shipped:** `RecordingTree.Load` still parses the deprecated `delta*` / `preTree*` / `resourcesApplied` keys into a transient legacy residual seam, `LedgerOrchestrator.OnKspLoad` runs `MigrateLegacyTreeResources()` before the first save, and `RecordingTree.Save` then writes only `TreeFormatVersion=1` plus the new format. Legacy saves do not need an intermediate release hop; the `LegacyFormatGate` WARN is the safety net when migration cannot recover a tree.
 
 **Tree deletions:**
 - `Source/Parsek/ParsekFlight.cs` — delete `ApplyTreeResourceDeltas` (8993-9035), `ApplyTreeLumpSum` (9037-9083), per-frame call site, `ComputeTreeDelta*` (7104-7123), PreTree* assignments at 5386-5390 and delta capture at 6523-6530.
-- `Source/Parsek/RecordingTree.cs` — remove `PreTreeFunds`, `PreTreeScience`, `PreTreeReputation`, `DeltaFunds`, `DeltaScience`, `DeltaReputation`, `ResourcesApplied` (24-30) and Save handlers (92-98).
-- `Source/Parsek/RecordingStore.cs` — drop `tree.ResourcesApplied` references in `MarkAllFullyApplied:2685` and `ResetAllPlaybackState:2519`. Phase C's `MarkTreeAsApplied` becomes a `LastAppliedResourceIndex`-only setter or is deleted if no other callers.
+- `Source/Parsek/RecordingTree.cs` — remove the public `PreTreeFunds`, `PreTreeScience`, `PreTreeReputation`, `DeltaFunds`, `DeltaScience`, `DeltaReputation`, and `ResourcesApplied` fields. Keep load-only deprecated-field readers behind a transient `LegacyResourceResidual` seam plus `TreeFormatVersion`.
+- `Source/Parsek/RecordingStore.cs` — drop `tree.ResourcesApplied` references in `MarkAllFullyApplied` and `ResetAllPlaybackState`. Phase C's `MarkTreeAsApplied` is now a `LastAppliedResourceIndex`-only setter.
 
 **Standalone deletions:**
 - `Source/Parsek/ParsekFlight.cs` — delete `TickStandaloneResourceDeltas` and the `ApplyResourceDeltas` per-frame call for standalone recordings (the loop in lines ~8950-8990 area, verify exact range at implementation time).
@@ -204,19 +206,20 @@ Each channel commit also flips its corresponding `[Skip]` test in Phase B.
 - `Source/Parsek/ResourceBudget.cs:194-238 ComputeTotal` and `:350-397 ComputeTotalFullCost` — **remove the `if (!recordings[i].ManagesOwnResources) continue;` skip at lines 209 and 364.** Iterate `tree.Recordings.Values` and reuse `CommittedFundsCost(rec)`. Delete `TreeCommittedFundsCost`/`Science`/`Reputation` (176-192) and `Full*` variants (290-306).
 
 **Format-version gate (real, not hand-wave):**
-- `Source/Parsek/RecordingTree.cs` — add `TreeFormatVersion` field (defaults to 0 on load when absent). Phase F bumps to 1 and writes on every Save.
-- On Load, if `TreeFormatVersion < 1` AND any of the now-deleted fields (`deltaFunds`, `deltaScience`, `deltaRep`, `resourcesApplied`) is present in the ConfigNode AND non-zero AND the tree's `RootRecordingId` doesn't already have a `LegacyMigration`-tagged synthetic action in the ledger, log WARN: `"Tree '<id>' has pre-Phase-F legacy resource fields. Open this save in a Phase-A-shipped release first to auto-migrate."`. **Do not silently zero.**
+- `Source/Parsek/RecordingTree.cs` — add `TreeFormatVersion` (defaults to 0 on load when absent). Phase F writes 1 on every Save.
+- On load, if `TreeFormatVersion < 1` and a legacy residual is still non-zero after Phase A cannot recover it (empty root, degraded tree, partial coverage, or equivalent skip path), log WARN once per tree: `"Tree '<id>' has pre-Phase-F legacy resource fields (funds=<f>, sci=<s>, rep=<r>) that Phase A migration could not recover. Legacy resource values will not be applied; ledger state may differ by this residual. Open the save in a 0.8.1 build first if accurate migration matters."`
 - This makes the Phase-A-prerequisite enforced, not honor-system.
 
 **Test fixture surgery:**
 - `Source/Parsek.Tests/BackwardCompatTests.cs:135-161` — update assertions for new format version behavior. The test that pins "missing fields default to zero" needs to become "missing fields with version 0 trigger WARN, version 1 stays zero."
-- `Source/Parsek.Tests/RecordingTreeTests.cs` (lines 158-188, 841-866, 1073, 1292-1293) — delete or update assertions on removed fields.
+- `Source/Parsek.Tests/RecordingTreeTests.cs` — update assertions to the new `TreeFormatVersion` and `LegacyResourceResidual` seam.
 - `Source/Parsek.Tests/SyntheticRecordingTests.cs` (lines 6266, 6353, 6453) — delete or update.
-- `Source/Parsek.Tests/Generators/RecordingBuilder.cs` (and tree-builder if separate) — drop any `WithDeltaFunds` / `WithPreTreeFunds` / `WithResourcesApplied` builder methods.
+- `Source/Parsek.Tests/Generators/RecordingBuilder.cs` (and tree-builder if separate) — drop any `WithDeltaFunds` / `WithPreTreeFunds` / `WithResourcesApplied` builder methods if present. This branch ended up using direct `SetLegacyResidualForTesting(...)` seams in the touched fixtures.
 
 **New regression tests:**
-- `Source/Parsek.Tests/NoLumpSumRegressionTests.cs` — synthesize stress-test scenario, run revert+rewind, assert no suspicious-drawdown WARN via `ParsekLog.TestSinkForTesting`.
-- `Source/Parsek/InGameTests/RuntimeTests.cs` — `[InGameTest(Category="ResourceReconciliation", Scene=GameScenes.SPACECENTER)]` reproducing the stress-test sequence end-to-end.
+- `Source/Parsek.Tests/NoLumpSumRegressionTests.cs` — synthesize the stress-test scenario and pin zero `PatchFunds: suspicious drawdown` WARNs via `ParsekLog.TestSinkForTesting`.
+- `Source/Parsek.Tests/PhaseFLoadMigrationInteropTests.cs` — cover the critical 0.8.2 shipping invariant: legacy `RecordingTree.Load`, `OnKspLoad` migration, `TreeFormatVersion=1` save, empty-root gate WARN, and no double-credit on repeat legacy loads.
+- `Source/Parsek/InGameTests/RuntimeTests.cs` — `[InGameTest(Category="ResourceReconciliation", Scene=GameScenes.SPACECENTER)]` scanning the live log buffer for any resurrected lump-sum or standalone-applier path.
 
 **Doc updates:** CHANGELOG; `.claude/CLAUDE.md` if file-layout claims about `RecordingTree` change; `docs/dev/todo-and-known-bugs.md` strike-throughs.
 
@@ -225,7 +228,7 @@ Each channel commit also flips its corresponding `[Skip]` test in Phase B.
 ## Sequencing rules
 
 - A → B → C → D → E1 → E1.5 → E2 → F.
-- A through E may all ride one release. F ships in the next release; Phase F's format-version gate enforces the prerequisite.
+- A through F ride v0.8.2; Phase F's format-version gate is the prerequisite enforcement for legacy-save edge cases.
 - Each branch rebases on `origin/main` after the prior phase merges. **No stacked branches.**
 - E2 channel commits can land in parallel as separate worktrees (they don't share files).
 
@@ -248,7 +251,7 @@ Each channel commit also flips its corresponding `[Skip]` test in Phase B.
 | E1 | (audit-only, no production change) |
 | E1.5 | `GameStateEvent.cs`, `Patches/StrategyLifecyclePatch.cs` (new), `GameStateRecorder.cs`, `GameAction.cs`, `GameStateEventConverter.cs`; new `StrategyCaptureTests.cs` |
 | E2 | per-channel patches + tests |
-| F | `ParsekFlight.cs`, `RecordingTree.cs`, `RecordingStore.cs`, `MergeDialog.cs`, `Recording.cs`, `ResourceBudget.cs`, `BackwardCompatTests.cs`, `RecordingTreeTests.cs`, `SyntheticRecordingTests.cs`, `Generators/`; new `NoLumpSumRegressionTests.cs`, new `InGameTests` entry |
+| F | `ParsekFlight.cs`, `RecordingTree.cs`, `RecordingStore.cs`, `MergeDialog.cs`, `Recording.cs`, `ResourceBudget.cs`, `BackwardCompatTests.cs`, `RecordingTreeTests.cs`, `SyntheticRecordingTests.cs`, `Generators/`; new `NoLumpSumRegressionTests.cs`, new `PhaseFLoadMigrationInteropTests.cs`, new `InGameTests` entry |
 
 ## Acknowledgements (from review)
 
