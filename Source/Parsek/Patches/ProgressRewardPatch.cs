@@ -23,10 +23,14 @@ namespace Parsek.Patches
     /// #442: certain ProgressNode subclasses (RecordsSpeed, RecordsAltitude,
     /// RecordsDistance, RecordsDepth) call AwardProgress directly without first going
     /// through Complete()/OnProgressComplete, so no pending event ever lands in
-    /// PendingMilestoneEventByNode. When the postfix sees no pending event for the
+    /// PendingMilestoneEventById. When the postfix sees no pending event for the
     /// node, it emits a standalone fully-populated MilestoneAchieved event instead of
     /// silently no-oping. This also mechanically protects against future KSP additions
     /// that bypass the OnProgressComplete pipeline.
+    ///
+    /// #443: the routing branch keys off the qualified milestone id (e.g. "Kerbin/Landing")
+    /// rather than the ProgressNode reference, matching the re-keyed pending map. The
+    /// id is computed via <c>GameStateRecorder.QualifyMilestoneId</c> for both branches.
     /// </summary>
     [HarmonyPatch(typeof(ProgressNode), "AwardProgress",
         typeof(string), typeof(float), typeof(float), typeof(float), typeof(CelestialBody))]
@@ -80,7 +84,13 @@ namespace Parsek.Patches
                 // and emit-standalone for the same AwardProgress call. The standalone
                 // helper logs its own Info line with node ID + reward values, so no extra
                 // patch-side log is needed on the else branch.
-                if (GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(node))
+                // #443: lookup keyed by qualified milestone id (matches the re-keyed map);
+                // QualifyMilestoneId returns the same string the OnProgressComplete writer
+                // computed, so the branch decision is robust to ProgressNode instance
+                // aliasing inside KSP's reward pipeline.
+                string milestoneId = GameStateRecorder.QualifyMilestoneId(node);
+                if (!string.IsNullOrEmpty(milestoneId) &&
+                    GameStateRecorder.PendingMilestoneEventById.ContainsKey(milestoneId))
                 {
                     GameStateRecorder.EnrichPendingMilestoneRewards(
                         node, (double)funds, reputation, (double)science);

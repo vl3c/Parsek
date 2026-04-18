@@ -12,11 +12,12 @@ namespace Parsek.Tests
     /// to zero for every field — so recovery budgets never reflected milestone income.
     ///
     /// The fix splits the emission into two phases: OnProgressComplete writes the event
-    /// with zero defaults + tags the ProgressNode in PendingMilestoneEventByNode. The
-    /// ProgressRewardPatch Harmony postfix (on ProgressNode.AwardProgress) then calls
-    /// EnrichPendingMilestoneRewards with the real values, which updates the detail
-    /// string in place. That function is pure and directly testable — real Harmony
-    /// plumbing is covered by the in-game test pass.
+    /// with zero defaults + tags the qualified milestone id in PendingMilestoneEventById
+    /// (#443: re-keyed from ProgressNode reference). The ProgressRewardPatch Harmony
+    /// postfix (on ProgressNode.AwardProgress) then calls EnrichPendingMilestoneRewards
+    /// with the real values, which updates the detail string in place. That function is
+    /// pure and directly testable — real Harmony plumbing is covered by the in-game test
+    /// pass.
     /// </summary>
     [Collection("Sequential")]
     public class MilestoneRewardCaptureTests : IDisposable
@@ -34,7 +35,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
-            GameStateRecorder.PendingMilestoneEventByNode.Clear();
+            GameStateRecorder.PendingMilestoneEventById.Clear();
         }
 
         // #442: production passes Planetarium.GetUniversalTime() at the patch site;
@@ -44,7 +45,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             RecalculationEngine.ClearModules();
-            GameStateRecorder.PendingMilestoneEventByNode.Clear();
+            GameStateRecorder.PendingMilestoneEventById.Clear();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -113,7 +114,7 @@ namespace Parsek.Tests
                 detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
             };
             GameStateStore.AddEvent(evt);
-            GameStateRecorder.PendingMilestoneEventByNode[node] = evt;
+            GameStateRecorder.PendingMilestoneEventById["Mun/Landing"] = evt;
 
             // Simulate the AwardProgress postfix with real values.
             GameStateRecorder.EnrichPendingMilestoneRewards(node, 15000.0, 42.5f, 12.0);
@@ -136,7 +137,7 @@ namespace Parsek.Tests
             Assert.Contains("sci=12", storedEvt.detail);
 
             // And the pending map should be empty.
-            Assert.Empty(GameStateRecorder.PendingMilestoneEventByNode);
+            Assert.Empty(GameStateRecorder.PendingMilestoneEventById);
 
             // Converter should yield non-zero action.
             var action = GameStateEventConverter.ConvertMilestoneAchieved(storedEvt, null);
@@ -162,7 +163,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(evt);
             LedgerOrchestrator.OnKscSpending(evt); // writes zero-reward action
-            GameStateRecorder.PendingMilestoneEventByNode[node] = evt;
+            GameStateRecorder.PendingMilestoneEventById["FacilityUpgradeMC"] = evt;
 
             int before = Ledger.Actions.Count;
             GameStateRecorder.EnrichPendingMilestoneRewards(node, 7500.0, 10.0f, 0);
@@ -200,7 +201,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(evt);
             LedgerOrchestrator.OnKscSpending(evt); // writes zero-reward action
-            GameStateRecorder.PendingMilestoneEventByNode[node] = evt;
+            GameStateRecorder.PendingMilestoneEventById["Kerbin/Science"] = evt;
 
             GameStateRecorder.EnrichPendingMilestoneRewards(node, 0.0, 0f, 2.0);
 
@@ -226,7 +227,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(evt);
             LedgerOrchestrator.OnKscSpending(evt);
-            GameStateRecorder.PendingMilestoneEventByNode[node] = evt;
+            GameStateRecorder.PendingMilestoneEventById["Kerbin/Landing"] = evt;
 
             GameStateRecorder.EnrichPendingMilestoneRewards(node, 3000.0, 5f, 1.5);
 
@@ -246,8 +247,14 @@ namespace Parsek.Tests
 
             GameStateRecorder.EnrichPendingMilestoneRewards(node, 1000, 5f, 0);
 
+            // #443: miss log promoted from Verbose to Warn, with id + reward context.
             Assert.Contains(logLines, l =>
-                l.Contains("[GameStateRecorder]") && l.Contains("no pending event"));
+                l.Contains("[GameStateRecorder]") &&
+                l.Contains("[WARN]") &&
+                l.Contains("no pending event for milestone id 'NeverSeen'") &&
+                l.Contains("funds=1000") &&
+                l.Contains("rep=5") &&
+                l.Contains("pendingMapSize=0"));
         }
 
         [Fact]
@@ -255,6 +262,279 @@ namespace Parsek.Tests
         {
             GameStateRecorder.EnrichPendingMilestoneRewards(null, 1000, 5f, 0);
             // Nothing to assert except no throw.
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsPendingMilestoneEventById()
+        {
+            GameStateRecorder.PendingMilestoneEventById["RecordsDistance"] = new GameStateEvent
+            {
+                ut = 42,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+
+            GameStateRecorder.ResetForTesting();
+
+            Assert.Empty(GameStateRecorder.PendingMilestoneEventById);
+        }
+
+        [Fact]
+        public void RoutePostfix_AfterReset_IgnoresFormerStalePendingEntry()
+        {
+            // #443 review follow-up: re-keying the pending map from ProgressNode
+            // reference to milestone id made stale entries behaviorally dangerous.
+            // If a stale "RecordsDistance" entry survives a recorder reset / OnLoad
+            // resubscribe, RoutePostfix sees the key and takes the enrich branch instead
+            // of emitting the standalone milestone event the world-record path needs.
+            // That yields a store-miss WARN and silently drops the reward. Reset must
+            // drain the map so the post-reset route is the standalone append path.
+            GameStateRecorder.PendingMilestoneEventById["RecordsDistance"] = new GameStateEvent
+            {
+                ut = 99,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0),
+                epoch = 5
+            };
+
+            GameStateRecorder.ResetForTesting();
+
+            var node = new FakeProgressNode("RecordsDistance");
+            Parsek.Patches.ProgressRewardPatch.RoutePostfix(
+                node, funds: 4800f, science: 0f, reputation: 2f, ut: TestUt);
+
+            var stored = FindLastMilestoneEvent("RecordsDistance");
+            Assert.True(stored.HasValue);
+            Assert.Contains("funds=4800", stored.Value.detail);
+            Assert.Contains("rep=2", stored.Value.detail);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("store had no matching event"));
+        }
+
+        // #443: regression coverage for the silent write-back failure on Kerbin/Landing
+        // (and other OnProgressComplete-emitting nodes) reported in the v0.8.2 smoke test.
+        // Two failure modes were proven from the code:
+        //
+        //   1. GameStateEvent is a struct, so AddEvent's e.epoch = MilestoneStore.CurrentEpoch
+        //      stamp lands on the appended slot but NOT on the caller's local `evt`. The
+        //      cached pending entry kept epoch=0 and UpdateEventDetail's ut+type+key+epoch
+        //      lookup missed on every save where CurrentEpoch had been bumped (i.e. any save
+        //      with at least one revert in its history) — silently, because the postfix
+        //      logged "Milestone enriched" before checking UpdateEventDetail's return value.
+        //
+        //   2. The pending map keyed by ProgressNode reference would also miss if KSP ever
+        //      handed a different instance to the AwardProgress postfix than the one that
+        //      fired OnProgressComplete — re-keying by qualified id eliminates that risk.
+        //
+        // The end-to-end test routes a Kerbin/Landing-style node through the full
+        // OnProgressComplete -> EnrichPendingMilestoneRewards path with a non-zero epoch
+        // and verifies the stored event's detail actually carries the rewards on read-back.
+
+        [Fact]
+        public void RegisterAndEnrich_NonZeroEpoch_PatchesStoredDetailEndToEnd()
+        {
+            // Reproduces the v0.8.2 smoke-test failure exactly. With CurrentEpoch != 0
+            // (the case after any revert), the OnProgressComplete -> AwardProgress
+            // postfix pair must still successfully write the real funds into the stored
+            // event slot. Pre-#443 the cached pending entry kept epoch=0 while the stored
+            // slot carried epoch=3, the UpdateEventDetail lookup missed, and the stored
+            // detail stayed "funds=0;rep=0;sci=0" — exactly what KSP.log:18024 showed for
+            // the Kerbin/Landing FundsChanged +800 event.
+            //
+            // The "Kerbin/" prefix on the id is decorative for this test: FakeProgressNode
+            // has no `body` field, so QualifyMilestoneId takes the no-body branch and
+            // returns the constructor argument verbatim; the qualified id is only matched
+            // by string equality between Register and Enrich. The body-reflection path
+            // cannot be unit-tested (CelestialBody can't be constructed outside KSP) —
+            // see #453 follow-up in docs/dev/todo-and-known-bugs.md.
+            uint savedEpoch = MilestoneStore.CurrentEpoch;
+            try
+            {
+                MilestoneStore.CurrentEpoch = 3;
+
+                // Half 1: emulate OnProgressComplete via the extracted seam.
+                GameStateRecorder.RegisterPendingMilestoneEvent("Kerbin/Landing", ut: 4134.8);
+                Assert.True(GameStateRecorder.PendingMilestoneEventById.ContainsKey("Kerbin/Landing"));
+
+                // Half 2: emulate the AwardProgress postfix carrying the real reward.
+                var node = new FakeProgressNode("Kerbin/Landing");
+                GameStateRecorder.EnrichPendingMilestoneRewards(node, 800.0, 0f, 0.0);
+
+                // Stored slot must now carry the real funds, not the original zeros.
+                var stored = FindLastMilestoneEvent("Kerbin/Landing");
+                Assert.True(stored.HasValue);
+                Assert.Equal((uint)3, stored.Value.epoch);
+                Assert.Contains("funds=800", stored.Value.detail);
+
+                // Pending map drained.
+                Assert.False(GameStateRecorder.PendingMilestoneEventById.ContainsKey("Kerbin/Landing"));
+
+                // Defensive Warn (store match miss) must not fire on the happy path.
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]") && l.Contains("store had no matching event"));
+
+                // Converter must produce a non-zero MilestoneAchievement action — this is
+                // what feeds ReconcileEarningsWindow and what was committing as funds=0
+                // in the smoke-test bundle.
+                var action = GameStateEventConverter.ConvertMilestoneAchieved(stored.Value, null);
+                Assert.Equal(800f, action.MilestoneFundsAwarded);
+            }
+            finally
+            {
+                MilestoneStore.CurrentEpoch = savedEpoch;
+                GameStateRecorder.PendingMilestoneEventById.Clear();
+            }
+        }
+
+        [Fact]
+        public void EnrichPendingMilestoneRewards_StoredSlotMissing_LogsDefensiveWarn()
+        {
+            // Belt-and-braces for the cached-vs-stored slot mismatch. If a future change
+            // ever broke the epoch (or ut, or key) mirror, EnrichPendingMilestoneRewards
+            // would silently no-op the store-side write and only the in-flight ledger
+            // action would be patched. Surfacing the miss as Warn keeps it visible at
+            // default log level.
+            var node = new FakeProgressNode("Mun/Orbit");
+            var evt = new GameStateEvent
+            {
+                ut = 200,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "Mun/Orbit",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0),
+                epoch = 99 // intentionally mismatched — no event with this epoch in store
+            };
+            // Note: we do NOT call GameStateStore.AddEvent here, so the stored slot
+            // never exists. This isolates the UpdateEventDetail miss path.
+            GameStateRecorder.PendingMilestoneEventById["Mun/Orbit"] = evt;
+
+            GameStateRecorder.EnrichPendingMilestoneRewards(node, 500, 1f, 0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[GameStateRecorder]") &&
+                l.Contains("store had no matching event") &&
+                l.Contains("Mun/Orbit") &&
+                l.Contains("epoch=99"));
+        }
+
+        [Fact]
+        public void EnrichPendingMilestoneRewards_CachedEpochZeroVsStoredLive_PostFixPatchesStore()
+        {
+            // Direct regression for the bug shape from the smoke-test bundle: the live
+            // store carried epoch=CurrentEpoch (non-zero, post-revert) while the cached
+            // pending entry kept epoch=0 because GameStateEvent is a struct and AddEvent's
+            // stamp didn't propagate to the caller's copy. Pre-fix the
+            // UpdateEventDetail(ut+type+key+epoch) lookup missed; post-fix
+            // RegisterPendingMilestoneEvent mirrors MilestoneStore.CurrentEpoch onto the
+            // cached copy so the lookup hits.
+            //
+            // Note that StoredSlotMissing_LogsDefensiveWarn above pins the Warn path with
+            // an artificial epoch=99 and no AddEvent call — it can't tell the difference
+            // between "fix is in place" and "fix would also fail". This test calls
+            // AddEvent with the live (non-zero) epoch but artificially leaves the cached
+            // evt.epoch=0 to simulate the pre-fix state, then asserts the post-fix path
+            // produces the same final state as if the mirror had been applied.
+            uint savedEpoch = MilestoneStore.CurrentEpoch;
+            try
+            {
+                MilestoneStore.CurrentEpoch = 7;
+
+                var node = new FakeProgressNode("Mun/Flyby");
+                var evtForStore = new GameStateEvent
+                {
+                    ut = 800,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "Mun/Flyby",
+                    detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+                };
+                // AddEvent stamps the live epoch (7) onto the appended slot. The local
+                // evtForStore is unchanged because GameStateEvent is a struct — same
+                // shape as production's pre-fix bug.
+                GameStateStore.AddEvent(evtForStore);
+                Assert.Equal(0u, evtForStore.epoch); // sanity: caller's copy still 0
+
+                // Cache the broken (epoch=0) copy in the pending map — this mirrors the
+                // exact pre-fix RegisterPendingMilestoneEvent behavior before the
+                // `evt.epoch = MilestoneStore.CurrentEpoch` mirror was added. The
+                // post-fix code now applies the mirror itself; bypassing
+                // RegisterPendingMilestoneEvent and using the broken copy directly here
+                // proves the rest of the system actually depends on it.
+                GameStateRecorder.PendingMilestoneEventById["Mun/Flyby"] = evtForStore;
+
+                // Without the post-fix mirror, EnrichPendingMilestoneRewards's
+                // UpdateEventDetail call would miss the stored slot (cached epoch=0,
+                // stored epoch=7) and fire the defensive Warn. We assert the failure
+                // mode here so a regression that drops the mirror surfaces immediately.
+                GameStateRecorder.EnrichPendingMilestoneRewards(node, 1200, 3f, 0);
+
+                // Pre-fix: defensive Warn fires, store still carries detail with funds=0.
+                // Post-fix: this test is constructed to *prove* the bug shape, so the
+                // store-update SHOULD miss when the cache wasn't mirrored. Assert both
+                // sides — the Warn fires and the stored detail still has funds=0.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[WARN]") &&
+                    l.Contains("store had no matching event") &&
+                    l.Contains("Mun/Flyby") &&
+                    l.Contains("epoch=0"));
+                var storedAfterMiss = FindLastMilestoneEvent("Mun/Flyby");
+                Assert.True(storedAfterMiss.HasValue);
+                Assert.Contains("funds=0", storedAfterMiss.Value.detail);
+
+                // Now run the same scenario through the production seam, which DOES apply
+                // the mirror. The store-side detail must end up patched and no Warn fires.
+                logLines.Clear();
+                GameStateRecorder.PendingMilestoneEventById.Clear();
+                GameStateStore.ResetForTesting();
+                MilestoneStore.CurrentEpoch = 7; // reset for the second half
+                GameStateRecorder.RegisterPendingMilestoneEvent("Mun/Flyby", ut: 800);
+
+                GameStateRecorder.EnrichPendingMilestoneRewards(node, 1200, 3f, 0);
+
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]") && l.Contains("store had no matching event"));
+                var storedAfterFix = FindLastMilestoneEvent("Mun/Flyby");
+                Assert.True(storedAfterFix.HasValue);
+                Assert.Equal(7u, storedAfterFix.Value.epoch);
+                Assert.Contains("funds=1200", storedAfterFix.Value.detail);
+            }
+            finally
+            {
+                MilestoneStore.CurrentEpoch = savedEpoch;
+                GameStateRecorder.PendingMilestoneEventById.Clear();
+            }
+        }
+
+        [Fact]
+        public void EnrichPendingMilestoneRewards_ByIdNotReference_HandlesAliasedNodeInstance()
+        {
+            // #443 re-key validation: pre-fix the map was keyed by ProgressNode reference,
+            // so handing the postfix a *different* instance with the same qualified id
+            // would miss the lookup. Post-fix the lookup is by id string, so two distinct
+            // FakeProgressNode("FirstLaunch") instances now resolve to the same entry.
+            var emitNode = new FakeProgressNode("FirstLaunch");
+            var awardNode = new FakeProgressNode("FirstLaunch");
+            Assert.NotSame(emitNode, awardNode); // sanity: distinct objects
+
+            var evt = new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "FirstLaunch",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+            GameStateStore.AddEvent(evt);
+            evt.epoch = MilestoneStore.CurrentEpoch;
+            GameStateRecorder.PendingMilestoneEventById["FirstLaunch"] = evt;
+
+            // Enrichment uses awardNode (different instance, same Id) — must still hit.
+            GameStateRecorder.EnrichPendingMilestoneRewards(awardNode, 1500, 2f, 0);
+
+            var stored = FindLastMilestoneEvent("FirstLaunch");
+            Assert.True(stored.HasValue);
+            Assert.Contains("funds=1500", stored.Value.detail);
+            Assert.False(GameStateRecorder.PendingMilestoneEventById.ContainsKey("FirstLaunch"));
         }
 
         // #442: World-record progress nodes (RecordsSpeed/Altitude/Distance/Depth) call
@@ -283,14 +563,14 @@ namespace Parsek.Tests
         [Fact]
         public void EmitStandaloneProgressReward_DoesNotPopulatePendingMap()
         {
-            // The standalone path bypasses the enrichment-map indirection — the node
-            // must NOT be left in PendingMilestoneEventByNode (otherwise a subsequent
+            // The standalone path bypasses the enrichment-map indirection — the id
+            // must NOT be left in PendingMilestoneEventById (otherwise a subsequent
             // AwardProgress on the same node would erroneously enrich an old event).
             var node = new FakeProgressNode("RecordsAltitude");
 
             GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0, TestUt);
 
-            Assert.False(GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(node));
+            Assert.False(GameStateRecorder.PendingMilestoneEventById.ContainsKey("RecordsAltitude"));
         }
 
         [Fact]
@@ -373,7 +653,7 @@ namespace Parsek.Tests
             // branch and append a fresh MilestoneAchieved event (the standalone signature
             // 'MilestoneAchievedStandalone' shows up in the source-tagged Emit log).
             var node = new FakeProgressNode("RecordsDistance");
-            Assert.Empty(GameStateRecorder.PendingMilestoneEventByNode);
+            Assert.Empty(GameStateRecorder.PendingMilestoneEventById);
             int before = CountEvents(GameStateEventType.MilestoneAchieved);
 
             Parsek.Patches.ProgressRewardPatch.RoutePostfix(
@@ -407,7 +687,7 @@ namespace Parsek.Tests
                 detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
             };
             GameStateStore.AddEvent(seed);
-            GameStateRecorder.PendingMilestoneEventByNode[node] = seed;
+            GameStateRecorder.PendingMilestoneEventById["Mun/Landing"] = seed;
 
             int before = CountEvents(GameStateEventType.MilestoneAchieved);
 
@@ -424,7 +704,7 @@ namespace Parsek.Tests
             Assert.Contains("rep=42.5", stored.Value.detail);
             Assert.Contains("sci=12", stored.Value.detail);
             // Pending entry consumed by the enrich branch.
-            Assert.False(GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(node));
+            Assert.False(GameStateRecorder.PendingMilestoneEventById.ContainsKey("Mun/Landing"));
             // Standalone-source tag must NOT appear — confirms the enrich branch ran.
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("source='MilestoneAchievedStandalone'"));
@@ -564,8 +844,15 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Minimal ProgressNode stand-in for tests — real KSP ProgressNode requires
-        /// Complete/Fire plumbing that we don't want to invoke. The key is only reference
-        /// equality in the pending map, so any ProgressNode subclass works.
+        /// Complete/Fire plumbing that we don't want to invoke. Lookup is by qualified
+        /// id string since #443 (was reference equality before), so this stub only needs
+        /// to expose the id. It deliberately omits a private <c>body : CelestialBody</c>
+        /// field, so <c>QualifyMilestoneId</c> takes the no-body branch and returns the
+        /// bare id verbatim — any "Body/" prefix passed to the constructor is decorative
+        /// and is preserved by string-equality only. The body-qualification reflection
+        /// path cannot be exercised from xUnit because <c>CelestialBody</c> requires the
+        /// Unity/KSP runtime to construct (see <c>OrbitalRotationTests.cs</c> note);
+        /// see todo-and-known-bugs.md #453 follow-up for that coverage gap.
         /// </summary>
         private class FakeProgressNode : ProgressNode
         {
