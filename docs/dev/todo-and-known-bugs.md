@@ -18,6 +18,39 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 463. Deferred-spawn flush skips FlagEvents — flags planted mid-recording never materialise when warp carries the active vessel past a non-watched recording's end
+
+**Source:** user playtest `logs/2026-04-19_0014_investigate/KSP.log`. Reproducer:
+
+1. Record an "Untitled Space Craft" flight; EVA Bob Kerman and plant a flag (`[Flight] Flag planted: 'a' by 'Bob Kerman'` at UT 17126).
+2. Watch an unrelated recording (Learstar A1) and time-warp through the flag's UT.
+3. At warp-end the capsule (#290) and kerbal (#291) materialise as real vessels via the deferred-spawn queue — but the flag 'a' does NOT spawn.
+4. Stop watching Learstar; watch the actual Bob Kerman recording (#291) instead. Its ghost runs through UT 17126 normally, `[GhostVisual] Spawned flag vessel: 'a' by 'Bob Kerman'` fires, and the flag appears.
+
+Specific log lines in the snapshot (all from the same session):
+
+- `00:10:40.581 [Policy] Deferred spawn during warp: #291 "Bob Kerman"` — warp active, spawn queued.
+- `00:10:57.316 [Policy] Deferred spawn executing: #291 "Bob Kerman" id=d631f348fde24b6f8fbeb00228d8e057` — warp ended, queue flushed; `host.SpawnVesselOrChainTipFromPolicy(rec, i)` runs and spawns the EVA vessel. Nothing touches `rec.FlagEvents`.
+- `00:12:56.614 [GhostVisual] Spawned flag vessel: 'a' by 'Bob Kerman'` — only emitted when the actual Bob Kerman recording is watched (session 2), via the normal `GhostPlaybackLogic.ApplyFlagEvents` cursor path.
+
+**Root cause:** flag vessel spawns are driven by `GhostPlaybackLogic.ApplyFlagEvents` (`Source/Parsek/GhostPlaybackLogic.cs:1892`), which walks `state.flagEventIndex` forward over `rec.FlagEvents` every frame a ghost is in range. Callers are `GhostPlaybackEngine.UpdateNonLoopingPlayback:744`, `ParsekKSC.cs:341/476/528`, and the preview path in `ParsekFlight.cs:8177`. The deferred-spawn-at-warp-end path in `ParsekPlaybackPolicy.ExecuteDeferredSpawns` (≈ `ParsekPlaybackPolicy.cs:143-179`) goes straight from `host.SpawnVesselOrChainTipFromPolicy(rec, i)` to `continue` without ever stepping the flag-event cursor, because the ghost for that recording never entered range (you were watching Learstar). Flags in the recording interval — which are "in the past" by the time deferred spawn runs — are silently dropped.
+
+User-visible symptom: a flag planted during an EVA disappears from the world whenever the player time-warps past its recording while watching anything else. "Capsule and kerbal spawned but the flag didn't" is the exact report shape.
+
+**Fix:** in `ParsekPlaybackPolicy.ExecuteDeferredSpawns`, after a successful `SpawnVesselOrChainTipFromPolicy` call, walk `rec.FlagEvents` and invoke `GhostVisualBuilder.SpawnFlagVessel(evt)` for every event with `evt.ut <= currentUT`, guarded by the existing `GhostPlaybackLogic.FlagExistsAtPosition` dedup. This mirrors the state-less fallback branch inside `ApplyFlagEvents` (`GhostPlaybackLogic.cs:1918-1924`) so no new invariant is added — the dedup helper already handles idempotent replays. Consider extracting a small `GhostPlaybackLogic.SpawnFlagVesselsForRecording(rec, currentUT)` helper so both paths share one implementation. Log a `[Verbose][Policy] Deferred flag flush: #N "rec" spawned K/N flags` summary so the fix is observable in playtest logs.
+
+**Also verify during fix:** earlier in the same session, `00:09:08.031 [Scenario] Stripping future vessel 'a' (pid=1009931614, sit=LANDED) — not in quicksave whitelist` fires from `ParsekScenario.StripFuturePrelaunchVessels`. This is the rewind/quickload strip path (`Source/Parsek/ParsekScenario.cs:1490`). Confirm that flags planted during a committed recording are NOT treated as future-prelaunch vessels on quicksave round-trip — the whitelist-based strip predates flag support, so a fresh look at whether the planted-flag PID should be added to the whitelist (or filtered by type) would close a related observation. If a quickload can strip the flag before the deferred-spawn replay even runs, the main fix above does not cover that path.
+
+**Files:** `Source/Parsek/ParsekPlaybackPolicy.cs` (spawn + flag-flush); likely `Source/Parsek/GhostPlaybackLogic.cs` (new shared helper); possibly `Source/Parsek/ParsekScenario.cs` (strip-whitelist check). Test: xUnit that drives `ExecuteDeferredSpawns` with a `Recording` carrying one `FlagEvent` at `ut=currentUT-1`, asserts `SpawnFlagVessel` is invoked exactly once and the log line fires.
+
+**Scope:** Small-to-medium. Core fix is a 5-10 line loop in one method + one helper + one unit test. Strip-path verification is separate and may be a no-op if flags are already on the whitelist.
+
+**Dependencies:** none (flag event capture + `SpawnFlagVessel` both already work).
+
+**Status:** TODO. Priority: medium-high — functional correctness bug, reproducible every session, no workaround except manually watching every recording end-to-end.
+
+---
+
 ## 462. LedgerOrchestrator earnings reconciliation: MilestoneAchievement double-count vs FundsChanged
 
 **Source:** `logs/2026-04-19_0014_investigate/KSP.log` (48 WARN lines across one session). Representative pair:
@@ -38,6 +71,8 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 **Dependencies:** none.
 
 **Status:** TODO. Priority: medium-to-high — real data correctness bug with no user-facing symptom today except the WARNs, but compounds over long saves.
+
+**Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. The root cause is duplicate `MilestoneAchievement` action emissions (not a double-count at the event-store side). See #477 for the general case — fixing #477 is expected to resolve #462 simultaneously; close this entry only after verifying the reconcile WARN disappears for `Kerbin/SurfaceEVA` specifically.
 
 ---
 
