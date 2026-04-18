@@ -38,12 +38,30 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `RecordingStore` / `Ledger` / `ParsekScenario` drive cache invalidation.
   `ChildSlot.EffectiveRecordingId` now delegates to the helper. No UI
   hooks yet.~~
-- **Phase 3 (next)** — grep-audit conversion: route existing consumers
-  (ghost playback walker, `GhostMapPresence`, `WatchModeController`,
-  timeline view, reservation manager, recalc engine) through the
-  `EffectiveState` helper per design §3.4. CI grep gate to enforce no
-  raw `CommittedRecordings` / `Ledger.Actions` reads outside the
-  subsystem table.
+- ~~**Phase 3** — grep-audit conversion: route existing consumers through the
+  `EffectiveState` helper per design §3.4, CI grep gate to enforce no raw
+  `CommittedRecordings` / `Ledger.Actions` reads outside the subsystem table.
+  Mechanical conversions landed for safely-converted consumers
+  (`CrewReservationManager`, `VesselSpawner` chain crew exclusion,
+  `VesselGhoster` tip lookup, `ParsekUI` recording count + kerbals label,
+  `RecordingsTableUI` cross-link resolver, `KerbalsWindowUI` view model,
+  `TimelineWindowUI` builder + ERS+ELS lookup, `CareerStateWindowUI` ELS
+  input). Files with committed-recording-index-keyed state remain
+  grep-allowlisted with file-level `// [ERS-exempt — Phase 3]` notes and
+  `TODO(phase 6+)` markers for a future recording-id-keyed refactor
+  (`GhostMapPresence`, `WatchModeController`, `ChainSegmentManager`,
+  `ParsekFlight`, `ParsekPlaybackPolicy`, `ParsekTrackingStation`,
+  `ParsekKSC`, `DiagnosticsComputation`, `FlightRecorder` bootstrap,
+  `GroupPickerUI`, `RecordingsTableUI` table body, `SettingsWindowUI` wipe,
+  `ParsekUI` map-marker deduplication + wipe). CI gate:
+  `scripts/grep-audit-ers-els.ps1` + allowlist + `GrepAuditTests.cs`.~~
+- **Phase 4 (next)** — RP creation + deferred quicksave + scene guard +
+  warp-to-0 + root-save-then-move.
+- **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
+  state dictionaries and chain-continuation indices currently keyed by
+  position in `RecordingStore.CommittedRecordings` to recording-id keys so
+  the remaining grep-audit exemptions can be lifted. See the
+  `TODO(phase 6+)` markers listed above.
 - **Phase 3+ EffectiveState follow-ups** — deferred semantics wired into the
   Phase 2 classifier as TODO markers:
   - `EffectiveState: flip IsUnfinishedFlight from Immutable to CommittedProvisional once classifier lands`
