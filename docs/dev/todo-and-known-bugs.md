@@ -58,6 +58,18 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 452. Cancelled-rollout ledger entries should label the vessel name (or flag as "cancelled rollout")
+
+**Source:** review pass on PR `fix/445-rollout-cost-leak`. After #445, a cancelled-rollout `FundsSpending(VesselBuild)` action correctly persists in the ledger so the funds total stays in sync with KSP's deduction. However the Ledger / Actions UI currently renders the entry as a generic `"Vessel build"` label with no recording link — there's no way for the player to see which vessel the cost belonged to or that it was a cancellation. Cross-reference #445.
+
+**Fix:** When rendering a `FundsSpending(VesselBuild)` action whose `RecordingId == null` and `DedupKey` starts with `"rollout:"`, surface either the vessel name (would require capturing it in `OnVesselRolloutSpending` — KSP's `FundsChanged` event doesn't expose it directly, may need a `VesselRolloutEvent` Harmony patch on `EditorLogic.OnLaunchBtnClicked` or `LaunchPad.Launch`) or at minimum a "(cancelled rollout)" suffix on the existing label so the entry is distinguishable from an adopted (recording-tagged) build cost.
+
+**Files:** Likely `Source/Parsek/UI/ActionsWindowUI.cs` (or wherever `FundsSpending(VesselBuild)` is rendered); possibly `Source/Parsek/GameStateRecorder.cs` and `Source/Parsek/GameActions/LedgerOrchestrator.cs:OnVesselRolloutSpending` for vessel-name capture.
+
+**Status:** TODO. Priority: low (cosmetic — funds total is correct; only the human-readable description is generic).
+
+---
+
 ## 450. Per-spawn time budgeting / coroutine split — #414 follow-up for bimodal single-spawn cost
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:11489`. One-shot #414 breakdown line (first exceeded frame in the session):
@@ -262,11 +274,11 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ## ~~445. `VesselRollout` without a subsequent recording leaks the build cost~~
 
-**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. If the player rolls out a vessel, incurs the `FundsChanged(VesselRollout)` deduction, then cancels (never starts recording), no `FundsSpending(VesselBuild)` action is created — and the KSC path has no reconciliation for rollouts that happen without a subsequent recording. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule.
+**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. KSP's `FundsChanged(VesselRollout)` deduction lands BEFORE `FlightRecorder.CapturePreLaunchResources` runs, so the recording-side delta is already ~0 by the time the recording starts capturing — meaning **every** career launch+record was silently dropping the build cost from the ledger total, not just the cancelled-rollout corner case. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule, so the KSC path has no reconciliation either.
 
-**Fix:** `GameStateRecorder.OnFundsChanged` now forwards `TransactionReasons.VesselRollout` deductions to `LedgerOrchestrator.OnVesselRolloutSpending`, which commits a `FundsSpending(VesselBuild)` action immediately (tagged `RecordingId=null`, `DedupKey="rollout:<UT>"`) and runs the existing KSC reconciliation. `LedgerOrchestrator.ClassifyAction` pairs the new action against `FundsChanged(VesselRollout)` events. `CreateVesselCostActions` calls `TryAdoptRolloutAction` before deriving its own build cost — when an unclaimed rollout sits within `RolloutAdoptionWindowSeconds` (60 s) before `startUT`, the action is re-tagged onto the recording instead of double-charging. Cancelled rollouts simply leave the null-tagged action in the ledger so the funds total stays in sync with KSP.
+**Fix:** Vessel build cost is now committed to the ledger when KSP deducts it. `GameStateRecorder.OnFundsChanged` forwards `TransactionReasons.VesselRollout` deductions to `LedgerOrchestrator.OnVesselRolloutSpending`, which commits a `FundsSpending(VesselBuild)` action immediately (tagged `RecordingId=null`, `DedupKey="rollout:<UT>"`) and runs the existing KSC reconciliation. `LedgerOrchestrator.ClassifyAction` pairs the new action against `FundsChanged(VesselRollout)` events. `CreateVesselCostActions` calls `TryAdoptRolloutAction` before deriving its own build cost — when an unclaimed rollout sits within `RolloutAdoptionWindowSeconds` (60 s) before `startUT`, the action is re-tagged onto the new recording (LIFO — the most recent rollout wins, matching the "rollout immediately preceding this launch" intent) instead of double-charging. Cancelled rollouts simply leave the null-tagged action in the ledger so the funds total stays in sync with KSP. The result: launching, recording, and committing a flight now charges the build cost exactly once, and a rolled-out vessel that's cancelled before launch is still charged.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-540, 2068-2200` (CreateVesselCostActions, TryAdoptRolloutAction, OnVesselRolloutSpending, ClassifyAction), `Source/Parsek/GameStateRecorder.cs:706-749` (OnFundsChanged), `Source/Parsek.Tests/Bug445RolloutCostLeakTests.cs` (10 tests).
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-540, 2068-2220` (CreateVesselCostActions, TryAdoptRolloutAction, OnVesselRolloutSpending, ClassifyAction), `Source/Parsek/GameStateRecorder.cs:706-762` (OnFundsChanged), `Source/Parsek.Tests/Bug445RolloutCostLeakTests.cs` (15 tests including LIFO adoption, 60.0 s boundary, save-load round-trip, and residual-buildCost branches).
 
 **Scope:** Medium. Crosses two files. Low priority — rare-edge (cancelled rollouts); not a user-visible drain in the default flow. Ship-blockers are #442 first.
 

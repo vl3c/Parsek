@@ -2068,7 +2068,8 @@ namespace Parsek
             }
 
             // Assign a sequence number so multiple KSC events at the same UT have
-            // deterministic ordering in the recalculation sort.
+            // deterministic ordering in the recalculation sort. (See also
+            // OnVesselRolloutSpending, which follows this same pattern.)
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
@@ -2115,6 +2116,9 @@ namespace Parsek
                 return;
             }
 
+            // Sequence assignment mirrors OnKscSpending — see that method for the
+            // canonical pattern. Same-UT KSC writes need a deterministic order in the
+            // recalculation sort; the shared kscSequenceCounter provides it.
             kscSequenceCounter++;
             var action = new GameAction
             {
@@ -2150,7 +2154,11 @@ namespace Parsek
         /// <see cref="GameAction.DedupKey"/>. Returns the adopted action or <c>null</c>.
         /// <para>
         /// Adoption avoids double-charging when a recording starts from a vessel that has
-        /// already incurred the rollout deduction at the launchpad.
+        /// already incurred the rollout deduction at the launchpad. When multiple
+        /// unclaimed rollouts sit within the window (e.g. roll out, cancel, roll out
+        /// again), the search runs LIFO — the most recent rollout wins, matching the
+        /// "rollout immediately preceding this launch" intent and leaving older,
+        /// stranded cancellations in place.
         /// </para>
         /// </summary>
         internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT)
@@ -2158,7 +2166,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(recordingId)) return null;
 
             var actions = Ledger.Actions;
-            for (int i = 0; i < actions.Count; i++)
+            // LIFO scan: walk newest-first so the rollout immediately preceding this
+            // launch wins over any older unclaimed entries (cancelled rollouts) sitting
+            // in the same adoption window.
+            for (int i = actions.Count - 1; i >= 0; i--)
             {
                 var a = actions[i];
                 if (a == null) continue;
@@ -2167,10 +2178,7 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(a.RecordingId)) continue; // already adopted
                 if (string.IsNullOrEmpty(a.DedupKey)) continue;
                 if (!a.DedupKey.StartsWith("rollout:", StringComparison.Ordinal)) continue;
-                // Window: rollout fires immediately before launch; recording start UT is
-                // typically a few seconds later. Allow a minute of slack to cover scene
-                // load + auto-record startup latency, but no more — we don't want to claim
-                // a rollout from a different launch session.
+                // 0.5 s slack absorbs UT epsilon between OnFundsChanged ut and FlightRecorder startUT.
                 if (a.UT > startUT + 0.5) continue;
                 if (startUT - a.UT > RolloutAdoptionWindowSeconds) continue;
 
@@ -2192,9 +2200,11 @@ namespace Parsek
 
         /// <summary>
         /// #445: maximum game-seconds gap between a <c>TransactionReasons.VesselRollout</c>
-        /// deduction and the start of the recording that should claim it. Sized to cover
-        /// scene transition + auto-record startup latency without spanning unrelated
-        /// launches.
+        /// deduction and the start of the recording that should claim it. Measured in UT
+        /// (not wall-clock) — generous because UT barely advances at the launchpad while
+        /// the player waits to launch. The boundary is inclusive: a recording whose
+        /// <c>startUT - rollout.UT</c> equals exactly 60.0 still adopts (strict <c>&gt;</c>
+        /// comparison); 60.0 + epsilon does not.
         /// </summary>
         internal const double RolloutAdoptionWindowSeconds = 60.0;
 

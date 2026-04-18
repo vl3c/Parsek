@@ -192,6 +192,73 @@ namespace Parsek.Tests
             var second = LedgerOrchestrator.TryAdoptRolloutAction("rec-B", startUT: 115.0);
 
             Assert.Null(second);
+
+            // Stronger: the original adoption must survive intact — rec-A still owns
+            // the (now-DedupKey-cleared) VesselBuild action, and no other VesselBuild
+            // action exists.
+            var owned = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal("rec-A", owned.RecordingId);
+            Assert.Null(owned.DedupKey);
+            Assert.Equal(5000f, owned.FundsSpent);
+            Assert.Equal(100.0, owned.UT);
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_AtExactWindowBoundary_Adopts()
+        {
+            // Boundary pin: 60.0 s gap exactly is INSIDE the window (strict > comparison).
+            // Adoption must succeed.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds; // 160.0
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
+
+            Assert.NotNull(adopted);
+            Assert.Equal("rec-A", adopted.RecordingId);
+            Assert.Equal(5000f, adopted.FundsSpent);
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_JustOutsideWindow_DoesNotAdopt()
+        {
+            // Boundary pin: 60.0 + epsilon is OUTSIDE the window.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds + 0.1; // 160.1
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
+
+            Assert.Null(adopted);
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_MultipleUnclaimed_AdoptsMostRecent()
+        {
+            // LIFO: player rolls out (cost1) at UT=100, cancels, rolls out again (cost2)
+            // at UT=130, then launches the recording at UT=140. The rollout
+            // immediately preceding the launch (cost2 at 130) is the one that should be
+            // adopted; the older cancelled one (cost1 at 100) stays stranded null-tagged.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 4000.0);
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 130.0, cost: 7000.0);
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-launched", startUT: 140.0);
+
+            Assert.NotNull(adopted);
+            // Most recent rollout wins.
+            Assert.Equal(7000f, adopted.FundsSpent);
+            Assert.Equal(130.0, adopted.UT);
+            Assert.Equal("rec-launched", adopted.RecordingId);
+
+            // Older rollout still sits null-tagged so the ledger total stays in sync
+            // with KSP's actual deduction (the cancelled one was never refunded).
+            var stranded = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                a.RecordingId == null);
+            Assert.Equal(4000f, stranded.FundsSpent);
+            Assert.Equal(100.0, stranded.UT);
+            Assert.StartsWith("rollout:", stranded.DedupKey);
         }
 
         // ----------------------------------------------------------------
@@ -285,6 +352,106 @@ namespace Parsek.Tests
             Assert.Single(stranded);
             Assert.Equal(7500f, stranded[0].FundsSpent);
             Assert.Null(stranded[0].RecordingId);
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_AdoptedRolloutPlusResidualDelta_EmitsBoth()
+        {
+            // Rare case: the rollout deducts the build cost, then the recording observes
+            // an additional cost between PreLaunchFunds (captured pre-launchpad) and
+            // the first frame's funds (captured post-launchpad). Both must land on the
+            // ledger — the adopted rollout under its UT, and a recording-tagged residual
+            // FundsSpending(VesselBuild) on top.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 99.0, cost: 5000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-residual",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Landed
+            };
+            // Pre-launch: 50000 — first point: 49250 — implies 750 of additional
+            // spending landed between PreLaunchFunds capture and first frame.
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 49250.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 49250.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions(
+                "rec-residual", startUT: 100.0, endUT: 200.0);
+
+            // The 750 residual action must be returned by CreateVesselCostActions,
+            // tagged to the recording.
+            var residual = actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal("rec-residual", residual.RecordingId);
+            Assert.Equal(750f, residual.FundsSpent);
+            Assert.Equal(100.0, residual.UT);
+
+            // The adopted rollout still sits in the ledger under its own UT, now owned
+            // by the recording — the cost is split across two actions, neither lost.
+            var adopted = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                a.RecordingId == "rec-residual" &&
+                a.UT == 99.0);
+            Assert.Equal(5000f, adopted.FundsSpent);
+            Assert.Null(adopted.DedupKey);
+
+            // Diagnostics: the residual branch must log the split so post-mortem
+            // analysis sees both contributions.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("residual buildCost=750") &&
+                l.Contains("rolloutCost=5000"));
+        }
+
+        // ----------------------------------------------------------------
+        // Save/load roundtrip
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void RolloutAction_RoundTripsThroughSerializeDeserialize_RemainsAdoptable()
+        {
+            // PR #307 follow-up made GameAction.Serialize/DeserializeFundsSpending
+            // round-trip the DedupKey. Our new "rollout:<UT>" tag must survive a .sfs
+            // save/load and still be adoptable on the next launch — otherwise a player
+            // who quits + reloads after a rollout but before launching would lose the
+            // adoption hook and end up double-charged on the next launch+record.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            var original = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            string originalDedupKey = original.DedupKey;
+            Assert.StartsWith("rollout:", originalDedupKey);
+
+            // Round-trip through ConfigNode.
+            var parent = new ConfigNode("LEDGER");
+            original.SerializeInto(parent);
+            var actionNode = parent.GetNode("GAME_ACTION");
+            var reloaded = GameAction.DeserializeFrom(actionNode);
+
+            // DedupKey survived intact and still passes the StartsWith("rollout:")
+            // gate inside TryAdoptRolloutAction.
+            Assert.Equal(originalDedupKey, reloaded.DedupKey);
+            Assert.Null(reloaded.RecordingId);
+            Assert.Equal(GameActionType.FundsSpending, reloaded.Type);
+            Assert.Equal(FundsSpendingSource.VesselBuild, reloaded.FundsSpendingSource);
+            Assert.Equal(5000f, reloaded.FundsSpent);
+            Assert.Equal(100.0, reloaded.UT);
+
+            // Replace the original in-memory action with the deserialized one to
+            // simulate a load and verify adoption still works on a recording started
+            // after the reload.
+            LedgerOrchestrator.ResetForTesting();
+            Ledger.AddAction(reloaded);
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-after-load", startUT: 110.0);
+
+            Assert.NotNull(adopted);
+            Assert.Equal("rec-after-load", adopted.RecordingId);
+            Assert.Null(adopted.DedupKey);
+            Assert.Equal(5000f, adopted.FundsSpent);
         }
     }
 }
