@@ -13,7 +13,7 @@ All notable changes to Parsek are documented here.
 - Phase 3: raw recording/ledger readers routed through ERS/ELS helpers; CI grep-audit gate added.
 - Phase 4: rewind points captured at multi-controllable splits; quicksave deferred to next frame.
 - Phase 5: Unfinished Flights UI group (feature-preview cutoff; rewind invocation comes in Phase 6).
-- Phase 6: rewind button unlocked end-to-end — invocation + quicksave reload + post-load strip + atomic marker/provisional write.
+- Phase 6: rewind button unlocked end-to-end — pre-load bundle capture + copy-to-save-root, scene reload, post-load Restore + Strip + Activate + atomic provisional/marker write in the new scenario's OnLoad. User-facing toast on failure.
 
 ---
 
