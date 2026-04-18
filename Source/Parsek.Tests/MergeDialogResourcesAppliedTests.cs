@@ -9,14 +9,14 @@ namespace Parsek.Tests
     /// Phase C of the ledger / lump-sum reconciliation fix
     /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>).
     ///
-    /// <para>The merge dialog used to commit a tree via <see cref="RecordingStore.CommitPendingTree"/>
-    /// without setting <c>tree.ResourcesApplied=true</c>. The next FLIGHT scene
-    /// then re-fired <c>ApplyTreeLumpSum</c> on the now-committed tree, producing
-    /// the "suspicious drawdown" WARN that Phase A migrates away on load. The
-    /// in-flight commit path (<see cref="ParsekFlight.CommitTreeFlight"/>) already
-    /// did the equivalent inline; this phase brings the merge dialog into parity
-    /// by routing both through the new <see cref="RecordingStore.MarkTreeAsApplied"/>
-    /// primitive.</para>
+    /// <para>The merge dialog used to commit a tree without advancing its child
+    /// recordings' <c>LastAppliedResourceIndex</c> values to the end. That left
+    /// already-live resources looking un-applied to budget reservation and, before
+    /// Phase F deleted the lump-sum path, also re-armed the old tree applier on the
+    /// next FLIGHT entry. The in-flight commit path
+    /// (<see cref="ParsekFlight.CommitTreeFlight"/>) already did the equivalent
+    /// inline; this phase brings the merge dialog into parity by routing both
+    /// through <see cref="RecordingStore.MarkTreeAsApplied"/>.</para>
     ///
     /// <para>The test target is the extracted <see cref="MergeDialog.MergeCommit"/>
     /// (and its sibling <see cref="MergeDialog.MergeDiscard"/>): the dialog button
@@ -135,17 +135,16 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void MergeCommit_AdvancesResourcesAppliedAndIndexesAndMovesToCommitted()
+        public void MergeCommit_AdvancesIndexesAndMovesToCommitted()
         {
             var rec1 = MakeRecording("rec-a", "tree-merge-1", 100.0, 200.0);
             var rec2 = MakeRecording("rec-b", "tree-merge-1", 150.0, 220.0);
             var rec3 = MakeRecording("rec-c", "tree-merge-1", 180.0, 250.0);
             var tree = MakeTree("tree-merge-1", "rec-a", rec1, rec2, rec3);
 
-            // Precondition: stash as pending. ResourcesApplied=false and indexes start at -1.
+            // Precondition: stash as pending and indexes start at -1.
             RecordingStore.StashPendingTree(tree);
             Assert.True(RecordingStore.HasPendingTree);
-            Assert.False(tree.ResourcesApplied);
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(-1, r.LastAppliedResourceIndex);
 
@@ -159,8 +158,7 @@ namespace Parsek.Tests
 
             MergeDialog.MergeCommit(tree, decisions, spawnCount: 0);
 
-            // ResourcesApplied flipped, every recording's index advanced to last point.
-            Assert.True(tree.ResourcesApplied);
+            // Every recording's index advanced to last point.
             Assert.Equal(2, rec1.LastAppliedResourceIndex);
             Assert.Equal(2, rec2.LastAppliedResourceIndex);
             Assert.Equal(2, rec3.LastAppliedResourceIndex);
@@ -202,8 +200,7 @@ namespace Parsek.Tests
                 new Dictionary<string, bool> { { "rec-mile", false } },
                 spawnCount: 0);
 
-            // After: tree marked applied, milestone indexes unchanged.
-            Assert.True(tree.ResourcesApplied);
+            // After: recording indexes advanced, milestone indexes unchanged.
             var milestonesAfter = MilestoneStore.Milestones;
             Assert.Equal(indexesBefore.Count, milestonesAfter.Count);
             for (int i = 0; i < milestonesAfter.Count; i++)
@@ -232,10 +229,9 @@ namespace Parsek.Tests
                 new Dictionary<string, bool> { { "rec-full", false }, { "rec-empty", false } },
                 spawnCount: 0);
 
-            // Tree-level flag is set unconditionally; per-recording indexes only advance
-            // when Points is non-empty (mirrors the MarkTreeAsApplied contract that
-            // LegacyTreeMigrationTests pins separately).
-            Assert.True(tree.ResourcesApplied);
+            // Per-recording indexes only advance when Points is non-empty
+            // (mirrors the MarkTreeAsApplied contract that LegacyTreeMigrationTests
+            // pins separately).
             Assert.Equal(2, fullRec.LastAppliedResourceIndex);
             Assert.Equal(-1, emptyRec.LastAppliedResourceIndex);
         }
@@ -245,21 +241,18 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void MergeDiscard_DoesNotMarkResourcesApplied()
+        public void MergeDiscard_DoesNotAdvanceRecordingIndexes()
         {
             var rec = MakeRecording("rec-discard", "tree-discard", 100.0, 200.0);
             var tree = MakeTree("tree-discard", "rec-discard", rec);
 
-            // Sanity: ResourcesApplied is false before and stays false after a discard.
             // If a future change accidentally wires MarkTreeAsApplied into the wrong
             // branch (Discard instead of Merge), this assertion fails.
-            Assert.False(tree.ResourcesApplied);
             Assert.Equal(-1, rec.LastAppliedResourceIndex);
 
             RecordingStore.StashPendingTree(tree);
             MergeDialog.MergeDiscard(tree);
 
-            Assert.False(tree.ResourcesApplied);
             Assert.Equal(-1, rec.LastAppliedResourceIndex);
 
             // Tree should be wiped from the pending slot and never make it into

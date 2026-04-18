@@ -107,14 +107,14 @@ namespace Parsek
         // Phase C of the ledger / lump-sum reconciliation fix
         // (`docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`) wires
         // <see cref="RecordingStore.MarkTreeAsApplied"/> into the merge path
-        // so the next FLIGHT scene does not re-fire <c>ApplyTreeLumpSum</c>
-        // on this tree (the in-flight commit path
-        // <see cref="ParsekFlight.CommitTreeFlight"/> already does the
-        // equivalent inline; this brings the merge dialog into parity).
+        // so committed tree recordings are immediately marked fully applied
+        // (the in-flight commit path <see cref="ParsekFlight.CommitTreeFlight"/>
+        // already does the equivalent inline; this brings the merge dialog
+        // into parity).
         //
         // Discard intentionally does NOT mark applied: the tree is being
-        // wiped from storage, so its <c>ResourcesApplied</c> flag has no
-        // surviving reader.
+        // wiped from storage, so there is no surviving caller that needs
+        // its recording indexes advanced.
         // ================================================================
 
         /// <summary>
@@ -133,9 +133,8 @@ namespace Parsek
 
             ApplyVesselDecisions(tree, decisions);
             RecordingStore.CommitPendingTree();
-            // Phase C: disarm the lump-sum replay path that would otherwise
-            // re-fire on the next FLIGHT scene entry. Must run after the
-            // tree has been moved from pending to committed state.
+            // Phase C/F: mark recordings fully applied after the tree moves
+            // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
             RecordingStore.RunOptimizationPass();
             // #292: Refresh quicksave so subsequent F9 quickloads include the
@@ -163,7 +162,7 @@ namespace Parsek
         /// Implements the "Discard" branch of the dialog. Does NOT call
         /// <see cref="RecordingStore.MarkTreeAsApplied"/>: the tree is
         /// removed from storage by <see cref="RecordingStore.DiscardPendingTree"/>
-        /// so the flag has no surviving reader.
+        /// so there is no surviving caller that needs recording indexes advanced.
         /// </summary>
         internal static void MergeDiscard(RecordingTree tree)
         {

@@ -18,10 +18,10 @@ namespace Parsek.Tests
     /// </list>
     ///
     /// <para>All three commit a pending tree whose resources were applied live during
-    /// the originating flight — KSP's <c>Funding.Instance.Funds</c> (and science/rep)
-    /// already reflect the mission's income. Without <see cref="RecordingStore.MarkTreeAsApplied"/>,
-    /// the next FLIGHT scene entry re-fires <c>ApplyTreeLumpSum</c> on the now-committed
-    /// tree and double-credits, exactly the drawdown loop Phase A migrates away on load.</para>
+    /// the originating flight. Without <see cref="RecordingStore.MarkTreeAsApplied"/>,
+    /// the committed recordings would still look un-applied to budget reservation and,
+    /// before Phase F deleted the lump-sum path, the next FLIGHT scene entry could
+    /// double-credit the tree.</para>
     ///
     /// <para>All three sites converge on the shared seam
     /// <see cref="ParsekScenario.CommitPendingTreeAsApplied"/>: tests exercise that
@@ -128,7 +128,7 @@ namespace Parsek.Tests
 
         // ================================================================
         // 1. Seam happy path: pending tree -> CommitPendingTreeAsApplied ->
-        //    ResourcesApplied=true + indexes advanced + moved to committed.
+        //    indexes advanced + moved to committed.
         //
         //    Named after the production call site in SafetyNetAutoCommitPending
         //    (ParsekScenario.cs:~372 during OnSave). Scene-exit and outside-
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void SafetyNetAutoCommit_MarksTreeAsApplied()
+        public void SafetyNetAutoCommit_AdvancesRecordingIndexes()
         {
             var rec1 = MakeRecording("rec-safety-1", "tree-safety", 100.0, 200.0);
             var rec2 = MakeRecording("rec-safety-2", "tree-safety", 150.0, 220.0);
@@ -145,13 +145,11 @@ namespace Parsek.Tests
 
             RecordingStore.StashPendingTree(tree);
             Assert.True(RecordingStore.HasPendingTree);
-            Assert.False(tree.ResourcesApplied);
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(-1, r.LastAppliedResourceIndex);
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
-            Assert.True(tree.ResourcesApplied);
             Assert.Equal(2, rec1.LastAppliedResourceIndex); // 3 points - 1
             Assert.Equal(2, rec2.LastAppliedResourceIndex);
             Assert.False(RecordingStore.HasPendingTree);
@@ -159,24 +157,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SceneExitAutoMerge_MarksTreeAsApplied()
+        public void SceneExitAutoMerge_AdvancesRecordingIndexes()
         {
             // Scenario: FLIGHT → KSC/TS with autoMerge=ON and !isRevert (ParsekScenario.cs:~1186).
-            // The flight's resources are already live in KSP; the commit must mark applied so
-            // the next FLIGHT entry does not re-fire ApplyTreeLumpSum.
+            // The flight's resources are already live in KSP; the commit must advance
+            // recording indexes so the committed tree is immediately fully applied.
             var rec = MakeRecording("rec-scene-exit", "tree-scene-exit", 100.0, 200.0);
             var tree = MakeTree("tree-scene-exit", "rec-scene-exit", rec);
 
             RecordingStore.StashPendingTree(tree);
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
-            Assert.True(tree.ResourcesApplied);
             Assert.Equal(2, rec.LastAppliedResourceIndex);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-scene-exit");
         }
 
         [Fact]
-        public void OutsideFlightAutoCommit_MarksTreeAsApplied()
+        public void OutsideFlightAutoCommit_AdvancesRecordingIndexes()
         {
             // Scenario: Esc > Abort Mission → Space Center with autoMerge=ON
             // (ParsekScenario.cs:~1348). Same resource-already-live semantics as the
@@ -187,7 +184,6 @@ namespace Parsek.Tests
             RecordingStore.StashPendingTree(tree);
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
-            Assert.True(tree.ResourcesApplied);
             Assert.Equal(2, rec.LastAppliedResourceIndex);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-outside");
         }
@@ -220,7 +216,6 @@ namespace Parsek.Tests
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
-            Assert.True(tree.ResourcesApplied);
             var milestonesAfter = MilestoneStore.Milestones;
             Assert.Equal(indexesBefore.Count, milestonesAfter.Count);
             for (int i = 0; i < milestonesAfter.Count; i++)
@@ -245,9 +240,8 @@ namespace Parsek.Tests
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
-            // Tree flag flips unconditionally; per-recording index only advances
-            // when Points is non-empty (mirrors MarkTreeAsApplied).
-            Assert.True(tree.ResourcesApplied);
+            // Per-recording index only advances when Points is non-empty
+            // (mirrors MarkTreeAsApplied).
             Assert.Equal(2, fullRec.LastAppliedResourceIndex);
             Assert.Equal(-1, emptyRec.LastAppliedResourceIndex);
         }
@@ -257,24 +251,22 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void AutoCommit_NoPendingTree_CommitIsNoop_MarkAppliedStillRuns()
+        public void AutoCommit_NoPendingTree_CommitIsNoop_IndexAdvanceStillRuns()
         {
             // Defense-in-depth: if the caller hands us a tree reference while
             // nothing is stashed as pending (production paths never do this, but
             // the helper must not throw), CommitPendingTree no-ops per its own
             // contract (RecordingStore.cs:965-976) and MarkTreeAsApplied still
-            // flips the flag on the passed-in tree. The tree will NOT appear in
+            // advances indexes on the passed-in tree. The tree will NOT appear in
             // committed storage because CommitPendingTree didn't run.
             var rec = MakeRecording("rec-nopending", "tree-nopending", 100.0, 200.0);
             var tree = MakeTree("tree-nopending", "rec-nopending", rec);
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(tree.ResourcesApplied);
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
             // MarkTreeAsApplied still ran on the tree instance.
-            Assert.True(tree.ResourcesApplied);
             Assert.Equal(2, rec.LastAppliedResourceIndex);
             // But CommitPendingTree was a no-op so committed storage stays empty.
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "tree-nopending");
@@ -304,12 +296,11 @@ namespace Parsek.Tests
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
             // Post-condition: pending slot empty, tree in committed storage AND
-            // ResourcesApplied=true. Both must hold for the lump-sum disarm to take
-            // effect — a pending tree whose ResourcesApplied=true but is not yet
-            // committed would still persist with the wrong state on OnSave.
+            // the recording index advanced to the end. Both must hold so the
+            // committed tree is immediately fully applied on save.
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-order");
-            Assert.True(tree.ResourcesApplied);
+            Assert.Equal(2, rec.LastAppliedResourceIndex);
         }
     }
 }

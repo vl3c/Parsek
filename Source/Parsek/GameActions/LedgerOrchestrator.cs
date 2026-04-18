@@ -990,15 +990,11 @@ namespace Parsek
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
 
-            // Phase A migration: pre-existing committed trees that persisted
-            // `DeltaFunds`/`DeltaScience`/`DeltaReputation` but were never converted
-            // into ledger actions (because the income flowed through a channel
-            // `GameStateEventConverter` dropped — milestone rewards, contract advances,
-            // strategy payouts — before that channel was captured) get their residual
-            // injected as a synthetic earning tagged with the tree's RootRecordingId.
-            // This runs AFTER Reconcile (which doesn't know about tree.Delta* fields)
-            // and BEFORE RecalculateAndPatch so the synthesized action enters the same
-            // walk that patches KSP state.
+            // Phase A migration: pre-existing committed trees whose save data still
+            // carries legacy resource residual fields get those residuals injected as
+            // synthetic ledger actions tagged with the tree's RootRecordingId. This
+            // runs AFTER Reconcile and BEFORE RecalculateAndPatch so the synthesized
+            // actions enter the same walk that patches KSP state.
             MigrateLegacyTreeResources();
 
             RecalculateAndPatch();
@@ -1137,13 +1133,15 @@ namespace Parsek
         private const double LegacyMigrationFundsTolerance = 1.0;
         private const double LegacyMigrationScienceTolerance = 0.1;
         private const double LegacyMigrationReputationTolerance = 0.1;
+        private const string LegacyFormatGateTag = "LegacyFormatGate";
 
         /// <summary>
         /// Phase A of the ledger / lump-sum resource reconciliation fix
         /// (<c>docs/dev/plans/fix-ledger-lump-sum-reconciliation.md</c>). Walks the
-        /// committed trees and, for each tree with <c>ResourcesApplied=false</c> and
-        /// any persisted <c>DeltaFunds</c>/<c>DeltaScience</c>/<c>DeltaReputation</c>
-        /// outside tolerance, decides — per the reviewer's zero-coverage scope — either:
+        /// committed trees and, for each tree whose <see cref="RecordingTree.Load"/>
+        /// hydrated a transient legacy residual with any persisted
+        /// <c>deltaFunds</c>/<c>deltaScience</c>/<c>deltaReputation</c> outside
+        /// tolerance, decides — per the reviewer's zero-coverage scope — either:
         /// <list type="bullet">
         ///   <item><description>
         ///   <b>Zero ledger coverage</b> (no ledger action tagged to any of the tree's
@@ -1167,17 +1165,19 @@ namespace Parsek
         /// </list>
         ///
         /// <para>Degraded tree (<see cref="RecordingTree.ComputeEndUT"/> returns 0 —
-        /// trajectory data missing): mark applied, log INFO, no injection. Mirrors
-        /// <see cref="ParsekFlight"/> <c>ApplyTreeResourceDeltas</c>.</para>
+        /// trajectory data missing): mark recordings fully applied, log INFO, no
+        /// injection.</para>
         ///
-        /// <para>Empty <c>RootRecordingId</c>: mark applied (disarms the lump sum),
-        /// log WARN. No synthetic — no correct recording id to tag with. Data loss
-        /// for the rare empty-root case is preferable to continued drawdown on every
-        /// FLIGHT entry.</para>
+        /// <para>Empty <c>RootRecordingId</c>: mark recordings fully applied, log
+        /// WARN. No synthetic — no correct recording id to tag with. Data loss for
+        /// the rare empty-root case is preferable to silent residual loss without a
+        /// warning.</para>
         ///
-        /// <para>Regardless of branch, the tree is marked <c>ResourcesApplied=true</c>
-        /// so <c>ApplyTreeLumpSum</c> on the next FLIGHT scene entry is disarmed.
-        /// Idempotent: repeat runs are no-ops because the flag persists.</para>
+        /// <para>Regardless of branch, the tree's recordings are marked fully applied
+        /// via <see cref="RecordingStore.MarkTreeAsApplied"/> so budget reservation does
+        /// not re-hold already-live resources. Idempotent: after the transient residual
+        /// is consumed, repeat runs on the same in-memory tree are no-ops. Reloading the
+        /// same legacy save is guarded by existing LegacyMigration synthetic detection.</para>
         /// </summary>
         internal static void MigrateLegacyTreeResources()
         {
@@ -1190,12 +1190,15 @@ namespace Parsek
             }
 
             int treesConsidered = 0;
+            int treesWithoutLegacyResidual = 0;
             int treesAlreadyApplied = 0;
+            int treesAlreadyMigrated = 0;
             int treesSkippedNoDelta = 0;
             int treesSkippedEmptyRoot = 0;
             int treesSkippedDegraded = 0;
             int treesSkippedPartialCoverage = 0;
             int treesMigrated = 0;
+            int treesWarnedByGate = 0;
             int fundsInjected = 0;
             int scienceInjected = 0;
             int repInjected = 0;
@@ -1204,164 +1207,157 @@ namespace Parsek
             {
                 var tree = trees[i];
                 if (tree == null) continue;
-                treesConsidered++;
 
-                if (tree.ResourcesApplied)
+                var residual = tree.ConsumeLegacyResidual();
+                if (residual == null)
                 {
-                    treesAlreadyApplied++;
+                    treesWithoutLegacyResidual++;
                     continue;
                 }
 
-                // Degraded-tree guard mirrors ParsekFlight.ApplyTreeResourceDeltas —
-                // a tree whose recordings all have 0 trajectory points carries stale
-                // delta values from metadata but no actual playback to apply against.
-                if (tree.ComputeEndUT() == 0)
+                treesConsidered++;
+
+                bool fundsNonZero = Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance;
+                bool scienceNonZero = Math.Abs(residual.DeltaScience) > LegacyMigrationScienceTolerance;
+                bool repNonZero = Math.Abs((double)residual.DeltaReputation) > LegacyMigrationReputationTolerance;
+                bool anyNonZeroResidual = fundsNonZero || scienceNonZero || repNonZero;
+
+                if (residual.ResourcesApplied)
                 {
-                    treesSkippedDegraded++;
-                    ParsekLog.Info(Tag,
-                        $"MigrateLegacyTreeResources: skipping degraded tree id='{tree.Id}' " +
-                        $"name='{tree.TreeName}' — ComputeEndUT()==0 (no trajectory data), " +
-                        $"marking applied without synthetic injection " +
-                        $"(stale deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                    treesAlreadyApplied++;
                     RecordingStore.MarkTreeAsApplied(tree);
                     continue;
                 }
 
-                bool fundsNonZero = Math.Abs(tree.DeltaFunds) > LegacyMigrationFundsTolerance;
-                bool scienceNonZero = Math.Abs(tree.DeltaScience) > LegacyMigrationScienceTolerance;
-                bool repNonZero = Math.Abs((double)tree.DeltaReputation) > LegacyMigrationReputationTolerance;
-
-                if (!fundsNonZero && !scienceNonZero && !repNonZero)
+                if (!anyNonZeroResidual)
                 {
                     treesSkippedNoDelta++;
                     ParsekLog.Verbose(Tag,
                         $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
-                        $"all deltas within tolerance (funds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"science={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"rep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
-                        $"marking applied without synthetic injection");
+                        $"all deltas within tolerance (funds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"science={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"rep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
+                        "marking recordings fully applied without synthetic injection");
                     RecordingStore.MarkTreeAsApplied(tree);
                     continue;
                 }
 
-                // Empty RootRecordingId: we have nothing correct to tag synthetics with
-                // (ActiveRecordingId is nullable, null-RecordingId earnings are kept
-                // forever by Ledger.Reconcile, defeating the per-tree purge invariant).
-                // Mark applied anyway so the broken ApplyTreeLumpSum path is disarmed —
-                // data loss for this edge case beats perpetual drawdown WARNs. WARN
-                // is loud enough to surface the rare case if it ever happens in the wild.
-                if (string.IsNullOrEmpty(tree.RootRecordingId))
+                double endUT = tree.ComputeEndUT();
+                if (HasAnyLegacyMigrationSynthetic(tree, residual, endUT))
+                {
+                    treesAlreadyMigrated++;
+                    ParsekLog.Verbose(Tag,
+                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                        "already has a LegacyMigration synthetic in the ledger; skipping duplicate injection");
+                    RecordingStore.MarkTreeAsApplied(tree);
+                    continue;
+                }
+
+                bool warnByFormatGate = false;
+                if (endUT == 0)
+                {
+                    treesSkippedDegraded++;
+                    warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
+                    ParsekLog.Info(Tag,
+                        $"MigrateLegacyTreeResources: skipping degraded tree id='{tree.Id}' " +
+                        $"name='{tree.TreeName}' — ComputeEndUT()==0 (no trajectory data), " +
+                        "marking recordings fully applied without synthetic injection " +
+                        $"(stale deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                    RecordingStore.MarkTreeAsApplied(tree);
+                }
+                else if (string.IsNullOrEmpty(tree.RootRecordingId))
                 {
                     treesSkippedEmptyRoot++;
+                    warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
                     ParsekLog.Warn(Tag,
                         $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
                         $"has empty RootRecordingId — cannot tag synthetic ledger actions; " +
-                        $"marking applied to disarm ApplyTreeLumpSum (persisted residuals LOST: " +
-                        $"deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                        "marking recordings fully applied without synthetic injection " +
+                        $"(persisted residuals LOST: deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
                     RecordingStore.MarkTreeAsApplied(tree);
-                    continue;
                 }
-
-                // Zero-coverage probe: does the ledger have ANY action tagged to one of
-                // this tree's recordings inside the tree's UT window? If yes, we skip —
-                // the partial-coverage residual math would compare pre-walk raw fields
-                // against post-walk (post-cap, post-curve, post-transform, post-Effective)
-                // persisted deltas, which is structurally wrong for any tree with real
-                // ledger coverage. Log WARN so the rare partial case is visible.
-                double startUT = ComputeTreeStartUT(tree);
-                double endUT = tree.ComputeEndUT();
-                if (HasAnyLedgerCoverage(tree, startUT, endUT))
+                else
                 {
-                    treesSkippedPartialCoverage++;
-                    ParsekLog.Warn(Tag,
-                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
-                        $"has partial ledger coverage in UT window [{startUT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"{endUT.ToString("R", CultureInfo.InvariantCulture)}]; skipping synthetic injection " +
-                        $"(persisted deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
-                        $"marking applied to disarm ApplyTreeLumpSum — Phase F format-version gate will catch this tree if it slips to deletion");
-                    RecordingStore.MarkTreeAsApplied(tree);
-                    continue;
-                }
-
-                // Zero ledger coverage confirmed: inject the FULL persisted delta as one
-                // synthetic per resource. Synthetics are tagged with RootRecordingId so
-                // Ledger.Reconcile prunes them with the tree on deletion.
-                //
-                // Positive residuals inject an earning action (FundsEarning / ScienceEarning /
-                // ReputationEarning). Negative residuals:
-                // - Funds: emit a negative FundsEarning (FundsModule handles negatives, and
-                //   earnings are pruned by RecordingId).
-                // - Science: emit a ScienceSpending with Cost=-residual (magnitude). Under
-                //   #441 Ledger.Reconcile now prunes spendings by RecordingId, so the
-                //   synthetic is cleaned up with the tree.
-                // - Reputation: emit a ReputationPenalty with NominalPenalty=-residual
-                //   (magnitude; ReputationModule internally negates NominalPenalty). Also
-                //   purged by #441's symmetric Reconcile.
-
-                if (TryInjectLegacyFundsEarning(tree, endUT))
-                    fundsInjected++;
-
-                if (scienceNonZero)
-                {
-                    if (tree.DeltaScience > 0)
+                    double startUT = ComputeTreeStartUT(tree);
+                    if (HasAnyLedgerCoverage(tree, startUT, endUT))
                     {
-                        InjectLegacyScienceEarning(tree, tree.DeltaScience, endUT);
+                        treesSkippedPartialCoverage++;
+                        warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
+                        ParsekLog.Warn(Tag,
+                            $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
+                            $"has partial ledger coverage in UT window [{startUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"{endUT.ToString("R", CultureInfo.InvariantCulture)}]; skipping synthetic injection " +
+                            $"(persisted deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
+                        RecordingStore.MarkTreeAsApplied(tree);
                     }
                     else
                     {
-                        InjectLegacyScienceSpending(tree, tree.DeltaScience, endUT);
+                        if (TryInjectLegacyFundsEarning(tree, residual, endUT))
+                            fundsInjected++;
+
+                        if (scienceNonZero)
+                        {
+                            if (residual.DeltaScience > 0)
+                                InjectLegacyScienceEarning(tree, residual.DeltaScience, endUT);
+                            else
+                                InjectLegacyScienceSpending(tree, residual.DeltaScience, endUT);
+                            scienceInjected++;
+                        }
+
+                        if (repNonZero)
+                        {
+                            if (residual.DeltaReputation > 0)
+                                InjectLegacyReputationEarning(tree, (double)residual.DeltaReputation, endUT);
+                            else
+                                InjectLegacyReputationPenalty(tree, (double)residual.DeltaReputation, endUT);
+                            repInjected++;
+                        }
+
+                        ParsekLog.Info(Tag,
+                            $"MigrateLegacyTreeResources: migrated tree id='{tree.Id}' name='{tree.TreeName}' " +
+                            $"rootRec='{tree.RootRecordingId}' " +
+                            $"startUT={startUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            "coverage=zero " +
+                            $"deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(injected={fundsNonZero}), " +
+                            $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(injected={scienceNonZero}), " +
+                            $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(injected={repNonZero})");
+
+                        RecordingStore.MarkTreeAsApplied(tree);
+                        treesMigrated++;
                     }
-                    scienceInjected++;
                 }
 
-                if (repNonZero)
+                if (warnByFormatGate)
                 {
-                    if (tree.DeltaReputation > 0)
-                    {
-                        InjectLegacyReputationEarning(tree, (double)tree.DeltaReputation, endUT);
-                    }
-                    else
-                    {
-                        InjectLegacyReputationPenalty(tree, (double)tree.DeltaReputation, endUT);
-                    }
-                    repInjected++;
+                    WarnLegacyFormatGate(tree, residual);
+                    treesWarnedByGate++;
                 }
-
-                ParsekLog.Info(Tag,
-                    $"MigrateLegacyTreeResources: migrated tree id='{tree.Id}' name='{tree.TreeName}' " +
-                    $"rootRec='{tree.RootRecordingId}' " +
-                    $"startUT={startUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"coverage=zero " +
-                    $"deltaFunds={tree.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"(injected={fundsNonZero}), " +
-                    $"deltaScience={tree.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"(injected={scienceNonZero}), " +
-                    $"deltaRep={tree.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"(injected={repNonZero})");
-
-                RecordingStore.MarkTreeAsApplied(tree);
-                treesMigrated++;
             }
 
             ParsekLog.Info(Tag,
                 $"MigrateLegacyTreeResources complete: considered={treesConsidered}, " +
-                $"alreadyApplied={treesAlreadyApplied}, degraded={treesSkippedDegraded}, " +
+                $"withoutResidual={treesWithoutLegacyResidual}, alreadyApplied={treesAlreadyApplied}, " +
+                $"alreadyMigrated={treesAlreadyMigrated}, degraded={treesSkippedDegraded}, " +
                 $"noDelta={treesSkippedNoDelta}, emptyRoot={treesSkippedEmptyRoot}, " +
                 $"partialCoverage={treesSkippedPartialCoverage}, " +
-                $"migrated={treesMigrated}, fundsInjected={fundsInjected}, " +
-                $"scienceInjected={scienceInjected}, repInjected={repInjected}");
+                $"migrated={treesMigrated}, gateWarned={treesWarnedByGate}, " +
+                $"fundsInjected={fundsInjected}, scienceInjected={scienceInjected}, " +
+                $"repInjected={repInjected}");
         }
 
         /// <summary>
         /// Funds-emission helper: injects a <see cref="FundsEarningSource.LegacyMigration"/>
-        /// FundsEarning with the raw (signed) persisted <see cref="RecordingTree.DeltaFunds"/>.
+        /// FundsEarning with the raw (signed) persisted legacy residual.
         /// Returns true if a non-zero funds synthetic was emitted.
         ///
         /// <para>Sign note: <see cref="FundsModule.ProcessFundsEarning"/> adds the raw
@@ -1372,9 +1368,12 @@ namespace Parsek
         /// contribution is the right shape. Earning-type actions are pruned by RecordingId
         /// in <see cref="Ledger.Reconcile"/>, so the synthetic is cleaned up with the tree.</para>
         /// </summary>
-        private static bool TryInjectLegacyFundsEarning(RecordingTree tree, double endUT)
+        private static bool TryInjectLegacyFundsEarning(
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual,
+            double endUT)
         {
-            if (Math.Abs(tree.DeltaFunds) <= LegacyMigrationFundsTolerance)
+            if (Math.Abs(residual.DeltaFunds) <= LegacyMigrationFundsTolerance)
                 return false;
 
             var action = new GameAction
@@ -1382,7 +1381,7 @@ namespace Parsek
                 UT = endUT,
                 Type = GameActionType.FundsEarning,
                 RecordingId = tree.RootRecordingId,
-                FundsAwarded = (float)tree.DeltaFunds,
+                FundsAwarded = (float)residual.DeltaFunds,
                 FundsSource = FundsEarningSource.LegacyMigration
             };
             Ledger.AddAction(action);
@@ -1480,6 +1479,93 @@ namespace Parsek
                 RepPenaltySource = ReputationPenaltySource.Other
             };
             Ledger.AddAction(action);
+        }
+
+        private static bool HasAnyLegacyMigrationSynthetic(
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual,
+            double endUT)
+        {
+            bool fundsNonZero = Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance;
+            bool scienceNonZero = Math.Abs(residual.DeltaScience) > LegacyMigrationScienceTolerance;
+            bool repNonZero = Math.Abs((double)residual.DeltaReputation) > LegacyMigrationReputationTolerance;
+            if (!fundsNonZero && !scienceNonZero && !repNonZero)
+                return false;
+
+            string scienceKey = "LegacyMigration:" + tree.Id;
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null)
+                    continue;
+
+                if (fundsNonZero
+                    && action.Type == GameActionType.FundsEarning
+                    && action.FundsSource == FundsEarningSource.LegacyMigration
+                    && action.RecordingId == tree.RootRecordingId)
+                {
+                    return true;
+                }
+
+                if (scienceNonZero)
+                {
+                    if (action.Type == GameActionType.ScienceEarning
+                        && action.SubjectId == scienceKey)
+                    {
+                        return true;
+                    }
+
+                    if (action.Type == GameActionType.ScienceSpending
+                        && action.NodeId == scienceKey)
+                    {
+                        return true;
+                    }
+                }
+
+                if (repNonZero
+                    && action.RecordingId == tree.RootRecordingId
+                    && Math.Abs(action.UT - endUT) <= 0.001)
+                {
+                    if (residual.DeltaReputation > 0
+                        && action.Type == GameActionType.ReputationEarning
+                        && action.RepSource == ReputationSource.Other
+                        && Math.Abs(action.NominalRep - (float)residual.DeltaReputation)
+                            <= LegacyMigrationReputationTolerance)
+                    {
+                        return true;
+                    }
+
+                    if (residual.DeltaReputation < 0
+                        && action.Type == GameActionType.ReputationPenalty
+                        && action.RepPenaltySource == ReputationPenaltySource.Other
+                        && Math.Abs(action.NominalPenalty - (float)(-residual.DeltaReputation))
+                            <= LegacyMigrationReputationTolerance)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static void WarnLegacyFormatGate(
+            RecordingTree tree,
+            RecordingTree.LegacyResourceResidual residual)
+        {
+            string treeId = !string.IsNullOrEmpty(tree.Id)
+                ? tree.Id
+                : (tree.TreeName ?? "(unknown)");
+
+            ParsekLog.Warn(LegacyFormatGateTag,
+                $"Tree '{treeId}' has pre-Phase-F legacy resource fields " +
+                $"(funds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"sci={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"rep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}) " +
+                "that Phase A migration could not recover. Legacy resource values will " +
+                "not be applied; ledger state may differ by this residual. Open the save " +
+                "in a 0.8.1 build first if accurate migration matters.");
         }
 
         /// <summary>
