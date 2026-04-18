@@ -56,6 +56,19 @@ namespace Parsek
         private HashSet<string> expandedChains = new HashSet<string>();
         private HashSet<string> expandedGroups = new HashSet<string>();
 
+        // Phase 6 of Rewind-to-Staging (design §5.11 + §6.3). When non-zero, the
+        // current DrawRecordingRow call is rendering inside the Unfinished
+        // Flights virtual group and must use the Rewind-to-RP button instead
+        // of the legacy rewind-to-launch (RecordingStore.InitiateRewind) path.
+        // Integer counter rather than bool so nested draw calls (theoretical
+        // future) compose.
+        private int unfinishedFlightRowDepth;
+
+        // CanInvoke result cache by RP id — reset every OnGUI tick so log
+        // transitions fire exactly once per draw when the result flips.
+        private readonly Dictionary<string, bool> lastCanInvoke
+            = new Dictionary<string, bool>();
+
         // Group rename (deferred to next frame to avoid IMGUI layout mismatch)
         private string renamingGroup;
         private string renamingGroupText = "";
@@ -1446,6 +1459,11 @@ namespace Parsek
             }
 
             // Rewind / Fast-forward button
+            if (unfinishedFlightRowDepth > 0 && DrawUnfinishedFlightRewindButton(rec, ri))
+            {
+                // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
+            }
+            else
             {
                 bool isFuture = now < rec.StartUT;
                 bool isActive = now >= rec.StartUT && now <= rec.EndUT;
@@ -2247,13 +2265,111 @@ namespace Parsek
                 return ua.CompareTo(ub);
             });
 
-            for (int i = 0; i < sortedMembers.Count; i++)
+            unfinishedFlightRowDepth++;
+            try
             {
-                if (DrawRecordingRow(sortedMembers[i], committed, now, 15f))
-                    return true;
+                for (int i = 0; i < sortedMembers.Count; i++)
+                {
+                    if (DrawRecordingRow(sortedMembers[i], committed, now, 15f))
+                        return true;
+                }
+            }
+            finally
+            {
+                unfinishedFlightRowDepth--;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.3). Renders the Rewind-to-RP
+        /// button for an Unfinished Flight row inside the virtual group. Returns
+        /// <c>true</c> iff the button was drawn (so the caller can skip the
+        /// legacy rewind-to-launch fallback).
+        /// </summary>
+        private bool DrawUnfinishedFlightRewindButton(Recording rec, int ri)
+        {
+            if (rec == null) return false;
+
+            // Find the RP + slot for this recording. Membership in the virtual
+            // group already confirmed EffectiveState.IsUnfinishedFlight(rec),
+            // which means ParentBranchPointId resolves to an RP in ParsekScenario.
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                return true;
+            }
+
+            RewindPoint rp = null;
+            int slotIdx = -1;
+            string bpId = rec.ParentBranchPointId;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var candidate = scenario.RewindPoints[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.BranchPointId, bpId, StringComparison.Ordinal))
+                    continue;
+                rp = candidate;
+                slotIdx = ResolveSlotIndexForRecording(rp, rec);
+                break;
+            }
+
+            if (rp == null || slotIdx < 0)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                return true;
+            }
+
+            string reason;
+            bool canInvoke = RewindInvoker.CanInvoke(rp, out reason);
+            bool prev;
+            string rpKey = rp.RewindPointId ?? "<no-id>";
+            if (!lastCanInvoke.TryGetValue(rpKey, out prev) || prev != canInvoke)
+            {
+                lastCanInvoke[rpKey] = canInvoke;
+                ParsekLog.Verbose("RewindUI",
+                    $"Rewind #{ri} rp={rpKey}: {(canInvoke ? "enabled" : "disabled — " + reason)}");
+            }
+
+            GUI.enabled = canInvoke;
+            string tooltip = canInvoke
+                ? "Rewind to the split that produced this unfinished flight"
+                : (reason ?? "Rewind unavailable");
+            if (DrawBodyCenteredButton(new GUIContent("Rewind", tooltip), ColW_Rewind))
+            {
+                ParsekLog.Info("RewindUI",
+                    $"Button clicked: rp={rpKey} slot={slotIdx} rec=\"{rec.VesselName}\"");
+                RewindInvoker.ShowDialog(rp, slotIdx);
+            }
+            GUI.enabled = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the slot index inside <paramref name="rp"/> whose
+        /// <see cref="ChildSlot.OriginChildRecordingId"/> matches
+        /// <paramref name="rec"/> (or the forward-walked effective recording
+        /// id so that a re-fly that produced another crash still maps back to
+        /// its slot).
+        /// </summary>
+        private static int ResolveSlotIndexForRecording(RewindPoint rp, Recording rec)
+        {
+            if (rp == null || rp.ChildSlots == null || rec == null) return -1;
+            var supersedes = ParsekScenario.Instance?.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
+            for (int i = 0; i < rp.ChildSlots.Count; i++)
+            {
+                var slot = rp.ChildSlots[i];
+                if (slot == null) continue;
+                string effective = slot.EffectiveRecordingId(supersedes);
+                if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
+                    return slot.SlotIndex;
+                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    return slot.SlotIndex;
+            }
+            return -1;
         }
 
         /// <summary>

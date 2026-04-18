@@ -485,6 +485,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.3 step 4 phase 1): adds a
+        /// provisional re-fly recording to the committed list in the same
+        /// synchronous block as the <see cref="ReFlySessionMarker"/> write.
+        /// Bumps <see cref="StateVersion"/> so the ERS cache invalidates
+        /// immediately; no disk flush (the provisional is durable via the
+        /// scenario save, not via sidecar files, until it is merged).
+        /// </summary>
+        internal static void AddProvisional(Recording rec)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Warn("RecordingStore", "AddProvisional called with null recording");
+                return;
+            }
+            committedRecordings.Add(rec);
+            BumpStateVersion();
+            ParsekLog.Verbose("RecordingStore",
+                $"AddProvisional: rec={rec.RecordingId} state={rec.MergeState} " +
+                $"supersedeTarget={rec.SupersedeTargetId ?? "<none>"} " +
+                $"total={committedRecordings.Count}");
+        }
+
+        /// <summary>
         /// Removes a recording from the internal committed list.
         /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
         /// </summary>
@@ -503,6 +526,35 @@ namespace Parsek
         internal static void ClearCommittedInternal()
         {
             committedRecordings.Clear();
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// adds a tree to <see cref="committedTrees"/> without re-running
+        /// <see cref="FinalizeTreeCommit"/>'s full commit pipeline (no session
+        /// merge, no group assignment, no milestone creation). The bundle
+        /// restore path uses this to re-install pre-load trees verbatim after
+        /// a scene reload wiped the parallel list; the trees' recordings are
+        /// re-installed via <see cref="AddCommittedInternal"/> in the same
+        /// restore pass.
+        /// </summary>
+        internal static void AddCommittedTreeInternal(RecordingTree tree)
+        {
+            if (tree == null) return;
+            committedTrees.Add(tree);
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging: companion to <see cref="AddCommittedTreeInternal"/>.
+        /// Clears <see cref="committedTrees"/> without touching the parallel
+        /// <see cref="committedRecordings"/> list — the bundle-restore caller
+        /// manages both lists in lockstep.
+        /// </summary>
+        internal static void ClearCommittedTreesInternal()
+        {
+            committedTrees.Clear();
             BumpStateVersion();
         }
 

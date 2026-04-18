@@ -83,8 +83,47 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   **Feature-preview cutoff reached**: rewind points capture on split, the
   virtual group surfaces unfinished flights to the player, but there is no
   rewind button yet — observable, not actionable.
-- **Phase 6 (next)** — wire the rewind invocation (button per Unfinished Flights
-  row → `RewindPointLoader` → revert-to-RP pipeline). §6 of the design doc.
+- ~~**Phase 6** — wire the rewind invocation (button per Unfinished Flights
+  row → `RewindInvoker` → revert-to-RP pipeline). §6 of the design doc.~~
+  `RewindInvoker.CanInvoke` gates the button on five preconditions (§7.22 scene
+  not transitioning, RP not corrupted, quicksave exists, no active session,
+  PartLoader deep-parse passes). `ShowDialog` displays the confirmation popup;
+  on accept, `StartInvoke` runs the **pre-load phase** synchronously: validate,
+  generate `sessionId`, capture a `ReconciliationBundle` (design §6.4 table:
+  recordings, trees, ledger actions, scenario lists, crew reservations, group
+  hierarchy, milestones), stash it in the new `RewindInvokeContext` static holder,
+  copy the RP quicksave from `saves/<save>/Parsek/RewindPoints/<rpId>.sfs` to
+  the save root as `Parsek_Rewind_<sessionId>.sfs` (KSP's `LoadGame` does not
+  accept subdirectory paths), and call `GamePersistence.LoadGame` +
+  `HighLogic.LoadScene(FLIGHT)`. The scene reload tears down the old scenario;
+  the new scenario's `OnLoad` calls `RewindInvoker.ConsumePostLoad`, which runs
+  the **post-load phase** synchronously: `ReconciliationBundle.Restore` →
+  `PostLoadStripper.Strip` (PidSlotMap primary + RootPartPidMap fallback +
+  `IsGhostMapVessel` guard + unrelated-vessel-left-alone) →
+  `FlightGlobals.SetActiveVessel` → atomic provisional + `ReFlySessionMarker`
+  write (NO yield between the two phases) → delete temp quicksave → clear
+  context → ledger recalc. Any throw between the provisional add and the marker
+  write rolls back both the provisional (`RecordingStore.RemoveCommittedInternal`)
+  AND the marker (`ActiveReFlySessionMarker = null`) so no half-written pair
+  leaks. Any failure surfaces to the user via a `ScreenMessages.PostScreenMessage`
+  toast. New files: `Source/Parsek/RewindInvoker.cs`, `RewindInvokeContext.cs`,
+  `ReconciliationBundle.cs`, `PostLoadStripper.cs`. UI:
+  `RecordingsTableUI.DrawUnfinishedFlightRewindButton` swaps the per-row R button
+  for a Rewind-to-RP button inside the virtual group. Tests: 13 new unit tests
+  (`ReconciliationBundleTests`, `PostLoadStripperTests`, `AtomicMarkerWriteTests`
+  including the new `Phase1And2_NoOnSaveBetween` atomicity guard) plus the
+  `InvokeRPStripAndActivateTest` FLIGHT-scene in-game test. Allowlisted in
+  `scripts/ers-els-audit-allowlist.txt` with per-file rationale. **Phase 6
+  unlocks the rewind button for users** — invocation lands on a provisional
+  `NotCommitted` recording that stays around until Phase 8's merge/supersede
+  lands; Phase 13's load-time sweep will clean up orphaned provisionals + stale
+  markers on crash/quit recovery (not scope here). Phase 14 will add a full
+  end-to-end automated orchestration test for the RunInvoke flow (manual
+  playtest checklist exists today).
+- **Phase 7 (next)** — ghost-fy the stripped siblings: the Phase 6 strip just
+  calls `Vessel.Die()`; Phase 7 captures a pre-despawn snapshot and registers
+  each stripped recording for ghost playback so the re-fly session sees its
+  merged siblings as ghosts instead of missing vessels.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so

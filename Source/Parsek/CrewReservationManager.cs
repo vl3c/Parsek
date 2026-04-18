@@ -1041,6 +1041,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// returns a shallow copy of the replacement dictionary so the bundle
+        /// can preserve it across a quicksave load. Keys are the reserved
+        /// kerbal names; values are their stand-in replacements.
+        /// </summary>
+        internal static Dictionary<string, string> SnapshotReplacements()
+        {
+            return new Dictionary<string, string>(crewReplacements);
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// re-applies a previously captured replacement dictionary after the
+        /// quicksave load has replaced the live in-memory state. The method
+        /// replaces — not merges — the current map so restoring after an
+        /// in-memory swap does not duplicate entries.
+        /// </summary>
+        internal static void RestoreReplacements(IReadOnlyDictionary<string, string> replacements)
+        {
+            crewReplacements.Clear();
+            if (replacements == null) return;
+            foreach (var kv in replacements)
+            {
+                if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
+                    crewReplacements[kv.Key] = kv.Value;
+            }
+        }
+
+        /// <summary>
         /// Load crew replacement mappings from a ConfigNode.
         /// </summary>
         internal static void LoadCrewReplacements(ConfigNode node)
