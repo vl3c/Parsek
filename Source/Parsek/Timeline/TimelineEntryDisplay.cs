@@ -335,7 +335,7 @@ namespace Parsek
                     // Bug #452: distinguish unclaimed cancelled-rollout entries from
                     // adopted (recording-tagged) build costs in the timeline view.
                     if (GameActionDisplay.IsUnclaimedRolloutAction(action))
-                        label += " (cancelled rollout)";
+                        label += GameActionDisplay.CancelledRolloutSuffix;
                     return label;
                 }
 

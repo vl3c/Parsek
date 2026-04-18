@@ -66,7 +66,7 @@ are fixed in the same PR branch with additional commits:
 
 **Files:** `Source/Parsek/GameActions/GameActionDisplay.cs`, `Source/Parsek/Timeline/TimelineEntryDisplay.cs`, `Source/Parsek.Tests/Bug452RolloutLabelTests.cs` (13 new unit tests).
 
-**Status:** ~~Fixed~~ in this PR.
+**Status:** ~~Fixed~~ in this PR. If reopened at higher priority for vessel-name capture, the cleanest path is `GameEvents.OnVesselRollout(ShipConstruct)` — fires synchronously with the rollout transaction and carries `ShipConstruct.shipName` directly (no Harmony patch needed).
 
 ---
 

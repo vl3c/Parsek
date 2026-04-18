@@ -98,6 +98,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsUnclaimedRolloutAction_DedupKeyIsRolloutWithoutColon_False()
+        {
+            // Contract pin: the predicate uses StartsWith("rollout:", Ordinal) — the
+            // colon is mandatory so the literal "rollout" without a colon (e.g. an
+            // accidental typo from a future producer) does NOT match. Locks the colon
+            // contract against an inadvertent StartsWith("rollout") regression.
+            var noColon = new GameAction
+            {
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 5000f,
+                RecordingId = null,
+                DedupKey = "rollout"
+            };
+            Assert.False(GameActionDisplay.IsUnclaimedRolloutAction(noColon));
+        }
+
+        [Fact]
         public void IsUnclaimedRolloutAction_VesselBuildButNoDedupKey_False()
         {
             // A FundsSpending(VesselBuild) with neither RecordingId nor DedupKey should
@@ -141,7 +159,7 @@ namespace Parsek.Tests
             // The user-visible #452 fix: the cancelled-rollout entry now carries a
             // suffix that distinguishes it from an adopted build cost.
             string desc = GameActionDisplay.GetDescription(MakeUnclaimedRollout(cost: 5000f));
-            Assert.Equal("Vessel build -5000 (cancelled rollout)", desc);
+            Assert.Equal("Vessel build -5000" + GameActionDisplay.CancelledRolloutSuffix, desc);
         }
 
         [Fact]
@@ -172,7 +190,7 @@ namespace Parsek.Tests
             // also present in the per-frame Timeline view.
             string text = TimelineEntryDisplay.GetGameActionText(
                 MakeUnclaimedRollout(cost: 5000f), vesselName: null);
-            Assert.Equal("Build -5000 (cancelled rollout)", text);
+            Assert.Equal("Build -5000" + GameActionDisplay.CancelledRolloutSuffix, text);
         }
 
         [Fact]
