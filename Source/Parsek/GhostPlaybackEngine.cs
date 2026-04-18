@@ -2423,6 +2423,18 @@ namespace Parsek
             if (state.reentryFxInfo != null)
                 GhostVisualBuilder.RebuildReentryMeshes(state.ghost, state.reentryFxInfo);
 
+            // Step 5b: re-apply spawn-time module baselines that ResetForLoopCycle
+            // cannot touch because they are Unity-touching: heat parts back to
+            // cold, deployables re-stowed, jettison panels re-attached, and —
+            // for zero-engine-event recordings (pure debris boosters) — the
+            // orphan engine/audio auto-start. Fresh-spawn behaviour in
+            // TryPopulateGhostVisuals does each of these; without this step the
+            // second cycle onward would inherit the prior cycle's end-state
+            // (hot + deployed + jettisoned + silent) instead of replaying from
+            // the same baseline the first cycle did. See the helper's XML doc
+            // for the per-branch rationale.
+            GhostPlaybackLogic.ReapplySpawnTimeModuleBaselinesForLoopCycle(state, traj);
+
             // Step 6: re-prime the ghost at the new cycle's playbackUT.
             // PrimeLoadedGhostForPlaybackUT resets playbackIndex+partEventIndex
             // (already 0 post-reset, but it's cheap and idempotent),

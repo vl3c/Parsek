@@ -1122,23 +1122,30 @@ namespace Parsek
         }
 
         /// <summary>
-        /// #406 follow-up: re-activates every part GameObject under the ghost root
-        /// so the next loop cycle plays back from the snapshot baseline. Call
-        /// sites: loop-cycle-reuse path in <c>GhostPlaybackEngine</c>. Skips the
-        /// camera pivot (FlightCamera holds a ref to it during watch-mode).
-        /// Returns the number of parts re-activated — used by the Verbose log
-        /// line at the reuse call site.
+        /// #406 follow-up: re-activates every ghost_part_* GameObject under the
+        /// ghost's visuals container so the next loop cycle plays back from the
+        /// snapshot baseline. Production ghosts created by
+        /// <c>BuildTimelineGhostFromSnapshot</c> parent every ghost_part_ under
+        /// a dedicated `ghost_visuals` container (see
+        /// <c>GhostVisualBuilder.EnsureGhostVisualsRoot</c>); part visibility is
+        /// toggled via <c>SetGhostPartActive</c> which looks up parts inside
+        /// that container. Walking `state.ghost.transform` directly would miss
+        /// every real part (it would only see the container + cameraPivot +
+        /// horizonProxy). Call site: loop-cycle-reuse path in
+        /// <c>GhostPlaybackEngine</c>. Returns the number of parts re-activated
+        /// — used by the Verbose log line at the reuse call site.
         /// </summary>
         internal static int ReactivateGhostPartHierarchyForLoopRewind(GhostPlaybackState state)
         {
             if (state == null || state.ghost == null) return 0;
-            var t = state.ghost.transform;
-            var pivotT = state.cameraPivot;
+            // Reuse the same lookup SetGhostPartActive uses so "part hierarchy"
+            // here means the same thing as at the playback event sites.
+            var partContainer = GhostVisualBuilder.GetGhostPartContainer(state.ghost.transform);
+            if (partContainer == null) return 0;
             int reactivated = 0;
-            for (int c = 0; c < t.childCount; c++)
+            for (int c = 0; c < partContainer.childCount; c++)
             {
-                var child = t.GetChild(c);
-                if (pivotT != null && child == pivotT) continue;
+                var child = partContainer.GetChild(c);
                 if (!child.gameObject.activeSelf)
                 {
                     child.gameObject.SetActive(true);
@@ -1265,6 +1272,106 @@ namespace Parsek
             // behaviour discarded the list with DestroyGhost; the reuse
             // path preserves it because rebuilding would churn the LOD
             // state machine without gameplay benefit.
+        }
+
+        /// <summary>
+        /// #406 follow-up: re-apply spawn-time Unity-touching module baselines
+        /// after a loop-cycle reuse. Fresh spawn does three things that
+        /// <see cref="ResetForLoopCycle"/> cannot (because they touch Unity):
+        ///  1. Heat parts: reset every <c>HeatGhostInfo</c> to
+        ///     <see cref="HeatLevel.Cold"/> via <c>ApplyHeatState</c>, so a
+        ///     cycle whose prior pass went hot does not carry that emission
+        ///     into the new cycle's pre-reentry frames.
+        ///  2. Deployable parts: reset every transform in
+        ///     <c>DeployableGhostInfo</c> to its stowed pose, so a solar
+        ///     panel that deployed mid-cycle is folded again before the new
+        ///     cycle's events re-deploy it on schedule.
+        ///  3. Jettison panels: reactivate jettisoned panels (SetActive true)
+        ///     so the new cycle's jettison events can re-fire.
+        ///  4. Orphan engine/audio auto-start: for recordings with ZERO
+        ///     engine events (typical of pure debris boosters that were
+        ///     running at breakup), re-fire the fresh-spawn auto-start logic
+        ///     so plume/audio come back on the second cycle onward. Without
+        ///     this, the first cycle has orphan FX but the second cycle
+        ///     loses them silently.
+        /// Must be called from the engine orchestrator AFTER
+        /// <see cref="ResetForLoopCycle"/> and
+        /// <see cref="ReactivateGhostPartHierarchyForLoopRewind"/> and BEFORE
+        /// the next <c>PrimeLoadedGhostForPlaybackUT</c> / <c>ApplyFrameVisuals</c>
+        /// call. All three branches no-op on null inputs.
+        /// </summary>
+        internal static void ReapplySpawnTimeModuleBaselinesForLoopCycle(
+            GhostPlaybackState state, IPlaybackTrajectory traj)
+        {
+            if (state == null || state.ghost == null) return;
+
+            // 1. Heat: reset every part to cold.
+            if (state.heatInfos != null)
+            {
+                foreach (var kvp in state.heatInfos)
+                {
+                    var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyHeatState(state, coldEvt, HeatLevel.Cold);
+                }
+            }
+
+            // 2. Deployables: re-stow every panel. Events during the new
+            //    cycle re-deploy on their original UT.
+            if (state.deployableInfos != null)
+            {
+                foreach (var kvp in state.deployableInfos)
+                {
+                    var stowedEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyDeployableState(state, stowedEvt, deployed: false);
+                }
+            }
+
+            // 3. Jettison panels: re-attach every panel. Jettison events
+            //    during the new cycle hide them again on their original UT.
+            if (state.jettisonInfos != null)
+            {
+                foreach (var kvp in state.jettisonInfos)
+                {
+                    var attachedEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyJettisonPanelState(state, attachedEvt, jettisoned: false);
+                }
+            }
+
+            // 4. Orphan engine/audio auto-start: duplicates the zero-engine-event
+            //    branch of TryPopulateGhostVisuals so a debris-booster recording
+            //    with no engine events keeps its plume + audio across loop cycles.
+            bool hasEngineOrAudioInfos =
+                (state.audioInfos != null && state.audioInfos.Count > 0)
+                || (state.engineInfos != null && state.engineInfos.Count > 0);
+            if (!hasEngineOrAudioInfos || traj == null || traj.PartEvents == null) return;
+            HashSet<ulong> engineKeysWithEvents = BuildEngineEventKeySet(traj.PartEvents);
+            if (engineKeysWithEvents.Count != 0) return;
+
+            if (state.audioInfos != null)
+            {
+                foreach (var kvp in state.audioInfos)
+                {
+                    kvp.Value.currentPower = 1f;
+                    if (kvp.Value.audioSource != null)
+                    {
+                        kvp.Value.audioSource.volume = 0f;
+                        kvp.Value.audioSource.loop = true;
+                        if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
+                            kvp.Value.audioSource.Play();
+                    }
+                }
+            }
+
+            if (state.engineInfos != null)
+            {
+                foreach (var kvp in state.engineInfos)
+                {
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
+                    var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
+                    SetEngineEmission(state, syntheticEvt, 1f);
+                }
+            }
         }
 
         internal static bool RefreshCompoundPartVisibility(GhostPlaybackState state)
