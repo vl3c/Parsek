@@ -413,7 +413,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLoopIntervalSeconds_NullRecording_ReturnsDefault()
         {
-            Assert.Equal(10.0, ParsekKSC.GetLoopIntervalSeconds(null));
+            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(null));
         }
 
         [Fact]
@@ -421,7 +421,7 @@ namespace Parsek.Tests
         {
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = double.NaN;
-            Assert.Equal(10.0, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]
@@ -429,7 +429,7 @@ namespace Parsek.Tests
         {
             var rec = MakeKerbinRecording();
             rec.LoopIntervalSeconds = double.PositiveInfinity;
-            Assert.Equal(10.0, ParsekKSC.GetLoopIntervalSeconds(rec));
+            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, ParsekKSC.GetLoopIntervalSeconds(rec));
         }
 
         [Fact]

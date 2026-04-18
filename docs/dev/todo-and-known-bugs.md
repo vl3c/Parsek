@@ -531,6 +531,24 @@ Injection decisions per tree:
 
 ---
 
+## ~~442. Watch camera jumps to the newest iteration when an unrelated overlap cycle of the watched Gloops recording expires~~
+
+**Source:** user report `2026-04-18`.
+
+**Symptom:** while watching a ghost of a Gloops recording (`period < duration`), the camera abruptly retargets to the current primary whenever any other overlap cycle of the same recording expires — even though the watched cycle is still playing normally. With a short period (deep overlap stack), the camera can "walk" through cycle expiries one by one and never settle on the ghost the user chose. The user-reported framing: "the camera should not automatically switch to the new ghost that launches (next loop iteration), but should just follow the ghost until mission end."
+
+**Cause:** `WatchModeController.HandleOverlapCameraAction` did not filter `ExplosionHoldStart` / `ExplosionHoldEnd` events by `NewCycleIndex`. The engine emits one event per overlap-ghost expiry (`GhostPlaybackEngine.UpdateExpireAndPositionOverlaps` at `:1186-1196`, with `NewCycleIndex = <expiring cycle>`), and the controller unconditionally ran the hold/bridge path — wiping `watchedOverlapCycleIndex` to `-2` / `-1`, installing a hold or bridge anchor at the expiring cycle's position, and then retargeting via the bridge resolver to the current primary. That primary is always the newest iteration, so the camera "jumped forward" every time any older cycle of the same recording expired.
+
+**Fix:** added a cycle-mismatch early-return at the top of both `ExplosionHoldStart` and `ExplosionHoldEnd` cases in `HandleOverlapCameraAction`. When `evt.NewCycleIndex != watchedOverlapCycleIndex`, the handler logs a rate-limited VERBOSE line (`CameraFollow` subsystem, `overlap-hold-{start|end}-skip-<idx>` key) and returns. When the expiring cycle IS the watched cycle, the existing hold → bridge → `TryResolveOverlapBridgeRetarget` → retarget-to-current-primary path still runs unchanged, so the user hands off cleanly to the most-recently-launched iteration exactly when their watched ghost's own cycle ends. `HandleLoopCameraAction` needs no change — the single-ghost regular-loop path has only one live cycle per recording, so every event it emits is about the watched cycle by construction.
+
+**Tests:** four pure-static cases in `Source/Parsek.Tests/WatchModeControllerTests.cs` exercising the extracted predicate `WatchModeController.ShouldIgnoreOverlapCycleEvent(eventCycleIndex, watchedCycleIndex)` directly: `_NonWatchedCycle_Ignored`, `_WatchedCycle_NotIgnored`, `_ReadyForNextSentinel_IgnoresRealEvent` (watched=-1), `_HoldingSentinel_IgnoresRealEvent` (watched=-2). The predicate is a separate `internal static` function so tests don't JIT-load the live `HandleOverlapCameraAction` body (which references `FlightCamera.fetch` / `UnityEngine.GameObject` — the xUnit Unity stub throws `SecurityException: ECall methods must be packaged into a system module` on those type references). Full-handler wired coverage (watched-cycle guard-passes path, rate-limit-log emission, `overlapRetargetAfterUT` mutation) is not unit-tested and relies on in-game verification.
+
+**Files touched:** `Source/Parsek/WatchModeController.cs`, `Source/Parsek.Tests/WatchModeControllerTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. Size: XS.
+
+---
+
 ## ~~437. KSC-side ledger writes bypass the commit-time earnings reconciliation hook (Phase B of ledger/lump-sum fix)~~
 
 **Source:** plan `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` (Phase B). `LedgerOrchestrator.OnKscSpending` writes a single `GameAction` to the ledger for every KSC-side spending event (part purchase, tech unlock, facility upgrade, crew hire, contract accept/complete/fail/cancel, milestone). Unlike `OnRecordingCommitted`, which runs `ReconcileEarningsWindow` to compare dropped `FundsChanged`/`ScienceChanged`/`ReputationChanged` deltas against emitted action deltas, `OnKscSpending` had no such check. A KSC-window-only earning channel that is not yet captured (strategy payouts are the canonical case — see Phase E1.5) could silently enter the store but never the ledger, and the mismatch would only surface downstream as a `PatchFunds: suspicious drawdown` WARN — the same symptom Phase A (#436) repairs on legacy saves.
