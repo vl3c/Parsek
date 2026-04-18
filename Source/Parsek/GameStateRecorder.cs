@@ -795,15 +795,40 @@ namespace Parsek
                 return;
             }
 
+            double ut = Planetarium.GetUniversalTime();
             Emit(new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
             }, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+
+            // #445: VesselRollout deducts the vessel cost when the player launches from
+            // VAB/SPH onto the launchpad/runway. KSP captures this BEFORE
+            // FlightRecorder.CapturePreLaunchResources runs, so the recording-side
+            // CreateVesselCostActions sees a near-zero PreLaunchFunds-to-first-point delta
+            // and the cost was previously dropped on the floor (especially when the player
+            // cancels the rollout without ever starting a recording). Route the deduction
+            // through the ledger immediately as a FundsSpending(VesselBuild). A subsequent
+            // recording from the same vessel will adopt this action via TryAdoptRolloutAction.
+            //
+            // Sign/positivity contract: OnVesselRolloutSpending is the authoritative
+            // non-positive-cost guard (rejects cost <= 0 with VERBOSE) — we pass the
+            // negated delta unconditionally and let the orchestrator decide, so the
+            // contract is enforced in one place even if KSP ever fires a refund-style
+            // VesselRollout event.
+            //
+            // IsReplayingActions guard mirrors other career-event handlers — KspStatePatcher
+            // replays AddFunds during ledger walks and we must not synthesize new actions.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...FundsChanged(VesselRollout))
+            // above so OnVesselRolloutSpending's ReconcileKscAction can pair the action
+            // against the just-emitted event in GameStateStore.
+            if (reason == TransactionReasons.VesselRollout && !IsReplayingActions)
+                LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)

@@ -58,6 +58,18 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 452. Cancelled-rollout ledger entries should label the vessel name (or flag as "cancelled rollout")
+
+**Source:** review pass on PR `fix/445-rollout-cost-leak`. After #445, a cancelled-rollout `FundsSpending(VesselBuild)` action correctly persists in the ledger so the funds total stays in sync with KSP's deduction. However the Ledger / Actions UI currently renders the entry as a generic `"Vessel build"` label with no recording link — there's no way for the player to see which vessel the cost belonged to or that it was a cancellation. Cross-reference #445.
+
+**Fix:** When rendering a `FundsSpending(VesselBuild)` action whose `RecordingId == null` and `DedupKey` starts with `"rollout:"`, surface either the vessel name (would require capturing it in `OnVesselRolloutSpending` — KSP's `FundsChanged` event doesn't expose it directly, may need a `VesselRolloutEvent` Harmony patch on `EditorLogic.OnLaunchBtnClicked` or `LaunchPad.Launch`) or at minimum a "(cancelled rollout)" suffix on the existing label so the entry is distinguishable from an adopted (recording-tagged) build cost.
+
+**Files:** Likely `Source/Parsek/UI/ActionsWindowUI.cs` (or wherever `FundsSpending(VesselBuild)` is rendered); possibly `Source/Parsek/GameStateRecorder.cs` and `Source/Parsek/GameActions/LedgerOrchestrator.cs:OnVesselRolloutSpending` for vessel-name capture.
+
+**Status:** TODO. Priority: low (cosmetic — funds total is correct; only the human-readable description is generic).
+
+---
+
 ## ~~451. `OnPartPurchased` encoded the wrong funds charge for R&D unlocks~~
 
 **Status:** ~~Fixed~~ — `GameStateRecorder.OnPartPurchased` now mirrors stock KSP's real debit rule: `cost=0` when `Difficulty.BypassEntryPurchaseAfterResearch=true`, otherwise `cost=part.entryCost`. The event still uses the legacy `cost=` token for save-format compatibility, but the value behind that key is now the amount KSP actually charged. Load-time compatibility rewrites existing version-1 `PartPurchased` events / `FundsSpending(Other)` ledger rows only when the saved history still contains either an unambiguous `FundsChanged(RnDPartPurchase)` delta for that unlock or the known legacy bypass-only shape (one stale `PartPurchased` row, no paired funds event, and a loaded save that still reports `BypassEntryPurchaseAfterResearch=true`); ambiguous/coalesced windows are preserved instead of being guessed from current difficulty or part metadata. This closes both failure modes discovered during #448 review:
@@ -262,17 +274,17 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 445. `VesselRollout` without a subsequent recording leaks the build cost
+## ~~445. `VesselRollout` without a subsequent recording leaks the build cost~~
 
-**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. If the player rolls out a vessel, incurs the `FundsChanged(VesselRollout)` deduction, then cancels (never starts recording), no `FundsSpending(VesselBuild)` action is created — and the KSC path has no reconciliation for rollouts that happen without a subsequent recording. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule.
+**Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. KSP's `FundsChanged(VesselRollout)` deduction lands BEFORE `FlightRecorder.CapturePreLaunchResources` runs, so the recording-side delta is already ~0 by the time the recording starts capturing — meaning **every** career launch+record was silently dropping the build cost from the ledger total, not just the cancelled-rollout corner case. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule, so the KSC path has no reconciliation either.
 
-**Fix:** Same shape as #444 — route `TransactionReasons.VesselRollout` through `OnKscSpending` / a rename to `OnKscFundsEvent` so a `FundsSpending(VesselBuild)` action is committed at the real transaction moment, not deferred to recording commit. When a recording later starts from the same vessel, `CreateVesselCostActions` must dedupe against the already-committed action (use `DedupKey = vesselId + startUT` or similar).
+**Fix:** Vessel build cost is now committed to the ledger when KSP deducts it. `GameStateRecorder.OnFundsChanged` forwards `TransactionReasons.VesselRollout` deductions to `LedgerOrchestrator.OnVesselRolloutSpending`, which commits a `FundsSpending(VesselBuild)` action immediately (tagged `RecordingId=null`, with a `DedupKey` that keeps the `rollout:` prefix and now also stores rollout context) and runs the existing KSC reconciliation. `LedgerOrchestrator.ClassifyAction` pairs the new action against `FundsChanged(VesselRollout)` events. `CreateVesselCostActions` calls `TryAdoptRolloutAction` before deriving its own build cost, but only for recordings whose `StartSituation` is `Prelaunch` — that keeps post-liftoff Record clicks from stealing the launch cost into a mid-flight recording. The adoption window is deliberately broad (30 minutes of UT) so a player can sit on the pad/runway for several minutes before pressing Record and still have the build cost tagged onto the real launch recording, but adoption now also requires the stored rollout context to match the recording's vessel/site context (prefer matching `VesselPersistentId`, else fall back to vessel name + launch site). Compatibility follow-up: saves written by the immediately previous follow-up commit may still carry bare `rollout:<UT>` dedup keys with no context fields, so the parser treats that exact legacy key shape as window-only-adoptable until the action is reattached. When multiple eligible unclaimed rollouts sit in the window before `startUT`, the action is re-tagged onto the new recording in LIFO order — but only among matching rollouts when context exists — instead of double-charging. Cancelled rollouts simply leave the null-tagged action in the ledger so the funds total stays in sync with KSP. The result: launching, recording, and committing a flight now charges the build cost exactly once; long prelaunch waits still claim it; post-liftoff recordings do not; unrelated prelaunch recordings cannot steal a stranded rollout from another vessel/site when context is present; and upgrade/load of the immediately previous bare-key saves still reattaches the stored rollout charge.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-510` (CreateVesselCostActions), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged).
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (CreateVesselCostActions, rollout-context serialization, legacy bare-key compatibility in `ParseRolloutAdoptionContext`/`TryAdoptRolloutAction`, CanRecordingAdoptRolloutAction, OnVesselRolloutSpending, ClassifyAction), `Source/Parsek/GameStateRecorder.cs` (OnFundsChanged), `Source/Parsek.Tests/Bug445RolloutCostLeakTests.cs` (expanded regression coverage for prelaunch-only adoption, long pad-wait adoption, vessel/site mismatch guards, LIFO adoption, save-load round-trip, legacy bare-key upgrade/load compatibility, and residual-buildCost branches).
 
-**Scope:** Medium. Crosses two files. Low priority — rare-edge (cancelled rollouts); not a user-visible drain in the default flow. Ship-blockers are #442 first.
+**Scope:** Medium. Crosses `GameStateRecorder` + `LedgerOrchestrator` plus targeted regression tests. Fixed on this branch; the post-review follow-up tightened adoption to prelaunch-start recordings, widened the prelaunch claim window so the fix matches normal pad-start play, correlates rollout adoption back to the same vessel/site before reassigning `RecordingId`, and keeps upgrade/load compatibility with the immediately previous bare `rollout:<UT>` key shape.
 
-**Status:** TODO. Priority: low.
+**Status:** ~~Fixed~~. Priority: low.
 
 ---
 
