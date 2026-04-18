@@ -85,7 +85,10 @@ namespace Parsek
             }
 
             ParsekScenario scenario = ParsekScenario.Instance;
-            if (scenario == null)
+            // Bypass Unity.Object's overloaded == null: MonoBehaviour instances
+            // installed via SetInstanceForTesting don't have a native side, so
+            // `scenario == null` returns true even though the reference is live.
+            if (object.ReferenceEquals(null, scenario))
             {
                 ParsekLog.Warn("RewindSave",
                     $"Aborted: no live ParsekScenario instance (bp={branchPoint.Id})");
@@ -237,11 +240,12 @@ namespace Parsek
                         var slot = rp.ChildSlots[i];
                         if (slot == null) continue;
                         uint? pid = ResolveSlotVesselPid(slot, ctx.RecordingResolver);
-                        Vessel live = null;
+                        VesselSnapshot snapshot = default;
+                        bool hasSnapshot = false;
                         if (pid.HasValue)
-                            live = flightGlobals.FindVesselByPid(pid.Value);
+                            hasSnapshot = flightGlobals.TryGetVesselSnapshot(pid.Value, out snapshot);
 
-                        if (live == null)
+                        if (!hasSnapshot)
                         {
                             slot.Disabled = true;
                             slot.DisabledReason = "no-live-vessel";
@@ -252,14 +256,13 @@ namespace Parsek
                             continue;
                         }
 
-                        rp.PidSlotMap[live.persistentId] = slot.SlotIndex;
-                        Part root = live.rootPart;
-                        if (root != null)
-                            rp.RootPartPidMap[root.persistentId] = slot.SlotIndex;
+                        rp.PidSlotMap[snapshot.VesselPersistentId] = slot.SlotIndex;
+                        if (snapshot.HasRootPart)
+                            rp.RootPartPidMap[snapshot.RootPartPersistentId] = slot.SlotIndex;
                         else
                         {
                             ParsekLog.Warn("Rewind",
-                                $"Slot {i}: live vessel pid={live.persistentId} has no rootPart; " +
+                                $"Slot {i}: live vessel pid={snapshot.VesselPersistentId} has no rootPart; " +
                                 $"RootPartPidMap entry skipped (rp={rp.RewindPointId})");
                         }
                         populated++;
@@ -395,7 +398,10 @@ namespace Parsek
 
         private static void RollbackBegin(RewindPoint rp, BranchPoint branchPoint, ParsekScenario scenario)
         {
-            if (scenario?.RewindPoints != null && rp != null)
+            // Use ReferenceEquals to bypass Unity.Object's overloaded == null:
+            // a unit-test fixture installed via SetInstanceForTesting returns
+            // null from scenario?.RewindPoints even when the reference is live.
+            if (!object.ReferenceEquals(null, scenario) && scenario.RewindPoints != null && rp != null)
             {
                 int removed = 0;
                 for (int i = scenario.RewindPoints.Count - 1; i >= 0; i--)
