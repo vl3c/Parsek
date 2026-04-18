@@ -305,6 +305,8 @@ def main():
     # Parsek data
     print("Parsek data:")
     parsek_out = out_dir / "parsek"
+    if not args.skip_recordings:
+        copy_tree(save_dir / "Parsek" / "Recordings", parsek_out / "Recordings")
     copy_tree(save_dir / "Parsek" / "GameState", parsek_out / "GameState")
     copy_tree(save_dir / "Parsek" / "Saves", parsek_out / "Saves")
     print()

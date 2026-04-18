@@ -291,9 +291,9 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// Guarded purge used by InjectAllRecordings. Refuses to delete the live
-        /// sidecar directory when a running KSP instance still has KSP.log open,
-        /// which would race the game and wipe its current Recordings snapshot.
+        /// Guarded preflight used by InjectAllRecordings. Refuses the inject when
+        /// a running KSP instance still has KSP.log open, which would race the
+        /// game and wipe or rewrite its current save-side data.
         /// </summary>
         public bool TryPurgeRecordingSidecarsForInject(
             string saveDir,
@@ -301,18 +301,20 @@ namespace Parsek.Tests.Generators
             out string refusalMessage)
         {
             refusalMessage = null;
-            if (string.IsNullOrEmpty(saveDir))
-                return true;
-
             string lockedLogPath;
             if (IsExclusiveReadWriteProbeBlocked(kspLogPath, out lockedLogPath))
             {
-                string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+                string recordingsDir = string.IsNullOrEmpty(saveDir)
+                    ? "(purge skipped)"
+                    : Path.Combine(saveDir, "Parsek", "Recordings");
                 refusalMessage =
                     $"InjectAllRecordings refused to purge '{recordingsDir}' because KSP.log '{lockedLogPath}' is locked by another process. Close KSP or point KSPDIR at a different install/save before rerunning.";
                 ParsekLog.Error("SyntheticInjector", refusalMessage);
                 return false;
             }
+
+            if (string.IsNullOrEmpty(saveDir))
+                return true;
 
             PurgeRecordingSidecars(saveDir);
             return true;

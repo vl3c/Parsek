@@ -4945,6 +4945,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InjectAllRecordings_RefusesWhenKspLogLocked_EvenWithoutPurgeTarget()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_guard_only_locked_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string kspLogPath = Path.Combine(tempDir, "KSP.log");
+            File.WriteAllText(kspLogPath, "locked");
+
+            ParsekLog.ResetTestOverrides();
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                using (File.Open(kspLogPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    var writer = new ScenarioWriter();
+                    bool allowed = writer.TryPurgeRecordingSidecarsForInject(
+                        saveDir: null,
+                        kspLogPath: kspLogPath,
+                        out string refusalMessage);
+
+                    Assert.False(allowed);
+                    Assert.Contains("(purge skipped)", refusalMessage);
+                    Assert.Contains(logLines, line =>
+                        line.Contains("[Parsek][ERROR][SyntheticInjector]") &&
+                        line.Contains("(purge skipped)") &&
+                        line.Contains("KSP.log"));
+                }
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public void RecordingPaths_ValidateRecordingId_RejectsInvalidIds()
         {
             Assert.False(RecordingPaths.ValidateRecordingId(null));
@@ -5508,6 +5547,17 @@ namespace Parsek.Tests
             if (!File.Exists(targetPath))
                 return;
 
+            // Refuse the entire inject up front when the target KSP install
+            // looks live. The purge helper probes KSP.log with an exclusive
+            // open; we reuse it even when cleanStart=false so save writes and
+            // sidecar rewrites never race a running session.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
             // Clean BOTH saves first so they share the same daytime UT,
             // then read baseUT from the (now updated) target save.
             if (cleanStart)
@@ -5518,22 +5568,6 @@ namespace Parsek.Tests
                     if (File.Exists(sp))
                         CleanSaveStart(sp);
                 }
-
-                // Purge stale recording sidecars from any previous inject run —
-                // otherwise yesterday's GUID-keyed showcase sidecars linger on
-                // disk after we rewrite persistent.sfs with fresh GUIDs, and
-                // KSP's load-time orphan sweep later deletes them (along with
-                // the current run's sidecars that happen to share the victim
-                // set). Gated on cleanStart so real-user recordings survive
-                // when PARSEK_INJECT_CLEAN_START=0 is set explicitly. The guard
-                // probes KSP.log first so a sibling worktree cannot purge the
-                // live save while KSP is actively using it.
-                var purgeWriter = new ScenarioWriter();
-                if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
-                        saveDir,
-                        Path.Combine(kspRoot, "KSP.log"),
-                        out string refusalMessage))
-                    throw new Xunit.Sdk.SkipException(refusalMessage);
             }
 
             double baseUT = ReadUTFromSave(targetPath);
