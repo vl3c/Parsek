@@ -192,7 +192,10 @@ namespace Parsek
             // RemoveSpecificCrewFromSnapshot for EVA'd crew, UnreserveCrewInSnapshot).
             // Swapping or orphan-placing into a spawned vessel is always wrong — it
             // fills empty seats that are intentionally empty (crew who EVA'd or died).
-            var spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+            // [Phase 3] ERS-routed: spawned-PID set is derived from the Effective
+            // Recording Set so NotCommitted / superseded / session-suppressed
+            // recordings no longer claim active-vessel spawn attribution.
+            var spawnedPids = BuildSpawnedVesselPidSet(EffectiveState.ComputeERS());
             uint activePid = FlightGlobals.ActiveVessel.persistentId;
             if (spawnedPids.Contains(activePid))
             {
@@ -311,7 +314,10 @@ namespace Parsek
             // state) — VesselSnapshot is end-of-recording and would not contain a
             // crew member who EVA'd mid-recording.
             var snapshots = new List<ConfigNode>();
-            var committed = RecordingStore.CommittedRecordings;
+            // [Phase 3] ERS-routed: orphan crew placement walks visible recordings
+            // (design §3.4 crew reservations reader). NotCommitted / superseded
+            // recordings no longer contribute ghost snapshots.
+            var committed = EffectiveState.ComputeERS();
             if (committed != null)
             {
                 for (int i = 0; i < committed.Count; i++)
@@ -590,7 +596,9 @@ namespace Parsek
             // don't delete EVA vessels that Parsek intentionally created.
             // Accept pre-built set to avoid redundant iteration when caller already has one.
             if (spawnedPids == null)
-                spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+                // [Phase 3] ERS-routed: see Phase 3 comment on BuildSpawnedVesselPidSet
+                // usage above; same reasoning applies here.
+                spawnedPids = BuildSpawnedVesselPidSet(EffectiveState.ComputeERS());
 
             int evaRemoved = 0;
             int loadedKept = 0;

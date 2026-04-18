@@ -11,6 +11,11 @@ namespace Parsek
     /// All methods are static. File-system access is on-demand only (never per-frame).
     /// All numeric formatting uses InvariantCulture.
     /// </summary>
+    // [ERS-exempt — Phase 3] Diagnostics reports raw storage + memory footprint
+    // across every stored recording (including NotCommitted / superseded); the
+    // per-snapshot breakdowns array is keyed by raw index. ERS filtering would
+    // hide real on-disk/in-memory cost from the diagnostics surface (admin/debug
+    // per design §3.4 "raw-count display").
     internal static class DiagnosticsComputation
     {
         /// <summary>
