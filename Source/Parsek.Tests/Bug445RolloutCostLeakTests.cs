@@ -142,6 +142,21 @@ namespace Parsek.Tests
         // TryAdoptRolloutAction
         // ----------------------------------------------------------------
 
+        [Theory]
+        [InlineData("Prelaunch", true)]
+        [InlineData("PRELAUNCH", true)]
+        [InlineData("Flying", false)]
+        [InlineData("Orbiting", false)]
+        [InlineData(null, false)]
+        public void CanRecordingAdoptRolloutAction_OnlyPrelaunchStartsCanClaim(string startSituation, bool expected)
+        {
+            var rec = new Recording { StartSituation = startSituation };
+
+            bool canAdopt = LedgerOrchestrator.CanRecordingAdoptRolloutAction(rec);
+
+            Assert.Equal(expected, canAdopt);
+        }
+
         [Fact]
         public void TryAdoptRolloutAction_WithinWindow_ClaimsAction()
         {
@@ -208,10 +223,10 @@ namespace Parsek.Tests
         [Fact]
         public void TryAdoptRolloutAction_AtExactWindowBoundary_Adopts()
         {
-            // Boundary pin: 60.0 s gap exactly is INSIDE the window (strict > comparison).
-            // Adoption must succeed.
+            // Boundary pin: a gap exactly equal to RolloutAdoptionWindowSeconds is
+            // INSIDE the window (strict > comparison). Adoption must succeed.
             LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
-            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds; // 160.0
+            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds;
 
             var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
 
@@ -223,9 +238,9 @@ namespace Parsek.Tests
         [Fact]
         public void TryAdoptRolloutAction_JustOutsideWindow_DoesNotAdopt()
         {
-            // Boundary pin: 60.0 + epsilon is OUTSIDE the window.
+            // Boundary pin: RolloutAdoptionWindowSeconds + epsilon is OUTSIDE the window.
             LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
-            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds + 0.1; // 160.1
+            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds + 0.1;
 
             var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
 
@@ -283,6 +298,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-launched",
                 PreLaunchFunds = 45000.0,
+                StartSituation = "Prelaunch",
                 TerminalStateValue = TerminalState.Landed
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 45000.0 });
@@ -319,6 +335,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-no-rollout",
                 PreLaunchFunds = 50000.0,
+                StartSituation = "Prelaunch",
                 TerminalStateValue = TerminalState.Landed
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 45000.0 });
@@ -355,6 +372,74 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CreateVesselCostActions_PrelaunchAfterLongPadWait_StillAdoptsRollout()
+        {
+            // Review fix: the original 60 s adoption window orphaned legitimate launch
+            // recordings if the player sat on the pad/runway before pressing Record.
+            // A prelaunch recording started several minutes after rollout must still
+            // claim the build cost so later delete/discard purges remove it correctly.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+
+            double startUT = 100.0 + 300.0;
+            var rec = new Recording
+            {
+                RecordingId = "rec-long-pad-wait",
+                PreLaunchFunds = 45000.0,
+                StartSituation = "Prelaunch",
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = startUT, funds = 45000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 500.0, funds = 45000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions(
+                "rec-long-pad-wait", startUT: startUT, endUT: 500.0);
+
+            Assert.DoesNotContain(actions, a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+
+            var adopted = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal("rec-long-pad-wait", adopted.RecordingId);
+            Assert.Null(adopted.DedupKey);
+            Assert.Equal(5000f, adopted.FundsSpent);
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_FlyingStart_DoesNotAdoptRollout()
+        {
+            // Review fix: the branch originally let any recording inside the time window
+            // adopt the rollout. A late Record click after liftoff must NOT steal the
+            // vessel build cost onto a mid-flight recording, or deleting that recording
+            // would incorrectly refund a real launch expense.
+            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-midflight",
+                PreLaunchFunds = 45000.0,
+                StartSituation = "Flying",
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 110.0, funds = 45000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 45000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions(
+                "rec-midflight", startUT: 110.0, endUT: 200.0);
+
+            Assert.Empty(actions);
+
+            var rollout = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Null(rollout.RecordingId);
+            Assert.StartsWith("rollout:", rollout.DedupKey);
+        }
+
+        [Fact]
         public void CreateVesselCostActions_AdoptedRolloutPlusResidualDelta_EmitsBoth()
         {
             // Rare case: the rollout deducts the build cost, then the recording observes
@@ -368,6 +453,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-residual",
                 PreLaunchFunds = 50000.0,
+                StartSituation = "Prelaunch",
                 TerminalStateValue = TerminalState.Landed
             };
             // Pre-launch: 50000 — first point: 49250 — implies 750 of additional

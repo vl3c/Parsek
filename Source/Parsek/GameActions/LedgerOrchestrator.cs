@@ -467,11 +467,19 @@ namespace Parsek
 
             // #445: KSP fires TransactionReasons.VesselRollout BEFORE PreLaunchFunds is
             // captured (rollout deducts at editor->launchpad transition; CapturePreLaunchResources
-            // runs at launchpad->flying). So in the normal launch+record flow the rollout
-            // cost has already been written to the ledger by OnVesselRolloutSpending and
-            // buildCost above is ~0. Adopt that rollout action onto this recording so the
+            // runs later in the FLIGHT scene). So in the normal pad-start record flow the
+            // rollout cost has already been written to the ledger by OnVesselRolloutSpending
+            // and buildCost above is ~0. Adopt that rollout action onto this recording so the
             // ledger associates the cost with the trip instead of leaving it null-tagged.
-            var adopted = TryAdoptRolloutAction(recordingId, startUT);
+            //
+            // Claim gate: only recordings that STARTED from a launch-ready prelaunch state
+            // are allowed to adopt. Without this, a user who presses Record after liftoff
+            // (or later in ascent) would incorrectly steal the launch cost onto a mid-flight
+            // recording, and deleting that recording would wrongly remove the real vessel
+            // build cost from the ledger.
+            var adopted = CanRecordingAdoptRolloutAction(rec)
+                ? TryAdoptRolloutAction(recordingId, startUT)
+                : null;
 
             if (buildCost > 0)
             {
@@ -2199,14 +2207,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure eligibility gate for rollout adoption. Only recordings that started from a
+        /// launch-ready PRELAUNCH state are allowed to claim a prior VesselRollout charge.
+        /// This deliberately excludes recordings started after liftoff (Flying/Sub-orbital/
+        /// Orbiting) so a late Record click cannot pull the vessel build cost into a
+        /// mid-flight recording and later refund it on delete/discard.
+        /// </summary>
+        internal static bool CanRecordingAdoptRolloutAction(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.StartSituation))
+                return false;
+
+            return rec.StartSituation.Equals("Prelaunch", StringComparison.OrdinalIgnoreCase)
+                || rec.StartSituation.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// #445: maximum game-seconds gap between a <c>TransactionReasons.VesselRollout</c>
         /// deduction and the start of the recording that should claim it. Measured in UT
-        /// (not wall-clock) — generous because UT barely advances at the launchpad while
-        /// the player waits to launch. The boundary is inclusive: a recording whose
-        /// <c>startUT - rollout.UT</c> equals exactly 60.0 still adopts (strict <c>&gt;</c>
-        /// comparison); 60.0 + epsilon does not.
+        /// (not wall-clock). Kept deliberately broad because players can sit on the
+        /// launchpad/runway for several real minutes before pressing Record; the
+        /// <see cref="CanRecordingAdoptRolloutAction"/> gate keeps this from spilling
+        /// into post-liftoff recordings. The boundary is inclusive: a recording whose
+        /// <c>startUT - rollout.UT</c> equals exactly this value still adopts (strict
+        /// <c>&gt;</c> comparison); value + epsilon does not.
         /// </summary>
-        internal const double RolloutAdoptionWindowSeconds = 60.0;
+        internal const double RolloutAdoptionWindowSeconds = 1800.0;
 
         /// <summary>
         /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
