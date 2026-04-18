@@ -4911,6 +4911,7 @@ namespace Parsek.Tests
             File.WriteAllText(kspLogPath, "locked");
 
             ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
             var logLines = new List<string>();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
@@ -4939,6 +4940,7 @@ namespace Parsek.Tests
             finally
             {
                 ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
                 if (Directory.Exists(tempDir))
                     Directory.Delete(tempDir, recursive: true);
             }
@@ -4954,6 +4956,7 @@ namespace Parsek.Tests
             File.WriteAllText(kspLogPath, "locked");
 
             ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
             var logLines = new List<string>();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
@@ -4978,6 +4981,7 @@ namespace Parsek.Tests
             finally
             {
                 ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
                 if (Directory.Exists(tempDir))
                     Directory.Delete(tempDir, recursive: true);
             }

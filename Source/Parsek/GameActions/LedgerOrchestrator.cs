@@ -3231,12 +3231,26 @@ namespace Parsek
                     };
 
                 case GameActionType.StrategyActivate:
-                    // StrategyActivate has a SetupCost in the plan, but StrategyLifecyclePatch
-                    // is Phase E1.5 work — no capture yet. Skip for now.
+                    // #439 Phase A: StrategyLifecyclePatch now captures strategy activations
+                    // and the converter populates SetupCost from the StrategyActivated event's
+                    // setupFunds field. KSP's Strategy.Activate() calls Funding.Add(-InitialCostFunds,
+                    // TransactionReasons.StrategySetup) inside the method body, so by the time
+                    // our postfix runs GameStateStore already holds a FundsChanged(StrategySetup)
+                    // event with the matching negative delta. Zero-setup-cost strategies hit the
+                    // zero-expected-delta early return in ReconcileKscAction.
+                    //
+                    // Known Phase A limitation: only the Funds leg is reconciled here — a
+                    // strategy with non-zero InitialCostScience or InitialCostReputation will
+                    // still emit false-positive WARNs on those resource legs. Stock
+                    // Administration-tier-1 strategies are funds-only, so most new careers
+                    // never trip it. Multi-resource KscActionExpectation is deferred to
+                    // Phase B (see docs/dev/plans/fix-439-strategy-lifecycle-capture.md).
                     return new KscActionExpectation
                     {
-                        Class = KscReconcileClass.Transformed,
-                        SkipReason = "strategy activate setup cost not yet KSC-captured (Phase E1.5)"
+                        Class = KscReconcileClass.Untransformed,
+                        EventType = GameStateEventType.FundsChanged,
+                        ExpectedReasonKey = "StrategySetup",
+                        ExpectedDelta = -action.SetupCost
                     };
 
                 // ---- Transformed: raw fields do not equal post-walk contribution. ----

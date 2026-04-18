@@ -56,6 +56,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers; eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates. Known limitation: strategies with Science or Reputation setup cost still emit a reconciliation warning on those resource legs (follow-up).
 - `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
 - `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
 - `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
@@ -122,7 +123,7 @@ All notable changes to Parsek are documented here.
 
 ### Known Limitations
 
-- KSP career strategies (Leadership Initiative, Open-Source Tech Program, etc.) are not yet captured by the ledger. Activating a strategy that diverts or grants resources can produce `PatchFunds: suspicious drawdown` WARN lines in `KSP.log` and small balance corrections after scene transitions until strategy lifecycle capture lands (tracked as `#439`). Fresh careers that do not activate strategies are unaffected.
+- KSP career strategies with non-zero Science or Reputation setup costs still produce a single KSC reconciliation WARN line per activation on the Science or Reputation leg. Stock Admin-tier-1 strategies are funds-only and unaffected; the follow-up is tracked as `#439B` (multi-resource `KscActionExpectation`).
 
 ### Maintenance
 
