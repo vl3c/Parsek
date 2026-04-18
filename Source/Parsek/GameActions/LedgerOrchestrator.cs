@@ -797,10 +797,15 @@ namespace Parsek
 
             RecalculationEngine.Recalculate(actions, utCutoff);
 
-            // KSP state mutations (PostWalk already called by engine)
+            // KSP state mutations (PostWalk already called by engine). Repeatable
+            // Records* nodes only rebuild strictly from ledger-backed thresholds on
+            // rewind-style cutoff walks; normal same-branch recalculations preserve the
+            // live in-tier best value because that finer-grained partial progress is not
+            // persisted in the ledger.
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                milestonesModule, facilitiesModule, contractsModule);
+                milestonesModule, facilitiesModule, contractsModule,
+                authoritativeRepeatableRecordState: utCutoff.HasValue);
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
             // per-subject credits. This prunes stale entries left behind when a

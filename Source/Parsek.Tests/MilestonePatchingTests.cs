@@ -300,6 +300,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PatchRepeatableRecordNode_SameBranchRecalculation_PreservesCurrentBestWithinRewardBand()
+        {
+            var node = new RecordsDistance();
+            Assert.True(KspStatePatcher.TryComputeRepeatableRecordState(
+                node, effectiveCount: 1, currentRecord: 2500.0, out var expected));
+
+            SetProgressNodeFlags(node, reached: true, complete: true);
+            SetPrivateField(node, "record", 2500.0);
+            SetPrivateField(node, "rewardThreshold", 0.0);
+            SetPrivateField(node, "rewardInterval", 99);
+            node.OnIterateVessels = null;
+
+            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
+                node, effectiveCount: 1, qualifiedId: "RecordsDistance");
+
+            Assert.True(recognized);
+            Assert.True(node.IsReached);
+            Assert.False(node.IsComplete);
+            Assert.Equal(expected.Record, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(2500.0, GetPrivateField<double>(node, "record"), 6);
+            Assert.Equal(expected.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
+            Assert.Equal(expected.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
+            Assert.NotNull(node.OnIterateVessels);
+        }
+
+        [Fact]
         public void PatchRepeatableRecordNode_RewindAfterFirstReward_DropsSpeculativeCurrentBestWithinRewardBand()
         {
             var node = new RecordsDistance();
@@ -313,7 +339,8 @@ namespace Parsek.Tests
             node.OnIterateVessels = null;
 
             bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
-                node, effectiveCount: 1, qualifiedId: "RecordsDistance");
+                node, effectiveCount: 1, qualifiedId: "RecordsDistance",
+                authoritativeRepeatableRecordState: true);
 
             Assert.True(recognized);
             Assert.True(node.IsReached);
@@ -342,7 +369,8 @@ namespace Parsek.Tests
             node.OnIterateVessels = null;
 
             bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
-                node, effectiveCount: 1, qualifiedId: "RecordsDistance");
+                node, effectiveCount: 1, qualifiedId: "RecordsDistance",
+                authoritativeRepeatableRecordState: true);
 
             Assert.True(recognized);
             Assert.True(node.IsReached);
@@ -364,7 +392,8 @@ namespace Parsek.Tests
             SetPrivateField(node, "rewardInterval", 4);
 
             bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
-                node, effectiveCount: 0, qualifiedId: "RecordsDepth");
+                node, effectiveCount: 0, qualifiedId: "RecordsDepth",
+                authoritativeRepeatableRecordState: true);
 
             Assert.True(recognized);
             Assert.False(node.IsReached);

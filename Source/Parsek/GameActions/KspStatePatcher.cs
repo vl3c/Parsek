@@ -33,7 +33,8 @@ namespace Parsek
         /// </summary>
         internal static void PatchAll(ScienceModule science, FundsModule funds,
             ReputationModule reputation, MilestonesModule milestones, FacilitiesModule facilities,
-            ContractsModule contracts = null)
+            ContractsModule contracts = null,
+            bool authoritativeRepeatableRecordState = false)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
@@ -41,7 +42,7 @@ namespace Parsek
                 PatchFunds(funds);
                 PatchReputation(reputation);
                 PatchFacilities(facilities);
-                PatchMilestones(milestones);
+                PatchMilestones(milestones, authoritativeRepeatableRecordState);
                 PatchContracts(contracts);
 
                 ParsekLog.Info(Tag, "PatchAll complete");
@@ -447,13 +448,19 @@ namespace Parsek
         /// Old recordings with bare body-specific IDs ("Landing" instead of "Mun/Landing")
         /// will not match and are logged for diagnostics.
         ///
+        /// Repeatable Records* nodes have two patch modes: normal same-branch recalculations
+        /// preserve a live in-tier best value when it still fits the currently paid reward
+        /// band, while authoritative rewind-style patching rebuilds strictly from ledger-
+        /// backed hit counts so discarded future progress cannot leak through.
+        ///
         /// Note: After clearing a node, KSP's ProgressTracking.Update() may immediately
         /// re-trigger it if conditions are still met (e.g., a vessel is in orbit). This is
         /// correct behavior — milestones whose conditions are still satisfied SHOULD remain
         /// achieved. The IsReplayingActions flag suppresses GameStateRecorder from capturing
         /// re-triggered milestones as new events.
         /// </summary>
-        internal static void PatchMilestones(MilestonesModule milestones)
+        internal static void PatchMilestones(MilestonesModule milestones,
+            bool authoritativeRepeatableRecordState = false)
         {
             if (milestones == null)
             {
@@ -503,7 +510,8 @@ namespace Parsek
 
             PatchProgressNodeTree(tree, milestones, reachedField, completeField,
                 mannedProp, unmannedProp,
-                "", ref credited, ref unreached, ref skipped);
+                "", authoritativeRepeatableRecordState,
+                ref credited, ref unreached, ref skipped);
 
             ParsekLog.Info(Tag,
                 $"PatchMilestones: credited={credited.ToString(IC)}, " +
@@ -531,6 +539,7 @@ namespace Parsek
             FieldInfo reachedField, FieldInfo completeField,
             PropertyInfo mannedProp, PropertyInfo unmannedProp,
             string pathPrefix,
+            bool authoritativeRepeatableRecordState,
             ref int credited, ref int unreached, ref int skipped)
         {
             for (int i = 0; i < tree.Count; i++)
@@ -546,7 +555,7 @@ namespace Parsek
                 int effectiveCount = milestones.GetEffectiveMilestoneCount(qualifiedId);
                 if (PatchRepeatableRecordNode(
                     node, effectiveCount, qualifiedId, reachedField, completeField,
-                    out bool repeatableChanged))
+                    authoritativeRepeatableRecordState, out bool repeatableChanged))
                 {
                     if (repeatableChanged)
                     {
@@ -617,7 +626,8 @@ namespace Parsek
                 {
                     PatchProgressNodeTree(node.Subtree, milestones,
                         reachedField, completeField, mannedProp, unmannedProp,
-                        qualifiedId, ref credited, ref unreached, ref skipped);
+                        qualifiedId, authoritativeRepeatableRecordState,
+                        ref credited, ref unreached, ref skipped);
                 }
             }
         }
@@ -633,12 +643,25 @@ namespace Parsek
 
         /// <summary>
         /// Computes the stock save-state shape for KSP's repeatable record nodes from the
-        /// number of effective ledger hits that survived recalculation. In-tier partial
-        /// progress is not persisted in the ledger, so rewinds can only restore the last
-        /// paid threshold and next stock reward interval.
+        /// number of effective ledger hits that survived recalculation. Used by
+        /// authoritative rewind-style patching where only ledger-backed paid thresholds
+        /// may survive.
         /// </summary>
         internal static bool TryComputeRepeatableRecordState(
             ProgressNode node, int effectiveCount, out RepeatableRecordState state)
+        {
+            return TryComputeRepeatableRecordState(
+                node, effectiveCount, currentRecord: double.NaN, out state);
+        }
+
+        /// <summary>
+        /// Computes the stock save-state shape for KSP's repeatable record nodes from the
+        /// number of effective ledger hits that survived recalculation, while preserving the
+        /// live best-value progress when it still fits inside that reward band.
+        /// </summary>
+        internal static bool TryComputeRepeatableRecordState(
+            ProgressNode node, int effectiveCount, double currentRecord,
+            out RepeatableRecordState state)
         {
             state = default;
             if (!TryGetRepeatableRecordDefinition(node, out double maxRecord, out double roundValue))
@@ -654,12 +677,13 @@ namespace Parsek
                 return true;
             }
 
-            double record = 0.0;
-            for (int i = 0; i < effectiveCount; i++)
+            double paidRecord = 0.0;
+            int clampedEffectiveCount = Math.Max(0, effectiveCount);
+            for (int i = 0; i < clampedEffectiveCount; i++)
             {
                 int interval = 1;
                 double nextRecord = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
-                    record, maxRecord, roundValue, ref interval);
+                    paidRecord, maxRecord, roundValue, ref interval);
                 if (double.IsInfinity(nextRecord) || double.IsNaN(nextRecord) ||
                     nextRecord == double.MaxValue)
                 {
@@ -671,16 +695,32 @@ namespace Parsek
                     return true;
                 }
 
-                record = nextRecord;
+                paidRecord = nextRecord;
             }
 
             int nextInterval = 1;
             double nextThreshold = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
-                record, maxRecord, roundValue, ref nextInterval);
+                paidRecord, maxRecord, roundValue, ref nextInterval);
             bool isComplete = nextThreshold == double.MaxValue ||
-                record >= maxRecord - RecordStateEpsilon;
+                paidRecord >= maxRecord - RecordStateEpsilon;
 
-            state.Reached = true;
+            double boundedCurrentRecord = NormalizeRepeatableRecordValue(currentRecord, maxRecord);
+            double record = paidRecord;
+            if (isComplete)
+            {
+                record = maxRecord;
+            }
+            else if (boundedCurrentRecord > paidRecord + RecordStateEpsilon &&
+                boundedCurrentRecord < nextThreshold - RecordStateEpsilon)
+            {
+                // Preserve the live best value as long as it still fits within the reward
+                // band implied by the effective hit count. If it spills into a later band,
+                // the extra rewards did not survive recalculation, so we fall back to the
+                // last paid threshold instead of inventing an in-between value.
+                record = boundedCurrentRecord;
+            }
+
+            state.Reached = record > RecordStateEpsilon;
             state.Complete = isComplete;
             state.Record = record;
             state.RewardThreshold = isComplete ? 0.0 : nextThreshold;
@@ -694,7 +734,8 @@ namespace Parsek
         /// ledger walk. Returns true when the node was recognized and patched.
         /// </summary>
         internal static bool PatchRepeatableRecordNode(
-            ProgressNode node, int effectiveCount, string qualifiedId)
+            ProgressNode node, int effectiveCount, string qualifiedId,
+            bool authoritativeRepeatableRecordState = false)
         {
             FieldInfo reachedField = typeof(ProgressNode).GetField("reached",
                 BindingFlags.NonPublic | BindingFlags.Instance);
@@ -708,7 +749,7 @@ namespace Parsek
             }
 
             return PatchRepeatableRecordNode(node, effectiveCount, qualifiedId,
-                reachedField, completeField, out _);
+                reachedField, completeField, authoritativeRepeatableRecordState, out _);
         }
 
         /// <summary>
@@ -719,12 +760,10 @@ namespace Parsek
         /// </summary>
         internal static bool PatchRepeatableRecordNode(
             ProgressNode node, int effectiveCount, string qualifiedId,
-            FieldInfo reachedField, FieldInfo completeField, out bool changed)
+            FieldInfo reachedField, FieldInfo completeField,
+            bool authoritativeRepeatableRecordState, out bool changed)
         {
             changed = false;
-            if (!TryComputeRepeatableRecordState(node, effectiveCount, out var targetState))
-                return false;
-
             Type nodeType = node.GetType();
             FieldInfo recordField = nodeType.GetField("record",
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -742,6 +781,22 @@ namespace Parsek
                     $"(record={recordField != null}, rewardThreshold={rewardThresholdField != null}, " +
                     $"rewardInterval={rewardIntervalField != null}) — skipping");
                 return true;
+            }
+
+            RepeatableRecordState targetState;
+            if (authoritativeRepeatableRecordState)
+            {
+                if (!TryComputeRepeatableRecordState(node, effectiveCount, out targetState))
+                    return false;
+            }
+            else
+            {
+                double liveRecord = NormalizeRepeatableRecordValue(recordField.GetValue(node), double.MaxValue);
+                if (!TryComputeRepeatableRecordState(
+                    node, effectiveCount, liveRecord, out targetState))
+                {
+                    return false;
+                }
             }
 
             bool currentReached = node.IsReached;
@@ -812,6 +867,30 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        private static double NormalizeRepeatableRecordValue(object value, double maxRecord)
+        {
+            if (value == null)
+                return 0.0;
+
+            double numericValue;
+            if (value is double doubleValue)
+                numericValue = doubleValue;
+            else if (value is float floatValue)
+                numericValue = floatValue;
+            else if (value is int intValue)
+                numericValue = intValue;
+            else if (value is long longValue)
+                numericValue = longValue;
+            else
+                return 0.0;
+
+            if (double.IsNaN(numericValue) || double.IsInfinity(numericValue))
+                return 0.0;
+            if (numericValue <= 0.0)
+                return 0.0;
+            return numericValue > maxRecord ? maxRecord : numericValue;
         }
 
         private static bool TryGetRepeatableRecordDefinition(
