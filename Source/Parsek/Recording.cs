@@ -190,6 +190,23 @@ namespace Parsek
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
+        // Rewind-to-Staging (design doc section 5.5)
+        // MergeState tri-state replaces the binary committed/uncommitted flag.
+        // Immutable is the legacy default: every recording reachable from a committed
+        // tree was sealed pre-feature. NotCommitted/CommittedProvisional become possible
+        // only once the Rewind-to-Staging feature is live.
+        public MergeState MergeState = MergeState.Immutable;
+        // Session GUID for recordings produced during an active re-fly session. Null
+        // outside sessions. Used by the load-time spare-set logic when a session crashed.
+        public string CreatingSessionId;
+        // Transient: set only on NotCommitted provisional re-fly recordings to signal
+        // the intended supersede target. Replaced by a concrete RecordingSupersedeRelation
+        // at merge time and cleared. Non-empty values on Immutable/CommittedProvisional
+        // recordings are treated as cleared at load with a Warn (legacy-write safety).
+        public string SupersedeTargetId;
+        // Rewind-Point back-pointer for provisional re-fly recordings. Null outside sessions.
+        public string ProvisionalForRpId;
+
         // Branch linkage
         public string ParentBranchPointId;             // null for root recording
         public string ChildBranchPointId;              // null for leaf recordings
