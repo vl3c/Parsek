@@ -18,6 +18,79 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 477. Ledger walk over-counts milestone rewards — post-walk reconciliation `expected` sum is a 2× / 3× multiple of the actual stock enrichment
+
+**Source:** `logs/2026-04-19_0117_thorough-check/KSP.log`. Worked example for one Mun/Flyby milestone:
+
+```
+19799: [INFO][GameStateRecorder] Milestone enriched: 'Mun/Flyby' funds=13000 rep=1.0 sci=0.0
+22085: [WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, funds): MilestoneAchievement id=Mun/Flyby expected=26200.0  (← 2× actual)
+22086: [WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, rep):   MilestoneAchievement id=Mun/Flyby expected=3.0      (← 3× actual)
+22087: [WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci):   MilestoneAchievement id=Mun/Flyby expected=1.0      (← actual is 0.0)
+```
+
+Same shape across `RecordsSpeed`, `RecordsAltitude`, `RecordsDistance` (hundreds of WARNs with expected 14400 / 9600 while stock gives 4800 per trigger — the Post-walk reconcile summary reports `actions=24, matches=0, mismatches(funds/rep/sci)=24/14/6` meaning ZERO of 24 actions matched; every single one had funds over-counted, 14 had rep over-counted, and 6 had sci incorrectly expected when the enrichment shows `sci=0.0`).
+
+**Concern:** the reconciliation WARN phrasing ("no matching event") was misleading me earlier — on re-read, `CompareLeg` (`LedgerOrchestrator.cs:4248-4310`) sums `summedExpected` from `SumExpectedPostWalkWindow` which collects *every matching leg* across actions within the coalesce window. If the ledger holds multiple actions for the same milestone-at-same-UT (e.g. one per recording finalize pass, or one per recalc that re-replayed the same enrichment), `summedExpected` becomes N × the actual stock reward even though stock only fired it once. The reconciliation then correctly flags the mismatch — but the real bug is upstream: **the ledger is emitting a `MilestoneAchievement` action more than once per stock milestone fire**.
+
+The duplicate emissions correlate with `actionsTotal` growing across recalcs even when no new stock events happened (`RecalculateAndPatch: actionsTotal=32 → 32 → 32 → 39` over a ~20ms span near `:01:07:54`). Each bump is a recording's commit path replaying its enrichment into the ledger without dedup.
+
+This supersedes / refines #462 (prior observation was "double-count for a single milestone"; #477 is the general case across every milestone). #469's "zero-match" shape is a *different* manifestation of the same coupling — there the `events` list simply doesn't reach `CompareLeg`, so observed=0 while expected is the N× sum. Fix #477 first; depending on the root cause, #469 may resolve simultaneously.
+
+**Fix:** trace the emission path. Two hypotheses, in priority order:
+
+1. **Duplicate action insertion.** Every `LedgerOrchestrator.NotifyLedgerTreeCommitted` (or wherever `MilestoneAchievement` actions are created from recording state) re-inserts the action without checking whether an equivalent action already sits in the ledger. Expected fix: dedup by `(MilestoneId, UT, RecordingId)` — if the same triple is already present, skip. Watch out for the repeatable-record semantics (`RecordsSpeed` can legitimately fire multiple times per session at different UTs; dedup must be per-UT, not per-id).
+2. **Recalc replay re-walks committed recordings without clearing prior action copies.** Between `Post-walk reconcile: actions=32` and `actions=39`, seven actions were added without corresponding new stock events. If `RecalculateAndPatch` clears the ledger and re-walks, it should land on the same 32 actions; if it doesn't clear first, each recalc adds another copy. Verify the clear path in `RecalcEngine.cs` / `LedgerOrchestrator.RecalculateAndPatch` entry.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (`NotifyLedgerTreeCommitted`, `RecalculateAndPatch`), `Source/Parsek/GameActions/MilestonesModule.cs` (or whichever module emits `MilestoneAchievement` actions). Test: xUnit seeding a recording with one `MilestoneAchieved` event, calling `NotifyLedgerTreeCommitted` twice (simulating double-commit), asserts the ledger action count does not double and post-walk reconcile reports `matches=1, mismatches=0`.
+
+**Scope:** Medium. Finding the exact emit site is the work; once identified, the dedup or clear-first fix is ~5 lines.
+
+**Dependencies:** read `#307 / #439 / #440 / #448` notes in `done/todo-and-known-bugs-v3.md` first — those touched the earnings-reconciliation path and clarify which side of the dedup is the correct place to land the fix.
+
+**Status:** TODO. Priority: **high** — every career/science session produces 500+ false-positive WARNs that obscure real reconciliation signals. Blocks any improvement to the signal/noise ratio of `[LedgerOrchestrator]` logs.
+
+---
+
+## 476. Post-walk reconciliation runs in sandbox mode (where KSP does not track funds/science/rep) and floods the log with "store delta=0.0" and "no matching event" false positives
+
+**Source:** `logs/2026-04-19_0117_thorough-check/KSP.log`. The session was sandbox mode (`Funding.Instance is null (sandbox mode) — skipping`, `ResearchAndDevelopment.Instance is null (sandbox mode) — skipping`, `Reputation.Instance is null (sandbox mode) — skipping`, all repeating throughout) yet:
+
+```
+[WARN][LedgerOrchestrator] Earnings reconciliation (funds): store delta=0.0 vs ledger emitted delta=72800.0 — missing earning channel? window=[15.1,79.9]
+[INFO][LedgerOrchestrator] Post-walk reconcile: actions=24, matches=0, mismatches(funds/rep/sci)=24/14/6, cutoffUT=null
+```
+
+`actions=24, matches=0` every single reconcile sweep — because stock KSP doesn't fire the Funds/Science/Reputation changed events in sandbox, so the store has nothing to compare against. The reconciliation is doing work and producing noise that has no actionable meaning on this save.
+
+**Concern:** `LedgerOrchestrator.RecalculateAndPatch` unconditionally runs `ReconcilePostWalkActions` (and the window-level variant that emits the `store delta=0.0 vs ledger emitted delta=N — missing earning channel?` lines) regardless of whether KSP's tracked state is available. In sandbox every reconcile fires the full set of "mismatch" WARNs because the comparison baseline is zero. This compounds with #477 (duplicate emissions) to produce 700+ WARNs per session on a sandbox save that should have no WARNs at all.
+
+Same concern applies to any save where the relevant `*.Instance` accessor is null for a legitimate game-mode reason (sandbox, tutorial, scenario that disables the currency).
+
+**Fix:** at the entry of `ReconcilePostWalkActions` and `ReconcileEarningsWindow` (`LedgerOrchestrator.cs` around `:430-451` and `:4230` onward), gate the reconciliation per-resource on the KSP singleton availability. Pseudocode:
+
+```csharp
+bool fundsTracked = Funding.Instance != null;
+bool sciTracked   = ResearchAndDevelopment.Instance != null;
+bool repTracked   = Reputation.Instance != null;
+// ... skip fund/sci/rep legs individually when their tracker is null
+if (!fundsTracked && !sciTracked && !repTracked) return;
+```
+
+Log a single one-shot VERBOSE `[LedgerOrchestrator] Post-walk reconcile skipped: sandbox / tracker unavailable (funds={f} sci={s} rep={r})` so the skip is observable without being repeated every recalc. Existing `PatchFunds: Funding.Instance is null (sandbox mode) — skipping` pattern at `KspStatePatcher.cs` is the template.
+
+Per-leg gating (not whole-sweep) is the correct granularity — a save that disables only one currency should still reconcile the other two.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (`ReconcilePostWalkActions`, `ReconcileEarningsWindow`, `CompareLeg` entry). Test: xUnit seeding a `Funding.Instance = null` state (if the test rig can stub it) or verifying via the log sink that no WARN fires when `RecalculateAndPatch` is called with the trackers disabled.
+
+**Scope:** Small. ~15 lines of gate + one log line.
+
+**Dependencies:** none. Independent of #477 — fixing this one also reduces the reproducibility noise around #477 and #469 since a sandbox session after this fix would emit zero reconciliation WARNs.
+
+**Status:** TODO. Priority: medium — pure log-hygiene, but the hygiene payoff is large (a sandbox session goes from ~700 WARNs to 0).
+
+---
+
 ## 475. Ghost whose recording terminates in Mun orbit spawns on a Kerbin-SOI-eject trajectory instead of in Mun orbit (post-rewind, map-view watch)
 
 **Source:** user playtest report — "when recording a trip that ends in Mun orbit, after rewind when watching the ghost in map view, the ghost gets to the Mun encounter but then instead of spawning in Mun orbit, it spawns in a Kerbin SOI eject trajectory."
