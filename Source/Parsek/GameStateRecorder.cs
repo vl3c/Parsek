@@ -477,19 +477,36 @@ namespace Parsek
             // InvariantCulture-safe: plain interpolation serializes floats with the
             // system locale decimal separator, and ConvertPartPurchased parses with IC.
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            float cost = part.cost;
+            // #451: KSP's stock Funding.OnPartPurchased deducts AvailablePart.entryCost
+            // (the one-time R&D unlock price), NOT AvailablePart.cost (per-instance build
+            // cost charged at vessel rollout). Capturing `cost` here used to over- or
+            // under-debit the ledger by (entryCost - cost) per purchase under the harder
+            // BypassEntryPurchaseAfterResearch=false difficulty. Capture entryCost so the
+            // ledger's FundsSpending matches the FundsChanged(RnDPartPurchase) event KSP
+            // fires (carries -entryCost). Under bypass=on KSP charges nothing and the
+            // FundsModule walk treats the action as authoritative; in either mode, the
+            // correct deduction value is entryCost.
+            float entryCost = part.entryCost;
+
+            // detail keeps the legacy `cost=` token for save-format read compat
+            // (ConvertPartPurchased and GameStateEventDisplay both look up `cost`); the
+            // value now carries entryCost so existing parsers see the correct number
+            // without code changes. `entryCost=` is added as a redundant clarity token —
+            // ExtractDetailField tolerates unknown keys, so it is harmless to old readers.
+            var detail = "cost=" + entryCost.ToString("R", ic) +
+                         ";entryCost=" + entryCost.ToString("R", ic);
 
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.PartPurchased,
                 key = partName,
-                detail = "cost=" + cost.ToString("R", ic),
-                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + cost : 0,
+                detail = detail,
+                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + entryCost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
             Emit(evt, "PartPurchased");
-            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={cost})");
+            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (entryCost={entryCost})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.

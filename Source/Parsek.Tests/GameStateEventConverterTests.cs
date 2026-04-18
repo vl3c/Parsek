@@ -91,6 +91,58 @@ namespace Parsek.Tests
             Assert.Equal("rec3", action.RecordingId);
         }
 
+        // ---------- #451: entryCost preference + legacy cost-token fallback ----------
+
+        [Fact]
+        public void ConvertEvent_PartPurchased_PrefersEntryCostToken_OverLegacyCost()
+        {
+            // Post-#451 events write both `cost=` (legacy) and `entryCost=` carrying the
+            // same value (KSP's entryCost). The converter must read `entryCost=` so a
+            // hypothetically stale `cost=` token (e.g. a save written by a tampered
+            // intermediary) cannot poison the FundsSpent value. The conventional emit
+            // path writes both with the same number — assert the priority order
+            // explicitly by giving them deliberately different values here.
+            var evt = MakeEvent(GameStateEventType.PartPurchased, 2100.0,
+                key: "solidBooster.v2", detail: "cost=450;entryCost=800");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-1");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(800f, action.FundsSpent);
+            Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
+        }
+
+        [Fact]
+        public void ConvertEvent_PartPurchased_LegacyCostOnly_StillParses()
+        {
+            // Save-format read-compat: pre-#451 events only have `cost=<value>` with no
+            // `entryCost=` token. The converter must fall back to `cost=` so old saves
+            // load with the same numeric semantics they had before #451 (the value lives
+            // behind the same key, just may be slightly off vs. KSP's actual entryCost
+            // deduction — same as pre-fix behavior, no regression).
+            var evt = MakeEvent(GameStateEventType.PartPurchased, 2200.0,
+                key: "mk1pod", detail: "cost=600");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-2");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(600f, action.FundsSpent);
+        }
+
+        [Fact]
+        public void ConvertEvent_PartPurchased_EntryCostOnly_ParsesWithoutLegacyCost()
+        {
+            // Defensive: if a future producer drops the `cost=` token entirely, the
+            // converter must still resolve FundsSpent from `entryCost=`.
+            var evt = MakeEvent(GameStateEventType.PartPurchased, 2300.0,
+                key: "liquidEngine", detail: "entryCost=1200");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-3");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(1200f, action.FundsSpent);
+        }
+
         // ================================================================
         // FacilityUpgraded -> FacilityUpgrade
         // ================================================================

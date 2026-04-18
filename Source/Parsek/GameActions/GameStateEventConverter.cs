@@ -234,10 +234,18 @@ namespace Parsek
         }
 
         /// <summary>PartPurchased -> FundsSpending (part name=key, cost from detail).</summary>
+        /// <remarks>
+        /// #451: prefer the `entryCost=` token (KSP's actual deduction in
+        /// stock <c>Funding.OnPartPurchased</c>) and fall back to the legacy
+        /// `cost=` token for read-compat with pre-#451 saves. Post-#451 events
+        /// write both tokens with the same entryCost-derived value, so new
+        /// readers and old readers both land on the correct number.
+        /// </remarks>
         private static GameAction ConvertPartPurchased(GameStateEvent evt, string recordingId)
         {
             float cost = 0f;
-            string costStr = ExtractDetail(evt.detail, "cost");
+            string costStr = ExtractDetail(evt.detail, "entryCost")
+                          ?? ExtractDetail(evt.detail, "cost");
             if (costStr != null)
                 float.TryParse(costStr, NumberStyles.Float, IC, out cost);
 

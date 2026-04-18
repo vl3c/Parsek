@@ -58,7 +58,7 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 451. `OnPartPurchased` writes `part.cost` instead of `part.entryCost` — ledger over-debits R&D unlocks under bypass=off
+## ~~451.~~ `OnPartPurchased` writes `part.cost` instead of `part.entryCost` — ledger over-debits R&D unlocks under bypass=off
 
 **Source:** discovered while addressing #448. `Source/Parsek/GameStateRecorder.cs:480` reads `float cost = part.cost`, then writes that into the `PartPurchased` event's `detail` (`cost=...`) and into the `valueBefore`/`valueAfter` fields used by `ConvertPartPurchased` to synthesize the `FundsSpending` ledger action's `FundsSpent`. KSP's actual entry-purchase deduction in stock `Funding.OnPartPurchased` (`Funding.cs:397`, decompiled) is `AddFunds(-aP.entryCost, TransactionReasons.RnDPartPurchase)` — i.e. the **R&D unlock price**, not the per-instance build cost.
 
@@ -81,7 +81,7 @@ The two values are conceptually different and almost never numerically equal:
 
 **Dependencies:** #448 shipped (bypass classifier downgrade) — without #448, the mismatch under bypass=off was masked behind the false-positive WARN flood; now that bypass=on is silent, the bypass=off mismatch is the next visible diagnostic that will fire when a player runs the harder difficulty.
 
-**Status:** TODO. Priority: medium. Player-visible only on the harder no-bypass difficulty (small minority of careers), but a real correctness bug — the ledger over-debits by `entryCost - cost` per part unlock. Discovered via #448 review, not via in-game observation.
+**Status:** ~~Fixed~~ in this PR. `GameStateRecorder.OnPartPurchased` now captures `part.entryCost`, the event `detail` carries both the legacy `cost=` token (carrying entryCost's value, for save read-compat) and a redundant `entryCost=` token, and `ConvertPartPurchased` prefers the `entryCost=` token with `cost=` fallback. Regression coverage: `GameStateEventConverterTests.ConvertEvent_PartPurchased_PrefersEntryCostToken_OverLegacyCost`/`_LegacyCostOnly_StillParses`/`_EntryCostOnly_ParsesWithoutLegacyCost` and `EarningsReconciliationTests.ReconcileKsc_PartPurchase_BypassOff_EntryCostMatched_NoWarn`/`_LegacyCostMismatch_WarnsDelta`. Priority was medium; player-visible only on the harder no-bypass difficulty.
 
 ---
 
