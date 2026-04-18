@@ -105,6 +105,45 @@ namespace Parsek.Tests
             Assert.Equal(-1, restored.LastReplayedEventIndex);
         }
 
+        [Fact]
+        public void Milestone_DeserializeFrom_MigratesLegacyFreePartUnlockShape()
+        {
+            var node = new ConfigNode("MILESTONE");
+            node.AddValue("id", "ms-451");
+            node.AddValue("startUT", "0");
+            node.AddValue("endUT", "1000");
+            node.AddValue("recordingId", "");
+            node.AddValue("epoch", "0");
+            node.AddValue("committed", "True");
+            node.AddValue("lastReplayedIdx", "1");
+
+            var techEvent = node.AddNode("GAME_STATE_EVENT");
+            new GameStateEvent
+            {
+                ut = 500,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5;parts=solidBooster.v2"
+            }.SerializeInto(techEvent);
+
+            var purchaseEvent = node.AddNode("GAME_STATE_EVENT");
+            new GameStateEvent
+            {
+                ut = 500,
+                eventType = GameStateEventType.PartPurchased,
+                key = "solidBooster.v2",
+                detail = "cost=800;entryCost=800",
+                valueBefore = 50000,
+                valueAfter = 49200
+            }.SerializeInto(purchaseEvent);
+
+            var restored = Milestone.DeserializeFrom(node);
+
+            Assert.Equal(2, restored.Events.Count);
+            Assert.Equal("cost=0;entryCost=800", restored.Events[1].detail);
+            Assert.Equal(restored.Events[1].valueAfter, restored.Events[1].valueBefore);
+        }
+
         #endregion
 
         #region MilestoneStore.CreateMilestone
