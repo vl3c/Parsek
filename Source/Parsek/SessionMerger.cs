@@ -207,7 +207,8 @@ namespace Parsek
                 $"overlapsResolved={overlapCount} " +
                 $"active={activeCount} background={bgCount} checkpoint={cpCount}");
 
-            // Log discontinuity warnings
+            // Log discontinuity warnings (#449: include time-gap classification so the
+            // root cause is visible at-a-glance instead of needing log-archaeology).
             for (int i = 0; i < mergedSections.Count; i++)
             {
                 float disc = mergedSections[i].boundaryDiscontinuityMeters;
@@ -215,14 +216,86 @@ namespace Parsek
                 {
                     string prevRef = i > 0 ? mergedSections[i - 1].referenceFrame.ToString() : "?";
                     string prevSrc = i > 0 ? mergedSections[i - 1].source.ToString() : "?";
+                    ClassifyBoundaryDiscontinuity(
+                        i > 0 ? mergedSections[i - 1] : default(TrackSection),
+                        mergedSections[i],
+                        i > 0,
+                        disc,
+                        out double dt, out double expectedM, out string cause);
                     ParsekLog.Warn(Tag,
                         $"MergeTree: boundary discontinuity={disc.ToString("F2", ic)}m " +
                         $"at section[{i}] ut={mergedSections[i].startUT.ToString("F2", ic)} " +
                         $"vessel='{vesselName}' " +
                         $"prevRef={prevRef} nextRef={mergedSections[i].referenceFrame} " +
-                        $"prevSrc={prevSrc} nextSrc={mergedSections[i].source}");
+                        $"prevSrc={prevSrc} nextSrc={mergedSections[i].source} " +
+                        $"dt={dt.ToString("F2", ic)}s " +
+                        $"expectedFromVel={expectedM.ToString("F2", ic)}m " +
+                        $"cause={cause}");
                 }
             }
+        }
+
+        /// <summary>
+        /// Classifies a boundary discontinuity using the time gap and the previous section's
+        /// last-frame velocity (#449). Output buckets:
+        /// <list type="bullet">
+        ///   <item><c>frame-mismatch</c> — gap is effectively zero (&lt;0.05s) but the
+        ///   position jumps; points at an interpolation/source-frame bug.</item>
+        ///   <item><c>unrecorded-gap</c> — discontinuity is consistent with
+        ///   <c>|prev.velocity| × dt</c> (with a tolerance margin); points at a legitimate
+        ///   pause-and-resume span (quickload-resume, scene-reload, frame-budget spike) that
+        ///   the recorder couldn't sample through.</item>
+        ///   <item><c>sample-skip</c> — discontinuity exceeds the velocity-implied gap;
+        ///   points at a dropped-sample / drift bug or a source-tag mismatch.</item>
+        /// </list>
+        /// Pure helper so unit tests can verify the classification independently of logging.
+        /// </summary>
+        internal static void ClassifyBoundaryDiscontinuity(
+            TrackSection prev, TrackSection next, bool hasPrev, float discMeters,
+            out double dtSeconds, out double expectedMeters, out string cause)
+        {
+            dtSeconds = 0.0;
+            expectedMeters = 0.0;
+            cause = "no-prev";
+
+            if (!hasPrev) return;
+            if (prev.frames == null || prev.frames.Count == 0)
+            {
+                cause = "prev-no-frames";
+                return;
+            }
+            if (next.frames == null || next.frames.Count == 0)
+            {
+                cause = "next-no-frames";
+                return;
+            }
+
+            TrajectoryPoint lastPrev = prev.frames[prev.frames.Count - 1];
+            TrajectoryPoint firstNext = next.frames[0];
+
+            dtSeconds = firstNext.ut - lastPrev.ut;
+            // Magnitude of the recorded velocity at the prior section's tail. The
+            // velocity field stores playback velocity captured from KSP — surface or
+            // orbital depending on situation, but its magnitude is a reasonable
+            // upper-bound on how far the vessel could have moved during dt.
+            double vMag = Math.Sqrt(
+                (double)lastPrev.velocity.x * lastPrev.velocity.x +
+                (double)lastPrev.velocity.y * lastPrev.velocity.y +
+                (double)lastPrev.velocity.z * lastPrev.velocity.z);
+            double dtAbs = dtSeconds < 0 ? -dtSeconds : dtSeconds;
+            expectedMeters = vMag * dtAbs;
+
+            // 5m floor + 2x margin: the velocity sample is one tick stale, the next
+            // section's first sample is one tick ahead, and KSP physics can change
+            // velocity between them. The floor swallows pure quantization noise.
+            double tolerance = expectedMeters * 2.0 + 5.0;
+
+            if (dtAbs < 0.05)
+                cause = "frame-mismatch";
+            else if ((double)discMeters <= tolerance)
+                cause = "unrecorded-gap";
+            else
+                cause = "sample-skip";
         }
 
         /// <summary>

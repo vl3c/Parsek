@@ -97,7 +97,9 @@ Once the dominant sub-phase is identified, the fix is one of:
 
 ---
 
-## 449. Merger boundary discontinuity 132.82 m within a single-source tree
+## ~~449. Merger boundary discontinuity 132.82 m within a single-source tree~~
+
+**Status:** ~~Fixed~~ — diagnostic-only improvement (root cause is benign, no behavioral change needed).
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17917`. Single WARN per session:
 
@@ -106,26 +108,21 @@ Once the dominant sub-phase is identified, the fix is one of:
 ut=4004.92 vessel='r0' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=Active
 ```
 
-**Concern:** the two adjacent track sections at the boundary are **both** `prevSrc=Active nextSrc=Active` with `prevRef=Absolute nextRef=Absolute` — i.e., both halves come from the active flight recorder (not a background-recorder split, not a revert merge), same reference frame, and still a 132.82 m position jump. The merger's boundary-continuity invariant is that an all-Active / same-reference pair should stitch within a sampling tolerance (usually sub-meter after interpolation). A 132.82 m gap inside a single-source tree points at one of:
+**Investigation finding:** this is **case (2) from the original analysis** — a quickload-resume scene reload stitched at the same-source boundary. Trace:
+1. OnSave at UT 4004.7 closes section 0 (last sample at UT 4003.9) and writes the sidecar with one section.
+2. Live recorder samples for ~48 s (section A, UT 4004.7 → 4052.9) until `OnSceneChangeRequested` fires (FLIGHT→FLIGHT vessel switch that wasn't pre-transitionable, so it fell into `StashActiveTreeAsPendingLimbo`).
+3. After the scene reload, `RestoreActiveTreeFromPending` reinstalls the on-disk tree (which only has section 0 — section A was never persisted) and `recorder.StartRecording(isPromotion: true)` resumes at UT ~4004.92.
+4. New section 1's first sample lands at UT 4004.92, ~1 s after section 0's tail at UT 4003.9. At the recorded surface velocity (~130 m/s) the unsampled vessel motion across that 1 s fully accounts for the 132.82 m gap.
 
-1. **Dropped sample window around a physics step large enough to miss the boundary UT** — the recorder's `Update`/`FixedUpdate` sampling may have skipped the frame at ut ≈ 4004.92 (e.g., the 40 ms frame-budget spike at `KSP.log:11489` / see #450, or a Krakensbane float-origin shift at ut=4004.92 that the recorder didn't re-sample through).
-2. **Boundary stitched across a scene-level discontinuity** the merger doesn't tag as a source change — e.g., vessel switch with the recorder keeping the same `Active` source label, or a time-warp rate change that dilated the sample interval.
-3. **Interpolation bug at `Merger.MergeTree` section[1]** — the specific code path that computes the continuity check may be comparing positions in mismatched frames despite both sides claiming `Absolute`.
+Both halves are correctly tagged `Active` because they came from the same source semantically — there is no scene-source distinction to add. The user-visible "teleport" is real but unavoidable: the resume point cannot retroactively interpolate motion that wasn't recorded.
 
-The smoke-test session recorded two recordings — recording 2 starts at ut ≈ 3988.6 and the WARN lands at ut=4004.92, ~16 s into recording 2. Recording 1 ended at ut ≈ 177, so this is not a cross-recording merge boundary; it is a within-recording section boundary. The `[1]` index suggests section[1] is the second section of recording 2 — consistent with a single section split at ut=4004.92 within recording 2.
+**Fix shipped:** `SessionMerger.LogMergeDiagnostics` now classifies each discontinuity using the inter-section time gap and the previous section's last-frame velocity. The WARN line carries `dt=`, `expectedFromVel=`, and `cause=` (`unrecorded-gap` / `sample-skip` / `frame-mismatch`) so future occurrences are immediately classifiable from `KSP.log` alone, without log-archaeology around the boundary UT.
 
-**Investigation steps:**
-1. Correlate ut=4004.92 with adjacent KSP.log lines — look for vessel-switch events, Krakensbane shifts, time-warp rate changes, or frame-budget spikes in a ±1 s window. Starting point: `KSP.log:17900-17940`.
-2. Dump the two trajectory points bracketing section[1]'s boundary: their `ut`, `position`, `velocity`, `refFrame`, and sample-interval-to-neighbor. If the gap is >1 physics step's worth of the previous-point velocity, the sample was dropped. If the gap equals `prev_velocity × dt` for the expected `dt`, the recorder sampled correctly but the merger is misinterpreting the positions.
-3. Check `FlightRecorder.HandleVesselSwitchDuringRecording` and `BackgroundRecorder` split paths for any condition that would insert a section boundary without flipping `Src` to `Background` or `Paused`.
+- `unrecorded-gap` — discontinuity is consistent with `|prev.velocity| × dt` (with a 5 m floor + 2× margin); benign quickload-resume / scene-reload / frame-budget spike.
+- `sample-skip` — discontinuity exceeds the velocity-implied gap; points at a real dropped-sample / drift / src-tag bug.
+- `frame-mismatch` — `dt < 0.05 s` but a position jump; points at an interpolation/source-frame bug at the same boundary UT.
 
-**Fix:** depends on the root cause from the investigation. If (1), the recorder needs to clamp-sample at boundary UT or the merger's continuity tolerance needs to widen for known-skipped-frame cases (with a DEBUG trail). If (2), the `Src` label needs extending to distinguish "Active before vessel-switch" from "Active after vessel-switch". If (3), pure bug in `Merger.MergeTree` section-boundary math.
-
-**Files:** `Source/Parsek/Merger.cs` (boundary-continuity check + section assembly), `Source/Parsek/FlightRecorder.cs` / `Source/Parsek/BackgroundRecorder.cs` (sample-dropped or src-relabel paths), `Source/Parsek.Tests/MergerTests.cs` (new case: same-src/same-ref 132 m gap should either stitch with a clamp-sample or WARN with a specific root-cause tag).
-
-**Scope:** Small once the investigation identifies the path; unknown until then.
-
-**Status:** TODO. Priority: low. Single occurrence in a smoke test, recoverable (playback continues through the gap, vessel visibly "teleports" 132 m), not a crash. Worth a diagnostic investigation in the next cycle to prevent it compounding if the underlying cause is systemic (e.g., tied to #450's frame-budget spikes).
+**Files:** `Source/Parsek/SessionMerger.cs` (classifier + WARN format), `Source/Parsek.Tests/SessionMergerTests.cs` (5 classifier unit tests + WARN format assertion).
 
 ---
 
