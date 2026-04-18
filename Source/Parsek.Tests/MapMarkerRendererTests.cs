@@ -126,13 +126,13 @@ namespace Parsek.Tests
             Assert.Equal(expected, MapMarkerRenderer.ShouldDrawLabel(sticky));
         }
 
-        // IsToggleClick — a MouseDown with left (0) OR right (1) button is a
-        // toggle; middle (2) and non-MouseDown events are not. The production
-        // click handler gates on this predicate, so the matrix here defines the
-        // full toggle contract.
+        // IsToggleClick — only left-button MouseDown toggles sticky state.
+        // Non-left clicks must pass through so stock map/tracking handlers can
+        // still react normally. The production click handler gates on this
+        // predicate, so the matrix here defines the full toggle contract.
         [Theory]
         [InlineData(EventType.MouseDown, 0, true)]   // left click down
-        [InlineData(EventType.MouseDown, 1, true)]   // right click down
+        [InlineData(EventType.MouseDown, 1, false)]  // right click down — pass through
         [InlineData(EventType.MouseDown, 2, false)]  // middle click down — not a toggle
         [InlineData(EventType.MouseDown, 3, false)]  // any other button — not a toggle
         [InlineData(EventType.MouseUp,   0, false)]  // left click up — not a toggle
@@ -141,26 +141,25 @@ namespace Parsek.Tests
         [InlineData(EventType.Repaint,   0, false)]  // repaint — not a toggle
         [InlineData(EventType.Layout,    0, false)]  // layout — not a toggle
         [InlineData(EventType.MouseDrag, 0, false)]  // drag — not a toggle
-        public void IsToggleClick_MatchesMouseDownLeftOrRight(
+        public void IsToggleClick_MatchesMouseDownLeftOnly(
             EventType type, int button, bool expected)
         {
             Assert.Equal(expected, MapMarkerRenderer.IsToggleClick(type, button));
         }
 
-        // ghost-label-click-toggle follow-up: the click log line must include
-        // the button id so future log reviews can distinguish left-click from
-        // right-click toggles. This test pins the wire format (label / sticky
-        // on/off / key / button) by format-building directly and emitting via
-        // ParsekLog.Info — driving DrawMarkerAtScreen requires a live Unity
-        // GUI context, but the pure formatter owns the contract.
+        // The click log line keeps the button id in the payload so log reviews
+        // can confirm the production left-click path. This test pins the wire
+        // format (label / sticky on/off / key / button) by format-building
+        // directly — driving DrawMarkerAtScreen requires a live Unity GUI
+        // context, but the pure formatter owns the contract.
         [Fact]
-        public void FormatClickLogLine_RightButtonToggleOn_IncludesButtonAndStickyOn()
+        public void FormatClickLogLine_LeftButtonToggleOn_IncludesButtonAndStickyOn()
         {
             string line = MapMarkerRenderer.FormatClickLogLine(
                 label: "Bob Kerman Lander", markerKey: "rec-42",
-                nowSticky: true, button: 1);
+                nowSticky: true, button: 0);
             Assert.Contains("sticky=on", line);
-            Assert.Contains("button=1", line);
+            Assert.Contains("button=0", line);
             Assert.Contains("key=rec-42", line);
             Assert.Contains("Bob Kerman Lander", line);
         }
@@ -183,20 +182,20 @@ namespace Parsek.Tests
             Assert.Contains("(null)", line);
         }
 
-        // Log-assertion test required by the spec: emit via ParsekLog.Info and
-        // assert the captured line goes under tag MapMarker and carries the
-        // button id + sticky=on after a right-button toggle.
+        // Log-assertion test: emit via ParsekLog.Info and assert the captured
+        // line goes under tag MapMarker and carries the button id + sticky=on
+        // after a left-button toggle.
         [Fact]
-        public void ClickLogLine_RightButtonToggleOn_LoggedUnderMapMarkerTagWithButton()
+        public void ClickLogLine_LeftButtonToggleOn_LoggedUnderMapMarkerTagWithButton()
         {
             string line = MapMarkerRenderer.FormatClickLogLine(
-                label: "Ghost A", markerKey: "rec-log", nowSticky: true, button: 1);
+                label: "Ghost A", markerKey: "rec-log", nowSticky: true, button: 0);
             ParsekLog.Info("MapMarker", line);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MapMarker]") &&
                 l.Contains("sticky=on") &&
-                l.Contains("button=1") &&
+                l.Contains("button=0") &&
                 l.Contains("key=rec-log"));
         }
 

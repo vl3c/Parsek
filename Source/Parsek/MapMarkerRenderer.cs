@@ -17,13 +17,14 @@ namespace Parsek
     /// taken from the decompiled stock KSP.UI.Screens.Mapview.MapNode logic,
     /// so ghost icons match stock ProtoVessel icons for every VesselType (#387).
     ///
-    /// Label is hidden by default and toggled sticky by clicking the icon —
-    /// left OR right mouse button counts as a toggle. Hover does not affect
-    /// visibility (changed from the original #386 hover-reveal behavior). The
-    /// sticky set is keyed by recording ID and cleared on scene change. The
-    /// custom marker is only drawn when the stock MapNode for the same
-    /// recording is absent or suppressed, so there is no double-labeling when
-    /// a ghost ProtoVessel exists.
+    /// Label is hidden by default and toggled sticky by left-clicking the
+    /// icon. Hover does not affect visibility (changed from the original #386
+    /// hover-reveal behavior). Non-left clicks pass through so KSP's stock
+    /// map/tracking handlers still see them. The sticky set is keyed by
+    /// recording ID and cleared on scene change. The custom marker is only
+    /// drawn when the stock MapNode for the same recording is absent or
+    /// suppressed, so there is no double-labeling when a ghost ProtoVessel
+    /// exists.
     /// </summary>
     internal static class MapMarkerRenderer
     {
@@ -162,7 +163,8 @@ namespace Parsek
             GUI.color = prevColor;
 
             // Label sticky + click toggle (#386; hover reveal removed per
-            // ghost-label-click-toggle follow-up — left OR right click toggles).
+            // ghost-label-click-toggle follow-up — left click only so non-left
+            // clicks still reach KSP's stock handlers).
             bool sticky = !string.IsNullOrEmpty(markerKey) && stickyMarkers.Contains(markerKey);
 
             if (Event.current != null && AllowClickInteraction())
@@ -205,21 +207,21 @@ namespace Parsek
         internal static bool ShouldDrawLabel(bool sticky) => sticky;
 
         /// <summary>
-        /// Pure: is this event a label-toggle click (MouseDown + left OR right
-        /// button)? Middle-click and non-MouseDown events are NOT toggles.
-        /// Extracted so the decision is unit-testable without a Unity GUI
-        /// context — callers pass <c>Event.current.type</c> and
-        /// <c>Event.current.button</c> explicitly.
+        /// Pure: is this event a label-toggle click (MouseDown + left button)?
+        /// Non-left clicks must pass through so stock map/tracking handlers
+        /// still receive them. Extracted so the decision is unit-testable
+        /// without a Unity GUI context — callers pass
+        /// <c>Event.current.type</c> and <c>Event.current.button</c>
+        /// explicitly.
         /// </summary>
         internal static bool IsToggleClick(EventType type, int button)
-            => type == EventType.MouseDown && (button == 0 || button == 1);
+            => type == EventType.MouseDown && button == 0;
 
         /// <summary>
         /// Pure: format the INFO log line emitted when the user toggles a
         /// marker's sticky state by clicking its icon. Extracted so tests can
         /// pin the wire format (label / sticky on/off / key / button id) that
-        /// log reviews rely on — the button id distinguishes left-click (0)
-        /// from right-click (1) toggles.
+        /// log reviews rely on.
         /// </summary>
         internal static string FormatClickLogLine(
             string label, string markerKey, bool nowSticky, int button)
