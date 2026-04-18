@@ -116,20 +116,20 @@ Breakdown of the exceeded frame: 70% of the budget (28.11 / 40.1 ms) lived insid
 
 `mainLoop=11.34 ms` with `trajectories=1 ghosts=0` is also on the high side (expected ≤1 ms per trajectory on an established session), worth subtracting from the spawn cost attribution when a follow-up breakdown lands.
 
-**Fix — investigation-first:** add per-phase timing inside `GhostVisualBuilder.BuildGhostVisuals` (matching #414's pattern in `GhostPlaybackEngine.UpdatePlayback`) to identify which sub-phase dominates. One-shot latch on the first spawn whose total exceeds a threshold (say ≥15 ms) emits a `"Ghost build breakdown (one-shot): partsInstantiated=... partsConfigured=... fxWired=... materialsSwapped=... fxSizeBoost=... reentryPrewarm=... "` line. Steady-state cost zero (Stopwatch `Reset/Start/Stop` only on the exceeded path).
+**Fix — Phase A (shipped): diagnostic first.** `PlaybackBudgetPhases` now carries an aggregate-and-heaviest-spawn breakdown of every `BuildGhostVisualsWithMetrics` call across four sub-phases (snapshot resolve, timeline-from-snapshot, dictionaries, reentry FX) plus a residual "other" bucket so `sum + other = spawnMax` reconciles. `GhostPlaybackEngine.TryPopulateGhostVisuals` hosts four pre-allocated Stopwatches using the #414 spawnStopwatch pattern (pre-call ElapsedTicks + post-call subtraction for per-call deltas; same objects accumulate across the frame for the aggregate). `BuildGhostVisualsWithMetrics.finally` latches the heaviest spawn's breakdown + a byte-backed `HeaviestSpawnBuildType` classification. A separate one-shot WARN (`s_buildBreakdownOneShotFired` — independent of #414's latch so Phase A collects data even when the session's first spike already consumed #414's latch before rollout) fires the very first time a budget-exceeded frame has `spawnMicroseconds > 0`. See `docs/dev/plan-450-build-breakdown.md`.
 
-Once the dominant sub-phase is identified, the fix is one of:
-- **Per-frame time budget on spawn** (`MaxSpawnBuildMsPerFrame`). `TryReserveSpawnSlot` already has the structural hook — extend the predicate to also check accumulated `spawnTicks` against a budget (e.g. 12 ms) and defer any spawn that would push past the cap, whether or not the count cap has been hit.
-- **Coroutine split of `BuildGhostVisuals`** — yield after each major phase (parts, FX, materials, reentry), so a heavy build spreads across 2-3 frames instead of one. Risk: ghost appears visually in stages, which is ugly if the ghost is in-frame at build time. Mitigate with `ApplyGhostVisibility(false)` during the build and one `ApplyGhostVisibility(true)` at the end of the final coroutine step.
-- **Lazy reentry material pre-warm** (if the breakdown fingers it). Defer the pre-warm to the first frame the ghost is actually moving fast enough to need reentry FX, not at spawn time.
+**Phase B (gated on playtest data — NOT yet scheduled):** once the next real spike fires in a user install, the new `Playback spawn build breakdown` WARN will attribute the cost. The fix branch depends on the answer:
+- `timeline` dominates, heaviest-spawn < ~15 ms — **B1: per-frame build-time budget.** `MaxSpawnBuildMsPerFrame` const; new `GhostPlaybackLogic.ShouldThrottleSpawnByTime(frameSpawnTotalTicks, capTicks)`; `TryReserveSpawnSlot` ORs count-cap and time-cap.
+- `timeline` dominates, single spawn > ~15 ms — **B2: coroutine split of `TryPopulateGhostVisuals`.** Yield between (1) snapshot resolve, (2) timeline build, (3) dict populate, (4) reentry FX; extend `deferVisibilityUntilPlaybackSync` across yields.
+- `reentry` dominates — **B3: lazy reentry FX pre-warm.** Gate `TryBuildReentryFx` on first-frame-in-atmosphere + speed > floor, not on trajectory peak.
 
-**Files:** `Source/Parsek/GhostVisualBuilder.cs` (per-phase stopwatches + possible coroutine split), `Source/Parsek/GhostPlaybackEngine.cs` (`MaxSpawnBuildMsPerFrame` const + threaded into `TryReserveSpawnSlot`), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (extend `PlaybackBudgetPhases` with build sub-phases), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new one-shot build-breakdown log), `Source/Parsek.Tests/` (new test file or extend `Bug414SpawnThrottleTests.cs`).
+**Files:** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch + `FormatHeaviestSpawnBuildType` helper), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs` (new), `docs/dev/plan-450-build-breakdown.md` (new).
 
-**Scope:** Medium. Investigation first (diagnostic-only, mirrors #414 Phase 1), then a targeted fix scoped to the identified dominant sub-phase. Do NOT commit to the coroutine-split approach before the breakdown tells us which sub-phase is at fault — the fix shape changes depending on the answer.
+**Scope:** Phase A = Small (instrumentation-only, zero behaviour change). Phase B = scope depends on the chosen branch; held until playtest data lands.
 
-**Dependencies:** #414 shipped — the diagnostic framework and `TryReserveSpawnSlot` hook are already on main.
+**Dependencies:** #414 shipped (`TryReserveSpawnSlot` hook + per-phase breakdown framework are on main).
 
-**Status:** TODO. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns (e.g., entering physics range on a complex vessel). Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Status:** Phase A shipped — diagnostic instrumentation + one-shot WARN. Phase B: TODO, gated on next playtest's breakdown output. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns; not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
 
 ---
 

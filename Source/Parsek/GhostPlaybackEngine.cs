@@ -79,6 +79,27 @@ namespace Parsek
         // so the breakdown WARN reveals whether one ghost alone is blowing the budget.
         private long frameMaxSpawnTicks;
 
+        // Bug #450: per-sub-phase tick accumulators captured while processing the single
+        // spawn that is the new heaviest of this frame. Latched inside the finally block of
+        // BuildGhostVisualsWithMetrics when deltaTicks > frameMaxSpawnTicks. Reset each frame.
+        // Surfaced via PlaybackBudgetPhases.heaviestSpawn* so the one-shot breakdown WARN can
+        // attribute a single heavy spawn's cost across snapshot / timeline / dicts / reentry.
+        private long frameHeaviestSpawnSnapshotResolveTicks;
+        private long frameHeaviestSpawnTimelineTicks;
+        private long frameHeaviestSpawnDictionariesTicks;
+        private long frameHeaviestSpawnReentryTicks;
+        private long frameHeaviestSpawnOtherTicks;
+        private HeaviestSpawnBuildType frameHeaviestSpawnBuildType;
+
+        // Bug #450: "last spawn" per-sub-phase tick deltas written by TryPopulateGhostVisuals
+        // and read by BuildGhostVisualsWithMetrics.finally when deciding whether this call is
+        // the new frame heaviest. Reset at the start of TryPopulateGhostVisuals to guarantee
+        // stale values from a prior call cannot leak into a later spawn's attribution.
+        private long lastSpawnSnapshotResolveTicks;
+        private long lastSpawnTimelineTicks;
+        private long lastSpawnDictionariesTicks;
+        private long lastSpawnReentryTicks;
+
         // Diagnostics: reusable Stopwatches (allocated once, no per-frame GC)
         private readonly Stopwatch updateStopwatch = new Stopwatch();
         private readonly Stopwatch spawnStopwatch = new Stopwatch();
@@ -90,6 +111,15 @@ namespace Parsek
         private readonly Stopwatch deferredCreatedStopwatch = new Stopwatch();
         private readonly Stopwatch deferredCompletedStopwatch = new Stopwatch();
         private readonly Stopwatch observabilityStopwatch = new Stopwatch();
+        // Bug #450: per-sub-phase spawn stopwatches. Accumulate across every spawn in the
+        // frame; ElapsedTicks at populate time gives the aggregate surfaced via
+        // PlaybackBudgetPhases.build*Microseconds. Per-call deltas (captured via pre-call
+        // ElapsedTicks + post-call subtraction, identical to the #414 spawnStopwatch pattern)
+        // feed the heaviest-spawn latch. Zero per-frame GC.
+        private readonly Stopwatch buildSnapshotResolveStopwatch = new Stopwatch();
+        private readonly Stopwatch buildTimelineStopwatch = new Stopwatch();
+        private readonly Stopwatch buildDictionariesStopwatch = new Stopwatch();
+        private readonly Stopwatch buildReentryFxStopwatch = new Stopwatch();
 
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
@@ -312,6 +342,14 @@ namespace Parsek
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
+            // Bug #450: reset per-frame heaviest-spawn breakdown fields so the latch starts
+            // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None.
+            frameHeaviestSpawnSnapshotResolveTicks = 0;
+            frameHeaviestSpawnTimelineTicks = 0;
+            frameHeaviestSpawnDictionariesTicks = 0;
+            frameHeaviestSpawnReentryTicks = 0;
+            frameHeaviestSpawnOtherTicks = 0;
+            frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
 
             // Diagnostics: start total frame timing
             updateStopwatch.Restart();
@@ -325,6 +363,11 @@ namespace Parsek
             deferredCreatedStopwatch.Reset();
             deferredCompletedStopwatch.Reset();
             observabilityStopwatch.Reset();
+            // Bug #450: reset per-sub-phase spawn stopwatches (same pattern as #414).
+            buildSnapshotResolveStopwatch.Reset();
+            buildTimelineStopwatch.Reset();
+            buildDictionariesStopwatch.Reset();
+            buildReentryFxStopwatch.Reset();
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
@@ -585,6 +628,22 @@ namespace Parsek
             long elapsedMicrosecondsAtLoopEnd = elapsedTicksAtLoopEnd * 1000000L / Stopwatch.Frequency;
             long mainLoopMicroseconds = elapsedMicrosecondsAtLoopEnd - spawnMicroseconds - destroyMicroseconds;
             if (mainLoopMicroseconds < 0) mainLoopMicroseconds = 0;
+            // Bug #450: per-sub-phase aggregate = sum across all spawns in the frame.
+            long buildSnapshotResolveMicroseconds = buildSnapshotResolveStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildTimelineFromSnapshotMicroseconds = buildTimelineStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildDictionariesMicroseconds = buildDictionariesStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildReentryFxMicroseconds = buildReentryFxStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            // Residual = outer spawn time − attributed sub-phases (covers camera pivot,
+            // materials, MaterialPropertyBlock, SetActive, appearance reset). Floors at 0 so
+            // sub-microsecond rounding between the four sub-phase ticks and spawnMicroseconds
+            // cannot produce a negative.
+            long buildOtherMicroseconds = spawnMicroseconds
+                - buildSnapshotResolveMicroseconds
+                - buildTimelineFromSnapshotMicroseconds
+                - buildDictionariesMicroseconds
+                - buildReentryFxMicroseconds;
+            if (buildOtherMicroseconds < 0) buildOtherMicroseconds = 0;
+
             var phases = new PlaybackBudgetPhases
             {
                 mainLoopMicroseconds = mainLoopMicroseconds,
@@ -600,6 +659,20 @@ namespace Parsek
                 spawnsAttempted = frameSpawnCount,
                 spawnsThrottled = frameSpawnDeferred,
                 spawnMaxMicroseconds = frameMaxSpawnTicks * 1000000L / Stopwatch.Frequency,
+                // Bug #450: per-sub-phase aggregate across every spawn this frame.
+                buildSnapshotResolveMicroseconds = buildSnapshotResolveMicroseconds,
+                buildTimelineFromSnapshotMicroseconds = buildTimelineFromSnapshotMicroseconds,
+                buildDictionariesMicroseconds = buildDictionariesMicroseconds,
+                buildReentryFxMicroseconds = buildReentryFxMicroseconds,
+                buildOtherMicroseconds = buildOtherMicroseconds,
+                // Bug #450: heaviest-spawn breakdown (latched on whichever single
+                // BuildGhostVisualsWithMetrics call produced the largest delta).
+                heaviestSpawnSnapshotResolveMicroseconds = frameHeaviestSpawnSnapshotResolveTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnTimelineFromSnapshotMicroseconds = frameHeaviestSpawnTimelineTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnDictionariesMicroseconds = frameHeaviestSpawnDictionariesTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnReentryFxMicroseconds = frameHeaviestSpawnReentryTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnOtherMicroseconds = frameHeaviestSpawnOtherTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnBuildType = frameHeaviestSpawnBuildType,
             };
 
             // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
@@ -2155,10 +2228,44 @@ namespace Parsek
                 spawnStopwatch.Stop();
                 long deltaTicks = spawnStopwatch.ElapsedTicks - preCallTicks;
                 if (deltaTicks > frameMaxSpawnTicks)
+                {
                     frameMaxSpawnTicks = deltaTicks;
+                    // Bug #450: this call is the new frame-heaviest — latch its sub-phase
+                    // breakdown so the one-shot WARN can attribute whichever single spawn
+                    // dominates. Copy the per-call deltas set by TryPopulateGhostVisuals;
+                    // "other" is the residual that preserves the sum+residual = delta
+                    // invariant the tests assert.
+                    frameHeaviestSpawnSnapshotResolveTicks = lastSpawnSnapshotResolveTicks;
+                    frameHeaviestSpawnTimelineTicks = lastSpawnTimelineTicks;
+                    frameHeaviestSpawnDictionariesTicks = lastSpawnDictionariesTicks;
+                    frameHeaviestSpawnReentryTicks = lastSpawnReentryTicks;
+                    long attributedTicks =
+                        lastSpawnSnapshotResolveTicks
+                        + lastSpawnTimelineTicks
+                        + lastSpawnDictionariesTicks
+                        + lastSpawnReentryTicks;
+                    long otherTicks = deltaTicks - attributedTicks;
+                    frameHeaviestSpawnOtherTicks = otherTicks < 0 ? 0 : otherTicks;
+                    frameHeaviestSpawnBuildType = ClassifyBuildType(buildType);
+                }
                 if (built)
                     DiagnosticsState.health.ghostBuildsThisSession++;
             }
+        }
+
+        /// <summary>
+        /// Bug #450: map the human-readable buildType strings produced by
+        /// TryPopulateGhostVisuals onto the byte-backed HeaviestSpawnBuildType enum.
+        /// Returns None when the build failed (buildType == null) or a new build type
+        /// was added without updating this map — both are safe default behaviour (the
+        /// breakdown WARN renders "None" so the gap is visible in logs).
+        /// </summary>
+        private static HeaviestSpawnBuildType ClassifyBuildType(string buildType)
+        {
+            if (buildType == "recording-start snapshot") return HeaviestSpawnBuildType.RecordingStartSnapshot;
+            if (buildType == "vessel snapshot") return HeaviestSpawnBuildType.VesselSnapshot;
+            if (buildType == "sphere fallback") return HeaviestSpawnBuildType.SphereFallback;
+            return HeaviestSpawnBuildType.None;
         }
 
         /// <summary>
@@ -2196,6 +2303,22 @@ namespace Parsek
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
+            // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
+            // test seams see a clean heaviest-spawn latch.
+            frameHeaviestSpawnSnapshotResolveTicks = 0;
+            frameHeaviestSpawnTimelineTicks = 0;
+            frameHeaviestSpawnDictionariesTicks = 0;
+            frameHeaviestSpawnReentryTicks = 0;
+            frameHeaviestSpawnOtherTicks = 0;
+            frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
+            lastSpawnSnapshotResolveTicks = 0;
+            lastSpawnTimelineTicks = 0;
+            lastSpawnDictionariesTicks = 0;
+            lastSpawnReentryTicks = 0;
+            buildSnapshotResolveStopwatch.Reset();
+            buildTimelineStopwatch.Reset();
+            buildDictionariesStopwatch.Reset();
+            buildReentryFxStopwatch.Reset();
         }
 
         private bool TryPopulateGhostVisuals(
@@ -2203,6 +2326,15 @@ namespace Parsek
             out string buildType)
         {
             buildType = null;
+            // Bug #450: reset per-call sub-phase deltas so a prior (shorter-lived) spawn's
+            // attribution cannot leak into this call's heaviest-spawn latch. Each delta is
+            // captured via pre/post Start-Stop subtraction below, matching the #414
+            // spawnStopwatch pattern.
+            lastSpawnSnapshotResolveTicks = 0;
+            lastSpawnTimelineTicks = 0;
+            lastSpawnDictionariesTicks = 0;
+            lastSpawnReentryTicks = 0;
+
             if (state == null)
                 return false;
 
@@ -2210,8 +2342,22 @@ namespace Parsek
             GhostBuildResult buildResult = null;
             GameObject ghost = null;
             bool builtFromSnapshot = false;
-            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
 
+            // Bug #450 sub-phase 1: snapshot resolve. Included even though it's trivial so
+            // the breakdown reconciles — callers reading the log can sanity-check that
+            // snapshot+timeline+dicts+reentry+other ≈ spawnMax.
+            long snapshotResolvePre = buildSnapshotResolveStopwatch.ElapsedTicks;
+            buildSnapshotResolveStopwatch.Start();
+            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
+            buildSnapshotResolveStopwatch.Stop();
+            lastSpawnSnapshotResolveTicks = buildSnapshotResolveStopwatch.ElapsedTicks - snapshotResolvePre;
+
+            // Bug #450 sub-phase 2: timeline build (the dominant suspect). Covers both the
+            // snapshot path (BuildTimelineGhostFromSnapshot — part instantiation, engine FX
+            // size-boost, audio wiring) and the sphere fallback (CreateGhostSphere). Grouping
+            // them gives a single bucket for "ghost GameObject construction".
+            long timelinePre = buildTimelineStopwatch.ElapsedTicks;
+            buildTimelineStopwatch.Start();
             // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
             if (snapshot != null)
             {
@@ -2224,6 +2370,9 @@ namespace Parsek
 
             if (ghost == null)
                 ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+            buildTimelineStopwatch.Stop();
+            lastSpawnTimelineTicks = buildTimelineStopwatch.ElapsedTicks - timelinePre;
+
             if (ghost == null)
                 return false;
 
@@ -2237,6 +2386,13 @@ namespace Parsek
             state.ghost = ghost;
             state.cameraPivot = cameraPivotObj.transform;
             state.horizonProxy = horizonProxyObj.transform;
+
+            // Bug #450 sub-phase 3: dictionaries. Subtree map + logical-id set +
+            // PopulateGhostInfoDictionaries + inventory/compound visibility are all
+            // snapshot-walk consumers; grouped as one bucket because splitting at this
+            // granularity isn't actionable for a Phase B fix.
+            long dictionariesPre = buildDictionariesStopwatch.ElapsedTicks;
+            buildDictionariesStopwatch.Start();
             state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
             state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
 
@@ -2253,7 +2409,13 @@ namespace Parsek
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+            buildDictionariesStopwatch.Stop();
+            lastSpawnDictionariesTicks = buildDictionariesStopwatch.ElapsedTicks - dictionariesPre;
 
+            // Bug #450 sub-phase 4: reentry FX. Only timed on the HasReentryPotential branch
+            // — the skip branch is trivial (a VerboseRateLimited log and a counter bump) and
+            // lumping it in with the build path would muddy the attribution. On the skip
+            // branch lastSpawnReentryTicks stays 0, which correctly reflects zero work.
             // Gate reentry FX build: stationary part-showcase ghosts, EVA walks, and slow
             // suborbital hops below Mach 1.5 can never produce reentry visuals, so we skip
             // the mesh-combine + ParticleSystem + glow-material clone work entirely. With
@@ -2261,8 +2423,12 @@ namespace Parsek
             // boundary was the dominant cost in the map-view perf tank (#406).
             if (TrajectoryMath.HasReentryPotential(traj))
             {
+                long reentryPre = buildReentryFxStopwatch.ElapsedTicks;
+                buildReentryFxStopwatch.Start();
                 state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                     ghost, state.heatInfos, index, traj.VesselName);
+                buildReentryFxStopwatch.Stop();
+                lastSpawnReentryTicks = buildReentryFxStopwatch.ElapsedTicks - reentryPre;
                 DiagnosticsState.health.reentryFxBuildsThisSession++;
             }
             else
