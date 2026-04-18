@@ -5,12 +5,12 @@ namespace Parsek
 {
     /// <summary>
     /// Phase 12 of Rewind-to-Staging (design §6.7): intercepts the stock
-    /// Revert-to-Launch flow while a re-fly session is active and offers a
-    /// 3-option popup:
+    /// Revert-to-Launch / Revert-to-VAB/SPH flow while a re-fly session is
+    /// active and offers a 3-option popup:
     ///
     /// <list type="bullet">
     ///   <item><description><b>Retry from Rewind Point</b> — discard the current provisional, generate a fresh <c>SessionId</c>, and re-invoke the rewind via <see cref="RewindInvoker.StartInvoke"/> using the same <see cref="RewindPoint"/> + <see cref="ChildSlot"/>.</description></item>
-    ///   <item><description><b>Full Revert (Discard Re-fly)</b> — purge the entire tree via <see cref="TreeDiscardPurge.PurgeTree"/> (clears RPs, supersedes, tombstones, marker, journal) and then run the stock revert path.</description></item>
+    ///   <item><description><b>Discard Re-fly</b> — session-scoped cleanup: remove the provisional re-fly recording, promote the origin RP to persistent, clear marker + journal, reload the RP quicksave, and transition to the Space Center (Launch click) or VAB / SPH (Prelaunch click). The tree's other Rewind Points, supersede relations, and tombstones stay intact; Unfinished Flights still shows this split so the player can try again.</description></item>
     ///   <item><description><b>Continue Flying</b> — dismiss the popup and resume flight with no state changes.</description></item>
     /// </list>
     ///
@@ -18,7 +18,10 @@ namespace Parsek
     /// The dialog mirrors <see cref="MergeDialog.ShowTreeDialog"/>'s
     /// <c>PopupDialog.SpawnPopupDialog</c> + <see cref="MultiOptionDialog"/>
     /// pattern and sets an input lock so the player cannot interact with the
-    /// flight scene while deciding.
+    /// flight scene while deciding. When
+    /// <see cref="ParsekScenario.ActiveMergeJournal"/> is non-null the Discard
+    /// Re-fly button is hidden (the handler also refuses defensively) — a
+    /// discard mid-merge would race the journal finisher's rollback.
     /// </para>
     /// </summary>
     public static class ReFlyRevertDialog
@@ -46,6 +49,14 @@ namespace Parsek
         internal static Action<string, string> BodyHookForTesting;
 
         /// <summary>
+        /// Test seam: captures which buttons the dialog composed. Lets unit
+        /// tests assert the journal-active gate hid the Discard button
+        /// without parsing the live Unity UI tree. Receives
+        /// <c>(sessionId, includeDiscard)</c>.
+        /// </summary>
+        internal static Action<string, bool> ButtonsHookForTesting;
+
+        /// <summary>
         /// True while <see cref="Show"/> has spawned the popup and no callback
         /// has fired yet. Exposed for the in-game test harness so it can
         /// inspect whether the dialog appeared without having to parse the
@@ -62,10 +73,10 @@ namespace Parsek
         public static void Show(
             ReFlySessionMarker marker,
             Action onRetry,
-            Action onFullRevert,
+            Action onDiscardReFly,
             Action onCancel)
         {
-            Show(marker, RevertTarget.Launch, onRetry, onFullRevert, onCancel);
+            Show(marker, RevertTarget.Launch, onRetry, onDiscardReFly, onCancel);
         }
 
         /// <summary>
@@ -76,17 +87,24 @@ namespace Parsek
         ///
         /// <para>
         /// <paramref name="target"/> selects the body copy variant:
-        /// <see cref="RevertTarget.Launch"/> keeps the launchpad-oriented
-        /// wording, <see cref="RevertTarget.Prelaunch"/> swaps in
-        /// VAB/SPH-oriented wording and clarifies that Retry still lands
-        /// the player back in FLIGHT.
+        /// <see cref="RevertTarget.Launch"/> says "returns you to the Space
+        /// Center"; <see cref="RevertTarget.Prelaunch"/> says "returns you
+        /// to the VAB or SPH" and clarifies that Retry still lands the
+        /// player back in FLIGHT.
+        /// </para>
+        ///
+        /// <para>
+        /// When <see cref="ParsekScenario.ActiveMergeJournal"/> is non-null
+        /// the Discard Re-fly button is omitted entirely (primary UX signal
+        /// to the player) and the dialog still shows Retry + Continue Flying.
+        /// The handler also refuses defensively if called anyway.
         /// </para>
         /// </summary>
         internal static void Show(
             ReFlySessionMarker marker,
             RevertTarget target,
             Action onRetry,
-            Action onFullRevert,
+            Action onDiscardReFly,
             Action onCancel)
         {
             if (marker == null)
@@ -99,7 +117,8 @@ namespace Parsek
             ParsekLog.Info(SessionTag, $"Revert dialog shown sess={sessionId} target={target}");
 
             string title = "Revert during re-fly";
-            string body = BuildBody(target);
+            bool journalActive = IsMergeJournalActive();
+            string body = BuildBody(target, journalActive);
 
             var bodyHook = BodyHookForTesting;
             if (bodyHook != null)
@@ -110,6 +129,23 @@ namespace Parsek
                     ParsekLog.Error(UiTag,
                         $"ReFlyRevertDialog BodyHookForTesting threw: {ex.GetType().Name}: {ex.Message}");
                 }
+            }
+
+            var buttonsHook = ButtonsHookForTesting;
+            if (buttonsHook != null)
+            {
+                try { buttonsHook(sessionId, !journalActive); }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(UiTag,
+                        $"ReFlyRevertDialog ButtonsHookForTesting threw: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            if (journalActive)
+            {
+                ParsekLog.Info(SessionTag,
+                    $"Revert dialog: merge journal active sess={sessionId} — Discard Re-fly button hidden");
             }
 
             var hook = ShowHookForTesting;
@@ -144,20 +180,20 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton fullRevertButton = new DialogGUIButton("Full Revert (Discard Re-fly)", () =>
+            DialogGUIButton discardButton = new DialogGUIButton("Discard Re-fly", () =>
             {
                 DialogVisible = false;
                 ClearLock();
-                if (onFullRevert == null)
+                if (onDiscardReFly == null)
                 {
-                    ParsekLog.Warn(UiTag, $"ReFlyRevertDialog: Full Revert button had null callback sess={sessionId}");
+                    ParsekLog.Warn(UiTag, $"ReFlyRevertDialog: Discard Re-fly button had null callback sess={sessionId}");
                     return;
                 }
-                try { onFullRevert(); }
+                try { onDiscardReFly(); }
                 catch (Exception ex)
                 {
                     ParsekLog.Error(UiTag,
-                        $"ReFlyRevertDialog Full Revert callback threw: {ex.GetType().Name}: {ex.Message}");
+                        $"ReFlyRevertDialog Discard Re-fly callback threw: {ex.GetType().Name}: {ex.Message}");
                 }
             });
 
@@ -179,57 +215,91 @@ namespace Parsek
             });
 
             PopupDialog.DismissPopup(DialogName);
-            PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f),
-                new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog(
+
+            MultiOptionDialog dialog = journalActive
+                ? new MultiOptionDialog(
                     DialogName,
                     body,
                     title,
                     HighLogic.UISkin,
                     retryButton,
-                    fullRevertButton,
-                    cancelButton),
+                    cancelButton)
+                : new MultiOptionDialog(
+                    DialogName,
+                    body,
+                    title,
+                    HighLogic.UISkin,
+                    retryButton,
+                    discardButton,
+                    cancelButton);
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                dialog,
                 false,
                 HighLogic.UISkin);
         }
 
         /// <summary>
         /// Builds the dialog body copy for the given revert-target context.
-        /// Launch variant keeps the launchpad-oriented wording; Prelaunch
-        /// variant swaps in VAB/SPH wording and clarifies that Retry still
-        /// returns the player to FLIGHT (not the editor) regardless of
-        /// which button they clicked.
+        /// Launch variant says "returns you to the Space Center"; Prelaunch
+        /// variant says "returns you to the VAB or SPH" and clarifies that
+        /// Retry still returns the player to FLIGHT (not the editor)
+        /// regardless of which button they clicked. When
+        /// <paramref name="journalActive"/> is true the Discard Re-fly
+        /// bullet is replaced with a notice explaining the button is hidden
+        /// while a merge is in progress.
         /// </summary>
-        internal static string BuildBody(RevertTarget target)
+        internal static string BuildBody(RevertTarget target, bool journalActive = false)
         {
-            if (target == RevertTarget.Prelaunch)
+            string retryLine = target == RevertTarget.Prelaunch
+                ? "- Retry from Rewind Point: discard this attempt and re-load the " +
+                  "rewind-point quicksave. This returns you to FLIGHT at the split " +
+                  "moment regardless of which Revert button you clicked. The " +
+                  "Unfinished Flight entry stays available so you can try again.\n"
+                : "- Retry from Rewind Point: discard this attempt and re-load the " +
+                  "rewind-point quicksave. The Unfinished Flight entry stays available " +
+                  "so you can try again.\n";
+
+            string discardLine;
+            if (journalActive)
             {
-                return
-                    "You are re-flying an unfinished mission. What would you like to do?\n\n" +
-                    "- Retry from Rewind Point: discard this attempt and re-load the " +
-                    "rewind-point quicksave. This returns you to FLIGHT at the split " +
-                    "moment regardless of which Revert button you clicked. The " +
-                    "Unfinished Flight entry stays available so you can try again.\n" +
-                    "- Full Revert (Discard Re-fly): throw away the current re-fly attempt " +
-                    "and clear the rewind point + supersede / tombstone state for this split, " +
-                    "then let the stock Revert continue and return you to the VAB or SPH. " +
-                    "The committed recordings (original launch, any prior siblings) stay in " +
-                    "the timeline. Career state stays where it is now.\n" +
-                    "- Continue Flying: keep the current attempt; do nothing.";
+                discardLine =
+                    "- Discard Re-fly is unavailable while a merge is in progress. " +
+                    "Finish or roll back the merge (load the save) and try again.\n";
+            }
+            else if (target == RevertTarget.Prelaunch)
+            {
+                discardLine =
+                    "- Discard Re-fly: throw away the current re-fly attempt and reload " +
+                    "the rewind point; returns you to the VAB or SPH at the moment you " +
+                    "opened the Rewind Point. The tree's other Rewind Points, supersede " +
+                    "relations, and tombstones stay intact. Unfinished Flights still " +
+                    "shows this split so you can try again.\n";
+            }
+            else
+            {
+                discardLine =
+                    "- Discard Re-fly: throw away the current re-fly attempt and reload " +
+                    "the rewind point; returns you to the Space Center at the moment you " +
+                    "opened the Rewind Point. The tree's other Rewind Points, supersede " +
+                    "relations, and tombstones stay intact. Unfinished Flights still " +
+                    "shows this split so you can try again.\n";
             }
 
             return
                 "You are re-flying an unfinished mission. What would you like to do?\n\n" +
-                "- Retry from Rewind Point: discard this attempt and re-load the " +
-                "rewind-point quicksave. The Unfinished Flight entry stays available " +
-                "so you can try again.\n" +
-                "- Full Revert (Discard Re-fly): throw away the current re-fly attempt " +
-                "and clear the rewind point + supersede / tombstone state for this split, " +
-                "then let the stock Revert continue and return you to the launchpad. " +
-                "The committed recordings (original launch, any prior siblings) stay in " +
-                "the timeline. Career state stays where it is now.\n" +
+                retryLine +
+                discardLine +
                 "- Continue Flying: keep the current attempt; do nothing.";
+        }
+
+        private static bool IsMergeJournalActive()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario)) return false;
+            return scenario.ActiveMergeJournal != null;
         }
 
         internal static void LockInput()
@@ -250,6 +320,7 @@ namespace Parsek
             DialogVisible = false;
             ShowHookForTesting = null;
             BodyHookForTesting = null;
+            ButtonsHookForTesting = null;
         }
     }
 }

@@ -147,3 +147,13 @@ Source/Parsek/MarkerValidator.cs
 # (§6.9 step 8); routing through ELS would be circular because
 # tombstones ARE the ELS filter.
 Source/Parsek/LoadTimeSweep.cs
+
+# RevertInterceptor.DiscardReFlyHandler looks up the session's provisional
+# re-fly recording by id (marker.ActiveReFlyRecordingId) in the raw
+# committed list so it can remove it via RecordingStore.RemoveCommittedInternal
+# (design §6.14). The provisional is NotCommitted by invariant — marker
+# validation guarantees this on load, and no production path upgrades it
+# before the user clicks Discard — so ERS filters it out by definition.
+# The raw read is the only way to resolve the provisional to a Recording
+# reference for removal.
+Source/Parsek/RevertInterceptor.cs

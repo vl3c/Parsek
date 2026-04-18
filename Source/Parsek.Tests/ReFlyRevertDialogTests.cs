@@ -5,8 +5,8 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 12 of Rewind-to-Staging (design §6.7 + §10.6): guards the three
-    /// callback handlers on <see cref="RevertInterceptor"/> and the prefix
+    /// Phase 12 of Rewind-to-Staging (design §6.7 + §6.14 + §10.6): guards the
+    /// three callback handlers on <see cref="RevertInterceptor"/> and the prefix
     /// gate that decides whether the stock
     /// <see cref="FlightDriver.RevertToLaunch"/> runs.
     ///
@@ -14,7 +14,7 @@ namespace Parsek.Tests
     /// The actual <see cref="PopupDialog"/> rendering cannot be exercised
     /// from xUnit (no live Unity UI canvas), so the tests drive the
     /// callback-wiring side directly via <see cref="RevertInterceptor.RetryHandler"/>,
-    /// <see cref="RevertInterceptor.FullRevertHandler"/>,
+    /// <see cref="RevertInterceptor.DiscardReFlyHandler"/>,
     /// <see cref="RevertInterceptor.CancelHandler"/>, plus the prefix gate
     /// via <see cref="RevertInterceptor.ShouldBlock"/>.
     /// </para>
@@ -58,17 +58,20 @@ namespace Parsek.Tests
 
         // ---------- Helpers ---------------------------------------------
 
+        private const string ProvisionalRecId = "rec_provisional_p12";
+
         private static ReFlySessionMarker MakeMarker(
             string sessionId = "sess_p12_test",
             string treeId = "tree_p12_test",
             string rpId = "rp_p12_test",
-            string originId = "rec_origin_p12")
+            string originId = "rec_origin_p12",
+            string activeReFlyRecordingId = ProvisionalRecId)
         {
             return new ReFlySessionMarker
             {
                 SessionId = sessionId,
                 TreeId = treeId,
-                ActiveReFlyRecordingId = "rec_provisional_p12",
+                ActiveReFlyRecordingId = activeReFlyRecordingId,
                 OriginChildRecordingId = originId,
                 RewindPointId = rpId,
                 InvokedUT = 42.0,
@@ -76,7 +79,10 @@ namespace Parsek.Tests
             };
         }
 
-        private static RewindPoint MakeRewindPoint(string rpId, string originId)
+        private static RewindPoint MakeRewindPoint(
+            string rpId, string originId,
+            bool sessionProvisional = true,
+            string creatingSessionId = "sess_p12_test")
         {
             return new RewindPoint
             {
@@ -84,6 +90,8 @@ namespace Parsek.Tests
                 BranchPointId = "bp_p12",
                 UT = 0.0,
                 QuicksaveFilename = rpId + ".sfs",
+                SessionProvisional = sessionProvisional,
+                CreatingSessionId = creatingSessionId,
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot
@@ -100,7 +108,8 @@ namespace Parsek.Tests
             ReFlySessionMarker marker = null,
             List<RewindPoint> rps = null,
             List<RecordingSupersedeRelation> supersedes = null,
-            List<LedgerTombstone> tombstones = null)
+            List<LedgerTombstone> tombstones = null,
+            MergeJournal journal = null)
         {
             var scenario = new ParsekScenario
             {
@@ -108,9 +117,60 @@ namespace Parsek.Tests
                 RecordingSupersedes = supersedes ?? new List<RecordingSupersedeRelation>(),
                 LedgerTombstones = tombstones ?? new List<LedgerTombstone>(),
                 ActiveReFlySessionMarker = marker,
+                ActiveMergeJournal = journal,
             };
             ParsekScenario.SetInstanceForTesting(scenario);
             return scenario;
+        }
+
+        private static Recording AddProvisional(string sessionId, string recId = ProvisionalRecId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                MergeState = MergeState.NotCommitted,
+                CreatingSessionId = sessionId,
+                VesselName = "p12_provisional",
+            };
+            RecordingStore.AddProvisional(rec);
+            return rec;
+        }
+
+        private static void InstallQuicksaveExistsOverride(bool exists = true)
+        {
+            RevertInterceptor.DiscardReFlyQuicksaveExistsForTesting = _ => exists;
+        }
+
+        private sealed class DiscardCaptures
+        {
+            public RewindPoint LoadGameRp;
+            public string LoadGameTempName;
+            public int LoadGameCalls;
+
+            public GameScenes? SceneTarget;
+            public EditorFacility SceneFacility;
+            public int SceneCalls;
+
+            public List<string> ScreenMessages = new List<string>();
+        }
+
+        private static DiscardCaptures WireDiscardSeams()
+        {
+            var caps = new DiscardCaptures();
+            RevertInterceptor.DiscardReFlyLoadGameForTesting = (rp, name) =>
+            {
+                caps.LoadGameRp = rp;
+                caps.LoadGameTempName = name;
+                caps.LoadGameCalls++;
+            };
+            RevertInterceptor.DiscardReFlyLoadSceneForTesting = (scene, facility) =>
+            {
+                caps.SceneTarget = scene;
+                caps.SceneFacility = facility;
+                caps.SceneCalls++;
+            };
+            RevertInterceptor.ScreenMessagePostForTesting = msg => caps.ScreenMessages.Add(msg);
+            return caps;
         }
 
         // ---------- Retry -----------------------------------------------
@@ -123,8 +183,6 @@ namespace Parsek.Tests
             var scenario = InstallScenario(marker: marker,
                 rps: new List<RewindPoint> { rp });
 
-            // Capture the rp + slot the handler passes to StartInvoke without
-            // running the full load path.
             RewindPoint capturedRp = null;
             ChildSlot capturedSlot = null;
             RevertInterceptor.RewindInvokeStartForTesting = (r, s) =>
@@ -135,20 +193,13 @@ namespace Parsek.Tests
 
             RevertInterceptor.RetryHandler(marker);
 
-            // Marker cleared so a new RewindInvoker precondition sees no
-            // active session (equivalent to generating a fresh session id on
-            // the upcoming StartInvoke).
             Assert.Null(scenario.ActiveReFlySessionMarker);
-
-            // RewindInvoker.StartInvoke got the same RP + slot captured from
-            // the marker.
             Assert.NotNull(capturedRp);
             Assert.Equal(rp.RewindPointId, capturedRp.RewindPointId);
             Assert.NotNull(capturedSlot);
             Assert.Equal(0, capturedSlot.SlotIndex);
             Assert.Equal(marker.OriginChildRecordingId, capturedSlot.OriginChildRecordingId);
 
-            // Log contract per §10.6: End reason=retry must be emitted.
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("End reason=retry")
@@ -159,7 +210,6 @@ namespace Parsek.Tests
         public void RetryCallback_UnresolvedRp_AbortsWithoutInvokingRewind()
         {
             var marker = MakeMarker();
-            // No rp list installed — scenario has no matching RP.
             var scenario = InstallScenario(marker: marker);
 
             bool invoked = false;
@@ -168,102 +218,557 @@ namespace Parsek.Tests
             RevertInterceptor.RetryHandler(marker);
 
             Assert.False(invoked);
-            // Marker must stay in place — the caller can still attempt Full
-            // Revert or Cancel after this error toast.
             Assert.Same(marker, scenario.ActiveReFlySessionMarker);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("RetryHandler: cannot resolve rp="));
         }
 
-        // ---------- Full Revert -----------------------------------------
+        // ---------- Discard Re-fly --------------------------------------
 
         [Fact]
-        public void FullRevertCallback_InvokesTreeDiscardPurge_WithCorrectTreeId()
+        public void DiscardReFly_LaunchContext_ClearsSessionArtifacts_LoadsRpQuicksave_TransitionsToKSC()
         {
             var marker = MakeMarker();
             var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
-            rp.BranchPointId = "bp_full";
-            var bp = new BranchPoint
-            {
-                Id = "bp_full",
-                Type = BranchPointType.Undock,
-                UT = 0.0,
-                RewindPointId = rp.RewindPointId,
-            };
+            var rec = AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(marker: marker,
+                rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
 
-            var rec = new Recording
-            {
-                RecordingId = "rec_in_tree",
-                VesselName = "P12_test",
-                TreeId = marker.TreeId,
-                MergeState = MergeState.Immutable,
-            };
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
-            var tree = new RecordingTree
-            {
-                Id = marker.TreeId,
-                TreeName = "P12_full_revert",
-                BranchPoints = new List<BranchPoint> { bp },
-            };
-            tree.AddOrReplaceRecording(rec);
-            RecordingStore.AddCommittedTreeForTesting(tree);
-
-            var superRel = new RecordingSupersedeRelation
-            {
-                RelationId = "rsr_p12",
-                OldRecordingId = "rec_in_tree",
-                NewRecordingId = "rec_other",
-                UT = 0.0,
-            };
-
-            var scenario = InstallScenario(
-                marker: marker,
-                rps: new List<RewindPoint> { rp },
-                supersedes: new List<RecordingSupersedeRelation> { superRel });
-
-            // Keep the tree-purge file-delete hook a no-op so we never touch disk.
-            TreeDiscardPurge.DeleteQuicksaveForTesting = _ => true;
-
-            bool stockRevertInvoked = false;
-            RevertInterceptor.StockRevertInvokerForTesting = () => stockRevertInvoked = true;
-
-            RevertInterceptor.FullRevertHandler(marker);
-
-            // Purge ran: RP dropped, supersede dropped, marker cleared.
-            Assert.Empty(scenario.RewindPoints);
-            Assert.Empty(scenario.RecordingSupersedes);
+            // Session artifacts cleared.
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Null(scenario.ActiveMergeJournal);
 
-            // Stock revert was re-dispatched (via the test hook, so no KSP call).
-            Assert.True(stockRevertInvoked);
+            // Provisional gone.
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r?.RecordingId == rec.RecordingId);
 
-            // Log contract per §10.6: End reason=fullRevert.
+            // Origin RP promoted.
+            Assert.False(rp.SessionProvisional);
+            Assert.Null(rp.CreatingSessionId);
+
+            // LoadGame + LoadScene seams hit.
+            Assert.Equal(1, caps.LoadGameCalls);
+            Assert.Same(rp, caps.LoadGameRp);
+            Assert.StartsWith("Parsek_Rewind_discard_", caps.LoadGameTempName);
+            Assert.Equal(1, caps.SceneCalls);
+            Assert.Equal(GameScenes.SPACECENTER, caps.SceneTarget);
+
+            // No error toast.
+            Assert.Empty(caps.ScreenMessages);
+
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
-                && l.Contains("End reason=fullRevert")
+                && l.Contains("End reason=discardReFly")
                 && l.Contains("sess=" + marker.SessionId)
-                && l.Contains("tree=" + marker.TreeId));
+                && l.Contains("target=Launch"));
         }
 
         [Fact]
-        public void FullRevertCallback_EmptyTreeId_ClearsMarker_StillTriggersStockRevert()
+        public void DiscardReFly_PrelaunchContext_VAB_TransitionsToVAB_StartupCleanSetOnEditor()
         {
             var marker = MakeMarker();
-            marker.TreeId = null;
-            var scenario = InstallScenario(marker: marker);
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
 
-            bool stockRevertInvoked = false;
-            RevertInterceptor.StockRevertInvokerForTesting = () => stockRevertInvoked = true;
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Prelaunch, EditorFacility.VAB);
 
-            RevertInterceptor.FullRevertHandler(marker);
+            Assert.Equal(1, caps.SceneCalls);
+            Assert.Equal(GameScenes.EDITOR, caps.SceneTarget);
+            Assert.Equal(EditorFacility.VAB, caps.SceneFacility);
 
-            Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.True(stockRevertInvoked);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
-                && l.Contains("FullRevertHandler: marker sess=")
-                && l.Contains("has empty TreeId"));
+                && l.Contains("End reason=discardReFly")
+                && l.Contains("target=Prelaunch")
+                && l.Contains("facility=VAB"));
+        }
+
+        [Fact]
+        public void DiscardReFly_PrelaunchContext_SPH_TransitionsToSPH_StartupCleanSetOnEditor()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Prelaunch, EditorFacility.SPH);
+
+            Assert.Equal(1, caps.SceneCalls);
+            Assert.Equal(GameScenes.EDITOR, caps.SceneTarget);
+            Assert.Equal(EditorFacility.SPH, caps.SceneFacility);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("End reason=discardReFly")
+                && l.Contains("target=Prelaunch")
+                && l.Contains("facility=SPH"));
+        }
+
+        [Fact]
+        public void DiscardReFly_DoesNotCallTreeDiscardPurge()
+        {
+            // Install state that would be wiped if TreeDiscardPurge ran.
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            var sib = new RewindPoint
+            {
+                RewindPointId = "rp_sibling",
+                BranchPointId = "bp_sibling",
+                UT = 1.0,
+                SessionProvisional = false,
+                QuicksaveFilename = "rp_sibling.sfs",
+            };
+
+            var superRel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_preserve",
+                OldRecordingId = "rec_old",
+                NewRecordingId = "rec_new",
+                UT = 0.0,
+            };
+            var tomb = new LedgerTombstone
+            {
+                TombstoneId = "tomb_preserve",
+                ActionId = "act_preserve",
+                RetiringRecordingId = "rec_retiring",
+                UT = 0.0,
+            };
+
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(
+                marker: marker,
+                rps: new List<RewindPoint> { rp, sib },
+                supersedes: new List<RecordingSupersedeRelation> { superRel },
+                tombstones: new List<LedgerTombstone> { tomb });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            // Trip a test seam on TreeDiscardPurge to prove no invocation.
+            bool purgeInvoked = false;
+            TreeDiscardPurge.DeleteQuicksaveForTesting = _ => { purgeInvoked = true; return true; };
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.False(purgeInvoked,
+                "DiscardReFly must not call TreeDiscardPurge.PurgeTree");
+
+            // Sibling RP + supersede + tombstone preserved.
+            Assert.Contains(scenario.RewindPoints, r => r?.RewindPointId == "rp_sibling");
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Single(scenario.LedgerTombstones);
+        }
+
+        [Fact]
+        public void DiscardReFly_SupersedeRelationsForOtherSplitsInTree_Preserved()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+
+            var rel1 = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_other1",
+                OldRecordingId = "rec_split_a_old",
+                NewRecordingId = "rec_split_a_new",
+                UT = 0.0,
+            };
+            var rel2 = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_other2",
+                OldRecordingId = "rec_split_c_old",
+                NewRecordingId = "rec_split_c_new",
+                UT = 1.0,
+            };
+
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(
+                marker: marker,
+                rps: new List<RewindPoint> { rp },
+                supersedes: new List<RecordingSupersedeRelation> { rel1, rel2 });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            int versionBefore = scenario.SupersedeStateVersion;
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // Both relations preserved.
+            Assert.Equal(2, scenario.RecordingSupersedes.Count);
+            Assert.Contains(scenario.RecordingSupersedes, r => r?.RelationId == "rsr_other1");
+            Assert.Contains(scenario.RecordingSupersedes, r => r?.RelationId == "rsr_other2");
+
+            Assert.True(scenario.SupersedeStateVersion > versionBefore,
+                "SupersedeStateVersion must be bumped by DiscardReFly");
+        }
+
+        [Fact]
+        public void DiscardReFly_TombstonesForOtherSplitsInTree_Preserved()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+
+            var tomb = new LedgerTombstone
+            {
+                TombstoneId = "tomb_other",
+                ActionId = "act_other",
+                RetiringRecordingId = "rec_retiring_other",
+                UT = 0.0,
+            };
+
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(
+                marker: marker,
+                rps: new List<RewindPoint> { rp },
+                tombstones: new List<LedgerTombstone> { tomb });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            int tombVersionBefore = scenario.TombstoneStateVersion;
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Single(scenario.LedgerTombstones);
+            Assert.Equal("tomb_other", scenario.LedgerTombstones[0].TombstoneId);
+
+            Assert.Equal(tombVersionBefore, scenario.TombstoneStateVersion);
+        }
+
+        [Fact]
+        public void DiscardReFly_OtherRPsInTree_Preserved()
+        {
+            var marker = MakeMarker();
+            var originRp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            var other = new RewindPoint
+            {
+                RewindPointId = "rp_other",
+                BranchPointId = "bp_other",
+                UT = 5.0,
+                SessionProvisional = false,
+                QuicksaveFilename = "rp_other.sfs",
+            };
+
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(
+                marker: marker,
+                rps: new List<RewindPoint> { originRp, other });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(2, scenario.RewindPoints.Count);
+            Assert.Contains(scenario.RewindPoints, r => r?.RewindPointId == "rp_other");
+            Assert.Contains(scenario.RewindPoints, r => r?.RewindPointId == marker.RewindPointId);
+        }
+
+        [Fact]
+        public void DiscardReFly_OriginRp_SurvivesLoadTimeSweep()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(
+                marker: marker,
+                rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // Simulate the post-load sweep in the fresh scenario. Marker is
+            // null; the sweep's RP-discard pass would reap any
+            // SessionProvisional=true RP not in the spare set.
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RewindPoints);
+            var survivor = scenario.RewindPoints[0];
+            Assert.Equal(marker.RewindPointId, survivor.RewindPointId);
+            Assert.False(survivor.SessionProvisional,
+                "Origin RP must stay persistent after LoadTimeSweep");
+        }
+
+        [Fact]
+        public void DiscardReFly_UnfinishedFlightsEntryForThisSplit_StaysVisible()
+        {
+            // Build a minimal Immutable origin recording whose ParentBranchPointId
+            // points at the RP's BranchPoint. IsUnfinishedFlight returns true iff
+            // (rec.MergeState == Immutable) && crashed && ParentBranchPointId
+            // present && an RP resolving to that BranchPointId is in
+            // scenario.RewindPoints.
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            rp.BranchPointId = "bp_origin";
+
+            var origin = new Recording
+            {
+                RecordingId = marker.OriginChildRecordingId,
+                VesselName = "origin_vessel",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_origin",
+            };
+            RecordingStore.AddCommittedInternal(origin);
+            AddProvisional(marker.SessionId);
+
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "Precondition: origin should be Unfinished before Discard");
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "Origin should still satisfy IsUnfinishedFlight after Discard");
+        }
+
+        [Fact]
+        public void DiscardReFly_RemovesProvisionalFromCommittedRecordings()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            var rec = AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r?.RecordingId == rec.RecordingId);
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r?.RecordingId == rec.RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("Removed provisional rec=" + rec.RecordingId));
+        }
+
+        [Fact]
+        public void DiscardReFly_BumpsSupersedeStateVersion()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            int before = scenario.SupersedeStateVersion;
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.True(scenario.SupersedeStateVersion > before,
+                "SupersedeStateVersion must be bumped");
+        }
+
+        [Fact]
+        public void DiscardReFly_RpQuicksaveMissing_LogsErrorAndShowsToast()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(false); // simulate missing file
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // Marker + journal cleared (session artifacts still drop).
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+
+            // Origin RP still promoted (so the next Rewind click works).
+            Assert.False(rp.SessionProvisional);
+
+            // LoadGame + LoadScene NOT called.
+            Assert.Equal(0, caps.LoadGameCalls);
+            Assert.Equal(0, caps.SceneCalls);
+
+            // Error toast shown.
+            Assert.Contains(caps.ScreenMessages, m => m.Contains("quicksave missing"));
+
+            // Error log emitted.
+            Assert.Contains(logLines, l =>
+                l.Contains("[RewindSave]")
+                && l.Contains("rewind point quicksave missing"));
+
+            // End line still logs, with dispatched=false.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("End reason=discardReFly")
+                && l.Contains("dispatched=false"));
+        }
+
+        [Fact]
+        public void DiscardReFly_JournalActive_HandlerRefuses_ShowsToast()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            var rec = AddProvisional(marker.SessionId);
+            var journal = new MergeJournal
+            {
+                JournalId = "journal_p12",
+                SessionId = marker.SessionId,
+                Phase = MergeJournal.Phases.Begin,
+            };
+            var scenario = InstallScenario(
+                marker: marker,
+                rps: new List<RewindPoint> { rp },
+                journal: journal);
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // Nothing touched: marker stays, journal stays, provisional stays,
+            // origin RP stays session-provisional, scene not dispatched.
+            Assert.Same(marker, scenario.ActiveReFlySessionMarker);
+            Assert.Same(journal, scenario.ActiveMergeJournal);
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r?.RecordingId == rec.RecordingId);
+            Assert.True(rp.SessionProvisional);
+            Assert.Equal(0, caps.LoadGameCalls);
+            Assert.Equal(0, caps.SceneCalls);
+
+            Assert.Contains(caps.ScreenMessages, m => m.Contains("merge in progress"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("refusing")
+                && l.Contains("merge journal active"));
+        }
+
+        [Fact]
+        public void DiscardReFly_JournalActive_DialogHidesDiscardButton()
+        {
+            var marker = MakeMarker();
+            var journal = new MergeJournal
+            {
+                JournalId = "journal_gate",
+                SessionId = marker.SessionId,
+                Phase = MergeJournal.Phases.Begin,
+            };
+            InstallScenario(marker: marker, journal: journal);
+
+            bool? includeDiscardSeen = null;
+            ReFlyRevertDialog.ButtonsHookForTesting = (_, include) => includeDiscardSeen = include;
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            ReFlyRevertDialog.Show(marker, RevertTarget.Launch,
+                () => { }, () => { }, () => { });
+
+            Assert.Equal(false, includeDiscardSeen);
+
+            // Log-assertion: journal-gate log fires.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("merge journal active")
+                && l.Contains("Discard Re-fly button hidden"));
+        }
+
+        [Fact]
+        public void DiscardReFly_NoJournal_DialogShowsDiscardButton()
+        {
+            var marker = MakeMarker();
+            InstallScenario(marker: marker);
+
+            bool? includeDiscardSeen = null;
+            ReFlyRevertDialog.ButtonsHookForTesting = (_, include) => includeDiscardSeen = include;
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            ReFlyRevertDialog.Show(marker, RevertTarget.Launch,
+                () => { }, () => { }, () => { });
+
+            Assert.Equal(true, includeDiscardSeen);
+        }
+
+        [Fact]
+        public void DiscardReFly_NullMarker_LogsWarn_NoOp()
+        {
+            var scenario = InstallScenario(marker: null);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(null, RevertTarget.Launch);
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("DiscardReFlyHandler: null marker"));
+        }
+
+        [Fact]
+        public void DiscardReFly_UnresolvableRpId_ClearsMarker_NoSceneDispatch()
+        {
+            var marker = MakeMarker(rpId: "rp_missing_forever");
+            // No matching RP in scenario.
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(marker: marker);
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Equal(0, caps.LoadGameCalls);
+            Assert.Equal(0, caps.SceneCalls);
+            Assert.Contains(caps.ScreenMessages, m => m.Contains("rewind point missing"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("unresolvable rp=rp_missing_forever"));
+        }
+
+        [Fact]
+        public void DiscardReFly_EmptyTreeId_StillClearsSessionArtifacts_StillDispatchesScene()
+        {
+            var marker = MakeMarker();
+            marker.TreeId = null; // empty tree id no longer branches behavior
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            var scenario = InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(1, caps.LoadGameCalls);
+            Assert.Equal(1, caps.SceneCalls);
+            Assert.Equal(GameScenes.SPACECENTER, caps.SceneTarget);
+        }
+
+        [Fact]
+        public void DiscardReFly_LogsEndReasonDiscardReFly()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Prelaunch, EditorFacility.SPH);
+
+            int endLineCount = 0;
+            foreach (var l in logLines)
+            {
+                if (l.Contains("[ReFlySession]")
+                    && l.Contains("End reason=discardReFly")
+                    && l.Contains("sess=" + marker.SessionId)
+                    && l.Contains("target=Prelaunch")
+                    && l.Contains("facility=SPH"))
+                {
+                    endLineCount++;
+                }
+            }
+            Assert.Equal(1, endLineCount);
+
+            // Stale reason must NOT appear.
+            Assert.DoesNotContain(logLines, l => l.Contains("End reason=fullRevert"));
         }
 
         // ---------- Cancel ----------------------------------------------
@@ -281,11 +786,9 @@ namespace Parsek.Tests
 
             RevertInterceptor.CancelHandler(marker);
 
-            // No state touched.
             Assert.Same(markerBefore, scenario.ActiveReFlySessionMarker);
             Assert.Equal(rpCountBefore, scenario.RewindPoints.Count);
 
-            // Log contract per §10.6: Revert dialog cancelled sess=<id>.
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("Revert dialog cancelled")
@@ -297,7 +800,6 @@ namespace Parsek.Tests
         [Fact]
         public void Interceptor_NoActiveSession_AllowsStockRevert()
         {
-            // Scenario installed but marker is null.
             InstallScenario(marker: null);
 
             ReFlySessionMarker resolved;
@@ -310,7 +812,6 @@ namespace Parsek.Tests
         [Fact]
         public void Interceptor_NoScenario_AllowsStockRevert()
         {
-            // ParsekScenario.Instance is null (ResetInstanceForTesting in ctor).
             ReFlySessionMarker resolved;
             bool block = RevertInterceptor.ShouldBlock(out resolved);
 
@@ -367,25 +868,22 @@ namespace Parsek.Tests
                 l.Contains("[RewindUI]") && l.Contains("marker is null"));
         }
 
-        // ---------- Prelaunch-target context ----------------------------
+        // ---------- Body-copy context variants --------------------------
 
         [Fact]
-        public void Show_LaunchTarget_BodyContainsLaunchpad()
+        public void Show_LaunchTarget_BodyContainsSpaceCenter()
         {
             var marker = MakeMarker();
             string capturedBody = null;
             ReFlyRevertDialog.BodyHookForTesting = (_, body) => capturedBody = body;
-            // Short-circuit the popup spawn so the test runs without a
-            // Unity canvas; the body hook still fires beforehand.
             ReFlyRevertDialog.ShowHookForTesting = _ => { };
 
             ReFlyRevertDialog.Show(marker, RevertTarget.Launch,
                 () => { }, () => { }, () => { });
 
             Assert.NotNull(capturedBody);
-            Assert.Contains("launchpad", capturedBody);
-            Assert.DoesNotContain("VAB", capturedBody);
-            Assert.DoesNotContain("SPH", capturedBody);
+            Assert.Contains("Space Center", capturedBody);
+            Assert.DoesNotContain("VAB or SPH", capturedBody);
         }
 
         [Fact]
@@ -396,11 +894,10 @@ namespace Parsek.Tests
             ReFlyRevertDialog.BodyHookForTesting = (_, body) => capturedBody = body;
             ReFlyRevertDialog.ShowHookForTesting = _ => { };
 
-            // The back-compat 4-arg overload should forward with target=Launch.
             ReFlyRevertDialog.Show(marker, () => { }, () => { }, () => { });
 
             Assert.NotNull(capturedBody);
-            Assert.Contains("launchpad", capturedBody);
+            Assert.Contains("Space Center", capturedBody);
         }
 
         [Fact]
@@ -415,11 +912,9 @@ namespace Parsek.Tests
                 () => { }, () => { }, () => { });
 
             Assert.NotNull(capturedBody);
-            Assert.Contains("VAB", capturedBody);
-            Assert.Contains("SPH", capturedBody);
-            // Retry-returns-to-FLIGHT clarifier for the Prelaunch context.
+            Assert.Contains("VAB or SPH", capturedBody);
             Assert.Contains("FLIGHT", capturedBody);
-            Assert.DoesNotContain("launchpad", capturedBody);
+            Assert.DoesNotContain("Space Center", capturedBody);
         }
 
         [Fact]
@@ -443,7 +938,6 @@ namespace Parsek.Tests
         [Fact]
         public void Prefix_RevertToPrelaunch_NoActiveSession_ReturnsTrue()
         {
-            // No scenario marker — stock revert should proceed.
             InstallScenario(marker: null);
 
             bool result = RevertInterceptor.Prefix(RevertTarget.Prelaunch);
@@ -474,83 +968,7 @@ namespace Parsek.Tests
                 && l.Contains("target=Prelaunch"));
         }
 
-        // ---------- Prelaunch FullRevertHandler --------------------------
-
-        [Fact]
-        public void FullRevertHandler_PrelaunchContext_InvokesStockRevertToPrelaunch()
-        {
-            var marker = MakeMarker();
-            var scenario = InstallScenario(marker: marker);
-
-            // Keep tree-purge hook off — no tree installed, we just want to
-            // observe the Prelaunch dispatch seam after marker-clear.
-            marker.TreeId = null;
-
-            bool prelaunchInvoked = false;
-            bool launchInvoked = false;
-            RevertInterceptor.StockRevertToPrelaunchInvokerForTesting = () => prelaunchInvoked = true;
-            RevertInterceptor.StockRevertInvokerForTesting = () => launchInvoked = true;
-
-            RevertInterceptor.FullRevertHandler(marker, RevertTarget.Prelaunch);
-
-            Assert.True(prelaunchInvoked);
-            Assert.False(launchInvoked);
-            Assert.Null(scenario.ActiveReFlySessionMarker);
-        }
-
-        [Fact]
-        public void FullRevertHandler_LaunchContext_InvokesStockRevertToLaunch()
-        {
-            // Regression: the existing Launch-context behaviour is unchanged.
-            var marker = MakeMarker();
-            var scenario = InstallScenario(marker: marker);
-            marker.TreeId = null;
-
-            bool prelaunchInvoked = false;
-            bool launchInvoked = false;
-            RevertInterceptor.StockRevertToPrelaunchInvokerForTesting = () => prelaunchInvoked = true;
-            RevertInterceptor.StockRevertInvokerForTesting = () => launchInvoked = true;
-
-            RevertInterceptor.FullRevertHandler(marker, RevertTarget.Launch);
-
-            Assert.True(launchInvoked);
-            Assert.False(prelaunchInvoked);
-            Assert.Null(scenario.ActiveReFlySessionMarker);
-        }
-
-        [Fact]
-        public void FullRevertHandler_PrelaunchContext_LogsTargetInEndLine()
-        {
-            var marker = MakeMarker();
-            InstallScenario(marker: marker);
-            marker.TreeId = null;
-
-            RevertInterceptor.StockRevertToPrelaunchInvokerForTesting = () => { };
-
-            RevertInterceptor.FullRevertHandler(marker, RevertTarget.Prelaunch, EditorFacility.SPH);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[ReFlySession]")
-                && l.Contains("End reason=fullRevert")
-                && l.Contains("sess=" + marker.SessionId)
-                && l.Contains("target=Prelaunch")
-                && l.Contains("facility=SPH"));
-        }
-
-        [Fact]
-        public void CancelHandler_PrelaunchContext_LogsTarget()
-        {
-            var marker = MakeMarker();
-            InstallScenario(marker: marker);
-
-            RevertInterceptor.CancelHandler(marker, RevertTarget.Prelaunch);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[ReFlySession]")
-                && l.Contains("Revert dialog cancelled")
-                && l.Contains("sess=" + marker.SessionId)
-                && l.Contains("target=Prelaunch"));
-        }
+        // ---------- Retry context coverage ------------------------------
 
         [Fact]
         public void RetryHandler_PrelaunchContext_LogsTarget_StillReinvokesRewind()
@@ -572,12 +990,26 @@ namespace Parsek.Tests
 
             Assert.NotNull(capturedRp);
             Assert.NotNull(capturedSlot);
-            // Retry is RP-anchored: same RP + slot regardless of context.
             Assert.Equal(rp.RewindPointId, capturedRp.RewindPointId);
             Assert.Null(scenario.ActiveReFlySessionMarker);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("End reason=retry")
+                && l.Contains("sess=" + marker.SessionId)
+                && l.Contains("target=Prelaunch"));
+        }
+
+        [Fact]
+        public void CancelHandler_PrelaunchContext_LogsTarget()
+        {
+            var marker = MakeMarker();
+            InstallScenario(marker: marker);
+
+            RevertInterceptor.CancelHandler(marker, RevertTarget.Prelaunch);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Revert dialog cancelled")
                 && l.Contains("sess=" + marker.SessionId)
                 && l.Contains("target=Prelaunch"));
         }
