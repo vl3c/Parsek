@@ -199,7 +199,7 @@ Alternative (weaker) fix: relax REC-002 by skipping `rec.IsDebris` in `Recording
 
 Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` in `CreateBreakupChildRecording`. Adds zero-motion tail samples that all downstream consumers would have to learn to ignore.
 
-**Files:** `Source/Parsek/ParsekFlight.cs:6974-7090` (pruner + predicate, rename), `Source/Parsek/ParsekScenario.cs:2364` (caller — no change required), `Source/Parsek.Tests/` (new unit-test variants for Landed + Recovered terminal states). No migration required for existing saves: the pruner runs on commit/revert, so loading `c5` (or any affected save) and performing any action that commits/reverts will sweep the stale leaf.
+**Files:** `Source/Parsek/ParsekFlight.cs:6974-7090` (pruner + predicate, rename), `Source/Parsek/ParsekScenario.cs:2364` (caller — no change required), `Source/Parsek/InGameTests/LogContractTests.cs` (`RecordingStopMetricsValid` follow-up to preserve the intentional scene-exit debris shape), `Source/Parsek.Tests/` (new unit-test variants for Landed + Recovered terminal states). No migration required for existing saves: the pruner runs on commit/revert, so loading `c5` (or any affected save) and performing any action that commits/reverts will sweep the stale leaf.
 
 **Scope:** Small. Single-branch widening of one predicate, narrowed to fully terminal/same-point debris, plus boundary unit-test coverage. No schema change, no serialization change.
 
