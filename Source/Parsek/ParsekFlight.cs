@@ -6987,28 +6987,21 @@ namespace Parsek
             // Same-frame breakup debris can die inside the coalescing window and only retain
             // the split seed point. These stubs are non-playable, fail the data-health
             // contract, and never contribute a meaningful ghost or spawn path. #447 widened
-            // this to include any terminal state (Landed / Recovered / Splashed / Destroyed)
-            // because a 1-point 0-duration debris leaf carries no playable trajectory
-            // regardless of how the leaf finalized.
+            // this beyond Destroyed, but only for debris that has already fully ended
+            // (Landed / Recovered / Splashed / Destroyed). Scene-exit commits can still
+            // produce one-point SubOrbital / Orbiting debris leaves; keep those for
+            // diagnosis instead of silently deleting non-terminal recordings.
 
             // Terminal-state breakdown for the summary log (#447 follow-up): aggregate before
             // PruneLeafRecordings removes the recordings from the tree.
             var breakdown = new Dictionary<TerminalState, int>();
-            int unsetCount = 0;
             for (int i = 0; i < toPrune.Count; i++)
             {
                 if (!tree.Recordings.TryGetValue(toPrune[i], out var rec) || rec == null) continue;
-                if (rec.TerminalStateValue.HasValue)
-                {
-                    var state = rec.TerminalStateValue.Value;
-                    breakdown[state] = (breakdown.TryGetValue(state, out var n) ? n : 0) + 1;
-                }
-                else
-                {
-                    unsetCount++;
-                }
+                var state = rec.TerminalStateValue.Value;
+                breakdown[state] = (breakdown.TryGetValue(state, out var n) ? n : 0) + 1;
             }
-            string summarySuffix = FormatTerminalStateBreakdown(breakdown, unsetCount);
+            string summarySuffix = FormatTerminalStateBreakdown(breakdown);
 
             PruneLeafRecordings(
                 tree,
@@ -7019,24 +7012,20 @@ namespace Parsek
         }
 
         // #447 follow-up: render a "(Landed=2, Destroyed=1)" suffix for the prune summary
-        // log. Returns empty string when nothing to break out (keeps the legacy summary line
-        // shape for callers that don't pass terminal states).
+        // log. Returns empty string when nothing to break out.
         internal static string FormatTerminalStateBreakdown(
-            Dictionary<TerminalState, int> breakdown,
-            int unsetCount)
+            Dictionary<TerminalState, int> breakdown)
         {
-            if ((breakdown == null || breakdown.Count == 0) && unsetCount == 0)
+            if (breakdown == null || breakdown.Count == 0)
                 return string.Empty;
             var parts = new List<string>();
             // Iterate enum values in their declared order so the suffix is deterministic
             // regardless of dictionary insertion order.
             foreach (TerminalState state in Enum.GetValues(typeof(TerminalState)))
             {
-                if (breakdown != null && breakdown.TryGetValue(state, out var count) && count > 0)
+                if (breakdown.TryGetValue(state, out var count) && count > 0)
                     parts.Add($"{state}={count}");
             }
-            if (unsetCount > 0)
-                parts.Add($"Unset={unsetCount}");
             return parts.Count == 0 ? string.Empty : " (" + string.Join(", ", parts) + ")";
         }
 
@@ -7140,28 +7129,60 @@ namespace Parsek
             if (rec.SidecarLoadFailed) return false;
             if (!rec.IsDebris) return false;
             if (rec.Points.Count != 1) return false;
+            if (!rec.TerminalStateValue.HasValue
+                || !IsTerminalSinglePointDebrisStubState(rec.TerminalStateValue.Value))
+                return false;
             if (rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue) return false;
             // #447: also accept section-backed single-point debris (1 TrackSection whose only
-            // payload is at most one frame and no orbit checkpoints). These appear when a
+            // payload is the same single frame and no orbit checkpoints). These appear when a
             // Breakup leaf seeded from CrashCoalescer.GetPreCapturedTrajectoryPoint lands or
             // TTL-expires before any additional background sample is appended; the section
             // wrapper is empty data even though its presence used to keep the leaf alive.
             //
-            // Spec note: the original bug spec called this "TRACK_SECTION that contains only
-            // the same point" (i.e. section.frames[0].ut == rec.Points[0].ut). We deliberately
-            // do NOT enforce the UT-equality here: the only producer of these stubs is the
-            // breakup-seed path, which always has the section wrapping the seed frame. By
-            // accepting any payload <= 1 frame we widen the safety net to also cover any
-            // future producer that emits a 1-frame 0-checkpoint section without bothering to
-            // mirror the trajectory point. Multi-frame sections remain protected (real data),
-            // and the Points.Count == 1 + IsDebris guards above keep this off non-debris and
-            // multi-point recordings.
+            // Keep the section-backed widening narrow: the lone section must literally be the
+            // mirrored seed point from the flat trajectory. A different single frame is a
+            // second sample and must not be pruned under #447.
             if (rec.TrackSections == null || rec.TrackSections.Count == 0) return true;
             if (rec.TrackSections.Count > 1) return false;
             var section = rec.TrackSections[0];
             int frames = section.frames?.Count ?? 0;
             int checkpoints = section.checkpoints?.Count ?? 0;
-            return frames <= 1 && checkpoints == 0;
+            return checkpoints == 0
+                && frames == 1
+                && TrajectoryPointEquals(section.frames[0], rec.Points[0]);
+        }
+
+        private static bool IsTerminalSinglePointDebrisStubState(TerminalState state)
+        {
+            switch (state)
+            {
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                case TerminalState.Destroyed:
+                case TerminalState.Recovered:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TrajectoryPointEquals(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            return a.ut == b.ut
+                && a.latitude == b.latitude
+                && a.longitude == b.longitude
+                && a.altitude == b.altitude
+                && a.rotation.x == b.rotation.x
+                && a.rotation.y == b.rotation.y
+                && a.rotation.z == b.rotation.z
+                && a.rotation.w == b.rotation.w
+                && a.velocity.x == b.velocity.x
+                && a.velocity.y == b.velocity.y
+                && a.velocity.z == b.velocity.z
+                && a.bodyName == b.bodyName
+                && a.funds == b.funds
+                && a.science == b.science
+                && a.reputation == b.reputation;
         }
 
         // Phase F: ComputeTreeDeltaFunds/Science/Reputation removed.

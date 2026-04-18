@@ -646,6 +646,53 @@ namespace Parsek.Tests
             Assert.True(tree.Recordings.ContainsKey("non-debris-landed"));
         }
 
+        // #447 follow-up: missing terminal state is outside the dead-stub shape. Keep it so
+        // finalize-path bugs are visible instead of being silently pruned as debris noise.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsDebrisLeafWithoutTerminalState()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "unset-terminal",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 150.0,
+                IsDebris = true
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 150.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("unset-terminal"));
+        }
+
+        // Scene-exit commits can produce single-point debris that is still in flight. Keep
+        // those instead of broadening #447 into a blanket "delete any 1-point debris leaf".
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsSubOrbitalDebrisLeaf()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "suborbital-debris",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 175.0,
+                ExplicitEndUT = 175.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.SubOrbital
+            };
+            keep.Points.Add(new TrajectoryPoint { ut = 175.0, altitude = 1500.0 });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("suborbital-debris"));
+        }
+
         // #447 review item 2: Splashed variant for symmetry with the other terminal states
         // (Landed / Recovered / Destroyed) enumerated in the comment. Same shape: IsDebris
         // leaf with exactly one trajectory point, no sections.
@@ -763,6 +810,58 @@ namespace Parsek.Tests
             Assert.True(tree.Recordings.ContainsKey("single-section-with-checkpoint"));
         }
 
+        // #447 follow-up: the widened section-backed case is only the mirrored seed point.
+        // If the section's lone frame differs from the flat point, that's a second distinct
+        // sample and the recording must survive.
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepsSingleSectionDebrisLeafWithDifferentFrame()
+        {
+            var tree = new RecordingTree { TreeName = "Test" };
+            var keep = new Recording
+            {
+                RecordingId = "single-section-different-frame",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 510.0,
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            keep.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0,
+                bodyName = "Kerbin"
+            });
+            keep.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 500.0,
+                endUT = 510.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 510.0,
+                        latitude = 1.0,
+                        longitude = 2.0,
+                        altitude = 3.0,
+                        bodyName = "Kerbin"
+                    }
+                },
+                checkpoints = null,
+                source = TrackSectionSource.Background
+            });
+            tree.Recordings[keep.RecordingId] = keep;
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("single-section-different-frame"));
+        }
+
         // #447 review item 5: terminal-state breakdown is included in the summary log when
         // multiple stubs are pruned together (e.g. "(Landed=2, Destroyed=1)"). Pins the
         // breakdown formatter and the deterministic enum-order rendering.
@@ -801,15 +900,14 @@ namespace Parsek.Tests
                 && l.Contains("(Landed=2, Destroyed=1)"));
         }
 
-        // #447 review item 5: direct unit test of the breakdown formatter — empty input
-        // returns empty string, single state is parenthesized correctly, and unset terminal
-        // states are tagged "Unset" rather than dropped silently.
+        // #447 review item 5: direct unit tests of the breakdown formatter — empty input
+        // returns empty string and enum-order rendering stays deterministic.
         [Fact]
         public void FormatTerminalStateBreakdown_EmptyReturnsEmpty()
         {
-            Assert.Equal(string.Empty, ParsekFlight.FormatTerminalStateBreakdown(null, 0));
+            Assert.Equal(string.Empty, ParsekFlight.FormatTerminalStateBreakdown(null));
             Assert.Equal(string.Empty, ParsekFlight.FormatTerminalStateBreakdown(
-                new Dictionary<TerminalState, int>(), 0));
+                new Dictionary<TerminalState, int>()));
         }
 
         [Fact]
@@ -822,15 +920,7 @@ namespace Parsek.Tests
                 { TerminalState.Landed, 2 }
             };
             Assert.Equal(" (Landed=2, Destroyed=1)",
-                ParsekFlight.FormatTerminalStateBreakdown(d, 0));
-        }
-
-        [Fact]
-        public void FormatTerminalStateBreakdown_IncludesUnsetCount()
-        {
-            var d = new Dictionary<TerminalState, int> { { TerminalState.Landed, 1 } };
-            Assert.Equal(" (Landed=1, Unset=2)",
-                ParsekFlight.FormatTerminalStateBreakdown(d, 2));
+                ParsekFlight.FormatTerminalStateBreakdown(d));
         }
 
         [Fact]
