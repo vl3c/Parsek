@@ -83,9 +83,10 @@ namespace Parsek
                 "- Retry from Rewind Point: discard this attempt and re-load the " +
                 "rewind-point quicksave. The Unfinished Flight entry stays available " +
                 "so you can try again.\n" +
-                "- Full Revert (Discard Re-fly): throw away the entire re-fly subtree " +
-                "(supersedes, tombstones, and rewind points for this split are cleared) " +
-                "and return to the pre-re-fly state. Career state stays where it is now.\n" +
+                "- Full Revert (Discard Re-fly): throw away the current re-fly attempt " +
+                "and clear the rewind point + supersede / tombstone state for this split. " +
+                "The committed recordings (original launch, any prior siblings) stay in " +
+                "the timeline. Career state stays where it is now.\n" +
                 "- Continue Flying: keep the current attempt; do nothing.";
 
             // Button handlers. Each releases the input lock + clears the
