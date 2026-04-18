@@ -477,49 +477,46 @@ namespace Parsek
             // InvariantCulture-safe: plain interpolation serializes floats with the
             // system locale decimal separator, and ConvertPartPurchased parses with IC.
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            // #451: KSP's stock Funding.OnPartPurchased deducts AvailablePart.entryCost
-            // (the one-time R&D unlock price), NOT AvailablePart.cost (per-instance build
-            // cost charged at vessel rollout). Capturing `cost` here used to over- or
-            // under-debit the ledger by (entryCost - cost) per purchase under the harder
-            // BypassEntryPurchaseAfterResearch=false difficulty. Capture entryCost so the
-            // ledger's FundsSpending matches the FundsChanged(RnDPartPurchase) event KSP
-            // fires (carries -entryCost). Under bypass=on KSP charges nothing and the
-            // FundsModule walk treats the action as authoritative; in either mode, the
-            // correct deduction value is entryCost.
             float entryCost = part.entryCost;
+            float chargedCost = ComputePartPurchaseFundsSpent(entryCost);
 
-            // detail keeps the legacy `cost=` token for save-format read compat
-            // (ConvertPartPurchased and GameStateEventDisplay both look up `cost`); the
-            // value now carries entryCost so existing parsers see the correct number
-            // without code changes. `entryCost=` is added as a redundant clarity token —
-            // ExtractDetailField tolerates unknown keys, so it is harmless to old readers.
-            var detail = "cost=" + entryCost.ToString("R", ic) +
+            // #451: `cost=` stays authoritative for save/load and UI because it must
+            // reflect the ACTUAL funds debit: 0 when BypassEntryPurchaseAfterResearch is
+            // on, entryCost when the harder no-bypass difficulty is active. Persist the
+            // raw stock entry price separately for diagnostics and future tooling.
+            var detail = "cost=" + chargedCost.ToString("R", ic) +
                          ";entryCost=" + entryCost.ToString("R", ic);
 
-            // valueBefore/valueAfter: no current consumer reads these fields for
-            // PartPurchased (every downstream reader — ConvertPartPurchased,
-            // GameStateEventDisplay, ReconcileKscAction — pulls the magnitude from
-            // the detail token instead). Updated to entryCost for semantic
-            // consistency with the new detail value, so future event-explorer UIs
-            // or CSV exports that derive deltas from valueBefore-valueAfter land on
-            // the same number as the detail-driven path.
+            // Keep before/after in sync with the charged amount so future consumers that
+            // derive deltas from the numeric fields do not resurrect the bypass=true bug.
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.PartPurchased,
                 key = partName,
                 detail = detail,
-                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + entryCost : 0,
+                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + chargedCost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
             Emit(evt, "PartPurchased");
-            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (entryCost={entryCost})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
             // #431 gate: see OnContractAccepted.
             if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Returns the actual funds debit for an R&D part purchase. Stock KSP still
+        /// fires OnPartPurchased when BypassEntryPurchaseAfterResearch is enabled, but
+        /// the purchase is free in that mode.
+        /// </summary>
+        internal static float ComputePartPurchaseFundsSpent(float entryCost)
+        {
+            return LedgerOrchestrator.IsBypassEntryPurchaseAfterResearch() ? 0f : entryCost;
         }
 
         #endregion

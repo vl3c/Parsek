@@ -668,28 +668,26 @@ namespace Parsek.Tests
             Assert.Equal(300, ResourceBudget.ParseCostFromDetail("type=tech;cost=300;node=basic"));
         }
 
-        // ---------- #451: entryCost preference + legacy cost-token fallback ----------
+        // ---------- #451: charged cost is authoritative; entryCost is fallback-only ----------
 
         [Fact]
-        public void ParseCostFromDetail_PrefersEntryCost_OverLegacyCost()
+        public void ParseCostFromDetail_UsesCostWhenEntryCostAlsoPresent()
         {
-            // Mirrors GameStateEventConverter.ConvertPartPurchased: when both tokens
-            // are present, entryCost wins. Pre-empts a future producer that drops the
-            // legacy cost= token so MilestoneCommittedFunds (the only consumer of
-            // ParseCostFromDetail for PartPurchased events) stays in lockstep.
-            Assert.Equal(800, ResourceBudget.ParseCostFromDetail("cost=450;entryCost=800"));
+            // Mirrors GameStateEventConverter.ConvertPartPurchased: `cost=` is the
+            // authoritative charged amount, and `entryCost=` is only raw-price context.
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("cost=0;entryCost=800"));
         }
 
         [Fact]
-        public void ParseCostFromDetail_EntryCostOnly_ParsesWithoutLegacyCost()
+        public void ParseCostFromDetail_EntryCostOnly_FallsBackWhenCostMissing()
         {
             Assert.Equal(1200, ResourceBudget.ParseCostFromDetail("entryCost=1200"));
         }
 
         [Fact]
-        public void ParseCostFromDetail_EntryCostBeforeCost_OrderIndependent()
+        public void ParseCostFromDetail_CostWinsEvenWhenEntryCostAppearsFirst()
         {
-            Assert.Equal(800, ResourceBudget.ParseCostFromDetail("entryCost=800;cost=450"));
+            Assert.Equal(450, ResourceBudget.ParseCostFromDetail("entryCost=800;cost=450"));
         }
 
         #endregion

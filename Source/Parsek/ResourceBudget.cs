@@ -373,22 +373,31 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(detail)) return 0;
 
-            // #451: prefer `entryCost=` (post-#451 PartPurchased detail) and fall
-            // back to the legacy `cost=` token. Mirrors the dual-token strategy in
-            // GameStateEventConverter.ConvertPartPurchased so MilestoneCommittedFunds
-            // (the only consumer of this helper for PartPurchased events) stays in
-            // lockstep if a future producer drops the legacy `cost=` token. Other
-            // event types that emit only `cost=` (CrewHired, TechResearch, etc.)
-            // continue to land on the cost= fallback unchanged.
+            // #451: `cost=` is the authoritative charged amount. PartPurchased events may
+            // additionally carry `entryCost=` for the raw stock unlock price, but
+            // bypass=true careers persist `cost=0;entryCost=<raw>` and must not reload as
+            // a paid purchase. Fall back to `entryCost=` only when `cost=` is absent.
             string[] parts = detail.Split(';');
+            double cost = 0;
+            bool costFound = false;
             double entryCost = 0;
             bool entryCostFound = false;
-            double legacyCost = 0;
-            bool legacyCostFound = false;
             for (int i = 0; i < parts.Length; i++)
             {
                 string part = parts[i].Trim();
-                if (!entryCostFound && part.StartsWith("entryCost=", StringComparison.Ordinal))
+                if (!costFound && part.StartsWith("cost=", StringComparison.Ordinal))
+                {
+                    double parsed;
+                    if (double.TryParse(part.Substring(5), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out parsed))
+                    {
+                        cost = parsed;
+                        costFound = true;
+                    }
+                    else
+                        ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
+                }
+                else if (!entryCostFound && part.StartsWith("entryCost=", StringComparison.Ordinal))
                 {
                     double parsed;
                     if (double.TryParse(part.Substring(10), NumberStyles.Float,
@@ -400,21 +409,9 @@ namespace Parsek
                     else
                         ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
                 }
-                else if (!legacyCostFound && part.StartsWith("cost=", StringComparison.Ordinal))
-                {
-                    double parsed;
-                    if (double.TryParse(part.Substring(5), NumberStyles.Float,
-                        CultureInfo.InvariantCulture, out parsed))
-                    {
-                        legacyCost = parsed;
-                        legacyCostFound = true;
-                    }
-                    else
-                        ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
-                }
             }
+            if (costFound) return cost;
             if (entryCostFound) return entryCost;
-            if (legacyCostFound) return legacyCost;
             return 0;
         }
 

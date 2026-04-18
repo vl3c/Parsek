@@ -91,35 +91,29 @@ namespace Parsek.Tests
             Assert.Equal("rec3", action.RecordingId);
         }
 
-        // ---------- #451: entryCost preference + legacy cost-token fallback ----------
+        // ---------- #451: charged cost is authoritative; entryCost is fallback-only ----------
 
         [Fact]
-        public void ConvertEvent_PartPurchased_PrefersEntryCostToken_OverLegacyCost()
+        public void ConvertEvent_PartPurchased_UsesCostToken_WhenEntryCostAlsoPresent()
         {
-            // Post-#451 events write both `cost=` (legacy) and `entryCost=` carrying the
-            // same value (KSP's entryCost). The converter must read `entryCost=` so a
-            // hypothetically stale `cost=` token (e.g. a save written by a tampered
-            // intermediary) cannot poison the FundsSpent value. The conventional emit
-            // path writes both with the same number — assert the priority order
-            // explicitly by giving them deliberately different values here.
+            // Post-#451 recorder output may include the raw stock entry price for
+            // diagnostics, but the ledger must honor the actual charged amount from
+            // `cost=`. This is the stock-default bypass=true shape.
             var evt = MakeEvent(GameStateEventType.PartPurchased, 2100.0,
-                key: "solidBooster.v2", detail: "cost=450;entryCost=800");
+                key: "solidBooster.v2", detail: "cost=0;entryCost=800");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec451-1");
 
             Assert.NotNull(action);
             Assert.Equal(GameActionType.FundsSpending, action.Type);
-            Assert.Equal(800f, action.FundsSpent);
+            Assert.Equal(0f, action.FundsSpent);
             Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
         }
 
         [Fact]
-        public void ConvertEvent_PartPurchased_LegacyCostOnly_StillParses()
+        public void ConvertEvent_PartPurchased_CostOnly_StillParses()
         {
             // Save-format read-compat: pre-#451 events only have `cost=<value>` with no
-            // `entryCost=` token. The converter must fall back to `cost=` so old saves
-            // load with the same numeric semantics they had before #451 (the value lives
-            // behind the same key, just may be slightly off vs. KSP's actual entryCost
-            // deduction — same as pre-fix behavior, no regression).
+            // `entryCost=` token. That remains the authoritative amount.
             var evt = MakeEvent(GameStateEventType.PartPurchased, 2200.0,
                 key: "mk1pod", detail: "cost=600");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec451-2");
@@ -130,10 +124,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConvertEvent_PartPurchased_EntryCostOnly_ParsesWithoutLegacyCost()
+        public void ConvertEvent_PartPurchased_EntryCostOnly_FallsBackWhenCostMissing()
         {
-            // Defensive: if a future producer drops the `cost=` token entirely, the
-            // converter must still resolve FundsSpent from `entryCost=`.
+            // Defensive fallback for malformed/future detail that omitted `cost=`.
             var evt = MakeEvent(GameStateEventType.PartPurchased, 2300.0,
                 key: "liquidEngine", detail: "entryCost=1200");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec451-3");
