@@ -633,35 +633,33 @@ namespace Parsek
 
         /// <summary>
         /// Computes the stock save-state shape for KSP's repeatable record nodes from the
-        /// number of effective ledger hits that survived recalculation.
+        /// number of effective ledger hits that survived recalculation. In-tier partial
+        /// progress is not persisted in the ledger, so rewinds can only restore the last
+        /// paid threshold and next stock reward interval.
         /// </summary>
         internal static bool TryComputeRepeatableRecordState(
             ProgressNode node, int effectiveCount, out RepeatableRecordState state)
-        {
-            return TryComputeRepeatableRecordState(
-                node, effectiveCount, currentRecord: double.NaN, out state);
-        }
-
-        /// <summary>
-        /// Computes the stock save-state shape for KSP's repeatable record nodes from the
-        /// number of effective ledger hits that survived recalculation, while preserving the
-        /// live best-value progress when it still fits inside that reward band.
-        /// </summary>
-        internal static bool TryComputeRepeatableRecordState(
-            ProgressNode node, int effectiveCount, double currentRecord,
-            out RepeatableRecordState state)
         {
             state = default;
             if (!TryGetRepeatableRecordDefinition(node, out double maxRecord, out double roundValue))
                 return false;
 
-            double paidRecord = 0.0;
-            int clampedEffectiveCount = Math.Max(0, effectiveCount);
-            for (int i = 0; i < clampedEffectiveCount; i++)
+            if (effectiveCount <= 0)
+            {
+                state.Reached = false;
+                state.Complete = false;
+                state.Record = 0.0;
+                state.RewardThreshold = 0.0;
+                state.RewardInterval = 1;
+                return true;
+            }
+
+            double record = 0.0;
+            for (int i = 0; i < effectiveCount; i++)
             {
                 int interval = 1;
                 double nextRecord = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
-                    paidRecord, maxRecord, roundValue, ref interval);
+                    record, maxRecord, roundValue, ref interval);
                 if (double.IsInfinity(nextRecord) || double.IsNaN(nextRecord) ||
                     nextRecord == double.MaxValue)
                 {
@@ -673,32 +671,16 @@ namespace Parsek
                     return true;
                 }
 
-                paidRecord = nextRecord;
+                record = nextRecord;
             }
 
             int nextInterval = 1;
             double nextThreshold = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
-                paidRecord, maxRecord, roundValue, ref nextInterval);
+                record, maxRecord, roundValue, ref nextInterval);
             bool isComplete = nextThreshold == double.MaxValue ||
-                paidRecord >= maxRecord - RecordStateEpsilon;
+                record >= maxRecord - RecordStateEpsilon;
 
-            double boundedCurrentRecord = NormalizeRepeatableRecordValue(currentRecord, maxRecord);
-            double record = paidRecord;
-            if (isComplete)
-            {
-                record = maxRecord;
-            }
-            else if (boundedCurrentRecord > paidRecord + RecordStateEpsilon &&
-                boundedCurrentRecord < nextThreshold - RecordStateEpsilon)
-            {
-                // Preserve the live best value as long as it still fits within the reward
-                // band implied by the effective hit count. If it spills into a later band,
-                // the extra rewards did not survive recalculation, so we fall back to the
-                // last paid threshold instead of inventing an in-between value.
-                record = boundedCurrentRecord;
-            }
-
-            state.Reached = record > RecordStateEpsilon;
+            state.Reached = true;
             state.Complete = isComplete;
             state.Record = record;
             state.RewardThreshold = isComplete ? 0.0 : nextThreshold;
@@ -740,6 +722,9 @@ namespace Parsek
             FieldInfo reachedField, FieldInfo completeField, out bool changed)
         {
             changed = false;
+            if (!TryComputeRepeatableRecordState(node, effectiveCount, out var targetState))
+                return false;
+
             Type nodeType = node.GetType();
             FieldInfo recordField = nodeType.GetField("record",
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -757,13 +742,6 @@ namespace Parsek
                     $"(record={recordField != null}, rewardThreshold={rewardThresholdField != null}, " +
                     $"rewardInterval={rewardIntervalField != null}) — skipping");
                 return true;
-            }
-
-            double liveRecord = NormalizeRepeatableRecordValue(recordField.GetValue(node), double.MaxValue);
-            if (!TryComputeRepeatableRecordState(
-                node, effectiveCount, liveRecord, out var targetState))
-            {
-                return false;
             }
 
             bool currentReached = node.IsReached;
@@ -834,30 +812,6 @@ namespace Parsek
             }
 
             return true;
-        }
-
-        private static double NormalizeRepeatableRecordValue(object value, double maxRecord)
-        {
-            if (value == null)
-                return 0.0;
-
-            double numericValue;
-            if (value is double doubleValue)
-                numericValue = doubleValue;
-            else if (value is float floatValue)
-                numericValue = floatValue;
-            else if (value is int intValue)
-                numericValue = intValue;
-            else if (value is long longValue)
-                numericValue = longValue;
-            else
-                return 0.0;
-
-            if (double.IsNaN(numericValue) || double.IsInfinity(numericValue))
-                return 0.0;
-            if (numericValue <= 0.0)
-                return 0.0;
-            return numericValue > maxRecord ? maxRecord : numericValue;
         }
 
         private static bool TryGetRepeatableRecordDefinition(
