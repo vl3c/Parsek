@@ -25,7 +25,9 @@ namespace Parsek
         ScienceChanged,      // 16
         ReputationChanged,   // 17
         MilestoneAchieved,   // 18
-        KerbalRescued        // 19
+        KerbalRescued,       // 19
+        StrategyActivated,   // 20
+        StrategyDeactivated  // 21
     }
 
     public struct GameStateEvent
@@ -315,6 +317,9 @@ namespace Parsek
                     return "Reputation";
                 case GameStateEventType.MilestoneAchieved:
                     return "Milestone";
+                case GameStateEventType.StrategyActivated:
+                case GameStateEventType.StrategyDeactivated:
+                    return "Strategy";
                 default:
                     return "Event";
             }
@@ -396,6 +401,16 @@ namespace Parsek
                 {
                     string trait = ExtractDetailField(detail, "trait");
                     return trait != null ? $"Rescued {key} ({trait})" : $"Rescued {key}";
+                }
+                case GameStateEventType.StrategyActivated:
+                {
+                    string title = ExtractDetailField(detail, "title");
+                    return title != null ? $"\"{title}\" activated" : $"\"{key}\" activated";
+                }
+                case GameStateEventType.StrategyDeactivated:
+                {
+                    string title = ExtractDetailField(detail, "title");
+                    return title != null ? $"\"{title}\" deactivated" : $"\"{key}\" deactivated";
                 }
                 default:
                     return key;

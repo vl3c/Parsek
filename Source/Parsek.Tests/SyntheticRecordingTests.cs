@@ -9,6 +9,14 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    /// <summary>
+    /// Synthetic recording generator and manual save injector. Concurrency hazard:
+    /// InjectAllRecordings purges <c>saves/&lt;save&gt;/Parsek/Recordings/</c> before
+    /// rewriting fixtures, so never point it at a save a live KSP session is
+    /// using. The purge path probes <c>KSP.log</c> and refuses when KSP appears
+    /// active, but contributors should still treat reinjection as a closed-KSP
+    /// operation.
+    /// </summary>
     [Collection("Sequential")]
     public class SyntheticRecordingTests
     {
@@ -4888,6 +4896,98 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InjectAllRecordings_RefusesWhenKspLogLocked_NoOps()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_purge_locked_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string saveDir = Path.Combine(tempDir, "test-save");
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            Directory.CreateDirectory(recordingsDir);
+            string sentinelPath = Path.Combine(recordingsDir, "sentinel.prec");
+            File.WriteAllText(sentinelPath, "keep me");
+
+            string kspLogPath = Path.Combine(tempDir, "KSP.log");
+            File.WriteAllText(kspLogPath, "locked");
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                using (File.Open(kspLogPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    var writer = new ScenarioWriter();
+                    bool purged = writer.TryPurgeRecordingSidecarsForInject(
+                        saveDir,
+                        kspLogPath,
+                        out string refusalMessage);
+
+                    Assert.False(purged);
+                    Assert.False(string.IsNullOrWhiteSpace(refusalMessage));
+                    Assert.True(Directory.Exists(recordingsDir));
+                    Assert.True(File.Exists(sentinelPath));
+                    Assert.Contains("refused to purge", refusalMessage);
+                    Assert.Contains("Close KSP", refusalMessage);
+                    Assert.Contains(logLines, line =>
+                        line.Contains("[Parsek][ERROR][SyntheticInjector]") &&
+                        line.Contains("refused to purge") &&
+                        line.Contains("KSP.log"));
+                }
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void InjectAllRecordings_RefusesWhenKspLogLocked_EvenWithoutPurgeTarget()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_guard_only_locked_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string kspLogPath = Path.Combine(tempDir, "KSP.log");
+            File.WriteAllText(kspLogPath, "locked");
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                using (File.Open(kspLogPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    var writer = new ScenarioWriter();
+                    bool allowed = writer.TryPurgeRecordingSidecarsForInject(
+                        saveDir: null,
+                        kspLogPath: kspLogPath,
+                        out string refusalMessage);
+
+                    Assert.False(allowed);
+                    Assert.Contains("(purge skipped)", refusalMessage);
+                    Assert.Contains(logLines, line =>
+                        line.Contains("[Parsek][ERROR][SyntheticInjector]") &&
+                        line.Contains("(purge skipped)") &&
+                        line.Contains("KSP.log"));
+                }
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public void RecordingPaths_ValidateRecordingId_RejectsInvalidIds()
         {
             Assert.False(RecordingPaths.ValidateRecordingId(null));
@@ -5421,8 +5521,8 @@ namespace Parsek.Tests
             content = UnlockAllTechNodes(content, kspRoot);
             File.WriteAllText(savePath, content);
 
-            // Stale sidecar file cleanup lives in InjectAllRecordings via
-            // ScenarioWriter.PurgeRecordingSidecars so the purge happens exactly
+            // Stale sidecar file cleanup lives in InjectAllRecordings via the
+            // guarded ScenarioWriter purge helper so the delete happens exactly
             // once per save directory, even when CleanSaveStart is invoked for
             // both persistent.sfs and the test-target save that share a dir.
         }
@@ -5435,12 +5535,13 @@ namespace Parsek.Tests
                 ?? "test career";
             string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
                 ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
             // Default to clean start (strip stale vessels from FLIGHTSTATE).
             // Set PARSEK_INJECT_CLEAN_START=0 to keep existing vessels.
             string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
             bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
 
-            string saveDir = Path.Combine(ResolveKspRoot(), "saves", saveName);
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
 
             // Inject into both persistent.sfs and the target save — KSP loads
             // persistent first (sets initialLoadDone), so it must have the recordings too.
@@ -5449,6 +5550,17 @@ namespace Parsek.Tests
             string targetPath = Path.Combine(saveDir, targetSave);
             if (!File.Exists(targetPath))
                 return;
+
+            // Refuse the entire inject up front when the target KSP install
+            // looks live. The purge helper probes KSP.log with an exclusive
+            // open; we reuse it even when cleanStart=false so save writes and
+            // sidecar rewrites never race a running session.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
 
             // Clean BOTH saves first so they share the same daytime UT,
             // then read baseUT from the (now updated) target save.
@@ -5460,15 +5572,6 @@ namespace Parsek.Tests
                     if (File.Exists(sp))
                         CleanSaveStart(sp);
                 }
-
-                // Purge stale recording sidecars from any previous inject run —
-                // otherwise yesterday's GUID-keyed showcase sidecars linger on
-                // disk after we rewrite persistent.sfs with fresh GUIDs, and
-                // KSP's load-time orphan sweep later deletes them (along with
-                // the current run's sidecars that happen to share the victim
-                // set). Gated on cleanStart so real-user recordings survive
-                // when PARSEK_INJECT_CLEAN_START=0 is set explicitly.
-                new ScenarioWriter().PurgeRecordingSidecars(saveDir);
             }
 
             double baseUT = ReadUTFromSave(targetPath);
@@ -5618,7 +5721,6 @@ namespace Parsek.Tests
             writer.AddTree(SurfaceGhostChainTree(baseUT));
 
             // Add real recordings from the default career (if available)
-            string kspRoot = ResolveKspRoot();
             var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
 
             foreach (string file in targets)

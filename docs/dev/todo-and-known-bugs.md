@@ -11,10 +11,10 @@ These four TODOs are the top of the work queue. They're load-bearing correctness
 
 1. ~~**#431** — Events captured during a recording share the recording's commit/discard fate (purge on discard, not epoch-filter).~~
 2. ~~**#432** — Gloops ghost-only recordings must not capture or apply any game events.~~
-3. **#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).
+3. ~~**#433** — `PlaybackEnabled` toggle should be visual-only (stop gating vessel spawn and crew reservations).~~
 4. ~~**#434** — Revert to Launch should auto-discard, not open the merge dialog.~~
 
-Only #433 remains open. Once it ships, the `MilestoneStore.CurrentEpoch` filter can be retired as legacy work-around (see #431's notes).
+All four have shipped. The `MilestoneStore.CurrentEpoch` filter can now be retired as the legacy work-around (see #431's notes).
 
 ---
 
@@ -77,19 +77,130 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
-## 454. `Emit`/`AddEvent` ref refactor — eliminate value-type field-mirror bug class
+## 461. Pin the #406 reuse post-frame visibility invariant with an in-game test
 
-**Problem:** `GameStateEvent` is a struct, and `GameStateStore.AddEvent` / `GameStateRecorder.Emit` stamp fields (`epoch`, `recordingId`) on the appended slot without those mutations propagating back to the caller's local copy. Any caller that caches its own `evt` after `Emit` therefore holds a stale value, and any later lookup keyed on the stamped fields silently misses.
+**Source:** clean-context Opus review of PR #394 (#406 ghost GameObject reuse across loop-cycle boundaries), finding #4.
 
-**Source:** surfaced by PR #443 review. The #443 root cause was that `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local copy. The cached pending entry kept `epoch=0` while the stored slot carried the live epoch, and `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed silently. The fix mirrors `MilestoneStore.CurrentEpoch` (and now also `recordingId`) onto the cached entry by hand inside `RegisterPendingMilestoneEvent`.
+**Concern:** the reuse orchestrator (`GhostPlaybackEngine.ReusePrimaryGhostAcrossCycle`) exits with `state.deferVisibilityUntilPlaybackSync == true` and `state.ghost.activeSelf == false` (set by `PrimeLoadedGhostForPlaybackUT.SetActive(false)`). Control then falls through to `UpdateLoopingPlayback:1161-1166`, where `ActivateGhostVisualsIfNeeded` clears both on the same frame before any render pass. A post-investigation trace confirmed this is invariant-equivalent to the pre-#406 destroy+spawn path, so no visual regression exists today — but NO test pins this control-flow ordering. A future refactor that adds an early `return` between `:1068` (the reuse call) and `:1166` (the activation) would silently hide the ghost for a frame on every cycle boundary.
 
-**Concern:** the same shape exists for every other field that `Emit`/`AddEvent` mutates on its local copy: `recordingId` is stamped by `Emit` (`GameStateRecorder.cs:60-62`) but the caller's copy doesn't see it; today no consumer reads `recordingId` off a cached event after `Emit`, but any future code that does will repeat #443's silent-failure shape. The current fix mirrors `epoch` and `recordingId` explicitly with a defense-in-depth comment, but the structural fix is to change the signatures so the language enforces propagation.
+**Fix:** new in-game test `Bug406_ReuseClearsDeferVisOnSameFrame` (alongside the existing `Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity` in `Source/Parsek/InGameTests/RuntimeTests.cs`) that drives a full `UpdateLoopingPlayback` cycle-boundary pass (using a real committed recording from the test fixture, or a minimal IPlaybackTrajectory + positioner stub with engine-level seams) and asserts on the post-frame state: `state.deferVisibilityUntilPlaybackSync == false` AND `state.ghost.activeSelf == true` (in the happy-path, not-zone-hidden case). A second variant asserts the `hiddenByZone` branch keeps the ghost inactive as designed. xUnit cannot observe `GameObject.activeSelf`; must be in-game.
 
-**Fix:** change `internal static void Emit(GameStateEvent evt, string source)` to `internal static void Emit(ref GameStateEvent evt, string source)`, and `internal static void AddEvent(GameStateEvent e)` to `internal static void AddEvent(ref GameStateEvent e)`. Update every call site (12+ Emit callers in `GameStateRecorder.cs` plus `AddEvent` direct callers including the unit tests) to pass `ref`. Once the signatures take `ref`, the explicit `evt.epoch = ...` / `evt.recordingId = ...` mirrors inside `RegisterPendingMilestoneEvent` can be dropped — the language guarantees the caller's local sees every store-side mutation.
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (new test). Possibly a test seam on `GhostPlaybackEngine` if the full `UpdateLoopingPlayback` path is too coupled to the real FrameContext plumbing — prefer driving the public entry point to avoid white-box coupling.
 
-**Files:** `Source/Parsek/GameStateRecorder.cs` (`Emit` signature + 12+ call sites), `Source/Parsek/GameStateStore.cs` (`AddEvent` signature), `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs` and other tests that call `AddEvent` directly (~20 sites across the test project).
+**Scope:** Small (one in-game test + possibly a thin seam). Pure regression-test work, no production code change.
 
-**Scope:** Medium. Cross-cutting signature change with many mechanical call-site updates, but no behavioral change — purely structural hardening against the #443 value-type bug class.
+**Dependencies:** #394 (#406 follow-up) merged.
+
+**Status:** TODO. Priority: low. User-visible impact today is none (invariant-equivalent to pre-#406 behaviour); the test is a guard against future refactors.
+
+---
+
+## ~~460.~~ Playback budget exceeded on mainLoop-dominated frames with `0 ghosts` — one-shot latches miss the attribution
+
+**Source:** post-B3 playtest `logs/2026-04-18_1947_450-b3-playtest/KSP.log`. After the #414 and #450 Phase A one-shot latches consumed on the first spike (a spawn-driven 12.2 ms frame at line 14355-14499), three more budget-exceeded WARNs fired at `0 ghosts, warp=1x` with no accompanying breakdown because both latches were already burnt:
+
+```
+28224 19:45:37  Playback frame budget exceeded: 24.8ms (0 ghosts, warp: 1x) | suppressed=12
+31864 19:46:21  Playback frame budget exceeded: 17.7ms (0 ghosts, warp: 1x) | suppressed=3
+96325 19:46:54  Playback frame budget exceeded: 18.8ms (0 ghosts, warp: 1x)
+```
+
+All three post-B3 spikes also reported `spawn=0 destroy=0`, so per-ghost spawn/destroy work is not the culprit — mainLoop dispatch (per-trajectory iteration including overlap-ghost iteration) plus maybe deferred events is. (The original hypothesis "zero ghosts means zero spawn/destroy work" is not literally true: `ghostsProcessed` counts ghosts active at frame start, and the same frame can still spawn and destroy a brand-new ghost without incrementing the counter. The implementation's gates 3+4 — `spawnMicroseconds < 1 ms` AND `destroyMicroseconds < 1 ms` — enforce the real classifier.) The pre-B3 smoke-test breakdown (2026-04-18_0221, also 0 ghosts) attributed `mainLoop=8.55 ms` across `trajectories=289` (~30 µs per trajectory). Scaling that to the post-B3 22-ish-ms spikes suggests ~75 µs per trajectory on those frames — high enough to matter.
+
+**Concern:** without a new breakdown WARN the attribution is guesswork. Candidates: OnGhostDistance computation, lazy-reentry pending-flag scan across all ghosts, overlap cycle bookkeeping, deferred event drain. Without per-phase data we can't rule them in or out.
+
+**Fix:** added a third one-shot latch (`s_mainLoopBreakdownOneShotFired`) in `DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown`, independent of the #414 and #450 latches. Fires on the next frame where the budget is exceeded AND `ghostsProcessed == 0` AND `spawnMicroseconds < 1 ms` AND `destroyMicroseconds < 1 ms` AND `mainLoopMicroseconds >= 10 ms` AND mainLoop is strictly the largest non-spawn/destroy phase (dominance check against deferredCreated, deferredCompleted, observabilityCapture, explosionCleanup). Emits a single WARN with per-phase ms, trajectory/overlap counts, and two per-dispatch means: `meanPerTraj = mainLoop / trajectoriesIterated` and `meanPerDispatch = mainLoop / (trajectoriesIterated + overlapGhostIterationCount)`. The dual means let a Phase B reader distinguish "slow top-level dispatch" from "overlap fan-out" as two different fix directions. Zero-divisor cases render as `n/a` so degenerate frames surface visibly instead of printing a misleading zero. `PlaybackBudgetPhases` gains one new field (`overlapGhostIterationCount`), populated by incrementing `frameOverlapGhostIterationCount` inside `GhostPlaybackEngine.UpdateExpireAndPositionOverlaps` (once per iteration, before any continue). Three threshold constants (`MainLoopBreakdownMinMainLoopMicroseconds=10_000`, `MainLoopBreakdownMaxSpawnMicroseconds=1_000`, `MainLoopBreakdownMaxDestroyMicroseconds=1_000`) encode the gating. New test seam `SetBug450BreakdownLatchFiredForTesting` (companion to the existing `SetBug414BreakdownLatchFiredForTesting`) enables three-way pairwise latch-independence tests. Plan + design rationale live in `docs/dev/plan-460-mainloop-breakdown.md`.
+
+**Files:** `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (3 new const thresholds, `s_mainLoopBreakdownOneShotFired` latch, new third branch in `CheckPlaybackBudgetThresholdWithBreakdown`, `SetBug450BreakdownLatchFiredForTesting` seam, extended `ResetForTesting` / `ResetPlaybackBreakdownOneShotForTesting`), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `overlapGhostIterationCount` field on `PlaybackBudgetPhases`), `Source/Parsek/GhostPlaybackEngine.cs` (new `frameOverlapGhostIterationCount` field + reset in `UpdatePlayback` + increment in `UpdateExpireAndPositionOverlaps` + population of new struct field + `FrameOverlapGhostIterationCountForTesting` accessor mirrored in `ResetPerFrameCountersForTesting`), `Source/Parsek.Tests/Bug460MainLoopBreakdownTests.cs` (new, 21 regression tests covering every gate — including boundary tests for gate 3/4/5/6 — three-way latch independence, and format rendering).
+
+**Scope:** Small (diagnostic-only). Phase B fix shape is gated on the next playtest's #460 WARN output. No user-observable behaviour change; no CHANGELOG entry (per `feedback_changelog_style`).
+
+**Dependencies:** #414 + #450 Phase A shipped.
+
+**Status:** ~~Fixed~~ (diagnostic only). Plan: `docs/dev/plan-460-mainloop-breakdown.md`. `dotnet build` passes 0/0; targeted `dotnet test --filter Bug460MainLoopBreakdownTests` passes 21/21. In-game verification is deferred to the next playtest bundle — success criterion is a single `Playback mainLoop breakdown` WARN line in `KSP.log` the first time a zero-ghost, mainLoop-dominated budget-exceeded frame occurs.
+
+---
+
+## ~~459.~~ `Run All` cleanup destroys the watched ghost before watch mode exits, flooding `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` with NullReferenceExceptions
+
+**Source:** Playtest `2026-04-18_1947_450-b3-playtest/KSP.log`. At `19:46:21.679`, `InGameTestRunner.PerformBetweenRunCleanup("run-all")` started its teardown in FLIGHT and immediately called `ParsekFlight.DestroyAllTimelineGhosts()` while watch mode was still active on a ghost. The watched `state.ghost.transform` then became a destroyed Unity wrapper, but stock camera state still held it via `PlanetariumCamera.target` / `ScaledMovement.tgtRef`; on the next frame, stock `Sun.LateUpdate` and `FlightGlobals.UpdateInformation` started throwing every frame (about 8,750 exceptions over 60 seconds) until the player alt+F4'd.
+
+**Fix:** extracted `ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(...)` as the shared seam for this ordering guard. `InGameTestRunner.PerformBetweenRunCleanup` now calls it at the top of the `flight != null` block, before reading ghost counts or destroying anything. The helper first retargets stock camera state off the watched ghost without restoring the saved watch camera orbit: `FlightCamera` is rebound to the active vessel, and when map view is open `PlanetariumCamera` is rebound to the active vessel's `mapObject`, so stock `Sun.LateUpdate` / `FlightGlobals.UpdateInformation` no longer retain the destroyed ghost transform. Only after that retarget does it call `ExitWatchMode(skipCameraRestore:true)` to clear Parsek's internal watch state without trying to restore the old camera pose. `ParsekFlight.DestroyAllTimelineGhosts()` also calls the same helper first so rewind and any future caller cannot destroy timeline ghosts while stock watch/camera state still points at one. Added `Patches/SunLateUpdateGuardPatch.cs` as symptom containment: Harmony prefix on `Sun.LateUpdate` returns early when `Sun.target` is null/destroyed and emits a one-shot `[CameraFollow]` WARN so regressions still leave a breadcrumb instead of a per-frame exception storm. Unit coverage in `WatchModeCleanupRegressionTests` now asserts the detach callback runs before the exit callback and that the `[CameraFollow] Exiting watch mode before timeline ghost cleanup` log precedes `[Engine] DestroyAllGhosts`; runtime coverage adds `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs` plus `GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs` to watch the exact cleanup path and the adjacent low-altitude Kerbin spawn path for stock exception spam.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/Patches/SunLateUpdateGuardPatch.cs`, `Source/Parsek.Tests/WatchModeCleanupRegressionTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`.
+
+**Status:** ~~Fixed~~. `dotnet build` passes, `dotnet test --filter WatchModeCleanupRegressionTests` passes (3/3), and full `dotnet test` passes (7195/7196 with 1 pre-existing skipped Unity-runtime test). In-game runtime verification remains pending for the next playtest.
+
+---
+
+## ~~458.~~ Binary `.prec` flat-fallback loads skip the malformed-prefix healer
+
+**Source:** playtest `2026-04-18 1947`. `RuntimeTests.CommittedRecordingsHaveValidData` failed on recording `393b82ccb697492bb7b35c6c621f9d07` (`Learstar A1 Debris`) with `point 13 UT 155.840000000006 < previous 170.920000000014`. Hex-decoding the `.prec` confirmed the top-level flat point list duplicated the authoritative 13-frame prefix and then appended a terminal endpoint, while `TrackSection[0]` itself held the correct monotonically increasing frames. Root cause: commit `4474ba97` added `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`, but only the text `ConfigNode` load path (`DeserializeTrajectoryFrom`) called it. Real committed recordings hydrate through `TrajectorySidecarBinary.Read`, so the bad binary shape bypassed the healer entirely.
+
+**Fix:** `TrajectorySidecarBinary.Read` now runs the same healer in the non-section-authoritative branch after `ReadTrackSections`, with `allowRelativeSections: true` to match the text load path. The existing `ReadBinaryTrajectoryFile ... used flat fallback path` VERBOSE line now includes `healed=true/false` plus `prePoints/postPoints` and `preOrbitSegments/postOrbitSegments`, making it obvious in `KSP.log` whether a malformed flat fallback was rewritten on read. The healer already calls `rec.MarkFilesDirty()`, so a healed sidecar now flushes back out automatically on the next save. `RuntimeTests.CommittedRecordingsHaveValidData` also reports `trackSections=`, `prefixMatchCount=`, and `firstPostPrefixSource=` for any future monotonicity failure so the next playtest points directly at duplicated track-section payload vs flat-only tail data.
+
+**Files:** `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Bug458BinaryFlatFallbackHealTests.cs`.
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter Bug458BinaryFlatFallbackHealTests` (1/1). In-game verification is pending the next playtest bundle.
+
+---
+
+## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
+
+**Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
+
+**Fix:** decompiled `OrbitRendererBase.objectNode_OnClick(MapNode mn, Mouse.Buttons btns)` to confirm the button bitmask is already on the parameter list (KSP fills it via `Mouse.GetAllMouseButtonsUp()`), then bound that argument in the Harmony prefix by original index (`[HarmonyArgument(1)]`) instead of relying on external parameter-name metadata. The pure predicate `GhostIconClickPatch.IsLeftClickFromButtons` returns `true` only when the mask contains `Left` (or is `None`, the defensive default that preserves current UX); the production helper `GhostIconClickPatch.TryPassThroughNonLeftClick` now owns the non-left VERBOSE log + `return true` pass-through so the stock handler pins the caption, and the unit tests exercise that real helper instead of re-emitting the log line manually. Left-click is unchanged — still opens the Focus / Set As Target / Watch menu and suppresses the stock context menu.
+
+**Files:** `Source/Parsek/Patches/GhostVesselLoadPatch.cs`, `Source/Parsek.Tests/GhostIconClickButtonFilterTests.cs` (8 new unit tests).
+
+**Status:** ~~Fixed~~. Targeted unit verification passes via `dotnet test --filter GhostIconClickButtonFilterTests` (8/8). In-game verification is still deferred to the next playtest bundle.
+
+---
+
+## ~~456.~~ `CrewReservation` orphan placement fails when snapshot pid is synthetic (pid=100000 showcase ghost) and doesn't coincide with any live part pid
+
+**Source:** Playtest `2026-04-18_1859_450-phase-a-playtest/KSP.log:15428` and `:35915`. Both log lines:
+
+```
+[Parsek][WARN][CrewReservation] Orphan placement: no matching part with free seat in active vessel for
+  'Bill Kerman' -> 'Urdun Kerman' (snapshot pid=100000 name='mk1pod.v2') - stand-in left in roster
+```
+
+**Close cousin of #413.** #413 fixed the *serialization-side* variant: the matcher used to read `partNode.GetValue("pid")` instead of `persistentId`, so every orphan seat resolved with `PartPid=0` and tier-1 match failed. #456 is the *semantics-side* variant: the snapshot's `persistentId` IS now captured correctly, but for showcase ghosts it's the synthetic value `100000` (the canonical first AddPart-assigned PID — see `.claude/CLAUDE.md` "Ghost event <-> snapshot PID" gotcha), which can never match the KSP-assigned pid of a freshly-launched real vessel.
+
+**Root cause (matcher-side):** `CrewReservationManager.FindTargetPartForOrphan` had a two-tier match (`persistentId` -> `partInfo.name` + free seat) that walked the live vessel parts in list order and took the first match. Tier 1 missed (synthetic vs KSP-assigned pid). Tier 2 worked only when the first-in-order same-name part also had a free seat. No log signal distinguished "pid-hit placed it" from "name-fallback placed it" for playtest triage, so successful fallbacks looked the same as pid matches and missed the "this is a synthetic-pid ghost" pattern.
+
+**Fix:** extracted the matcher decision into a pure `internal static TryResolveActiveVesselPartForSeat(snapshotPid, snapshotPartName, activeParts) -> (partIndex, SeatMatchKind)` helper. Tier-1 pid-hit still wins (PidHit over NameHit); tier-2 name-hit now picks the **tightest fit** (minimum free seats) so single-seat cockpits win over multi-seat passenger cabins when both share a part name. `PlaceOrphanedReplacements` now counts `pidHits` vs `nameHitFallbacks`, surfacing both in the post-loop summary line and on the WARN when both tiers miss. A dedicated `match=name-fallback` INFO line fires on every successful fallback placement so future playtests can grep for it.
+
+**Files:** `Source/Parsek/CrewReservationManager.cs` (`TryResolveActiveVesselPartForSeat` pure helper + `ActivePartSeat` struct + `SeatMatchKind` enum, `FindTargetPartForOrphan` rewritten to call the helper, `PlaceOrphanedReplacements` counter + success INFO line + summary and WARN extensions), `Source/Parsek.Tests/CrewReservationNameHitFallbackTests.cs` (new - 13 unit tests: pid-hit wins over name-hit, name-hit unique / multi / tightest-fit / tie-first-wins, no-match, pid-coincidence, pid-full-falls-to-name, zero-pid-skips-tier-1, null/empty inputs, playtest regression with single-seat full pod, mutation and determinism invariants), `Source/Parsek/InGameTests/RuntimeTests.cs` (new `Bug456_OrphanPlacement_NameHitFallback_PlacesStandin` - builds a synthetic pid=100000 snapshot against the live active vessel, verifies placement via name-fallback, asserts the `match=name-fallback` INFO line and `nameHitFallbacks=1` counter both fired).
+
+**Scope:** Small. Decision-logic refactor + diagnostic-log expansion. No schema or save-format change.
+
+**Status:** ~~Fixed~~. Note: this fix does NOT rescue the exact playtest log line (the active vessel's single `mk1pod.v2` cockpit was already fully crewed, so tier 2 still finds no free seat) — the regression test pins that as a true no-match. What it DOES fix is every future variant where a real free seat exists on a same-named part with a mismatched pid, and surfaces the tier split in the summary log so a follow-up can decide whether to escalate (e.g., force-evict a replacement, or skip orphan placement entirely when the snapshot is a showcase ghost with synthetic pid).
+
+---
+
+## ~~455.~~ `PatchMilestones` WARN storm on one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …)
+
+**Status:** ~~Fixed~~. `PatchRepeatableRecordNode` now calls a new `IsRepeatableRecordType(ProgressNode)` helper as its first step. In normal runtime the helper matches `node.GetType().FullName` against the four stock repeatable subclasses (`KSPAchievements.RecordsAltitude`, `KSPAchievements.RecordsDepth`, `KSPAchievements.RecordsSpeed`, `KSPAchievements.RecordsDistance`) using string comparison so we do not take a compile-time dependency on `KSPAchievements`. The existing `SuppressUnityCallsForTesting` seam enables a simple-name fallback for xUnit stand-ins only, so unrelated same-name classes in other namespaces do not get misclassified in production. Non-record nodes return `false` silently, which flows them through `PatchProgressNodeTree`'s one-shot achieve/un-achieve branch — the correct behavior for one-shot body sub-achievements. Genuinely-record types that drift away from the stock field layout still hit the existing missing-stock-fields WARN as a structural-change alarm. Six unit tests in `KspStatePatcherTests.cs` pin the helper (null, four true stock cases, one name-collision false case, two one-shot false cases) and the `PatchRepeatableRecordNode` branches (one-shot returns false with no WARN; records-named synthetic without stock fields returns true and emits the WARN).
+
+**Source:** Playtest `logs/2026-04-18_1859_450-phase-a-playtest/KSP.log` produced 3,136 WARN lines across 392 unique node IDs of the shape `repeatable node 'Bop/Orbit' is missing stock record fields (record=False, rewardThreshold=False, rewardInterval=False) — skipping`. Root cause: `PatchProgressNodeTree` dispatches every node through `PatchRepeatableRecordNode`, which probed for the three record-specific fields and WARN'd + returned `true` (short-circuiting the caller's one-shot branch) when they were missing. Every non-record progress node (`Orbit`, `Landing`, `Flyby`, `Flight`, …) tripped that path on every recalculation.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs` (new `IsRepeatableRecordType` helper + early-return guard in `PatchRepeatableRecordNode`), `Source/Parsek.Tests/KspStatePatcherTests.cs` (6 regression tests + 6 synthetic `ProgressNode` subclasses exercising both branches).
+
+**Scope:** Small. One production helper, one guarded early return, six unit tests. The one-shot patch path for the 392 body sub-achievements is now reachable — previously `return true` from the records branch silently suppressed it.
+
+---
+
+## ~~454.~~ `Emit`/`AddEvent` ref refactor — eliminate value-type field-mirror bug class
+
+**Status:** ~~Fixed~~. `GameStateStore.AddEvent` and `GameStateRecorder.Emit` now take `ref GameStateEvent`, so every field stamp (`epoch` via `AddEvent`, `recordingId` via `Emit`) propagates back to the caller's local. The explicit `evt.epoch = MilestoneStore.CurrentEpoch` and `evt.recordingId = ResolveCurrentRecordingTag()` mirrors that PR #443 added as defense-in-depth inside `RegisterPendingMilestoneEvent` are removed — the language guarantees the cached pending entry now carries the same stamps as the stored slot. 18 production `Emit` call sites in `GameStateRecorder.cs` (11 already on local `evt`, 7 rvalue `new GameStateEvent { … }` hoisted to named locals) and ~145 test call sites across 12 test files were rewritten to pass `ref`. Three new regression tests in `MilestoneRewardCaptureTests.cs` pin the ref-propagation guarantee: `AddEvent_Ref_PropagatesEpochStampToCaller`, `Emit_Ref_PropagatesRecordingIdAndEpochToCaller`, and `RegisterPendingMilestoneEvent_CachesStampedEvent_WithoutExplicitMirror`. The pre-#454 bug-reproduction test `EnrichPendingMilestoneRewards_CachedEpochZeroVsStoredLive_PostFixPatchesStore` (which depended on the value-type copy producing a cached `epoch=0` vs stored `epoch=7` mismatch) was rewritten to `EnrichPendingMilestoneRewards_CachedEpochMismatch_WarnsThenRegisterPendingSeamSucceeds`: it now forces the mismatch by manually clearing `evt.epoch` after `AddEvent`, keeping the defensive `Warn` path covered as a safety net against any future caller that copies the struct out of the ref call and mutates the field. `OnContractOfferedStoreTests.cs`'s IL-walker regression guard still works because the ref signature does not change `DeclaringType` / `Name` on the `MethodInfo` token.
+
+**Source:** surfaced by PR #443 review. The #443 root cause was that `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local copy. The cached pending entry kept `epoch=0` while the stored slot carried the live epoch, and `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed silently. The #443 fix mirrored the stamps by hand; this PR replaces those mirrors with the structural `ref` signature so the language enforces propagation.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs` (Emit signature + 18 call sites + deleted mirrors in `RegisterPendingMilestoneEvent`), `Source/Parsek/GameStateStore.cs` (AddEvent signature), `Source/Parsek.Tests/*` (~145 mechanical call-site updates across 12 test files + 3 new regression tests + 1 rewritten bug-repro test).
+
+**Scope:** Medium-mechanical. Cross-cutting signature change with many call-site updates, no behavioral change — purely structural hardening against the #443 value-type bug class.
 
 ---
 
@@ -139,20 +250,68 @@ Breakdown of the exceeded frame: 70% of the budget (28.11 / 40.1 ms) lived insid
 
 `mainLoop=11.34 ms` with `trajectories=1 ghosts=0` is also on the high side (expected ≤1 ms per trajectory on an established session), worth subtracting from the spawn cost attribution when a follow-up breakdown lands.
 
-**Fix — investigation-first:** add per-phase timing inside `GhostVisualBuilder.BuildGhostVisuals` (matching #414's pattern in `GhostPlaybackEngine.UpdatePlayback`) to identify which sub-phase dominates. One-shot latch on the first spawn whose total exceeds a threshold (say ≥15 ms) emits a `"Ghost build breakdown (one-shot): partsInstantiated=... partsConfigured=... fxWired=... materialsSwapped=... fxSizeBoost=... reentryPrewarm=... "` line. Steady-state cost zero (Stopwatch `Reset/Start/Stop` only on the exceeded path).
+**Fix — Phase A (shipped): diagnostic first.** `PlaybackBudgetPhases` now carries an aggregate-and-heaviest-spawn breakdown of every `BuildGhostVisualsWithMetrics` call across four sub-phases (snapshot resolve, timeline-from-snapshot, dictionaries, reentry FX) plus a residual "other" bucket so `sum + other = spawnMax` reconciles. `GhostPlaybackEngine.TryPopulateGhostVisuals` hosts four pre-allocated Stopwatches using the #414 spawnStopwatch pattern (pre-call ElapsedTicks + post-call subtraction for per-call deltas; same objects accumulate across the frame for the aggregate). `BuildGhostVisualsWithMetrics.finally` latches the heaviest spawn's breakdown + a byte-backed `HeaviestSpawnBuildType` classification. A separate one-shot WARN (`s_buildBreakdownOneShotFired` — independent of #414's latch so Phase A collects data even when the session's first spike already consumed #414's latch before rollout) fires the very first time a budget-exceeded frame has `spawnMicroseconds > 0`. See `docs/dev/plan-450-build-breakdown.md`.
 
-Once the dominant sub-phase is identified, the fix is one of:
-- **Per-frame time budget on spawn** (`MaxSpawnBuildMsPerFrame`). `TryReserveSpawnSlot` already has the structural hook — extend the predicate to also check accumulated `spawnTicks` against a budget (e.g. 12 ms) and defer any spawn that would push past the cap, whether or not the count cap has been hit.
-- **Coroutine split of `BuildGhostVisuals`** — yield after each major phase (parts, FX, materials, reentry), so a heavy build spreads across 2-3 frames instead of one. Risk: ghost appears visually in stages, which is ugly if the ghost is in-frame at build time. Mitigate with `ApplyGhostVisibility(false)` during the build and one `ApplyGhostVisibility(true)` at the end of the final coroutine step.
-- **Lazy reentry material pre-warm** (if the breakdown fingers it). Defer the pre-warm to the first frame the ghost is actually moving fast enough to need reentry FX, not at spawn time.
+**Phase B branch decision — data from the 2026-04-18 playtest:**
 
-**Files:** `Source/Parsek/GhostVisualBuilder.cs` (per-phase stopwatches + possible coroutine split), `Source/Parsek/GhostPlaybackEngine.cs` (`MaxSpawnBuildMsPerFrame` const + threaded into `TryReserveSpawnSlot`), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (extend `PlaybackBudgetPhases` with build sub-phases), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new one-shot build-breakdown log), `Source/Parsek.Tests/` (new test file or extend `Bug414SpawnThrottleTests.cs`).
+```
+heaviestSpawn[type=recording-start-snapshot
+              snapshot=0.00ms timeline=15.90ms dicts=1.28ms reentry=6.94ms
+              other=0.08ms total=24.20ms]
+```
 
-**Scope:** Medium. Investigation first (diagnostic-only, mirrors #414 Phase 1), then a targeted fix scoped to the identified dominant sub-phase. Do NOT commit to the coroutine-split approach before the breakdown tells us which sub-phase is at fault — the fix shape changes depending on the answer.
+Timeline dominates (65.7 %) and reentry is a significant secondary
+contributor (28.7 %). Both B2 and B3 apply; B3 ships first (smaller blast
+radius), then B2 takes on the remaining `timeline` cost.
 
-**Dependencies:** #414 shipped — the diagnostic framework and `TryReserveSpawnSlot` hook are already on main.
+**Phase B3 (shipped): lazy reentry FX pre-warm.** Defers
+`GhostVisualBuilder.TryBuildReentryFx` from spawn time to the first frame
+the ghost is actually inside a body's atmosphere. New
+`GhostPlaybackState.reentryFxPendingBuild` bool set at spawn when
+`HasReentryPotential(traj) == true`; cleared in
+`ClearLoadedVisualReferences` alongside `reentryFxInfo`. The lazy build
+fires from inside `UpdateReentryFx` after its existing body/atmosphere/
+altitude guards so there is no duplicate `FlightGlobals.Bodies.Find`.
+`MaxLazyReentryBuildsPerFrame = 2` per-frame cap mirrors
+`MaxSpawnsPerFrame` so a burst of same-frame atmosphere entries cannot
+relocate the bimodal hitch. New `reentryFxDeferredThisSession` counter
+tracks deferrals; the gap between deferrals and actual builds at session
+end is the count of trajectories that saved the full 6.94 ms by never
+entering atmosphere. Pure decision logic lives in
+`GhostPlaybackLogic.ShouldBuildLazyReentryFx` for unit testing without
+Unity. See `docs/dev/plan-450-b3-lazy-reentry.md`.
 
-**Status:** TODO. Priority: medium. User-visible as a ~40 ms hitch when an expensive ghost first spawns (e.g., entering physics range on a complex vessel). Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Phase B2 (next): coroutine split of `BuildTimelineGhostFromSnapshot`.**
+Targets the dominant 15.90 ms timeline bucket. Post-B3 playtest
+(`logs/2026-04-18_1947_450-b3-playtest/KSP.log:14474`) confirmed the
+gating: heaviestSpawn reentry dropped to `0.00 ms`, timeline now 93 %
+of the single-spawn cost (`17.59 / 18.91 ms`), and the diagnostics
+health line reports `deferred 4 buildsAvoided 3` — three trajectories
+saved the full build entirely by never entering atmosphere. Ready to
+be planned and implemented.
+
+**Phase B1 (not planned):** the 15 ms latch threshold means #450's
+diagnostic only fires on bimodal cases, so the "spread across many
+spawns" case B1 targets is structurally out of scope of the evidence.
+#414's count cap already covers that pattern.
+
+**Files (B3):** `Source/Parsek/GhostPlaybackState.cs` (new pending flag
++ reset), `Source/Parsek/GhostPlaybackEngine.cs` (restructured
+`UpdateReentryFx` with lazy-build seam, new `TryPerformLazyReentryBuild`
+helper + per-frame cap, spawn-path defer, widened loop-pause call-site
+guard, test seams), `Source/Parsek/GhostPlaybackLogic.cs` (new pure
+`ShouldBuildLazyReentryFx` helper), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs`
+(new `reentryFxDeferredThisSession` counter), `Source/Parsek.Tests/Bug450B3LazyReentryTests.cs`
+(20 xUnit tests), `Source/Parsek/InGameTests/RuntimeTests.cs` (2 in-game
+tests for the live-Unity lazy-build path), `docs/dev/plan-450-b3-lazy-reentry.md` (new).
+
+**Files (A — shipped previously):** `Source/Parsek/GhostPlaybackEngine.cs` (4 sub-phase stopwatches + heaviest-spawn latch), `Source/Parsek/Diagnostics/DiagnosticsStructs.cs` (new `HeaviestSpawnBuildType` enum + 11 new `PlaybackBudgetPhases` fields), `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` (new second one-shot WARN + independent latch), `Source/Parsek.Tests/Bug450BuildBreakdownTests.cs`, `docs/dev/plan-450-build-breakdown.md`.
+
+**Scope:** Phase A = Small (instrumentation-only). Phase B3 = Small (defer one function call + cap). Phase B2 = Medium (coroutine split, new invariants).
+
+**Dependencies:** #414 shipped, Phase A shipped.
+
+**Status:** Phase A + Phase B3 shipped. Phase B2 TODO — gating confirmed by the 2026-04-18_1947 playtest; ready to plan. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
 
 ---
 
@@ -328,7 +487,7 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Files:** `Source/Parsek/GameStateRecorder.cs` (OnProgressComplete + new `RegisterPendingMilestoneEvent` seam, `EnrichPendingMilestoneRewards`, `PendingMilestoneEventById`), `Source/Parsek/Patches/ProgressRewardPatch.cs` (id-keyed branch lookup), `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs` (4 new tests + migrated existing tests off the old field name).
 
-**Scope:** Small — three files. Surgical, composes with #442's standalone-emit path. Spawned a defense-in-depth refactor follow-up: see #454 for the `ref GameStateEvent` pass-through that would eliminate the value-type field-mirror class of bug structurally.
+**Scope:** Small — three files. Surgical, composes with #442's standalone-emit path. Spawned a defense-in-depth refactor follow-up: see #454 for the `ref GameStateEvent` pass-through that eliminated the value-type field-mirror class of bug structurally. Post-#454, the explicit `evt.epoch = MilestoneStore.CurrentEpoch` and `evt.recordingId = ...` mirrors inside `RegisterPendingMilestoneEvent` are gone — the ref signature on `Emit`/`AddEvent` does the propagation for every caller, not just this one.
 
 ---
 
@@ -353,51 +512,53 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 440. Post-walk reconciliation for strategy-transformed and curve-applied reward types
+## ~~440.~~ Post-walk reconciliation for strategy-transformed and curve-applied reward types
 
-**Source:** Phase B (#437, PR #340) explicitly excluded these from KSC-side reconciliation. `LedgerOrchestrator.ReconcileKscAction.ClassifyAction` routes `ContractComplete` / `ContractFail` / `ContractCancel` / `MilestoneAchievement` / `ReputationEarning` / `ReputationPenalty` / direct KSC-path `FundsEarning` / `ScienceEarning` into the "transformed — skip with VERBOSE" bucket because their raw action fields (e.g. `FundsReward`, `NominalRep`) diverge from the live KSP balance delta by the time the walk runs: `StrategiesModule` mutates `TransformedFundsReward` during the walk, and `ReputationModule.ApplyReputationCurve` transforms rep earnings/penalties non-linearly. Comparing raw fields to observed deltas would produce false-positive WARNs on every legitimate contract completion once strategies are active.
+**Status:** Fixed (Phase E2, v0.8.2) in feat/440-post-walk-reconciliation.
 
-**Why it matters:** today strategy diversion, the reputation curve, and milestone rewards all pass through silently unless something external catches a mismatch (Phase A's legacy migration, or a `PatchFunds: suspicious drawdown` WARN from `KspStatePatcher`). Once #439 (strategy lifecycle capture) lands, strategy-transformed rewards become a first-class concern and the VERBOSE-skip is no longer defensible.
-
-**Fix:** Add a **post-walk reconciliation hook** that runs inside `LedgerOrchestrator.RecalculateAndPatch` after `RecalculationEngine.Recalculate` has populated `TransformedFundsReward` / `TransformedScienceReward` / `TransformedRepReward` and `ReputationModule.EffectiveRep`. The hook iterates actions of the transformed types and compares the POST-walk field to the live observed delta in `GameStateStore` within the same UT window / `TransactionReasons` key used by `ReconcileKscAction`. WARN on mismatch; VERBOSE on match.
-
-Design constraints pulled from Phase D's (#343) plumbing:
-- The post-walk hook must respect `utCutoff` the same way the walk does — if a transformed-type action is past the cutoff it gets filtered out of reconciliation too (otherwise rewind would produce false WARNs for rewards that the walk skipped).
-- Keep the action-type classifier (`ReconcileKscAction.ClassifyAction`) as the authoritative split; "transformed" types get routed to the post-walk path instead of being VERBOSE-skipped. The "untransformed" and "no-op" buckets don't change.
-- Milestone rewards need special care: `MilestoneAchievement.Effective` is set by `MilestonesModule` at walk time; duplicates get `Effective=false` and should NOT reconcile (the live delta reflects the first credit only).
-
-**Scope:** new helper in `LedgerOrchestrator.cs` (~80-120 lines), new tests in `EarningsReconciliationTests.cs` (~10 cases for: contract complete pre-strategy vs post-strategy, rep earning through the curve, milestone + effective duplicate, strategy-diverted reward, cutoff filter). Medium.
-
-**Dependencies:** #439 (strategy capture) should land first so the strategy-diversion cases can be tested end-to-end; otherwise a significant cohort of "transformed" WARNs won't have a test to pin them. Phase D (#343) shipped — `utCutoff` is already threaded through `RecalculateAndPatch`. Order: #439 → #440.
-
-**Status:** TODO. Priority: medium. Diagnostic-only (like the rest of reconciliation). Not release-blocking.
+**Fix summary:** `LedgerOrchestrator.RecalculateAndPatch` now calls a new `ReconcilePostWalk` helper after `RecalculationEngine.Recalculate` populates the derived `Transformed*Reward`, `EffectiveRep`, and `EffectiveScience` fields. The hook iterates actions in ledger order, respects `utCutoff` (mirrors the walk's filter; seed types always pass), and for each of the eight Transformed-bucket action types (ContractComplete, ContractFail, ContractCancel, MilestoneAchievement, ReputationEarning, ReputationPenalty, KSC-path FundsEarning, ScienceEarning) compares the post-walk derived value against the sum of matching `GameStateStore` events within 0.1 s of the action's UT. WARN per leg on divergence (tolerances: funds 1.0, rep 0.1, sci 0.1); rate-limited VERBOSE on match; single INFO summary per walk. Reviewer-corrected event keys: `ContractComplete` uses `ContractReward` (not `Contracts`), `ContractFail`/`ContractCancel` use `ContractPenalty` (not `ContractDecline`), `MilestoneAchievement` uses `Progression` via the generic resource-event path (the MilestoneAchieved event's detail is NOT parsed). Reputation earning/penalty actions map by their source enum; synthetic sources (`Other`, `LegacyMigration`) return `Reconcile=false`. Tests: 14 unit tests in `EarningsReconciliationTests.cs` including a gate-zero `PostWalk_ReputationCurveMatchesKsp` regression that pins `ApplyReputationCurve` against Spike A's KSP decompile within 0.1 tolerance, plus 3 integration tests in `PostWalkReconciliationIntegrationTests.cs`.
 
 ---
 
-## 439. Strategy lifecycle capture (Phase E1.5 of ledger/lump-sum fix)
+## ~~440B.~~ Switch `ReconcileEarningsWindow` from raw to Transformed* rewards (follow-up after #440)
 
-**Source:** `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md` Phase E1.5, flagged during plan review and re-flagged by Phase B's audit of `GameStateEvent.cs:6-27` — no strategy event types exist. `LedgerOrchestrator.StrategiesModule` consumes `StrategyActivate` / `StrategyDeactivate` actions during the walk (and `StrategiesModule.cs:207-208,235` mutates `TransformedFundsReward` on contract-complete actions), but nothing in the mod captures strategy lifecycle from KSP and nothing emits those action types.
+**Status:** Fixed (v0.8.2) in `chore/440B-reconcile-earnings-transformed`.
 
-**Why it matters:** any career that activates a KSP strategy (Leadership Initiative, Open-Source Tech Program, etc.) has funds/rep/science flowing through channels the ledger doesn't model. `StrategiesModule` runs but has no input. Strategy payouts become phantom income that `tree.DeltaFunds` captures but the ledger walk doesn't — the exact repro shape of #436 for strategy-active careers. Phase A's legacy migration catches it as an "unknown channel residual" and injects a `LegacyMigration` synthetic on load; going forward, we want the events captured correctly instead of papered over.
+**Source:** #440 (v0.8.2) review flagged a latent double-WARN risk. `LedgerOrchestrator.ReconcileEarningsWindow` (commit path) previously summed raw `FundsReward` / `RepReward` / `ScienceReward` / `NominalRep` / `NominalPenalty` / `RepPenalty` / `MilestoneRepAwarded` / `ScienceAwarded` into `emittedFundsDelta` / etc., not the post-walk `Transformed*` / `EffectiveRep` / `EffectiveScience` fields. Today this was equivalent for most legs because `StrategiesModule.TransformContractReward` is an identity no-op (see #439 Phase A) and the stock reputation curve is pre-applied by KSP. If a future mod introduced a non-identity transform (e.g. a strategy effect that diverts rewards), both `ReconcileEarningsWindow` on commit AND `ReconcilePostWalk` would WARN for the same action with opposing shapes.
 
-**Fix:**
-- Add `GameStateEventType.StrategyActivated` / `StrategyDeactivated` / `StrategyPayout` in `Source/Parsek/GameStateEvent.cs`.
-- New Harmony patch `Source/Parsek/Patches/StrategyLifecyclePatch.cs` on `Strategies.Strategy.Activate` / `Deactivate` and whichever callback KSP uses for strategy payouts. Find exact symbols via `ilspycmd` per `.claude/CLAUDE.md`'s decompilation workflow.
-- Extend `Source/Parsek/GameStateRecorder.cs` to emit the new event types, tagging with the current recording id when in flight (KSC-scope otherwise).
-- Add `FundsEarningSource.Strategy` (and a `ReputationSource.Strategy` if KSP strategies grant rep, which they do for some — verify).
-- `Source/Parsek/GameActions/GameStateEventConverter.cs`: convert the new events into the existing `StrategyActivate` / `StrategyDeactivate` action types, and into a new `StrategyPayout` `FundsEarning`/`ReputationEarning` with source = `Strategy`. `GameActionType` may need a new value for payout if reusing existing earning types is awkward.
-- Wire `ReconcileKscAction.ClassifyAction` to route the new action types correctly (strategy payouts are transformed-type candidates → post-walk reconciliation per #440).
-- New file `Source/Parsek.Tests/StrategyCaptureTests.cs` — capture/replay symmetry for all three events, conversion correctness, end-to-end round-trip through `ParsekScenario` save/load.
-
-**Scope:** medium-large. New Harmony patches + new event types + new enum values + converter + module plumbing + test file. Estimate 2-3 days of focused work.
-
-**Dependencies:** #436 (Phase A), Phase B (#437), Phase C, Phase D (#343), Phase F, #441 all shipped. Strategy income on new saves is currently uncredited in the ledger walk — Phase A's legacy-migration path does NOT fire for new-save trees because they don't have persisted `tree.DeltaFunds` to migrate. A KSC-active strategy on a brand-new career will produce a `PatchFunds: suspicious drawdown` WARN until #439 lands. Recommended ordering: #439 → #440.
-
-**Status:** TODO. Priority: medium. Release-blocking for strategy-using careers in v0.8.3; v0.8.2 ships with strategies unsupported (user-visible effect: `PatchFunds: suspicious drawdown` WARN when a strategy diverts reward). Documented as a known limitation in CHANGELOG for v0.8.2.
+**Fix summary:** `OnRecordingCommitted` now calls `RecalculateAndPatch` BEFORE `ReconcileEarningsWindow` so the walk populates derived fields first. The switch in `ReconcileEarningsWindow` now reads `TransformedFundsReward` / `TransformedScienceReward` for `ContractComplete`, `EffectiveRep` for all rep legs (`ReputationEarning`, `ReputationPenalty`, `ContractComplete`, `ContractFail`, `ContractCancel`, `MilestoneAchievement`; the unary minus is dropped on penalties because `EffectiveRep` is already signed), and `EffectiveScience` for `ScienceEarning`. `if (!a.Effective) break;` gates are added on the four types whose modules skip the credit on duplicate completions (`ContractComplete`, `MilestoneAchievement`, `ScienceEarning`, `FundsEarning`). The `ScienceEarning` swap also silences a false-positive WARN that fired on subject-cap hits (where `ScienceAwarded` is non-zero but `EffectiveScience` is zero). `FundsSpending`, `ContractAccept`, `FacilityUpgrade`, `FacilityRepair`, `ScienceSpending`, and the funds legs of `ContractFail` / `ContractCancel` stay on raw reads because no transform exists for those fields. Both commit-path and rewind-path (`ReconcilePostWalk`) hooks now observe identical derived values, closing the double-WARN divergence by construction. Tests: 7 new unit tests in `EarningsReconciliationTests.cs` covering positive/inverse swap pins, the Effective gates on duplicate completions and milestones, the subject-cap behaviour change, the headline double-WARN closure across both hooks, and a pinned timing-invariant regression guard. Existing tests for swapped action types seed `Transformed*` / `EffectiveRep` / `EffectiveScience` alongside raw fields to match the post-walk contract.
 
 ---
 
-## 438. Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+---
+
+## ~~439.~~ Strategy lifecycle capture (Phase E1.5 of ledger/lump-sum fix)
+
+**Status:** Fixed in `feat/439B-strategy-setup-multi-resource`. Phase A (v0.8.2) shipped strategy lifecycle capture, and this follow-up completes the multi-resource StrategyActivate setup-cost handling for Funds, Science, and Reputation.
+
+**Summary of fix:** added `GameStateEventType.StrategyActivated` / `StrategyDeactivated` (enum ids 20/21, append-only). New `Source/Parsek/Patches/StrategyLifecyclePatch.cs` installs Harmony postfixes on `Strategies.Strategy.Activate` / `Deactivate`, filtering on `__result == true` and honoring `GameStateRecorder.IsReplayingActions`. Recorder emits new events with pure-static detail builders (`BuildStrategyActivateDetail` / `BuildStrategyDeactivateDetail`) formatted with InvariantCulture "R". `GameStateEventConverter` routes the new events to the existing `StrategyActivate` / `StrategyDeactivate` `GameAction`s. `StrategyActivate` now carries setup costs for Funds, Science, and Reputation, `LedgerOrchestrator.ClassifyAction` emits up to three reconciliation legs keyed `StrategySetup`, and the science/reputation modules apply the additional setup costs during the walk. `StrategiesModule.TransformContractReward` remains a documented identity no-op: KSP's `CurrencyModifierQuery` already transformed contract rewards before `onContractCompleted` fires (see decompile trace in `docs/dev/plans/fix-439-strategy-lifecycle-capture.md` section 3.5), so applying Commitment a second time would double-divert. `activeStrategies` is still populated for slot accounting and Actions-window display.
+
+**NOT included (deferred further):** a `StrategyPayout` fallback emitter for mod-compat strategies that bypass the `OnCurrencyModifierQuery` path. No current stock or major mod needs it; add when a concrete requirement arises.
+
+**Follow-up delivered:** in-game `[InGameTest]` coverage for the strategy Harmony patch added in `test/strategy-lifecycle-in-game` -- `RuntimeTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `RuntimeTests.FailedActivation_DoesNotEmitEvent` in the new `StrategyLifecycle` category, with Funds/Science/Reputation snapshot-restore so any `CanBeActivated`-true stock strategy works without drifting save state.
+
+---
+
+## ~~439B.~~ Strategy setup cost reconciliation for Science and Reputation legs (#439 follow-up)
+
+**Status:** Fixed in `feat/439B-strategy-setup-multi-resource`.
+
+**Source:** #439 Phase A shipped a single-resource `KscActionExpectation` (Funds leg only). Strategies with non-zero `InitialCostScience` or `InitialCostReputation` emitted false-positive KSC-reconciliation WARNs on the Science/Rep legs because `ClassifyAction` only returned one (`EventType`, `ExpectedReasonKey`, `ExpectedDelta`) tuple.
+
+**Fix:** `LedgerOrchestrator.KscActionExpectation` now carries up to three per-resource legs, `ReconcileKscAction` iterates them independently, and `StrategyActivate` emits Funds / Science / Reputation setup-cost legs keyed `StrategySetup`. `GameAction` / `GameStateEventConverter` now preserve `setupSci` and `setupRep`, and the science/reputation modules consume those setup costs during the recalculation walk.
+
+**Dependencies:** #439 Phase A (shipped).
+
+---
+
+## ~~438.~~ Reconciliation test coverage backlog (Phase E1 of ledger/lump-sum fix)
+
+**Status:** Fixed. Production gap in `LedgerOrchestrator.ReconcileEarningsWindow` closed (three missing switch cases: `ContractAccept`, `FacilityUpgrade`, `FacilityRepair`). 7 positive-match tests added to `EarningsReconciliationTests.cs` covering gaps 1-4 and 6, 1 converter-side test in `GameStateEventConverterTests.cs` for gap 5, 1 end-to-end test in the new `EarningsReconciliationEndToEndTests.cs` for gap 7, and 2 legacy-tree end-to-end tests in the new `LegacyTreeReconciliationRepro438Tests.cs` for gap 8.
 
 **Source:** Phase B (#437, PR #340) deliverable #2 — the channel-coverage audit. Several earning channels have capture code in main but no assertion in `EarningsReconciliationTests.cs` that the capture reconciles cleanly against `GameStateStore` events. Each is a small, self-contained test addition.
 
@@ -416,7 +577,7 @@ Design constraints pulled from Phase D's (#343) plumbing:
 
 **Dependencies:** none — all targets are on main today. Item 8 specifically needed Phase A merged, which happened.
 
-**Status:** TODO. Priority: low. Each is diagnostic coverage; nothing user-visible breaks if they slip. Worth doing before #439 / #440 because those will add more transformed-type cases and a broader coverage matrix makes the larger work easier to review.
+**Status:** ~~Fixed~~ (v0.8.2, PR #376). See the top-of-entry status summary for the delivered scope. This bottom-of-entry line is retained as the original pre-fix scope notes.
 
 ---
 
@@ -474,7 +635,7 @@ Design constraints pulled from Phase D's (#343) plumbing:
 
 ---
 
-## 436. Ledger lump-sum drawdown on revert/rewind cycles
+## ~~436.~~ Ledger lump-sum drawdown on revert/rewind cycles
 
 **Source:** `logs/2026-04-17_2158_revert-stress-test/KSP.log` line 9863 (`PatchFunds: suspicious drawdown delta=-30395.0`). Player's stress-test save persisted committed tree `r0` with `tree.DeltaFunds=+34400, ResourcesApplied=false` but the ledger walk only summed to `runningBalance=57795` (`FundsInitial=56995 + FirstLaunch +800`). On each FLIGHT entry, `ApplyTreeLumpSum` re-credited +34400 to KSP; vessel destruction then let `PatchFunds` drag KSP back down to the ledger target, firing the WARN. Root cause: `ParsekFlight.ComputeTreeDeltaFunds` captures KSP-funds snapshots that include income flowing through channels `GameStateEventConverter` drops (milestone rewards pre-`#400`, contract advances pre-`#405`, strategy payouts, etc.); the ledger never saw those credits so the lump sum and the ledger permanently disagree.
 
@@ -486,13 +647,15 @@ Design constraints pulled from Phase D's (#343) plumbing:
 Injection decisions per tree:
 
 - **Zero coverage:** inject the FULL persisted delta as one synthetic per resource. Funds → `FundsEarning` (new `FundsEarningSource.LegacyMigration`), including negative funds (FundsModule handles negatives correctly; earnings are pruned by `RecordingId` in `Ledger.Reconcile`). Science → `ScienceEarning` with `SubjectId="LegacyMigration:{treeId}"` (no source enum exists). Reputation → `ReputationEarning` with `ReputationSource.Other`. Negative science and negative rep are skipped with WARN (ScienceModule clamps negative earnings to zero; Ledger.Reconcile doesn't yet prune spendings by RecordingId). All synthetics tag `RecordingId=tree.RootRecordingId` (NOT nullable `ActiveRecordingId`) so deletion purges them cleanly.
-- **Any coverage:** skip injection, log WARN, mark applied anyway to disarm the legacy lump-sum applier. (Phase F has now shipped — the lump-sum applier is deleted; saves that load with non-zero residuals are caught by `RecordingTree.Load`'s VERBOSE diagnostic and migrated by Phase A on the same load cycle.)
+- **Any coverage:** skip injection, log WARN, and mark the tree's recordings fully applied. Phase F deletes the legacy runtime appliers entirely; if a `TreeFormatVersion=0` tree still carries non-zero residuals that Phase A cannot recover, the load path emits the `LegacyFormatGate` WARN before the first save drops the legacy keys.
 - **Degraded tree** (`ComputeEndUT()==0`): mirror `ParsekFlight.ApplyTreeResourceDeltas`'s stale-delta guard — mark applied, INFO log, no injection.
 - **Empty `RootRecordingId`:** mark applied, WARN log, no injection (data loss for this edge case beats perpetual drawdown).
 
-`RecordingStore.MarkTreeAsApplied(tree)` is a new tree-scoped primitive that sets `ResourcesApplied=true` and advances each recording's `LastAppliedResourceIndex`, without touching `MilestoneStore.Milestones` (which `MarkAllFullyApplied` does globally). The migration and Phase C's merge-dialog refactor will both call it. Tests in `Source/Parsek.Tests/LegacyTreeMigrationTests.cs` (52 cases covering the zero-coverage happy path for all 3 resources, partial-coverage skip, outside-window coverage counts as zero, degraded tree, empty-root, ResourcesApplied=true, sub-tolerance, negative funds earning, runningBalance verification under the real FundsModule walk, negative science/rep WARN, null ActiveRecordingId, purge contract for both positive and negative synthetics, double-inject guard vs `TryRecoverBrokenLedgerOnLoad`, INFO log shape, `MarkTreeAsApplied` primitive behavior including the no-milestone-touch invariant, KerbalAssignment-only coverage is ignored, KerbalAssignment plus real earning counts as partial, null-tagged in/out-of-window, ordering regression simulating the `OnKspLoad` composition, and a 23-row `[Theory]` over every `GameActionType` plus an enum-surface pin that fails if a new action type is added without an `InlineData` row).
+`RecordingStore.MarkTreeAsApplied(tree)` is the tree-scoped primitive that advances each recording's `LastAppliedResourceIndex` without touching `MilestoneStore.Milestones` (which `MarkAllFullyApplied` still does globally). Phase F removes the old tree-level `ResourcesApplied` field entirely. Tests in `Source/Parsek.Tests/LegacyTreeMigrationTests.cs` cover the zero-coverage happy path for all 3 resources, partial-coverage skip, degraded tree, empty-root, already-applied residuals, sub-tolerance cases, negative residuals, purge behavior, the `MarkTreeAsApplied` primitive, coverage classification, and ordering relative to `OnKspLoad`.
 
-**Status:** Phase A fixes the user-facing repro. Phase C shipped: every non-revert tree-commit path now calls `RecordingStore.MarkTreeAsApplied(tree)` — `MergeDialog.MergeCommit`, `ParsekFlight.CommitTreeFlight`, and all three `ParsekScenario` auto-commit sites (`SafetyNetAutoCommitPending`, scene-exit auto-merge, Esc > Abort Mission outside-Flight) route through a shared `ParsekScenario.CommitPendingTreeAsApplied` seam, so freshly-committed trees no longer load with `ResourcesApplied=false`. Phase F has shipped: `ApplyTreeLumpSum`, `ApplyTreeResourceDeltas`, the `ComputeTreeDelta*` family, the per-frame standalone applier (`ApplyResourceDeltas`), and `Recording.ManagesOwnResources` are deleted; `RecordingTree.Save` no longer persists the legacy `deltaFunds`/`deltaScience`/`deltaRep`/`preTree*`/`resourcesApplied` keys (they remain readable on load so Phase A can hydrate pre-Phase-F .sfs files); `ResourceBudget.ComputeTotal` now sums per-recording costs across `tree.Recordings.Values` directly. Phase F chose the diagnostic-VERBOSE-on-load path over the originally-planned format-version gate — equivalent safety net, lighter touch on save shape. Plan doc details the intermediate phases (D/E) that close the remaining ledger-channel gaps in parallel branches. Negative-residual migration for science/rep is unblocked by #441 below.
+**Status:** ~~Fixed~~ in v0.8.2. Phase A migrates legacy residuals on `LedgerOrchestrator.OnKspLoad`, and Phase C routes every non-revert tree commit through `RecordingStore.MarkTreeAsApplied(tree)`. Phase F removes `ApplyTreeLumpSum`, `ApplyTreeResourceDeltas`, the `ComputeTreeDelta*` family, the standalone `ApplyResourceDeltas` path, `Recording.ManagesOwnResources`, and the public tree resource delta fields. `RecordingTree.Save` now writes only the new `TreeFormatVersion=1` shape; `RecordingTree.Load` still reads the deprecated keys into a transient residual seam so Phase A can consume them before the first save. If a `TreeFormatVersion=0` tree still has non-zero residuals that Phase A cannot recover, the new `LegacyFormatGate` WARN makes that loss explicit instead of silently zeroing it.
+
+**Follow-up note:** if users prove to miss the `LegacyFormatGate` warning in `KSP.log`, promote it to an in-game legacy-save-import dialog.
 
 ---
 
@@ -584,7 +747,7 @@ Injection decisions per tree:
 **Fix (post-review v3 — key-match scoped to untransformed types, aggregation window tightened to the coalesce threshold):** `LedgerOrchestrator.ReconcileKscAction(IReadOnlyList<GameStateEvent> events, IReadOnlyList<GameAction> ledgerActions, GameAction action, double ut)` is called from `OnKscSpending` right after `Ledger.AddAction`. Matching is by KSP `TransactionReasons` key (written as `GameStateEvent.key = reason.ToString()` by `GameStateRecorder.OnFundsChanged`/`OnScienceChanged`/`OnReputationChanged`) plus a `KscReconcileEpsilonSeconds = 0.1` UT window — NOT by symmetric window aggregation, which would cross-attribute coalesced deltas. Action-type classification lives in `ClassifyAction` (pure, testable):
 
 - **Untransformed (WARN on missing or mismatched event):** `FundsSpending` (source=Other, key=`RnDPartPurchase`), `ScienceSpending` (key=`RnDTechResearch`), `FacilityUpgrade` (key=`StructureConstruction`), `FacilityRepair` (key=`StructureRepair`), `KerbalHire` (key=`CrewRecruited`), `ContractAccept` advance (key=`ContractAdvance`).
-- **Transformed (skip with VERBOSE, no WARN):** `ContractComplete` (strategy-transformed + rep curve), `ContractFail`/`Cancel` (rep curve on penalty), `MilestoneAchievement` (mod strategy risk), `ReputationEarning`/`Penalty` (curve), direct `FundsEarning`/`ScienceEarning` on KSC path. `StrategyActivate`/`FundsSpending(source=Strategy)` skipped until Phase E1.5 lifecycle capture lands.
+- **Transformed (skip with VERBOSE, no WARN):** `ContractComplete` (strategy-transformed + rep curve), `ContractFail`/`Cancel` (rep curve on penalty), `MilestoneAchievement` (mod strategy risk), `ReputationEarning`/`Penalty` (curve), direct `FundsEarning`/`ScienceEarning` on KSC path. Post-#439 and #440, these are reconciled by the post-walk hook (`ReconcilePostWalk`) that reads post-walk `Transformed*` / `Effective*` fields; the KSC per-action path remains VERBOSE-skip by design.
 - **No-op:** `KerbalAssignment`/`Rescue`/`StandIn`, `FacilityDestruction`, `StrategyDeactivate`, `*Initial` — silent.
 
 Aggregation is scoped to the `GameStateStore.AddEvent` coalesce threshold (`ResourceCoalesceEpsilon = 0.1 s`, `GameStateStore.cs:21`). Within this window the store has already merged same-key resource events into one slot, so summing both sides is safe by construction. Beyond 0.1 s same-key events stay separate — widening the aggregation window (round-2 used 0.5 s) would let opposing per-action errors cancel out silently and hide real mismatches (round-3 regression). Tolerances match `ReconcileEarningsWindow` (1.0 funds, 0.1 sci/rep).
@@ -595,7 +758,7 @@ Aggregation is scoped to the `GameStateStore.AddEvent` coalesce threshold (`Reso
 
 **Files touched:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
 
-**Status:** ~~Fixed~~ (Phase B, three review iterations). Phase A (#436, PR #338, merged) and the deeper structural work (Phases C-F) still to come per the plan doc.
+**Status:** ~~Fixed~~ (Phase B, v0.8.2, three review iterations). Full Phase A-F chain shipped in v0.8.2: Phase A (#436, PR #338), Phase B (this entry), Phase C (merge-path tree-resource marker), Phase D (rewind UT cutoff), Phase E1 (#438 PR #376), Phase E1.5 (#439 PR #378 + #439B PR #390), Phase E2 (#440 PR #385 + #440B PR #395), Phase F (#436 PR #391).
 
 ---
 
@@ -1002,7 +1165,7 @@ Added `ParsekSettings.CurrentOverrideForTesting` hook so unit tests can exercise
 
 **Source:** in-game test run `2026-04-16 22:33` (`logs/2026-04-16_2235_pr316-v3-smalls-rhino/parsek-test-results.txt`). Failure: `Recording 393b82ccb697492bb7b35c6c621f9d07: point 13 UT 155.840000000006 < previous 170.920000000014`.
 
-**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the on-disk `.prec` sidecar from `logs/2026-04-14_1801_orbital-spawn-bug/parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt` showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
+**Investigation:** Recording `393b...` is `Learstar A1 Debris` (`isDebris=True`, `generation=1`, `parentBranchPointId=d58bad39319f49ada6078ca80cd490e8`), born from a CRASH-breakup event at UT 155.84. Inspecting the save-scoped `.prec` sidecar from the collected bundle (`logs/2026-04-14_1801_orbital-spawn-bug/saves/<save>/Parsek/Recordings/393b82ccb697492bb7b35c6c621f9d07.prec.txt`; the script also emits a legacy `parsek/Recordings/` compatibility copy) showed that the failing shape was a **duplicated 13-point block**: `Points[0..12]` at UTs 155.84 → 170.92 followed by `Points[13..25]` holding the exact same 13 UTs, then later samples at 215.84. The test fails at index 13 because that's where the duplicate block begins with UT 155.84, which is strictly less than `Points[12].ut = 170.92`. Whatever stitch produced the duplicate (a flush-overlap dedup miss, a double-inheritance path, or a belated pending-initial-trajectory-point seed consumed after physics-frame samples already ran) the sampler boundary in `BackgroundRecorder.ApplyTrajectoryPointToRecording` was writing the append unconditionally, so any upstream bug produced a non-monotonic boundary at the stitch.
 
 **Concern:** Consumers that assume monotonic UTs (binary-search lookups, interpolation, playback cursor advance) behave unpredictably on the non-monotonic pair.
 
@@ -1393,6 +1556,8 @@ For stationary part showcases (lights, solar panels, antennae sitting on KSC gro
 **Expected impact:** for the 259-ghost showcase scenario in the smoking-gun logs, ~250 of those ghosts are stationary KSC showcases whose `reentryFxInfo` now stays `null` permanently. The mesh-combine + ParticleSystem + cloned-material allocation is skipped on every loop-cycle rebuild, eliminating the dominant cost in `UpdatePlayback` and taking the playback frame cost back below the 8 ms budget threshold. Only genuine flight recordings (Suborbital Arc, Orbit-1, Kerbin Ascent, etc.) still pay the build cost, and they pay it correctly.
 
 **Status:** fix landed on branch `investigate-showcase-loop-perf`. Follow-up candidates (not in this PR): reuse ghost GameObject across loop cycles instead of destroy/rebuild (would eliminate the remaining per-cycle material/audio clone cost); gate hidden-tier prewarm by reentry potential too.
+
+**Follow-up shipped (branch `fix/406-ghost-reuse-loop-cycles`):** the per-cycle destroy+rebuild cost identified above as the remaining dominant flight-recording hitch is now eliminated. Single-ghost loop-cycle boundaries call a new `GhostPlaybackEngine.ReusePrimaryGhostAcrossCycle` instead of `DestroyGhost(reason: "loop cycle boundary") + SpawnGhost`. The ghost GameObject, `reentryFxInfo`, `reentryFxPendingBuild` (#450 B3), `cameraPivot` Transform, `horizonProxy`, and every snapshot-derived dictionary (`engineInfos`, `rcsInfos`, `audioInfos`, `heatInfos`, `partTree`, `deployableInfos`, `parachuteInfos`, `jettisonInfos`, `lightInfos`, `fairingInfos`, `colorChangerInfos`, `roboticInfos`, `compoundPartInfos`) survive across the boundary. Only playback iterators, per-cycle flags (`explosionFired`, `pauseHidden`, `rcsSuppressed`, `audioMuted`, `atmosphereFactor`), transient per-cycle state (`lightPlaybackStates`, `fakeCanopies`), and part visibility are reset. Implementation lives in `GhostPlaybackLogic.ResetForLoopCycle` + `ReactivateGhostPartHierarchyForLoopRewind` + a call to `GhostVisualBuilder.RebuildReentryMeshes` so the post-reactivation emission mesh reflects the full part roster. The #414 spawn throttle is NOT consumed on reuse (`frameSpawnCount` unchanged), and the #450 B3 lazy-reentry-build counter is NOT consumed either (`frameLazyReentryBuildCount` unchanged). A new `DiagnosticsState.health.ghostReusedAcrossCycleThisSession` counter makes the reuse rate visible in the diagnostics stream. Evidence: the 2026-04-18 B3 playtest (`logs/2026-04-18_1947_450-b3-playtest/KSP.log` lines 38608, 41133, 43824, 46395) showed four budget-exceeded WARNs at an exact 40 s cadence, each with a heaviest-spawn breakdown showing the full timeline+dicts+reentry rebuild — confirming the per-cycle destroy+rebuild was the remaining dominant cost. Unit tests live in `Source/Parsek.Tests/Bug406GhostReuseLoopCycleTests.cs` and an in-game runtime test in `Source/Parsek/InGameTests/RuntimeTests.cs` (`Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity`).
 
 ---
 
@@ -1957,6 +2122,8 @@ Start with **option 1** (SettingsWindowUI checkbox). It's enough for the feature
 
 Fixed by replacing the sequential-index loop in `MapMarkerRenderer.InitVesselTypeIcons` with a `StockIconIndexByVesselType` dict taken from the decompiled `KSP.UI.Screens.Mapview.MapNode` icon lookup, and consolidating the duplicate flight-scene copy in `ParsekUI.cs` into the same renderer. In-game runtime test `MapMarkerIconsMatchStockAtlas` pins every vessel type's UV against the live `MapNode.iconSprites` array.
 
+**Follow-up (2026-04-18 playtest, branch `fix/map-marker-multi-atlas`)**: playtest logs surfaced WARNs for `DeployedScienceController` (atlas `OrbitIcons_DeployedScience`) and `DeployedGroundPart` (atlas `ConstructionModeAppIcon`) — the original fix forced every sprite onto a single resolved atlas and silently skipped types whose sprite lived on a different atlas, dropping them to the diamond fallback. Converted `MapMarkerRenderer` from single-atlas + `Dictionary<VesselType, Rect>` to per-type `VesselIconEntry(Texture2D, Rect)` so each vessel type keeps its own atlas reference. The pure mapping pass is extracted into `BuildVesselIconEntries(SpriteAtlasRecord[])` so xUnit can drive it with synthetic multi-atlas sprite arrays (faked `Texture2D` via `FormatterServices.GetUninitializedObject`). Test-only accessors `VesselIconAtlasForTesting` / `VesselIconUVsForTesting` collapsed into `VesselIconEntriesForTesting`. The `MapMarkerIconsMatchStockAtlas` in-game test now asserts each type carries its own `sprites[idx].texture` reference instead of a single shared atlas, so `DeployedScienceController` and `DeployedGroundPart` are in-scope rather than skipped. Init summary now reads `loaded=N (atlasA=name:k atlasB=name:m …) outOfRange=… missingSprite=… missingTexture=… spriteCount=…` with a per-atlas breakdown; the obsolete `mismatchedAtlas` counter and "different from resolved atlas — skipping" WARN are gone.
+
 **Source:** maintenance request `2026-04-14`. Users report that Parsek's custom ghost icon in map view / tracking station sometimes looks different from the stock icon for the same vessel type. Root cause confirmed by decompiling `KSP.UI.Screens.Mapview.MapNode` — Parsek's atlas-indexing logic is wrong.
 
 **Concern:** `Source/Parsek/MapMarkerRenderer.cs` line `153`-`193` builds `vesselIconUVs` by reading `MapNode.iconSprites` (an obtained-via-reflection `Sprite[]`) and assigning entries by sequential array index:
@@ -2066,9 +2233,11 @@ A unit test is insufficient here — this needs the live `MapView` reflection ta
 
 ---
 
-## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2)
+## ~~386. Map view / tracking station ghost icon: hide label by default, show on hover, sticky-toggle on click~~ (DONE — 0.8.2; hover-reveal removed in ghost-label-click-toggle follow-up)
 
 Fixed by adding a `stickyMarkers` set and `markerKey` parameter to `MapMarkerRenderer.DrawMarker`/`DrawMarkerAtScreen`, threading `rec.RecordingId` from both call sites (`ParsekUI.DrawMapMarkers`, `ParsekTrackingStation.OnGUI`), and resetting stickies on scene change from `ParsekFlight.OnSceneChangeRequested` + `ParsekTrackingStation.OnDestroy`. Click interaction is gated to `MapView.MapIsEnabled || TRACKSTATION` so flight main-window clicks don't double-fire.
+
+**Follow-up (`feat/ghost-label-click-toggle`):** hover-reveal removed per player feedback — the label now shows ONLY when sticky (click-pinned). Toggle stays on left-click only so non-left clicks keep flowing to KSP's stock handlers. `ShouldDrawLabel` dropped the `hover` parameter (single-arg `bool sticky`). New pure helper `IsToggleClick(EventType, int button)` covers MouseDown + button 0 only. Click INFO log line still includes `button=` so log reviews can verify the exact click path. Format owned by a new pure helper `FormatClickLogLine` that the tests pin directly.
 
 **Source:** maintenance request `2026-04-14`. Parsek's custom ghost map icon currently always draws a `"Ghost: <name>"` text label directly below it. Stock KSP vessel icons don't — they only show the name on hover (and clicking enters/pins the target). The ghost icon should match that behavior so the map view isn't cluttered with permanent text for every ghost.
 
@@ -2118,7 +2287,7 @@ There is no hover test, no click handling, and no per-marker "sticky" state. Bot
 - `Source/Parsek/ParsekUI.cs` — `DrawMapMarkers` (line `626`) passes `rec.RecordingId` to the new `DrawMarker` signature.
 - `Source/Parsek/ParsekTrackingStation.cs` — line `102` passes `rec.RecordingId` too.
 - `Source/Parsek/ParsekScenario.cs` — call `MapMarkerRenderer.ResetForSceneChange()` from the existing scene-teardown path.
-- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool hover, bool sticky) => hover || sticky` (or similar) so the decision is testable without Unity. Toggle logic can also be extracted into a pure method `ToggleSticky(string key, HashSet<string> set)` for the same reason.
+- Unit test: pure-static helper method `MapMarkerRenderer.ShouldDrawLabel(bool sticky) => sticky` so the decision is testable without Unity. (Original sketch used `hover || sticky`; the hover-reveal branch was removed in the ghost-label-click-toggle follow-up.) Toggle logic can also be extracted into pure methods `ToggleSticky(string key, HashSet<string> set)` and `IsToggleClick(EventType type, int button)` for the same reason.
 - `CHANGELOG.md` under Unreleased: "Map view / tracking station ghost icons now match stock KSP: name label hidden by default, shows on hover, click to pin."
 
 **Open questions:**
@@ -2368,6 +2537,8 @@ Learstar A1 is currently only in `Kerbal Space Program/saves/s16/persistent.sfs`
 **Status:** DONE (PR #304). Size: S. Required a small runtime code change: `AddRealCareerRecordings` was extended to iterate `scenarioNode.GetNodes("RECORDING_TREE")` and forward trees via `ScenarioWriter.AddTree` (previously only standalone RECORDINGs were read, and standalone format is blocked by the T56 filter). All 5 Learstar recordings retained (root `1bbb50cf98654a23a60b3248848b0301` + 4 debris children) along with the `parsek_rw_0a74d6.sfs` rewind save placed under the new `DefaultCareer/Parsek/Saves/` subdirectory (the existing `CopyRealRecordingFiles` loop reads rewind saves from `sourceCareerDir/Parsek/Saves/`, not from the fixture root). `InjectAllRecordings` gained three assertions (`vesselName = Learstar A1`, `vesselName = Learstar A1 Debris`, `treeName = Learstar A1`). Fixture size: 1.1M → 1.7M (`du -sh`; +577098 bytes, dominated by the 385 KB rewind save and the 74 KB root `.prec`). Follow-up: nested the `Learstar A1 / Debris` group under the main `Learstar A1` group by adding a `GROUP_HIERARCHY` node to the fixture ParsekScenario and extending `ScenarioWriter` with `AddGroupHierarchyEntry(child, parent)` + emission in `BuildScenarioNode`; `AddRealCareerRecordings` now forwards every `GROUP_HIERARCHY/ENTRY` from the fixture so the UI shows debris as a collapsible sub-group of the main mission group instead of a flat sibling.
 
 **Reinjection gotcha:** running `dotnet test --filter InjectAllRecordings` from a sibling git worktree silently short-circuits (xUnit reports Passed in ~100 ms) because `ResolveKspRoot()` probes relative to `ProjectRoot` and does not find `Kerbal Space Program/` outside the worktree. The MSBuild `-p:KSPDir=...` property only wires up DLL references at build time. To actually reinject, set the `KSPDIR` environment variable for the test process: `KSPDIR="C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program" dotnet test --filter InjectAllRecordings -p:KSPDir=...`.
+
+**Live-save hazard:** `InjectAllRecordings` rewrites the target save and its `Parsek/Recordings/` sidecars, so never aim it at the same `KSPDIR`/save a live KSP session is using; the preflight helper now probes `KSP.log` and refuses the inject when KSP appears active, but reinjection should still be treated as a closed-KSP operation.
 
 ---
 

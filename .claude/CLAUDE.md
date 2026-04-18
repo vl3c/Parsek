@@ -100,6 +100,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch). Always-tree mode: every recording gets a RecordingTree (#271). `DecideOnVesselSwitch` has no Stop decision.
+- `RecordingTree.cs` - tree save/load metadata and branch topology. Phase F removed the public tree resource delta fields; legacy `delta*` / `preTree*` / `resourcesApplied` keys are load-only via a transient residual seam, and `TreeFormatVersion` gates the new save shape.
 - `ParsekUI.cs` - UI main window, map markers, and coordinator for extracted sub-windows
 - `UI/RecordingsTableUI.cs` - recordings table window (sort, rename, group tree, chain blocks, loop period editing)
 - `UI/SettingsWindowUI.cs` - settings window (recording, looping, ghost, diagnostics, sampling, data management)
@@ -108,7 +109,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
 - `UI/GloopsRecorderUI.cs` - Gloops Flight Recorder window (manual ghost-only recording controls)
 - `UI/KerbalsWindowUI.cs` - kerbal roster window (reserved crew, active stand-ins, retired stand-ins)
-- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
+- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` + `ExtendedRuntimeTests` (158 tests across 42 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)

@@ -443,19 +443,21 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "guid-1"
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
             Assert.Equal(GameStateEventType.TechResearched, GameStateStore.Events[0].eventType);
@@ -467,12 +469,13 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             GameStateStore.AddContractSnapshot("guid-1", new ConfigNode("CONTRACT"));
 
@@ -488,7 +491,8 @@ namespace Parsek.Tests
         [Fact]
         public void GameStateStore_ResetForTesting_ClearsEverything()
         {
-            GameStateStore.AddEvent(new GameStateEvent { ut = 100 });
+            var evt = new GameStateEvent { ut = 100 };
+            GameStateStore.AddEvent(ref evt);
             GameStateStore.AddContractSnapshot("guid", new ConfigNode("C"));
 
             GameStateStore.ResetForTesting();
@@ -557,24 +561,26 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = "ContractAdvance",
                 valueBefore = 10000,
                 valueAfter = 15000
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
             // Within 0.1s epsilon — should update, not add
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 100.05,
                 eventType = GameStateEventType.FundsChanged,
                 key = "ContractReward",
                 valueBefore = 15000,
                 valueAfter = 18000
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(1, GameStateStore.EventCount);
             Assert.Equal(10000, GameStateStore.Events[0].valueBefore);
@@ -586,24 +592,26 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = "ContractAdvance",
                 valueBefore = 10000,
                 valueAfter = 15000
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
             // Beyond 0.1s epsilon — should add a new event
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 100.2,
                 eventType = GameStateEventType.FundsChanged,
                 key = "VesselRecovery",
                 valueBefore = 15000,
                 valueAfter = 18000
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
         }
@@ -613,23 +621,25 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 10000,
                 valueAfter = 12000
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 100.05,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 12000,
                 valueAfter = 13500
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
             Assert.Equal(12000, GameStateStore.Events[0].valueAfter);
@@ -641,32 +651,35 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100.00,
                 eventType = GameStateEventType.FundsChanged,
                 key = "ContractReward",
                 valueBefore = 10000,
                 valueAfter = 12000
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 100.05,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 12000,
                 valueAfter = 13000
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt3 = new GameStateEvent
             {
                 ut = 100.08,
                 eventType = GameStateEventType.FundsChanged,
                 key = "StrategySetup",
                 valueBefore = 13000,
                 valueAfter = 12900
-            });
+            };
+            GameStateStore.AddEvent(ref evt3);
 
             Assert.Equal(3, GameStateStore.EventCount);
             Assert.Equal("ContractReward", GameStateStore.Events[0].key);
@@ -681,22 +694,24 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.FundsChanged,
                 valueBefore = 10000,
                 valueAfter = 15000
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
             // Same UT but different type — should NOT coalesce
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.ScienceChanged,
                 valueBefore = 50,
                 valueAfter = 75
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
         }
@@ -706,20 +721,22 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
             // Same UT and type but non-resource — should NOT coalesce
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.TechResearched,
                 key = "stability"
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
         }
@@ -875,28 +892,31 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
 
             // Simulate history: pad upgraded twice
-            GameStateStore.AddEvent(new GameStateEvent
+            var padEvt1 = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.FacilityUpgraded,
                 key = "SpaceCenter/LaunchPad",
                 valueBefore = 0,
                 valueAfter = 0.5
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref padEvt1);
+            var padEvt2 = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.FacilityUpgraded,
                 key = "SpaceCenter/LaunchPad",
                 valueBefore = 0.5,
                 valueAfter = 1.0
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref padEvt2);
+            var destroyedEvt = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.BuildingDestroyed,
                 key = "SpaceCenter/Administration"
-            });
+            };
+            GameStateStore.AddEvent(ref destroyedEvt);
 
             // Verify the events are in the store
             Assert.Equal(3, GameStateStore.EventCount);
@@ -928,23 +948,25 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
 
             MilestoneStore.CurrentEpoch = 3;
-            GameStateStore.AddEvent(new GameStateEvent
+            var epoch3Evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
+            };
+            GameStateStore.AddEvent(ref epoch3Evt);
 
             Assert.Equal(3u, GameStateStore.Events[0].epoch);
 
             // Change epoch and add another
             MilestoneStore.CurrentEpoch = 5;
-            GameStateStore.AddEvent(new GameStateEvent
+            var epoch5Evt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2"
-            });
+            };
+            GameStateStore.AddEvent(ref epoch5Evt);
 
             Assert.Equal(5u, GameStateStore.Events[1].epoch);
 
@@ -1038,12 +1060,13 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
 
             GameStateStore.AddBaseline(new GameStateBaseline { ut = 17000 });
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "test"
-            });
+            };
+            GameStateStore.AddEvent(ref evt1);
 
             // ClearEvents should not touch baselines
             GameStateStore.ClearEvents();
@@ -1051,12 +1074,13 @@ namespace Parsek.Tests
             Assert.Equal(1, GameStateStore.BaselineCount);
 
             // ClearBaselines should not touch events (already cleared, just verify isolation)
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt2 = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2"
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
             GameStateStore.ClearBaselines();
             Assert.Equal(1, GameStateStore.EventCount);
             Assert.Equal(0, GameStateStore.BaselineCount);
@@ -1519,34 +1543,38 @@ namespace Parsek.Tests
             MilestoneStore.CurrentEpoch = 0;
 
             // Add events and create a milestone covering ut 0-100
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
             // Add events after the milestone
-            GameStateStore.AddEvent(new GameStateEvent
+            var contractEvt = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "guid-1"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref contractEvt);
+            var crewEvt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.CrewHired,
                 key = "Val Kerman"
-            });
+            };
+            GameStateStore.AddEvent(ref crewEvt);
             // Resource event — should be filtered
-            GameStateStore.AddEvent(new GameStateEvent
+            var fundsEvt = new GameStateEvent
             {
                 ut = 160,
                 eventType = GameStateEventType.FundsChanged,
                 valueBefore = 1000, valueAfter = 900
-            });
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
 
             Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
         }
@@ -1556,12 +1584,13 @@ namespace Parsek.Tests
         {
             MilestoneStore.CurrentEpoch = 0;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
             Assert.Equal(0, GameStateStore.GetUncommittedEventCount());
@@ -1572,18 +1601,20 @@ namespace Parsek.Tests
         {
             MilestoneStore.CurrentEpoch = 0;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var contractEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "guid-1"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref contractEvt);
+            var partEvt = new GameStateEvent
             {
                 ut = 60,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
         }

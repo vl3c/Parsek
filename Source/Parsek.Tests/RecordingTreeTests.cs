@@ -18,6 +18,13 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        private static RecordingTree.LegacyResourceResidual ConsumeLegacyResidualOrThrow(RecordingTree tree)
+        {
+            var residual = tree.ConsumeLegacyResidual();
+            Assert.NotNull(residual);
+            return residual;
+        }
+
         // --- SurfacePosition round-trip ---
 
         [Fact]
@@ -154,16 +161,7 @@ namespace Parsek.Tests
                 Id = "tree001",
                 TreeName = "Kerbal X",
                 RootRecordingId = "rec001",
-                ActiveRecordingId = "rec001",
-                // Phase F: legacy fields are still settable in-memory but Save no
-                // longer persists them, so they default to 0/false on Load. The
-                // assertions below pin that drop-on-save behavior.
-                PreTreeFunds = 50000.5,
-                PreTreeScience = 100.25,
-                PreTreeReputation = 50.5f,
-                DeltaFunds = -1500.75,
-                DeltaScience = 25.5,
-                DeltaReputation = 10.25f
+                ActiveRecordingId = "rec001"
             };
 
             var rec = new Recording
@@ -186,13 +184,8 @@ namespace Parsek.Tests
             Assert.Equal("Kerbal X", restored.TreeName);
             Assert.Equal("rec001", restored.RootRecordingId);
             Assert.Equal("rec001", restored.ActiveRecordingId);
-            // Phase F: legacy resource fields are NOT persisted; reload sees defaults.
-            Assert.Equal(0, restored.PreTreeFunds);
-            Assert.Equal(0, restored.PreTreeScience);
-            Assert.Equal(0f, restored.PreTreeReputation);
-            Assert.Equal(0, restored.DeltaFunds);
-            Assert.Equal(0, restored.DeltaScience);
-            Assert.Equal(0f, restored.DeltaReputation);
+            Assert.Equal(RecordingTree.CurrentTreeFormatVersion, restored.TreeFormatVersion);
+            Assert.Null(restored.ConsumeLegacyResidual());
 
             Assert.Single(restored.Recordings);
             Assert.True(restored.Recordings.ContainsKey("rec001"));
@@ -837,23 +830,20 @@ namespace Parsek.Tests
         [Fact]
         public void RecordingTree_LegacyResourceFields_NotPersistedOnSave()
         {
-            // Phase F: tree.PreTreeFunds / DeltaFunds / DeltaScience / DeltaReputation /
-            // PreTreeScience / PreTreeReputation / ResourcesApplied are kept on the
-            // in-memory type so LedgerOrchestrator.MigrateLegacyTreeResources can
-            // hydrate them from pre-Phase-F .sfs files at load time. Save does NOT
-            // write them anymore — round-trip through Save then Load returns 0/false.
             var tree = new RecordingTree
             {
                 Id = "tree_res",
                 TreeName = "Resource Test",
-                RootRecordingId = "rec_r",
-                PreTreeFunds = 123456.789,
-                PreTreeScience = 987.654,
-                PreTreeReputation = 42.5f,
-                DeltaFunds = -5000.123,
-                DeltaScience = 150.5,
-                DeltaReputation = -10.25f
+                RootRecordingId = "rec_r"
             };
+            tree.SetLegacyResidualForTesting(
+                deltaFunds: -5000.123,
+                deltaScience: 150.5,
+                deltaReputation: -10.25f,
+                resourcesApplied: true,
+                preTreeFunds: 123456.789,
+                preTreeScience: 987.654,
+                preTreeReputation: 42.5f);
 
             var rec = new Recording
             {
@@ -875,15 +865,14 @@ namespace Parsek.Tests
             Assert.Null(node.GetValue("deltaScience"));
             Assert.Null(node.GetValue("deltaRep"));
             Assert.Null(node.GetValue("resourcesApplied"));
+            Assert.Equal(
+                RecordingTree.CurrentTreeFormatVersion.ToString(CultureInfo.InvariantCulture),
+                node.GetValue("treeFormatVersion"));
 
             var restored = RecordingTree.Load(node);
 
-            Assert.Equal(0, restored.PreTreeFunds);
-            Assert.Equal(0, restored.PreTreeScience);
-            Assert.Equal(0f, restored.PreTreeReputation);
-            Assert.Equal(0, restored.DeltaFunds);
-            Assert.Equal(0, restored.DeltaScience);
-            Assert.Equal(0f, restored.DeltaReputation);
+            Assert.Equal(RecordingTree.CurrentTreeFormatVersion, restored.TreeFormatVersion);
+            Assert.Null(restored.ConsumeLegacyResidual());
         }
 
         // --- SurfacePos (background landed recording) ---
@@ -996,31 +985,23 @@ namespace Parsek.Tests
             Assert.Equal(500.0, rec.EndUT);
         }
 
-        // --- ResourcesApplied field ---
-        // Phase F: ResourcesApplied is no longer persisted on Save (the consuming
-        // applier code path is gone). The in-memory default is false, and Load on
-        // a Phase-F-or-later .sfs always sees false. Phase A's load-time migration
-        // (LedgerOrchestrator.MigrateLegacyTreeResources) is what reads pre-F
-        // saves' resourcesApplied=true to short-circuit re-migration.
+        // --- Legacy residual seam ---
 
         [Fact]
-        public void ResourcesApplied_DefaultsFalse()
+        public void ConsumeLegacyResidual_DefaultsNull()
         {
             var tree = new RecordingTree();
-            Assert.False(tree.ResourcesApplied);
+            Assert.Null(tree.ConsumeLegacyResidual());
         }
 
         [Fact]
-        public void ResourcesApplied_NotPersistedOnSave()
+        public void TreeFormatVersion_SaveWritesCurrentVersion()
         {
-            // Set true in-memory, save, reload — Phase F drops the field on save,
-            // so the reload sees the default (false).
             var tree = new RecordingTree
             {
                 Id = "tree_ra",
                 TreeName = "RA Test",
-                RootRecordingId = "rec_ra",
-                ResourcesApplied = true
+                RootRecordingId = "rec_ra"
             };
 
             var rec = new Recording
@@ -1035,47 +1016,28 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING_TREE");
             tree.Save(node);
 
-            Assert.Null(node.GetValue("resourcesApplied"));
+            Assert.Equal(
+                RecordingTree.CurrentTreeFormatVersion.ToString(CultureInfo.InvariantCulture),
+                node.GetValue("treeFormatVersion"));
 
             var restored = RecordingTree.Load(node);
-            Assert.False(restored.ResourcesApplied);
+
+            Assert.Equal(RecordingTree.CurrentTreeFormatVersion, restored.TreeFormatVersion);
+            Assert.Null(restored.ConsumeLegacyResidual());
         }
 
         [Fact]
-        public void DeltaFields_NotPersistedOnSave()
+        public void TreeFormatVersion_MissingOnLoad_DefaultsZero()
         {
-            // Phase F: deltaFunds/deltaScience/deltaRep are dropped on save.
-            var tree = new RecordingTree
-            {
-                Id = "tree_delta",
-                TreeName = "Delta Test",
-                RootRecordingId = "rec_d",
-                DeltaFunds = -12345.6789,
-                DeltaScience = 543.21,
-                DeltaReputation = -7.5f
-            };
-
-            var rec = new Recording
-            {
-                RecordingId = "rec_d",
-                VesselName = "Ship D",
-                ExplicitStartUT = 100.0,
-                ExplicitEndUT = 200.0
-            };
-            tree.Recordings["rec_d"] = rec;
-
             var node = new ConfigNode("RECORDING_TREE");
-            tree.Save(node);
+            node.AddValue("id", "tree_delta");
+            node.AddValue("treeName", "Delta Test");
+            node.AddValue("rootRecordingId", "rec_d");
 
-            Assert.Null(node.GetValue("deltaFunds"));
-            Assert.Null(node.GetValue("deltaScience"));
-            Assert.Null(node.GetValue("deltaRep"));
+            var tree = RecordingTree.Load(node);
 
-            var restored = RecordingTree.Load(node);
-
-            Assert.Equal(0, restored.DeltaFunds);
-            Assert.Equal(0, restored.DeltaScience);
-            Assert.Equal(0f, restored.DeltaReputation);
+            Assert.Equal(0, tree.TreeFormatVersion);
+            Assert.Null(tree.ConsumeLegacyResidual());
         }
 
         [Fact]
@@ -1097,14 +1059,18 @@ namespace Parsek.Tests
             node.AddValue("resourcesApplied", "False");
 
             var tree = RecordingTree.Load(node);
+            var residual = ConsumeLegacyResidualOrThrow(tree);
 
-            Assert.Equal(60000, tree.PreTreeFunds);
-            Assert.Equal(200, tree.PreTreeScience);
-            Assert.Equal(30f, tree.PreTreeReputation);
-            Assert.Equal(-1500.5, tree.DeltaFunds);
-            Assert.Equal(12.5, tree.DeltaScience);
-            Assert.Equal(-2.5f, tree.DeltaReputation);
-            Assert.False(tree.ResourcesApplied);
+            Assert.Equal(0, tree.TreeFormatVersion);
+            Assert.Equal(60000, residual.PreTreeFunds);
+            Assert.Equal(200, residual.PreTreeScience);
+            Assert.Equal(30f, residual.PreTreeReputation);
+            Assert.Equal(-1500.5, residual.DeltaFunds);
+            Assert.Equal(12.5, residual.DeltaScience);
+            Assert.Equal(-2.5f, residual.DeltaReputation);
+            Assert.False(residual.ResourcesApplied);
+            Assert.True(residual.ResourcesAppliedFieldPresent);
+            Assert.Null(tree.ConsumeLegacyResidual());
         }
 
         // --- Edge cases ---
@@ -1316,14 +1282,21 @@ namespace Parsek.Tests
             recNode.AddValue("pointCount", "0");
 
             var tree = RecordingTree.Load(node);
+            var residual = ConsumeLegacyResidualOrThrow(tree);
 
             // Standard fields loaded correctly
             Assert.Equal("tree_fwd", tree.Id);
             Assert.Equal("Forward Compat", tree.TreeName);
             Assert.Equal("rec_fwd", tree.RootRecordingId);
-            Assert.Equal(50000, tree.PreTreeFunds);
-            Assert.Equal(-2000, tree.DeltaFunds);
-            Assert.False(tree.ResourcesApplied);
+            Assert.Equal(0, tree.TreeFormatVersion);
+            Assert.Equal(50000, residual.PreTreeFunds);
+            Assert.Equal(100, residual.PreTreeScience);
+            Assert.Equal(50f, residual.PreTreeReputation);
+            Assert.Equal(-2000, residual.DeltaFunds);
+            Assert.Equal(10, residual.DeltaScience);
+            Assert.Equal(-3f, residual.DeltaReputation);
+            Assert.False(residual.ResourcesApplied);
+            Assert.True(residual.ResourcesAppliedFieldPresent);
 
             // Recording loaded correctly despite unknown fields on parent
             Assert.Single(tree.Recordings);

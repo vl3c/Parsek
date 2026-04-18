@@ -105,7 +105,34 @@ namespace Parsek
         private readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
         private float nextProximityCheckTime;
         private const float ProximityCheckIntervalSec = 1.5f;
-        internal const double NearbySpawnRadius = 500.0;
+        internal const double NearbySpawnRadius = 250.0;
+        // Real Spawn Control: maximum relative speed (m/s) between the active vessel and a
+        // ghost for the ghost to qualify as a spawn candidate. Tight enough to require a
+        // deliberate rendezvous (matched orbits, station-keeping) before fast-forward is offered.
+        // Computed frame-agnostically as d(active_pos - ghost_pos)/dt across consecutive
+        // proximity scans — see CollectNearbySpawnCandidates.
+        internal const double MaxRelativeSpeed = 2.0;
+        // Per-recording position samples from the prior proximity scan, used to derive a
+        // frame-agnostic relative speed without depending on which frame
+        // GhostPlaybackState.lastInterpolatedVelocity happens to be in (it varies by
+        // playback path — orbit-only ghosts never seed it; trajectory-replay velocity is
+        // not guaranteed surface-relative).
+        private struct ProximityVelocitySample
+        {
+            public Vector3d activePos;
+            public Vector3d ghostPos;
+            public float time;
+        }
+        private readonly Dictionary<string, ProximityVelocitySample> proximityVelocitySamples =
+            new Dictionary<string, ProximityVelocitySample>();
+        // Sample is trustworthy when 0.5s <= dt <= 5s. Below: jitter dominates.
+        // Above: sample is stale (time warp, scene change, paused) — discard.
+        private const float ProximityVelocitySampleMinDt = 0.5f;
+        private const float ProximityVelocitySampleMaxDt = 5.0f;
+        // Tracks the active vessel pid the proximity samples were captured against; on
+        // vessel switch the cached activePos belongs to a different craft and must be
+        // discarded (otherwise the next scan would see a teleport-sized delta).
+        private uint lastProximityActiveVesselPid;
         private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
         private int proximityCheckGeneration;
         internal int ProximityCheckGeneration => proximityCheckGeneration;
@@ -490,6 +517,123 @@ namespace Parsek
         internal string DescribeWatchEligibilityForLogs(int index) => watchMode != null
             ? watchMode.DescribeWatchEligibilityForLogs(index)
             : $"watchEval(rec=#{index} unavailable=watchMode-null)";
+        internal bool ExitWatchModeBeforeTimelineGhostCleanup(string context)
+        {
+            bool isWatchingGhost = watchMode != null && watchMode.IsWatchingGhost;
+            string focus = watchMode != null
+                ? watchMode.DescribeWatchFocusForLogs()
+                : "watch=uninitialized";
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                watchMode != null
+                    ? new Action<bool>(skipCameraRestore => watchMode.ExitWatchMode(skipCameraRestore))
+                    : null,
+                isWatchingGhost
+                    ? new Action(() => RetargetStockCamerasBeforeTimelineGhostCleanup(context, focus))
+                    : null,
+                context,
+                focus);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action exitWatchMode,
+            Action detachStockCameraTarget,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                exitWatchMode != null
+                    ? new Action<bool>(_ => exitWatchMode())
+                    : null,
+                detachStockCameraTarget,
+                context,
+                watchFocusForLogs);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action<bool> exitWatchMode,
+            Action detachStockCameraTarget,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+
+            if (!isWatchingGhost)
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: no active watch mode before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            if (exitWatchMode == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: active watch mode could not be exited before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            ParsekLog.Info("CameraFollow",
+                $"Exiting watch mode before timeline ghost cleanup: context={cleanupContext} skipCameraRestore=true {focus}");
+            detachStockCameraTarget?.Invoke();
+            exitWatchMode(true);
+            return true;
+        }
+
+        private void RetargetStockCamerasBeforeTimelineGhostCleanup(
+            string context,
+            string watchFocusForLogs)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+            FlightCamera flightCamera = FlightCamera.fetch;
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+
+            if (flightCamera != null
+                && activeVessel != null
+                && activeVessel.gameObject != null)
+            {
+                flightCamera.SetTargetVessel(activeVessel);
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: FlightCamera retargeted to active vessel '{activeVessel.vesselName}' before {cleanupContext} ({focus})");
+            }
+            else
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: could not retarget FlightCamera before {cleanupContext} ({focus}) " +
+                    $"camera={(flightCamera != null)} activeVessel={(activeVessel != null)} " +
+                    $"activeVesselGo={(activeVessel != null && activeVessel.gameObject != null)}");
+            }
+
+            if (!MapView.MapIsEnabled)
+                return;
+
+            if (PlanetariumCamera.fetch != null
+                && activeVessel != null
+                && activeVessel.mapObject != null)
+            {
+                PlanetariumCamera.fetch.SetTarget(activeVessel.mapObject);
+                ParsekLog.Verbose("GhostMap",
+                    $"Watch cleanup guard: PlanetariumCamera retargeted to active vessel '{activeVessel.vesselName}' before {cleanupContext}");
+                return;
+            }
+
+            ParsekLog.Verbose("GhostMap",
+                $"Watch cleanup guard: skipped PlanetariumCamera retarget before {cleanupContext} " +
+                $"map={MapView.MapIsEnabled} camera={(PlanetariumCamera.fetch != null)} " +
+                $"activeVessel={(activeVessel != null)} mapObject={(activeVessel != null && activeVessel.mapObject != null)}");
+        }
 
         #endregion
 
@@ -954,6 +1098,7 @@ namespace Parsek
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
+            proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
@@ -5885,7 +6030,7 @@ namespace Parsek
             // commit paths stay in lockstep.
             int markedCount = RecordingStore.MarkTreeAsApplied(activeTree);
             ParsekLog.Info("Flight",
-                $"CommitTreeFlight: ResourcesApplied=true, marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
+                $"CommitTreeFlight: marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
 
             // Get spawnable leaves before commit (tree is consumed by CommitTree)
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
@@ -9204,6 +9349,8 @@ namespace Parsek
 
         public void DestroyAllTimelineGhosts()
         {
+            ExitWatchModeBeforeTimelineGhostCleanup("DestroyAllTimelineGhosts");
+
             // Remove ghost map ProtoVessels before engine cleanup
             GhostMapPresence.RemoveAllGhostVessels("rewind");
 
@@ -9216,6 +9363,7 @@ namespace Parsek
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
+            proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
@@ -11254,6 +11402,17 @@ namespace Parsek
             if (FlightGlobals.ActiveVessel == null) return;
 
             Vector3d activePos = FlightGlobals.ActiveVessel.GetWorldPos3D();
+            uint activePid = FlightGlobals.ActiveVessel.persistentId;
+            if (activePid != lastProximityActiveVesselPid)
+            {
+                if (lastProximityActiveVesselPid != 0 && proximityVelocitySamples.Count > 0)
+                    ParsekLog.Verbose("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Proximity check: active vessel changed pid {0} -> {1}, dropped {2} velocity sample(s)",
+                            lastProximityActiveVesselPid, activePid, proximityVelocitySamples.Count));
+                proximityVelocitySamples.Clear();
+                lastProximityActiveVesselPid = activePid;
+            }
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
 
@@ -11272,6 +11431,12 @@ namespace Parsek
         /// </summary>
         private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
         {
+            int skippedSpeed = 0;
+            int skippedSeeding = 0;
+            float now = Time.time;
+            // Track which recordings still have an active ghost so we can prune stale samples.
+            var seenRecordingIds = new HashSet<string>();
+
             foreach (var kvp in ghostStates)
             {
                 int i = kvp.Key;
@@ -11304,9 +11469,45 @@ namespace Parsek
                         continue;
                 }
 
-                double dist = Vector3d.Distance(activePos, state.ghost.transform.position);
+                Vector3d ghostPos = state.ghost.transform.position;
+                double dist = Vector3d.Distance(activePos, ghostPos);
                 if (dist > NearbySpawnRadius)
                     continue;
+
+                // Frame-agnostic relative-speed gate. We compute d(active_pos - ghost_pos)/dt
+                // across consecutive proximity scans rather than subtracting velocity vectors
+                // from KSP and ghost playback (those are not in a guaranteed common frame —
+                // TrajectoryPoint.velocity is "not guaranteed surface-relative" and orbit-only
+                // ghosts never seed lastInterpolatedVelocity at all). Both samples are read
+                // from transform.position in the same Update tick, so floating-origin and
+                // krakensbane shifts cancel in the per-sample relative vector.
+                seenRecordingIds.Add(rec.RecordingId);
+                bool hasPrev = proximityVelocitySamples.TryGetValue(rec.RecordingId, out var prev);
+                // Always overwrite the sample so the next scan can compute against this one.
+                proximityVelocitySamples[rec.RecordingId] = new ProximityVelocitySample
+                {
+                    activePos = activePos,
+                    ghostPos = ghostPos,
+                    time = now
+                };
+
+                if (!hasPrev)
+                {
+                    // First sighting in range — seed only, defer admission until we have
+                    // a second sample to derive a velocity from.
+                    skippedSeeding++;
+                    continue;
+                }
+
+                float dt = now - prev.time;
+                double relSpeed = SelectiveSpawnUI.ComputeRelativeSpeed(
+                    activePos, ghostPos, prev.activePos, prev.ghostPos, dt,
+                    ProximityVelocitySampleMinDt, ProximityVelocitySampleMaxDt);
+                if (relSpeed > MaxRelativeSpeed)
+                {
+                    skippedSpeed++;
+                    continue;
+                }
 
                 var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
@@ -11321,6 +11522,23 @@ namespace Parsek
                     destination = depInfo.destination
                 });
             }
+
+            // Drop samples for recordings that are no longer in-range / ghosted, so the cache
+            // doesn't grow unboundedly across a long session.
+            if (proximityVelocitySamples.Count > seenRecordingIds.Count)
+            {
+                var stale = new List<string>();
+                foreach (var key in proximityVelocitySamples.Keys)
+                    if (!seenRecordingIds.Contains(key)) stale.Add(key);
+                for (int s = 0; s < stale.Count; s++)
+                    proximityVelocitySamples.Remove(stale[s]);
+            }
+
+            if ((skippedSpeed > 0 || skippedSeeding > 0) && ParsekLog.IsVerboseEnabled)
+                ParsekLog.Verbose("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Proximity check: skipped {0} (rel-speed > {1:F1} m/s) + {2} (seeding first sample)",
+                        skippedSpeed, MaxRelativeSpeed, skippedSeeding));
         }
 
         /// <summary>
@@ -11359,8 +11577,8 @@ namespace Parsek
             if (ParsekLog.IsVerboseEnabled && nearbySpawnCandidates.Count > 0)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: {0} candidate(s) within {1:F0}m",
-                        nearbySpawnCandidates.Count, NearbySpawnRadius));
+                        "Proximity check: {0} candidate(s) within {1:F0}m and rel-speed <= {2:F1} m/s",
+                        nearbySpawnCandidates.Count, NearbySpawnRadius, MaxRelativeSpeed));
         }
 
         /// <summary>

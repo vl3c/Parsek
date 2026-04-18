@@ -72,6 +72,40 @@ namespace Parsek
             return spawnsThisFrame >= maxPerFrame;
         }
 
+        /// <summary>
+        /// Bug #450 B3: decides whether a deferred reentry-FX build should fire on the
+        /// current frame. Returns true when the ghost is inside a body's atmosphere AND
+        /// moving fast enough for reentry visuals to be imminent (speed ≥ the
+        /// <c>ReentryPotentialSpeedFloor</c> = 400 m/s ≈ Mach 1.2 at sea-level Kerbin —
+        /// the floor shared with <c>TrajectoryMath.HasReentryPotential</c>).
+        ///
+        /// The speed gate prevents launch recordings (pad → ascent) from triggering the
+        /// build on the very first playback frame: those ghosts are at 0 m/s at ground
+        /// level on frame 1 and only cross the 400 m/s floor several seconds later, so
+        /// the 7 ms build shifts off the spawn hitch by design. Atmospheric-start
+        /// recordings where the ghost is already above 400 m/s (mid-reentry saves) still
+        /// fire on frame 1 — that is correct because we legitimately need FX right away.
+        ///
+        /// Pure helper so the condition is unit-testable without Unity or FlightGlobals.
+        /// </summary>
+        internal static bool ShouldBuildLazyReentryFx(
+            bool pendingFlag, string bodyName, bool bodyHasAtmosphere,
+            double altitudeMeters, double atmosphereDepthMeters,
+            float surfaceSpeedMetersPerSecond, float speedFloorMetersPerSecond)
+        {
+            if (!pendingFlag) return false;
+            if (string.IsNullOrEmpty(bodyName)) return false;
+            if (!bodyHasAtmosphere) return false;
+            // Strict `<`: at exactly atmosphereDepth the existing UpdateReentryFx path
+            // already calls DriveReentryToZero, so firing the build here would only pay
+            // the cost for a frame that produces zero-intensity output anyway.
+            if (altitudeMeters >= atmosphereDepthMeters) return false;
+            // Speed gate — see XML doc above. NaN/negative compares false by IEEE rules,
+            // so a malformed velocity correctly suppresses the build rather than leaking it.
+            if (!(surfaceSpeedMetersPerSecond >= speedFloorMetersPerSecond)) return false;
+            return true;
+        }
+
         internal static bool ShouldSuppressVisualFx(float currentWarpRate)
         {
             return currentWarpRate > FxSuppressWarpThreshold;
@@ -306,11 +340,12 @@ namespace Parsek
         /// that the number of simultaneously-live cycles (ceil(duration/cadence))
         /// never exceeds <paramref name="maxCycles"/>. Starts from the
         /// user-requested period (clamped to <see cref="MinCycleDuration"/>) and
-        /// doubles it until the cycle count fits. Returns the effective cadence
-        /// in seconds; the user's stored loop period is unchanged — only the
-        /// runtime spawn rate is adjusted. Guarantees the per-recording ghost
-        /// clone count stays within the cap without silently culling cycles
-        /// mid-trajectory (the pre-fix behaviour stacked ghosts near launch).
+        /// raises it only as far as needed for the cap to fit. Returns the
+        /// effective cadence in seconds; the user's stored loop period is
+        /// unchanged — only the runtime spawn rate is adjusted. Guarantees the
+        /// per-recording ghost clone count stays within the cap without silently
+        /// culling cycles mid-trajectory (the pre-fix behaviour stacked ghosts
+        /// near launch).
         /// </summary>
         internal static double ComputeEffectiveLaunchCadence(
             double userPeriod, double duration, int maxCycles)
@@ -321,19 +356,29 @@ namespace Parsek
             if (duration <= 0 || maxCycles <= 0)
                 return period;
 
-            // Defensive ceiling: the doubling loop always terminates because
-            // each iteration halves the theoretical cycle count, but cap the
-            // iteration count at 64 to guard against pathological inputs.
-            int safety = 64;
-            while (safety-- > 0 && CeilingDivPositive(duration, period) > maxCycles)
-                period *= 2.0;
-            return period;
+            // Minimum cadence that keeps ceil(duration / cadence) <= maxCycles.
+            double cadenceFloor = duration / maxCycles;
+            if (double.IsNaN(cadenceFloor) || double.IsInfinity(cadenceFloor))
+                return period;
+
+            // Floating-point division can round the exact floor slightly low,
+            // so bump by one ulp until the cycle count fits.
+            int safety = 4;
+            while (safety-- > 0 && Math.Ceiling(duration / cadenceFloor) > maxCycles)
+                cadenceFloor = NextUp(cadenceFloor);
+
+            return Math.Max(period, cadenceFloor);
         }
 
-        private static long CeilingDivPositive(double numerator, double denominator)
+        private static double NextUp(double value)
         {
-            if (denominator <= 0) return long.MaxValue;
-            return (long)Math.Ceiling(numerator / denominator);
+            if (double.IsNaN(value) || value == double.PositiveInfinity)
+                return value;
+            if (value == 0.0)
+                return double.Epsilon;
+
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            return BitConverter.Int64BitsToDouble(bits + (value > 0.0 ? 1L : -1L));
         }
 
         /// <summary>
@@ -1072,6 +1117,309 @@ namespace Parsek
                 {
                     child.gameObject.SetActive(false);
                     hidden++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// #406 follow-up: re-activates every ghost_part_* GameObject under the
+        /// ghost's visuals container so the next loop cycle plays back from the
+        /// snapshot baseline. Production ghosts created by
+        /// <c>BuildTimelineGhostFromSnapshot</c> parent every ghost_part_ under
+        /// a dedicated `ghost_visuals` container (see
+        /// <c>GhostVisualBuilder.EnsureGhostVisualsRoot</c>); part visibility is
+        /// toggled via <c>SetGhostPartActive</c> which looks up parts inside
+        /// that container. Walking `state.ghost.transform` directly would miss
+        /// every real part (it would only see the container + cameraPivot +
+        /// horizonProxy). Call site: loop-cycle-reuse path in
+        /// <c>GhostPlaybackEngine</c>. Returns the number of parts re-activated
+        /// — used by the Verbose log line at the reuse call site.
+        /// </summary>
+        internal static int ReactivateGhostPartHierarchyForLoopRewind(GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null) return 0;
+            // Reuse the same lookup SetGhostPartActive uses so "part hierarchy"
+            // here means the same thing as at the playback event sites.
+            var partContainer = GhostVisualBuilder.GetGhostPartContainer(state.ghost.transform);
+            if (partContainer == null) return 0;
+            int reactivated = 0;
+            for (int c = 0; c < partContainer.childCount; c++)
+            {
+                var child = partContainer.GetChild(c);
+                if (!child.gameObject.activeSelf)
+                {
+                    child.gameObject.SetActive(true);
+                    reactivated++;
+                }
+            }
+            return reactivated;
+        }
+
+        /// <summary>
+        /// #406 follow-up: per-cycle state reset for the loop-cycle ghost reuse
+        /// path. Pure-logic helper (no Unity API calls) — safe to invoke from
+        /// xUnit tests. Mirrors the spawn-time baseline for iterators, per-cycle
+        /// flags, AND the mutable playback fields stored inside the preserved
+        /// module dictionaries (EngineGhostInfo.currentPower etc.), while
+        /// PRESERVING the snapshot-derived dictionary references, the ghost
+        /// GameObject, the reentry FX info, and the reentry-FX pending-build
+        /// flag (#450 B3 — clearing the flag would re-pay the ~7 ms build
+        /// every cycle). See <c>docs/dev/plan-406-ghost-reuse-loop-cycles.md</c>
+        /// for the field-by-field preservation table.
+        ///
+        /// Unity-touching cleanup (RCS emission restore, fake canopy GameObject
+        /// destroy) is deliberately NOT invoked here — the engine's
+        /// <c>ReusePrimaryGhostAcrossCycle</c> orchestrator calls those helpers
+        /// separately immediately after this one. Pulling them into this method
+        /// would trip <c>System.Security.SecurityException</c> in xUnit runs
+        /// because the JIT loads Unity type references at method-verify time,
+        /// even if the early-returns prevent their execution.
+        /// </summary>
+        internal static void ResetForLoopCycle(GhostPlaybackState state, long newCycleIndex)
+        {
+            if (state == null) return;
+
+            // Playback iterators rewind to cycle start.
+            state.playbackIndex = 0;
+            state.partEventIndex = 0;
+            state.flagEventIndex = 0;
+            state.appearanceCount = 0;
+            state.hadVisibleRenderersLastFrame = false;
+            state.loopCycleIndex = newCycleIndex;
+
+            // Per-cycle flags reset to spawn baseline — the new cycle re-decides.
+            state.explosionFired = false;
+            state.pauseHidden = false;
+            state.rcsSuppressed = false;
+
+            // Audio state machine: next frame's atmosphere/mute pipeline
+            // re-decides. Atmosphere factor resets to 1 (matches spawn).
+            state.audioMuted = false;
+            state.atmosphereFactor = 1f;
+
+            // Per-part runtime state accrued from events (light blink state,
+            // logical-pid presence set). Events on the new cycle repopulate
+            // these; `logicalPartIds` is restored by the reuse orchestrator
+            // via BuildSnapshotPartIdSet because that helper requires the
+            // snapshot ConfigNode which this pure static doesn't have access
+            // to. `fakeCanopies` entries must be destroyed — the engine
+            // orchestrator calls DestroyAllFakeCanopies() separately because
+            // it invokes Unity's Object.Destroy.
+            state.lightPlaybackStates?.Clear();
+
+            // Mutable playback fields INSIDE the preserved module dictionaries:
+            // a fresh spawn constructs new info objects with these fields at
+            // their default (zero). Reuse must match that baseline or the
+            // first-visible frame can reapply stale engine throttle / robotic
+            // servo / color-charge / reentry-intensity state from the previous
+            // cycle before the new cycle's events have fired. Nullable-safe
+            // loops — any of these dictionaries can legitimately be null
+            // (trajectory had no engines, no RCS, no robotic parts, etc.).
+            if (state.engineInfos != null)
+            {
+                foreach (var info in state.engineInfos.Values)
+                    if (info != null) info.currentPower = 0f;
+            }
+            if (state.rcsInfos != null)
+            {
+                foreach (var info in state.rcsInfos.Values)
+                    if (info != null) info.currentPower = 0f;
+            }
+            if (state.audioInfos != null)
+            {
+                foreach (var info in state.audioInfos.Values)
+                    if (info != null) info.currentPower = 0f;
+            }
+            if (state.roboticInfos != null)
+            {
+                foreach (var info in state.roboticInfos.Values)
+                {
+                    if (info == null) continue;
+                    info.currentValue = 0f;
+                    info.active = false;
+                    info.lastUpdateUT = double.NaN;
+                }
+            }
+            if (state.colorChangerInfos != null)
+            {
+                foreach (var list in state.colorChangerInfos.Values)
+                {
+                    if (list == null) continue;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i] != null)
+                            list[i].peakCharIntensity = 0f;
+                    }
+                }
+            }
+            if (state.reentryFxInfo != null)
+                state.reentryFxInfo.lastIntensity = 0f;
+
+            // Reset fresh-spawn visibility deferral so the first positioned
+            // frame activates the ghost the same way a fresh spawn would.
+            state.deferVisibilityUntilPlaybackSync = true;
+
+            // Deliberately NOT reset: `fidelityReduced`, `distanceLodReduced`,
+            // `fidelityDisabledRenderers`, `simplified`. These track
+            // distance-LOD state that is re-evaluated every frame by
+            // `ApplyDistanceLodFidelity` + `ApplyZonePolicy`. If a
+            // prior-cycle-decoupled part that was on the disabled-renderers
+            // list is now reactivated by ReactivateGhostPartHierarchyForLoopRewind,
+            // the list holds a reference to a renderer that is briefly
+            // visible again — but the next ApplyDistanceLodFidelity pass
+            // re-walks active renderers and re-disables anything still out
+            // of range, so the list self-corrects within one frame. Pre-#406
+            // behaviour discarded the list with DestroyGhost; the reuse
+            // path preserves it because rebuilding would churn the LOD
+            // state machine without gameplay benefit.
+        }
+
+        /// <summary>
+        /// #406 follow-up: re-apply spawn-time Unity-touching module baselines
+        /// after a loop-cycle reuse. Fresh spawn does three things that
+        /// <see cref="ResetForLoopCycle"/> cannot (because they touch Unity):
+        ///  1. Heat parts: reset every <c>HeatGhostInfo</c> to
+        ///     <see cref="HeatLevel.Cold"/> via <c>ApplyHeatState</c>, so a
+        ///     cycle whose prior pass went hot does not carry that emission
+        ///     into the new cycle's pre-reentry frames.
+        ///  2. Deployable parts: reset every transform in
+        ///     <c>DeployableGhostInfo</c> to its stowed pose, so a solar
+        ///     panel that deployed mid-cycle is folded again before the new
+        ///     cycle's events re-deploy it on schedule.
+        ///  3. Jettison panels: reactivate jettisoned panels (SetActive true)
+        ///     so the new cycle's jettison events can re-fire.
+        ///  4. Orphan engine/audio auto-start: for recordings with ZERO
+        ///     engine events (typical of pure debris boosters that were
+        ///     running at breakup), re-fire the fresh-spawn auto-start logic
+        ///     so plume/audio come back on the second cycle onward. Without
+        ///     this, the first cycle has orphan FX but the second cycle
+        ///     loses them silently.
+        /// Must be called from the engine orchestrator AFTER
+        /// <see cref="ResetForLoopCycle"/> and
+        /// <see cref="ReactivateGhostPartHierarchyForLoopRewind"/> and BEFORE
+        /// the next <c>PrimeLoadedGhostForPlaybackUT</c> / <c>ApplyFrameVisuals</c>
+        /// call. All three branches no-op on null inputs.
+        /// </summary>
+        internal static void ReapplySpawnTimeModuleBaselinesForLoopCycle(
+            GhostPlaybackState state, IPlaybackTrajectory traj)
+        {
+            if (state == null || state.ghost == null) return;
+
+            // 1. Heat: reset every part to cold.
+            if (state.heatInfos != null)
+            {
+                foreach (var kvp in state.heatInfos)
+                {
+                    var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyHeatState(state, coldEvt, HeatLevel.Cold);
+                }
+            }
+
+            // 2. Deployables: re-stow every panel. Events during the new
+            //    cycle re-deploy on their original UT.
+            if (state.deployableInfos != null)
+            {
+                foreach (var kvp in state.deployableInfos)
+                {
+                    var stowedEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyDeployableState(state, stowedEvt, deployed: false);
+                }
+            }
+
+            // 3. Jettison panels: re-attach every panel. Jettison events
+            //    during the new cycle hide them again on their original UT.
+            if (state.jettisonInfos != null)
+            {
+                foreach (var kvp in state.jettisonInfos)
+                {
+                    var attachedEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyJettisonPanelState(state, attachedEvt, jettisoned: false);
+                }
+            }
+
+            // 3b. Parachutes: re-stow canopies (localScale = Vector3.zero, the
+            //     spawn-time baseline from TryBuildParachuteInfo at
+            //     GhostVisualBuilder.cs line ~4539) and re-activate caps so
+            //     packs that cut / destroyed / deployed in the prior cycle
+            //     are back to their pre-launch pose. Destroy any fake canopy
+            //     left over from a prior ParachuteDeployed event so the new
+            //     cycle's event can re-create it fresh.
+            if (state.parachuteInfos != null)
+            {
+                foreach (var kvp in state.parachuteInfos)
+                {
+                    ParachuteGhostInfo info = kvp.Value;
+                    if (info == null) continue;
+                    if (info.canopyTransform != null)
+                        info.canopyTransform.localScale = UnityEngine.Vector3.zero;
+                    if (info.capTransform != null)
+                        info.capTransform.gameObject.SetActive(true);
+                }
+            }
+            DestroyAllFakeCanopies(state);
+
+            // 3c. Fairings: re-activate fairing mesh so a FairingJettisoned
+            //     event from the prior cycle is undone. Events during the
+            //     new cycle re-hide on their original UT.
+            if (state.fairingInfos != null)
+            {
+                foreach (var kvp in state.fairingInfos)
+                {
+                    FairingGhostInfo info = kvp.Value;
+                    if (info == null || info.fairingMeshObject == null) continue;
+                    info.fairingMeshObject.SetActive(true);
+                }
+            }
+
+            // 3d. Lights: force every Light component to disabled so a lamp
+            //     that was ON at cycle-end does not stay on during the new
+            //     cycle's pre-event window. ResetForLoopCycle already cleared
+            //     lightPlaybackStates, so UpdateBlinkingLights would not
+            //     iterate until events repopulate the dict — without this
+            //     explicit SetLightState(false), the Unity Light.enabled flag
+            //     stays at its prior value. The fresh-spawn path converges on
+            //     "all off" only after UpdateBlinkingLights runs once with
+            //     lightPlaybackStates populated; this short-circuits the
+            //     transient window where lamps appear stuck on.
+            if (state.lightInfos != null)
+            {
+                foreach (var kvp in state.lightInfos)
+                    SetLightState(state, kvp.Key, false);
+            }
+
+            // 4. Orphan engine/audio auto-start: duplicates the zero-engine-event
+            //    branch of TryPopulateGhostVisuals so a debris-booster recording
+            //    with no engine events keeps its plume + audio across loop cycles.
+            bool hasEngineOrAudioInfos =
+                (state.audioInfos != null && state.audioInfos.Count > 0)
+                || (state.engineInfos != null && state.engineInfos.Count > 0);
+            if (!hasEngineOrAudioInfos || traj == null || traj.PartEvents == null) return;
+            HashSet<ulong> engineKeysWithEvents = BuildEngineEventKeySet(traj.PartEvents);
+            if (engineKeysWithEvents.Count != 0) return;
+
+            if (state.audioInfos != null)
+            {
+                foreach (var kvp in state.audioInfos)
+                {
+                    kvp.Value.currentPower = 1f;
+                    if (kvp.Value.audioSource != null)
+                    {
+                        kvp.Value.audioSource.volume = 0f;
+                        kvp.Value.audioSource.loop = true;
+                        if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
+                            kvp.Value.audioSource.Play();
+                    }
+                }
+            }
+
+            if (state.engineInfos != null)
+            {
+                foreach (var kvp in state.engineInfos)
+                {
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
+                    var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
+                    SetEngineEmission(state, syntheticEvt, 1f);
                 }
             }
         }

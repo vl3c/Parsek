@@ -484,7 +484,7 @@ namespace Parsek
         /// <para>Performs the two steps that every auto-commit path must run in lockstep:</para>
         /// <list type="number">
         ///   <item><description><see cref="RecordingStore.CommitPendingTree"/> — moves the tree from pending to committed state.</description></item>
-        ///   <item><description><see cref="RecordingStore.MarkTreeAsApplied(RecordingTree)"/> — disarms the legacy lump-sum replay path so the next FLIGHT entry does not re-credit resources that were already live during the originating flight.</description></item>
+        ///   <item><description><see cref="RecordingStore.MarkTreeAsApplied(RecordingTree)"/> — advances each committed tree recording's <c>LastAppliedResourceIndex</c> so resource-budget reservation does not re-hold resources that were already live during the originating flight.</description></item>
         /// </list>
         ///
         /// <para>Callers chain <see cref="LedgerOrchestrator.NotifyLedgerTreeCommitted(RecordingTree)"/>
@@ -492,9 +492,9 @@ namespace Parsek
         /// recalculation + patching and some call sites log / screen-message around it.</para>
         ///
         /// <para>Do NOT call from post-revert or other rollback paths where KSP's funds
-        /// have been rewound to pre-flight: those paths legitimately want the next
-        /// <c>ApplyTreeLumpSum</c> to re-credit the income. None of the current callers
-        /// are on that path — the revert branch runs <see cref="RecordingStore.DiscardPendingTree"/>
+        /// have been rewound to pre-flight: those paths intentionally discard or unstash
+        /// the pending tree instead of committing it. None of the current callers are on
+        /// that path — the revert branch runs <see cref="RecordingStore.DiscardPendingTree"/>
         /// (or <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
         /// </summary>
         internal static void CommitPendingTreeAsApplied(RecordingTree tree)

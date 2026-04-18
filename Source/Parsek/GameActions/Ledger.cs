@@ -673,6 +673,26 @@ namespace Parsek
             ResetLegacyActionIdMigrationForTesting();
         }
 
+        /// <summary>
+        /// Test-only: truncates the actions list down to the given count,
+        /// removing any actions appended after that point. Used by in-game
+        /// tests that exercise a live KSP capture path whose side-effect
+        /// writes to the ledger (e.g. <c>RuntimeTests.StrategyLifecycle</c>
+        /// where <c>OnStrategyActivated</c> forwards into
+        /// <c>LedgerOrchestrator.OnKscSpending</c> during KSC-scope capture).
+        /// Silent no-op if <paramref name="newCount"/> is at or past the
+        /// current count.
+        /// </summary>
+        internal static void TruncateActionsForTesting(int newCount)
+        {
+            if (newCount < 0) newCount = 0;
+            if (newCount >= actions.Count) return;
+            int removed = actions.Count - newCount;
+            actions.RemoveRange(newCount, removed);
+            ParsekLog.Verbose("Ledger",
+                $"TruncateActionsForTesting: removed={removed}, newCount={actions.Count}");
+        }
+
         // ================================================================
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {

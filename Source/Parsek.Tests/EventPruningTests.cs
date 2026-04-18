@@ -31,18 +31,20 @@ namespace Parsek.Tests
         {
             // Add events with epoch 0
             MilestoneStore.CurrentEpoch = 0;
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt1);
+            var evt2 = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2"
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             // Switch to epoch 1 — old-epoch events should be pruned
             MilestoneStore.CurrentEpoch = 1;
@@ -59,24 +61,27 @@ namespace Parsek.Tests
             MilestoneStore.CurrentEpoch = 0;
 
             // Add events at UT 50, 100, 150
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "tech1"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt1);
+            var evt2 = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "tech2"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt2);
+            var evt3 = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.TechResearched,
                 key = "tech3"
-            });
+            };
+            GameStateStore.AddEvent(ref evt3);
 
             // Create a milestone covering up to UT 100
             MilestoneStore.AddMilestoneForTesting(new Milestone
@@ -104,18 +109,20 @@ namespace Parsek.Tests
             MilestoneStore.CurrentEpoch = 0;
 
             // Add events above the milestone threshold
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "contract1"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt1);
+            var evt2 = new GameStateEvent
             {
                 ut = 300,
                 eventType = GameStateEventType.ContractCompleted,
                 key = "contract2"
-            });
+            };
+            GameStateStore.AddEvent(ref evt2);
 
             // Milestone ends at UT 100 — both events are above threshold
             MilestoneStore.AddMilestoneForTesting(new Milestone
@@ -151,36 +158,41 @@ namespace Parsek.Tests
             MilestoneStore.CurrentEpoch = 0;
 
             // Add 5 events, milestone covers UT 0-300, so 3 at or below threshold
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt1 = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "t1"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt1);
+            var evt2 = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.TechResearched,
                 key = "t2"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt2);
+            var evt3 = new GameStateEvent
             {
                 ut = 300,
                 eventType = GameStateEventType.TechResearched,
                 key = "t3"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt3);
+            var evt4 = new GameStateEvent
             {
                 ut = 400,
                 eventType = GameStateEventType.TechResearched,
                 key = "t4"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evt4);
+            var evt5 = new GameStateEvent
             {
                 ut = 500,
                 eventType = GameStateEventType.TechResearched,
                 key = "t5"
-            });
+            };
+            GameStateStore.AddEvent(ref evt5);
 
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
@@ -283,12 +295,13 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             MilestoneStore.CurrentEpoch = 0;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "tech1"
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
@@ -311,27 +324,30 @@ namespace Parsek.Tests
         {
             // Event in old epoch (epoch 0) — should be pruned
             MilestoneStore.CurrentEpoch = 0;
-            GameStateStore.AddEvent(new GameStateEvent
+            var oldEpochEvt = new GameStateEvent
             {
                 ut = 999,
                 eventType = GameStateEventType.TechResearched,
                 key = "old_epoch_tech"
-            });
+            };
+            GameStateStore.AddEvent(ref oldEpochEvt);
 
             // Switch to epoch 1, add events at various UTs
             MilestoneStore.CurrentEpoch = 1;
-            GameStateStore.AddEvent(new GameStateEvent
+            var belowEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "below_threshold"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref belowEvt);
+            var aboveEvt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.TechResearched,
                 key = "above_threshold"
-            });
+            };
+            GameStateStore.AddEvent(ref aboveEvt);
 
             // Milestone in epoch 1 up to UT 100
             MilestoneStore.AddMilestoneForTesting(new Milestone

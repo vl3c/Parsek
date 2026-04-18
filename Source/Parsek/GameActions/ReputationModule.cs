@@ -84,6 +84,10 @@ namespace Parsek
                     ProcessReputationInitial(action);
                     break;
 
+                case GameActionType.StrategyActivate:
+                    ProcessStrategySetupReputation(action);
+                    break;
+
                 default:
                     // Not a rep-affecting action — skip silently
                     return;
@@ -190,6 +194,25 @@ namespace Parsek
                 $"Contract {action.Type} rep at UT={action.UT.ToString("F1", IC)}: " +
                 $"contractId={action.ContractId ?? "null"}, " +
                 $"nominalPenalty={action.RepPenalty.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
+                $"runningRep={runningRep.ToString("F2", IC)}");
+        }
+
+        private void ProcessStrategySetupReputation(GameAction action)
+        {
+            float nominal = -action.SetupReputationCost;
+            if (nominal == 0f)
+                return;
+
+            var result = ApplyReputationCurve(nominal, runningRep);
+
+            action.EffectiveRep = result.actualDelta;
+            runningRep = result.newRep;
+
+            ParsekLog.Verbose(Tag,
+                $"StrategyActivate rep at UT={action.UT.ToString("F1", IC)}: " +
+                $"strategyId={action.StrategyId ?? "null"}, " +
+                $"nominalPenalty={action.SetupReputationCost.ToString("F2", IC)}, " +
+                $"effective={result.actualDelta.ToString("F2", IC)}, " +
                 $"runningRep={runningRep.ToString("F2", IC)}");
         }
 

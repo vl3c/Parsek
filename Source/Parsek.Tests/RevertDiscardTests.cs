@@ -64,13 +64,14 @@ namespace Parsek.Tests
         {
             var tree = MakeTreeWithOneRec("Mun Lander", "rec-mun");
             RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            GameStateStore.AddEvent(new GameStateEvent
+            var munEvt = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "guid-mun",
                 recordingId = "rec-mun",
-            });
+            };
+            GameStateStore.AddEvent(ref munEvt);
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Single(GameStateStore.Events);
 
@@ -264,13 +265,14 @@ namespace Parsek.Tests
             var tree = MakeTreeWithOneRec("Armed-revert tree", "rec-armed");
             RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
             RecordingStore.PendingStashedThisTransition = true;
-            GameStateStore.AddEvent(new GameStateEvent
+            var armedEvt = new GameStateEvent
             {
                 ut = 600.0,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "contract-armed",
                 recordingId = "rec-armed",
-            });
+            };
+            GameStateStore.AddEvent(ref armedEvt);
             RevertDetector.SetPendingForTesting(RevertKind.Launch);
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 708.0, currentUT: 552.0);
@@ -323,13 +325,14 @@ namespace Parsek.Tests
             var tree = MakeTreeWithOneRec("Revert-to-Launch tree", "rec-r2l");
             RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
             RecordingStore.PendingStashedThisTransition = true;
-            GameStateStore.AddEvent(new GameStateEvent
+            var r2lEvt = new GameStateEvent
             {
                 ut = 600.0,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "contract-r2l",
                 recordingId = "rec-r2l",
-            });
+            };
+            GameStateStore.AddEvent(ref r2lEvt);
 
             // Post-fix OnLoad dispatch: ShouldRunQuickloadDiscard returns false on the revert
             // path (asserted in the truth-table test above), so DiscardStashedOnQuickload
@@ -354,13 +357,14 @@ namespace Parsek.Tests
             //   DiscardPendingTree          -> hard clear, files + events purged
             var tree = MakeTreeWithOneRec("Contrast test", "rec-contrast");
             RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            GameStateStore.AddEvent(new GameStateEvent
+            var contrastEvt = new GameStateEvent
             {
                 ut = 50.0,
                 eventType = GameStateEventType.TechResearched,
                 key = "node-contrast",
                 recordingId = "rec-contrast",
-            });
+            };
+            GameStateStore.AddEvent(ref contrastEvt);
 
             RecordingStore.UnstashPendingTreeOnRevert();
             Assert.Single(GameStateStore.Events); // tagged event retained on unstash

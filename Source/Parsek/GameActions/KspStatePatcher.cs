@@ -772,10 +772,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when the node is one of KSP's four repeatable world-record subclasses
+        /// (<c>KSPAchievements.RecordsAltitude</c>, <c>KSPAchievements.RecordsDepth</c>,
+        /// <c>KSPAchievements.RecordsSpeed</c>, <c>KSPAchievements.RecordsDistance</c>).
+        /// Uses string-based full-name comparison so production matching stays scoped to the
+        /// stock repeatable types without a compile-time reference to <c>KSPAchievements</c>.
+        /// When <see cref="SuppressUnityCallsForTesting"/> is enabled, a simple-name fallback
+        /// accepts xUnit stand-ins with matching type names.
+        ///
+        /// One-shot nodes (<c>Orbit</c>, <c>Landing</c>, <c>Flyby</c>, <c>Flight</c>, etc.) return
+        /// false here — they are patched through the caller's one-shot achieve/un-achieve branch,
+        /// not through the repeatable-record pipeline.
+        /// </summary>
+        internal static bool IsRepeatableRecordType(ProgressNode node)
+        {
+            if (node == null) return false;
+            string fullName = node.GetType().FullName;
+            if (fullName == "KSPAchievements.RecordsAltitude"
+                || fullName == "KSPAchievements.RecordsDepth"
+                || fullName == "KSPAchievements.RecordsSpeed"
+                || fullName == "KSPAchievements.RecordsDistance")
+            {
+                return true;
+            }
+
+            if (!SuppressUnityCallsForTesting)
+                return false;
+
+            string name = node.GetType().Name;
+            return name == "RecordsAltitude"
+                || name == "RecordsDepth"
+                || name == "RecordsSpeed"
+                || name == "RecordsDistance";
+        }
+
+        /// <summary>
         /// Rebuilds live state for KSP's repeatable record nodes
         /// (RecordsAltitude/Depth/Speed/Distance) from the effective count that survived the
         /// ledger walk. Returns true when the node was recognized; <paramref name="changed"/>
         /// indicates whether any live state actually changed.
+        ///
+        /// Nodes whose type is not one of the four stock repeatable-record subclasses return
+        /// false with no log, leaving them to the caller's one-shot patch path. This keeps
+        /// the 392+ per-body sub-achievements (<c>Bop/Orbit</c>, <c>Dres/Flight</c>, …) out of
+        /// the record-field reflection branch and its missing-field WARN. See bug #455.
         /// </summary>
         internal static bool PatchRepeatableRecordNode(
             ProgressNode node, int effectiveCount, string qualifiedId,
@@ -783,6 +823,13 @@ namespace Parsek
             bool authoritativeRepeatableRecordState, out bool changed)
         {
             changed = false;
+
+            // Pre-filter by type so one-shot nodes (Orbit/Landing/Flyby/Flight/…) fall through
+            // to the caller's one-shot branch. Returning false here (vs. true) is load-bearing:
+            // `true` would short-circuit PatchProgressNodeTree and leave those nodes unpatched.
+            if (!IsRepeatableRecordType(node))
+                return false;
+
             Type nodeType = node.GetType();
             FieldInfo recordField = nodeType.GetField("record",
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -795,6 +842,9 @@ namespace Parsek
 
             if (recordField == null || rewardThresholdField == null || rewardIntervalField == null)
             {
+                // A node whose type IS one of the four record subclasses but is missing the
+                // stock record fields — that's a genuine KSP-API structural change and should
+                // page someone. Keep the WARN.
                 ParsekLog.Warn(Tag,
                     $"PatchMilestones: repeatable node '{qualifiedId}' is missing stock record fields " +
                     $"(record={recordField != null}, rewardThreshold={rewardThresholdField != null}, " +

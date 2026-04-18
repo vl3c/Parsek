@@ -28,7 +28,7 @@ namespace Parsek
 
         #region Event Management
 
-        internal static void AddEvent(GameStateEvent e)
+        internal static void AddEvent(ref GameStateEvent e)
         {
             // Stamp current epoch for branch isolation
             e.epoch = MilestoneStore.CurrentEpoch;
@@ -1084,6 +1084,25 @@ namespace Parsek
             originalScienceValues.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
+        }
+
+        /// <summary>
+        /// Test-only: truncates the event list down to the given count, removing
+        /// any events appended after that point. Used by in-game tests (see
+        /// <c>RuntimeTests.StrategyLifecycle</c>) that exercise a live KSP
+        /// capture path and must leave the save numerically unchanged -- they
+        /// snapshot <see cref="EventCount"/> before the test and truncate back
+        /// to that count in teardown. Silent no-op if <paramref name="newCount"/>
+        /// is at or past the current count.
+        /// </summary>
+        internal static void TruncateEventsForTesting(int newCount)
+        {
+            if (newCount < 0) newCount = 0;
+            if (newCount >= events.Count) return;
+            int removed = events.Count - newCount;
+            events.RemoveRange(newCount, removed);
+            ParsekLog.Verbose("GameStateStore",
+                $"TruncateEventsForTesting: removed={removed}, newCount={events.Count}");
         }
 
         #endregion

@@ -134,31 +134,26 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Test 4: RecordingTree.Load with missing fields defaults safely
+        #region Test 4: RecordingTree.Load with missing legacy fields defaults safely
 
         [Fact]
-        public void RecordingTree_Load_MissingFields_DefaultsSafely()
+        public void RecordingTree_Load_MissingLegacyFields_DefaultsSafely()
         {
             // Build a minimal RECORDING_TREE ConfigNode with only id and treeName.
-            // All resource fields, resourcesApplied, etc. are absent.
+            // All legacy resource fields are absent, so Load should leave no
+            // transient residual behind and default TreeFormatVersion to 0.
             var treeNode = new ConfigNode("RECORDING_TREE");
             treeNode.AddValue("id", "legacy-tree");
             treeNode.AddValue("treeName", "Legacy Tree");
             treeNode.AddValue("rootRecordingId", "");
-            // No resourcesApplied, no deltaFunds, no deltaScience, no deltaRep,
-            // no preTreeFunds, no preTreeScience, no preTreeRep
 
             var tree = RecordingTree.Load(treeNode);
+            var residual = tree.ConsumeLegacyResidual();
 
             Assert.Equal("legacy-tree", tree.Id);
             Assert.Equal("Legacy Tree", tree.TreeName);
-            Assert.False(tree.ResourcesApplied);
-            Assert.Equal(0, tree.DeltaFunds);
-            Assert.Equal(0, tree.DeltaScience);
-            Assert.Equal(0f, tree.DeltaReputation);
-            Assert.Equal(0, tree.PreTreeFunds);
-            Assert.Equal(0, tree.PreTreeScience);
-            Assert.Equal(0f, tree.PreTreeReputation);
+            Assert.Equal(0, tree.TreeFormatVersion);
+            Assert.Null(residual);
             Assert.Null(tree.ActiveRecordingId);
             Assert.Empty(tree.Recordings);
             Assert.Empty(tree.BranchPoints);

@@ -492,8 +492,20 @@ namespace Parsek
             {
                 hitRateStr = "N/A";
             }
+            // Bug #450 B3: `deferred` counts every spawn-or-rehydrate that entered
+            // the lazy-build queue (one increment per visual build event, NOT per
+            // unique trajectory). `buildsAvoided` = deferred - built is the number
+            // of lazy-build EVENTS that didn't fire this session — each avoided
+            // event is a real ~7 ms saving pre-B3 would have paid. Note that a
+            // single recording that unloads and rehydrates N times contributes N to
+            // deferred; if it only ever reaches atmosphere once, buildsAvoided =
+            // N-1, which IS correct accounting (pre-B3 rebuilt the FX on every
+            // spawn+rehydrate). The label is "buildsAvoided" rather than
+            // "neverBuilt" to avoid implying unique-trajectory semantics.
+            int reentryBuildsAvoided = h.reentryFxDeferredThisSession - h.reentryFxBuildsThisSession;
+            if (reentryBuildsAvoided < 0) reentryBuildsAvoided = 0;
             sb.AppendFormat(Inv,
-                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8}",
+                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8} deferred {9} buildsAvoided {10}",
                 hitRateStr,
                 h.waypointCacheMisses,
                 totalLookups,
@@ -502,7 +514,9 @@ namespace Parsek
                 h.ghostBuildsThisSession,
                 h.ghostDestroysThisSession,
                 h.reentryFxBuildsThisSession,
-                h.reentryFxSkippedThisSession);
+                h.reentryFxSkippedThisSession,
+                h.reentryFxDeferredThisSession,
+                reentryBuildsAvoided);
             sb.AppendLine();
 
             // GC gen0
@@ -692,6 +706,46 @@ namespace Parsek
         internal const double RecordingBudgetThresholdMs = 4.0;
 
         /// <summary>
+        /// Bug #450: minimum single-spawn cost (in microseconds) required before the
+        /// one-shot spawn-build breakdown WARN consumes its latch. Matches the 15 ms
+        /// figure the #450 todo entry proposes as the threshold where a spawn alone
+        /// exceeds the 8 ms frame budget enough to constitute the "bimodal" case a
+        /// count cap cannot cover. Gating on `spawnMaxMicroseconds` (not
+        /// `spawnMicroseconds` aggregate) means an incidental cheap prewarm or
+        /// watch-mode spawn on an otherwise non-spawn hitch cannot burn the
+        /// session's only #450 sample before the real regression fires.
+        /// </summary>
+        internal const long BuildBreakdownMinHeaviestSpawnMicroseconds = 15_000;
+
+        /// <summary>
+        /// Bug #460: minimum <c>mainLoopMicroseconds</c> required for the mainLoop
+        /// breakdown one-shot WARN to consume its latch. Set to 10 ms so the gate
+        /// sits above (a) the 8 ms budget threshold (otherwise every exceeded frame
+        /// would qualify) and (b) the pre-B3 smoke's already-captured 8.55 ms mainLoop
+        /// sample, but below the 17-25 ms range observed in the post-B3 playtest
+        /// (so all three known spikes would have tripped).
+        /// </summary>
+        internal const long MainLoopBreakdownMinMainLoopMicroseconds = 10_000;
+
+        /// <summary>
+        /// Bug #460: maximum <c>spawnMicroseconds</c> allowed before the #460 latch
+        /// declines to fire. A frame whose hitch includes any non-trivial spawn work
+        /// (&gt;= 1 ms) belongs to #414's / #450's per-ghost territory even if
+        /// <c>ghostsProcessed == 0</c> (e.g. a trajectory whose state was null at
+        /// frame start spawned and was destroyed same-frame without ever incrementing
+        /// the counter). Keeps the #460 latch reserved for spikes that no per-ghost
+        /// instrumentation explains.
+        /// </summary>
+        internal const long MainLoopBreakdownMaxSpawnMicroseconds = 1_000;
+
+        /// <summary>
+        /// Bug #460: mirror of <see cref="MainLoopBreakdownMaxSpawnMicroseconds"/> for
+        /// the destroy stopwatch. Symmetric suppression so a same-frame destroy on a
+        /// ghost that never became active does not burn the #460 latch.
+        /// </summary>
+        internal const long MainLoopBreakdownMaxDestroyMicroseconds = 1_000;
+
+        /// <summary>
         /// One-shot latch for the bug #414 per-phase breakdown log. Flipped true the first
         /// time a playback-budget-exceeded warning fires in the session; once latched, the
         /// breakdown is never re-emitted even on subsequent spikes. This keeps the steady-state
@@ -699,6 +753,27 @@ namespace Parsek
         /// diagnostic snapshot that localizes which phase blew the budget.
         /// </summary>
         private static bool s_playbackBreakdownOneShotFired;
+
+        /// <summary>
+        /// Bug #450: independent latch for the spawn-build sub-phase WARN. Separate from the
+        /// #414 latch so the build breakdown fires on the next spike after #450 rollout even
+        /// when the session's first budget-exceeded frame already consumed #414's latch.
+        /// </summary>
+        private static bool s_buildBreakdownOneShotFired;
+
+        /// <summary>
+        /// Bug #460: independent latch for the mainLoop-dominated zero-ghost breakdown WARN.
+        /// Separate from the #414 / #450 latches so a mid-session rollout of #460 still
+        /// captures the next qualifying spike even if the session's first budget-exceeded
+        /// frame(s) already consumed either predecessor latch. Fires at most once per session,
+        /// only when every gate in
+        /// <see cref="CheckPlaybackBudgetThresholdWithBreakdown"/>'s #460 branch holds: budget
+        /// exceeded, <c>ghostsProcessed == 0</c>, <c>spawn &amp; destroy &lt; 1 ms</c>,
+        /// <c>mainLoop &gt;= 10 ms</c>, and mainLoop is strictly the largest non-spawn/destroy
+        /// phase. The single WARN it emits is diagnostic plumbing — no user-observable
+        /// behaviour changes.
+        /// </summary>
+        private static bool s_mainLoopBreakdownOneShotFired;
 
         /// <summary>
         /// Checks the playback budget and emits a rate-limited WARN if exceeded.
@@ -734,45 +809,180 @@ namespace Parsek
                     totalMs.ToString("F1", Inv), ghostsProcessed, warpRate.ToString("F0", Inv)),
                 30.0);
 
-            if (s_playbackBreakdownOneShotFired)
-                return;
+            if (!s_playbackBreakdownOneShotFired)
+            {
+                // One-shot: emit the phase breakdown on the very first exceeded frame. The breakdown
+                // is a plain WARN (not rate-limited) so it always lands next to the triggering
+                // budget-exceeded line in KSP.log regardless of the rate limiter's state for any
+                // future spikes. See bug #414 in docs/dev/todo-and-known-bugs.md.
+                s_playbackBreakdownOneShotFired = true;
+                ParsekLog.Warn("Diagnostics",
+                    string.Format(Inv,
+                        "Playback budget breakdown (one-shot, first exceeded frame): total={0}ms"
+                        + " mainLoop={1}ms spawn={2}ms (built={13} throttled={14} max={15}ms)"
+                        + " destroy={3}ms explosionCleanup={4}ms"
+                        + " deferredCreated={5}ms ({6} evts) deferredCompleted={7}ms ({8} evts)"
+                        + " observabilityCapture={9}ms trajectories={10} ghosts={11} warp={12}x",
+                        totalMs.ToString("F1", Inv),
+                        (phases.mainLoopMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.spawnMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.destroyMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.explosionCleanupMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.deferredCreatedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.createdEventsFired,
+                        (phases.deferredCompletedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.completedEventsFired,
+                        (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.trajectoriesIterated,
+                        ghostsProcessed,
+                        warpRate.ToString("F0", Inv),
+                        phases.spawnsAttempted,
+                        phases.spawnsThrottled,
+                        (phases.spawnMaxMicroseconds / 1000.0).ToString("F2", Inv)));
+            }
 
-            // One-shot: emit the phase breakdown on the very first exceeded frame. The breakdown
-            // is a plain WARN (not rate-limited) so it always lands next to the triggering
-            // budget-exceeded line in KSP.log regardless of the rate limiter's state for any
-            // future spikes. See bug #414 in docs/dev/todo-and-known-bugs.md.
-            s_playbackBreakdownOneShotFired = true;
-            ParsekLog.Warn("Diagnostics",
-                string.Format(Inv,
-                    "Playback budget breakdown (one-shot, first exceeded frame): total={0}ms"
-                    + " mainLoop={1}ms spawn={2}ms (built={13} throttled={14} max={15}ms)"
-                    + " destroy={3}ms explosionCleanup={4}ms"
-                    + " deferredCreated={5}ms ({6} evts) deferredCompleted={7}ms ({8} evts)"
-                    + " observabilityCapture={9}ms trajectories={10} ghosts={11} warp={12}x",
-                    totalMs.ToString("F1", Inv),
-                    (phases.mainLoopMicroseconds / 1000.0).ToString("F2", Inv),
-                    (phases.spawnMicroseconds / 1000.0).ToString("F2", Inv),
-                    (phases.destroyMicroseconds / 1000.0).ToString("F2", Inv),
-                    (phases.explosionCleanupMicroseconds / 1000.0).ToString("F2", Inv),
-                    (phases.deferredCreatedEventsMicroseconds / 1000.0).ToString("F2", Inv),
-                    phases.createdEventsFired,
-                    (phases.deferredCompletedEventsMicroseconds / 1000.0).ToString("F2", Inv),
-                    phases.completedEventsFired,
-                    (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
-                    phases.trajectoriesIterated,
-                    ghostsProcessed,
-                    warpRate.ToString("F0", Inv),
-                    phases.spawnsAttempted,
-                    phases.spawnsThrottled,
-                    (phases.spawnMaxMicroseconds / 1000.0).ToString("F2", Inv)));
+            // Bug #450: emit the spawn-build sub-phase breakdown on its own one-shot latch.
+            // Gate on `spawnMaxMicroseconds >= BuildBreakdownMinHeaviestSpawnMicroseconds`
+            // (not just `spawnMicroseconds > 0`) so an incidental cheap prewarm or watch-
+            // mode spawn on a frame whose hitch was driven by something else cannot burn
+            // the session's only #450 sample before the real single-spawn regression fires.
+            // 15 ms is the threshold the #450 todo entry proposes as the bimodal line —
+            // above it, at least one spawn is, on its own, eating most of the frame budget,
+            // which is exactly the case Phase A is meant to diagnose. The latch itself is
+            // independent of #414's so Phase A collects data even when the session's first
+            // spike already consumed the #414 latch before #450 rolled out.
+            if (!s_buildBreakdownOneShotFired
+                && phases.spawnMaxMicroseconds >= BuildBreakdownMinHeaviestSpawnMicroseconds)
+            {
+                s_buildBreakdownOneShotFired = true;
+                ParsekLog.Warn("Diagnostics",
+                    string.Format(Inv,
+                        "Playback spawn build breakdown (one-shot): "
+                        + "sum[snapshot={0}ms timeline={1}ms dicts={2}ms reentry={3}ms other={4}ms] "
+                        + "heaviestSpawn[type={5} snapshot={6}ms timeline={7}ms dicts={8}ms reentry={9}ms other={10}ms total={11}ms]",
+                        (phases.buildSnapshotResolveMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.buildTimelineFromSnapshotMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.buildDictionariesMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.buildReentryFxMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.buildOtherMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.heaviestSpawnBuildType.ToLogToken(),
+                        (phases.heaviestSpawnSnapshotResolveMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.heaviestSpawnTimelineFromSnapshotMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.heaviestSpawnDictionariesMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.heaviestSpawnReentryFxMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.heaviestSpawnOtherMicroseconds / 1000.0).ToString("F2", Inv),
+                        ((phases.heaviestSpawnSnapshotResolveMicroseconds
+                            + phases.heaviestSpawnTimelineFromSnapshotMicroseconds
+                            + phases.heaviestSpawnDictionariesMicroseconds
+                            + phases.heaviestSpawnReentryFxMicroseconds
+                            + phases.heaviestSpawnOtherMicroseconds) / 1000.0).ToString("F2", Inv)));
+            }
+
+            // Bug #460: mainLoop-dominated zero-ghost breakdown. Independent of #414 and #450
+            // latches. Fires on the next frame that is NOT explained by any per-ghost
+            // instrumentation (neither ongoing rendering nor a same-frame spawn/destroy) and
+            // whose mainLoop phase is strictly the largest non-spawn/destroy contributor.
+            // See plan-460-mainloop-breakdown.md for the gating rationale (7 conditions,
+            // each of which would otherwise let the latch burn on the wrong kind of spike).
+            // Dominance check: mainLoop must exceed every OTHER non-spawn/destroy
+            // bucket. Deferred events are summed as a single "deferred" phase
+            // because a Phase B fix that targets deferred-event processing would
+            // attack both halves together — a spike where mainLoop=11ms but
+            // deferredCreated+deferredCompleted=14ms is really a deferred-events
+            // spike, not a mainLoop one, even though no single deferred bucket
+            // exceeds mainLoop. Observability capture and explosion cleanup stay
+            // per-bucket because they are independent code paths.
+            long deferredEventsTotalMicroseconds =
+                phases.deferredCreatedEventsMicroseconds + phases.deferredCompletedEventsMicroseconds;
+            if (!s_mainLoopBreakdownOneShotFired
+                && ghostsProcessed == 0
+                && phases.spawnMicroseconds < MainLoopBreakdownMaxSpawnMicroseconds
+                && phases.destroyMicroseconds < MainLoopBreakdownMaxDestroyMicroseconds
+                && phases.mainLoopMicroseconds >= MainLoopBreakdownMinMainLoopMicroseconds
+                && phases.mainLoopMicroseconds > deferredEventsTotalMicroseconds
+                && phases.mainLoopMicroseconds > phases.observabilityCaptureMicroseconds
+                && phases.mainLoopMicroseconds > phases.explosionCleanupMicroseconds)
+            {
+                s_mainLoopBreakdownOneShotFired = true;
+
+                // Per-dispatch means. Render "n/a" sentinels for zero-divisor cases so a
+                // pathological frame that somehow spent 10+ ms in the main loop with zero
+                // trajectories / overlap iterations surfaces visibly instead of reporting a
+                // misleading zero. Integer divide is safe: denominators above zero are
+                // checked explicitly.
+                long dispatchCount = (long)phases.trajectoriesIterated
+                    + (long)phases.overlapGhostIterationCount;
+                string meanPerTrajStr = phases.trajectoriesIterated > 0
+                    ? ((double)phases.mainLoopMicroseconds / phases.trajectoriesIterated)
+                        .ToString("F2", Inv) + "us"
+                    : "n/a";
+                string meanPerDispatchStr = dispatchCount > 0
+                    ? ((double)phases.mainLoopMicroseconds / dispatchCount)
+                        .ToString("F2", Inv) + "us"
+                    : "n/a";
+
+                ParsekLog.Warn("Diagnostics",
+                    string.Format(Inv,
+                        "Playback mainLoop breakdown (one-shot, first mainLoop-dominated spike):"
+                        + " total={0}ms mainLoop={1}ms trajectories={2} overlapIterations={3}"
+                        + " meanPerTraj={4} meanPerDispatch={5}"
+                        + " deferredCreated={6}ms ({7} evts) deferredCompleted={8}ms ({9} evts)"
+                        + " observabilityCapture={10}ms explosionCleanup={11}ms"
+                        + " spawn={12}ms destroy={13}ms ghosts={14} warp={15}x",
+                        totalMs.ToString("F1", Inv),
+                        (phases.mainLoopMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.trajectoriesIterated,
+                        phases.overlapGhostIterationCount,
+                        meanPerTrajStr,
+                        meanPerDispatchStr,
+                        (phases.deferredCreatedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.createdEventsFired,
+                        (phases.deferredCompletedEventsMicroseconds / 1000.0).ToString("F2", Inv),
+                        phases.completedEventsFired,
+                        (phases.observabilityCaptureMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.explosionCleanupMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.spawnMicroseconds / 1000.0).ToString("F2", Inv),
+                        (phases.destroyMicroseconds / 1000.0).ToString("F2", Inv),
+                        ghostsProcessed,
+                        warpRate.ToString("F0", Inv)));
+            }
         }
 
+
         /// <summary>
-        /// Test-only: reset the bug #414 one-shot breakdown latch so each test starts clean.
+        /// Test-only: reset the bug #414, #450, and #460 one-shot breakdown latches so each
+        /// test starts clean. Use <see cref="SetBug414BreakdownLatchFiredForTesting"/> /
+        /// <see cref="SetBug450BreakdownLatchFiredForTesting"/> when a test needs to
+        /// pre-consume a specific prior latch without touching the others.
         /// </summary>
         internal static void ResetPlaybackBreakdownOneShotForTesting()
         {
             s_playbackBreakdownOneShotFired = false;
+            s_buildBreakdownOneShotFired = false;
+            s_mainLoopBreakdownOneShotFired = false;
+        }
+
+        /// <summary>
+        /// Bug #450 test seam: flip the #414 breakdown latch without touching #450's latch,
+        /// so a test can simulate the mid-session rollout case where the session's first
+        /// budget-exceeded frame already consumed the #414 latch BEFORE Phase A's code
+        /// loaded. Without this helper the "latch independence" test can only verify that
+        /// both latches consume in lockstep, not that they are independent.
+        /// </summary>
+        internal static void SetBug414BreakdownLatchFiredForTesting()
+        {
+            s_playbackBreakdownOneShotFired = true;
+        }
+
+        /// <summary>
+        /// Added by #460: test seam that pre-fires the #450 spawn-build-breakdown
+        /// latch without touching the #414 or #460 latches, so a three-way independence
+        /// test can verify the #460 branch does not share state with #450 either.
+        /// Companion to <see cref="SetBug414BreakdownLatchFiredForTesting"/>.
+        /// </summary>
+        internal static void SetBug450BreakdownLatchFiredForTesting()
+        {
+            s_buildBreakdownOneShotFired = true;
         }
 
         /// <summary>
@@ -837,6 +1047,8 @@ namespace Parsek
         {
             ClockSource = null;
             s_playbackBreakdownOneShotFired = false;
+            s_buildBreakdownOneShotFired = false;
+            s_mainLoopBreakdownOneShotFired = false;
         }
     }
 }

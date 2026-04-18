@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -41,6 +42,7 @@ namespace Parsek.InGameTests
             }
 
             int valid = 0, skippedRoots = 0;
+            var monotonicFailures = new List<string>();
             foreach (var rec in recordings)
             {
                 InGameAssert.IsNotNull(rec.RecordingId, $"Recording has null ID");
@@ -55,15 +57,89 @@ namespace Parsek.InGameTests
                 }
 
                 // Time should be monotonically non-decreasing
+                bool monotonic = true;
                 for (int i = 1; i < rec.Points.Count; i++)
                 {
-                    InGameAssert.IsTrue(rec.Points[i].ut >= rec.Points[i - 1].ut,
-                        $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut} < previous {rec.Points[i - 1].ut}");
+                    if (rec.Points[i].ut < rec.Points[i - 1].ut)
+                    {
+                        int prefixMatchCount = CountTrackSectionPrefixMatches(rec);
+                        string firstPostPrefixSource = DescribeFirstPostPrefixPointSource(rec, prefixMatchCount);
+                        monotonicFailures.Add(
+                            $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"< previous {rec.Points[i - 1].ut.ToString("R", CultureInfo.InvariantCulture)}; " +
+                            $"trackSections={rec.TrackSections?.Count ?? 0} prefixMatchCount={prefixMatchCount} " +
+                            $"firstPostPrefixSource={firstPostPrefixSource}");
+                        monotonic = false;
+                        break;
+                    }
                 }
-                valid++;
+
+                if (monotonic)
+                    valid++;
             }
+
+            InGameAssert.IsTrue(monotonicFailures.Count == 0, string.Join(System.Environment.NewLine, monotonicFailures.ToArray()));
             ParsekLog.Verbose("TestRunner",
                 $"Validated {valid} committed recordings, {skippedRoots} tree root(s) skipped");
+
+            int CountTrackSectionPrefixMatches(Recording rec)
+            {
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                    return 0;
+
+                var rebuiltPoints = new List<TrajectoryPoint>();
+                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                int max = System.Math.Min(rebuiltPoints.Count, rec.Points.Count);
+                int prefixMatchCount = 0;
+                while (prefixMatchCount < max &&
+                    TrajectoryPointsEqual(rebuiltPoints[prefixMatchCount], rec.Points[prefixMatchCount]))
+                {
+                    prefixMatchCount++;
+                }
+
+                return prefixMatchCount;
+            }
+
+            string DescribeFirstPostPrefixPointSource(Recording rec, int prefixMatchCount)
+            {
+                if (rec.Points == null || prefixMatchCount < 0 || prefixMatchCount >= rec.Points.Count)
+                    return "none";
+
+                TrajectoryPoint target = rec.Points[prefixMatchCount];
+                for (int sectionIndex = 0; sectionIndex < rec.TrackSections.Count; sectionIndex++)
+                {
+                    List<TrajectoryPoint> frames = rec.TrackSections[sectionIndex].frames;
+                    if (frames == null)
+                        continue;
+
+                    for (int frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+                    {
+                        if (TrajectoryPointsEqual(frames[frameIndex], target))
+                            return $"section[{sectionIndex}] source={rec.TrackSections[sectionIndex].source} frame[{frameIndex}]";
+                    }
+                }
+
+                return "flat-only";
+            }
+
+            bool TrajectoryPointsEqual(TrajectoryPoint a, TrajectoryPoint b)
+            {
+                return a.ut == b.ut
+                    && a.latitude == b.latitude
+                    && a.longitude == b.longitude
+                    && a.altitude == b.altitude
+                    && a.rotation.x == b.rotation.x
+                    && a.rotation.y == b.rotation.y
+                    && a.rotation.z == b.rotation.z
+                    && a.rotation.w == b.rotation.w
+                    && a.velocity.x == b.velocity.x
+                    && a.velocity.y == b.velocity.y
+                    && a.velocity.z == b.velocity.z
+                    && a.bodyName == b.bodyName
+                    && a.funds == b.funds
+                    && a.science == b.science
+                    && a.reputation == b.reputation;
+            }
         }
 
         #endregion
@@ -426,12 +502,14 @@ namespace Parsek.InGameTests
 
         #region MapView icons (#387)
 
-        // Verify that MapMarkerRenderer's icon UVs match the live MapNode.iconSprites
-        // atlas for every vessel type in StockIconIndexByVesselType. Regressions here
-        // would mean ghost icons show a different vessel type's symbol (the symptom
-        // users reported before #387).
+        // Verify that MapMarkerRenderer's per-type icon entries match the live
+        // MapNode.iconSprites array for every vessel type in
+        // StockIconIndexByVesselType. Regressions here would mean ghost icons
+        // show a different vessel type's symbol (the symptom users reported
+        // before #387) OR — for the multi-atlas vessel types added by the
+        // #387 follow-up — fall back to the diamond instead of the stock icon.
         [InGameTest(Category = "MapView",
-            Description = "MapMarkerRenderer UVs match live MapNode.iconSprites for every stock vessel type (#387)")]
+            Description = "MapMarkerRenderer per-type atlas+UV entries match live MapNode.iconSprites (#387 + multi-atlas follow-up)")]
         public void MapMarkerIconsMatchStockAtlas()
         {
             InGameAssert.IsNotNull(MapView.fetch,
@@ -455,47 +533,51 @@ namespace Parsek.InGameTests
             // (InGameTestRunner coroutines don't always execute during OnGUI).
             MapMarkerRenderer.ForceInitForTesting();
 
-            Texture2D atlas = MapMarkerRenderer.VesselIconAtlasForTesting;
-            InGameAssert.IsNotNull(atlas,
-                "MapMarkerRenderer atlas should be resolved after a draw call");
-
-            var uvs = MapMarkerRenderer.VesselIconUVsForTesting;
-            InGameAssert.IsNotNull(uvs, "MapMarkerRenderer UV dict should be built");
+            var entries = MapMarkerRenderer.VesselIconEntriesForTesting;
+            InGameAssert.IsNotNull(entries, "MapMarkerRenderer icon entry dict should be built");
 
             int verified = 0, missing = 0;
             foreach (var kv in MapMarkerRenderer.StockIconIndexByVesselType)
             {
                 int idx = kv.Value;
+                // Under the per-type-atlas model (#387 follow-up) only
+                // structural gaps in the stock atlas should skip an entry.
                 if (idx < 0 || idx >= sprites.Length || sprites[idx] == null
-                    || sprites[idx].texture != atlas)
+                    || sprites[idx].texture == null)
                 {
-                    // Expected — renderer also skips these. Log and continue.
                     missing++;
                     ParsekLog.Verbose("TestRunner",
-                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite/atlas mismatch)");
+                        $"MapView icon test: skipping {kv.Key} (idx={idx}, sprite or texture missing)");
                     continue;
                 }
 
+                Texture2D spriteTex = sprites[idx].texture;
                 Rect expectedRect = sprites[idx].textureRect;
                 Rect expectedUv = new Rect(
-                    expectedRect.x / atlas.width, expectedRect.y / atlas.height,
-                    expectedRect.width / atlas.width, expectedRect.height / atlas.height);
+                    expectedRect.x / spriteTex.width, expectedRect.y / spriteTex.height,
+                    expectedRect.width / spriteTex.width, expectedRect.height / spriteTex.height);
 
-                InGameAssert.IsTrue(uvs.TryGetValue(kv.Key, out Rect actualUv),
-                    $"UV dict missing entry for {kv.Key}");
+                InGameAssert.IsTrue(entries.TryGetValue(kv.Key, out MapMarkerRenderer.VesselIconEntry actual),
+                    $"Icon dict missing entry for {kv.Key}");
 
-                InGameAssert.ApproxEqual(expectedUv.x, actualUv.x);
-                InGameAssert.ApproxEqual(expectedUv.y, actualUv.y);
-                InGameAssert.ApproxEqual(expectedUv.width, actualUv.width);
-                InGameAssert.ApproxEqual(expectedUv.height, actualUv.height);
+                // Each type must carry its OWN texture reference — the multi-atlas
+                // vessel types (DeployedScienceController, DeployedGroundPart)
+                // used to be skipped because the renderer forced a single atlas.
+                InGameAssert.IsTrue(object.ReferenceEquals(actual.Atlas, spriteTex),
+                    $"Atlas for {kv.Key} should match sprites[{idx}].texture (got name='{(actual.Atlas != null ? actual.Atlas.name : "null")}' expected='{spriteTex.name}')");
+
+                InGameAssert.ApproxEqual(expectedUv.x, actual.UV.x);
+                InGameAssert.ApproxEqual(expectedUv.y, actual.UV.y);
+                InGameAssert.ApproxEqual(expectedUv.width, actual.UV.width);
+                InGameAssert.ApproxEqual(expectedUv.height, actual.UV.height);
 
                 verified++;
                 ParsekLog.Verbose("TestRunner",
-                    $"MapView icon {kv.Key} idx={idx} UV=({actualUv.x:F3},{actualUv.y:F3},{actualUv.width:F3},{actualUv.height:F3}) OK");
+                    $"MapView icon {kv.Key} idx={idx} tex={spriteTex.name} UV=({actual.UV.x:F3},{actual.UV.y:F3},{actual.UV.width:F3},{actual.UV.height:F3}) OK");
             }
 
             InGameAssert.IsTrue(verified > 0,
-                $"Expected at least one matching icon UV; verified={verified} missing={missing}");
+                $"Expected at least one matching icon entry; verified={verified} missing={missing}");
             ParsekLog.Info("TestRunner",
                 $"MapMarkerIconsMatchStockAtlas: verified={verified} missing={missing} total={MapMarkerRenderer.StockIconIndexByVesselType.Count}");
         }
@@ -832,6 +914,121 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one, which mutates the current FLIGHT session.",
+            Description = "Run All cleanup exits watch mode before ghost teardown so Sun.LateUpdate stays exception-free")]
+        public IEnumerator RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("no ActiveVessel");
+            if (FlightCamera.fetch == null)
+                InGameAssert.Skip("no FlightCamera");
+
+            int index;
+            GhostPlaybackState watchedState;
+            if (!TryFindWatchableSameBodyGhost(flight, out index, out watchedState))
+                InGameAssert.Skip("no same-body ghost available for watch-cleanup regression");
+
+            var captured = new List<string>();
+            Application.LogCallback callback = (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                    captured.Add(condition + "\n" + stackTrace);
+            };
+
+            flight.EnterWatchMode(index);
+            yield return null;
+
+            try
+            {
+                InGameAssert.IsTrue(flight.IsWatchingGhost, "should be in watch mode before cleanup");
+                InGameAssert.AreEqual(index, flight.WatchedRecordingIndex, "watching wrong index before cleanup");
+
+                Application.logMessageReceived += callback;
+                runner.PerformBetweenRunCleanup("ingame-watch-cleanup-regression");
+                yield return new WaitForSeconds(0.5f);
+
+                AssertNoSunOrFlightGlobalsExceptions(
+                    captured,
+                    $"watch-cleanup regression index={index} body={watchedState.lastInterpolatedBodyName}");
+                InGameAssert.IsFalse(flight.IsWatchingGhost,
+                    "cleanup should have exited watch mode before ghost teardown");
+            }
+            finally
+            {
+                Application.logMessageReceived -= callback;
+                if (flight.IsWatchingGhost)
+                    flight.ExitWatchMode();
+            }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Ghost creation near a Kerbin ~46 km playback point stays free of Sun.LateUpdate / FlightGlobals.UpdateInformation exception spam")]
+        public IEnumerator GhostSpawn_Kerbin46KmPoint_DoesNotLeakSunLateUpdateNREs()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight.Instance");
+
+            var engine = flight.Engine;
+            if (engine == null)
+                InGameAssert.Skip("no GhostPlaybackEngine");
+
+            var committed = RecordingStore.CommittedRecordings;
+            Recording rec;
+            int recordingIndex;
+            double primingUT;
+            double matchedAltitude;
+            if (!TryFindKerbinLowAltitudeRecording(committed, out rec, out recordingIndex, out primingUT, out matchedAltitude))
+                InGameAssert.Skip("needs a committed recording with a Kerbin point near 46 km");
+
+            int sentinelIndex = committed.Count + 1001;
+            if (engine.ghostStates.ContainsKey(sentinelIndex))
+                InGameAssert.Skip("sentinel index collision");
+
+            GhostPlaybackState state = null;
+            var captured = new List<string>();
+            Application.LogCallback callback = (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                    captured.Add(condition + "\n" + stackTrace);
+            };
+
+            Application.logMessageReceived += callback;
+            try
+            {
+                engine.SpawnGhost(sentinelIndex, rec as IPlaybackTrajectory, primingUT);
+                yield return null;
+                yield return null;
+                yield return new WaitForSeconds(0.5f);
+
+                bool found = engine.ghostStates.TryGetValue(sentinelIndex, out state);
+                InGameAssert.IsTrue(found,
+                    $"ghostStates should contain sentinel index {sentinelIndex} after SpawnGhost");
+                InGameAssert.IsNotNull(state, "state should not be null after SpawnGhost");
+                InGameAssert.IsNotNull(state.ghost, "state.ghost should not be null after SpawnGhost");
+
+                AssertNoSunOrFlightGlobalsExceptions(
+                    captured,
+                    $"low-altitude spawn recordingIndex={recordingIndex} vessel=\"{rec.VesselName}\" altitude={matchedAltitude:F1} ut={primingUT:F1}");
+
+                ParsekLog.Info("TestRunner",
+                    $"GhostSpawn_Kerbin46KmPoint: recordingIndex={recordingIndex} vessel=\"{rec.VesselName}\" " +
+                    $"matchedAltitude={matchedAltitude:F1} primingUT={primingUT:F1}");
+            }
+            finally
+            {
+                Application.logMessageReceived -= callback;
+                engine.ghostStates.Remove(sentinelIndex);
+                if (state != null && state.ghost != null)
+                    runner.TrackForCleanup(state.ghost);
+            }
+        }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "EnterWatchMode on a same-body ghost applies canonical fresh-entry angles, not the active vessel's camera state (PR #288 regression)")]
         public IEnumerator WatchEntry_SameBody_PreservesFreshEntryAngles()
@@ -918,6 +1115,99 @@ namespace Parsek.InGameTests
             }
 
             InGameAssert.IsFalse(ParsekFlight.Instance.IsWatchingGhost, "should have exited watch mode");
+        }
+
+        private static void AssertNoSunOrFlightGlobalsExceptions(
+            IEnumerable<string> captured,
+            string context)
+        {
+            foreach (var line in captured)
+            {
+                InGameAssert.IsFalse(line.Contains("Sun.LateUpdate"),
+                    $"expected zero Sun.LateUpdate exceptions during {context}, saw: {line}");
+                InGameAssert.IsFalse(line.Contains("FlightGlobals.UpdateInformation"),
+                    $"expected zero FlightGlobals.UpdateInformation exceptions during {context}, saw: {line}");
+            }
+        }
+
+        private static bool TryFindWatchableSameBodyGhost(
+            ParsekFlight flight,
+            out int index,
+            out GhostPlaybackState state)
+        {
+            index = -1;
+            state = null;
+
+            if (flight == null || flight.Engine == null || FlightGlobals.ActiveVessel == null)
+                return false;
+
+            var committed = RecordingStore.CommittedRecordings;
+            string activeBodyName = FlightGlobals.ActiveVessel.mainBody.name;
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+
+            foreach (var kvp in flight.Engine.ghostStates)
+            {
+                var gs = kvp.Value;
+                if (gs == null) continue;
+                if (gs.lastInterpolatedBodyName != activeBodyName) continue;
+                if (gs.ghost == null) continue;
+                if (kvp.Key >= committed.Count) continue;
+                if (gs.lastDistance <= 0.0) continue;
+                if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
+
+                index = kvp.Key;
+                state = gs;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryFindKerbinLowAltitudeRecording(
+            IReadOnlyList<Recording> committed,
+            out Recording recording,
+            out int recordingIndex,
+            out double primingUT,
+            out double matchedAltitude)
+        {
+            recording = null;
+            recordingIndex = -1;
+            primingUT = 0.0;
+            matchedAltitude = 0.0;
+
+            if (committed == null)
+                return false;
+
+            double bestDelta = double.PositiveInfinity;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var candidate = committed[i];
+                if (candidate == null
+                    || candidate.GhostVisualSnapshot == null
+                    || candidate.Points == null
+                    || candidate.Points.Count < 2)
+                {
+                    continue;
+                }
+
+                foreach (var point in candidate.Points)
+                {
+                    if (!string.Equals(point.bodyName, "Kerbin")) continue;
+                    if (double.IsNaN(point.altitude) || double.IsInfinity(point.altitude)) continue;
+
+                    double delta = System.Math.Abs(point.altitude - 46000.0);
+                    if (delta >= bestDelta)
+                        continue;
+
+                    bestDelta = delta;
+                    recording = candidate;
+                    recordingIndex = i;
+                    primingUT = point.ut;
+                    matchedAltitude = point.altitude;
+                }
+            }
+
+            return recording != null;
         }
     }
 
@@ -1813,6 +2103,210 @@ namespace Parsek.InGameTests
                     RecordingStore.RemoveCommittedInternal(syntheticRecording);
 
                 // Verify rollback.
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: target part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
+                InGameAssert.AreEqual(savedCommittedCount, RecordingStore.CommittedRecordings.Count,
+                    $"Rollback failed: CommittedRecordings count not restored " +
+                    $"(expected={savedCommittedCount}, actual={RecordingStore.CommittedRecordings.Count})");
+                InGameAssert.AreEqual(savedReplacements.Count, CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
+            }
+        }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #456: orphan placement name-hit fallback places stand-in when snapshot pid=100000 (synthetic showcase) doesn't match any live part pid")]
+        public void Bug456_OrphanPlacement_NameHitFallback_PlacesStandin()
+        {
+            // End-to-end integration test for bug #456. The playtest symptom was:
+            //   [CrewReservation] Orphan placement: no matching part with free seat
+            //   in active vessel for 'Bill Kerman' → 'Urdun Kerman'
+            //   (snapshot pid=100000 name='mk1pod.v2')
+            //
+            // The snapshot carries a SYNTHETIC pid (100000, the canonical first
+            // AddPart-assigned value for showcase ghosts — see `.claude/CLAUDE.md`
+            // "Ghost event ↔ snapshot PID" gotcha) so tier-1 pid match always
+            // misses against a live vessel whose KSP-assigned part pid is a
+            // different random value. This test builds that exact shape — a
+            // snapshot with pid=100000 name=<live part name>, finds a free seat
+            // on the live vessel, then verifies PlaceOrphanedReplacements
+            // succeeds via the name-hit fallback tier and the summary log line
+            // increments `nameHitFallbacks`.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with a free seat to use as the placement target.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Sanity: the synthetic pid we will stamp into the snapshot must NOT
+            // coincide with the target part's live pid (otherwise the test would
+            // exercise the pid-hit tier instead of the name-hit fallback).
+            const uint SyntheticShowcasePid = 100000u;
+            if (target.persistentId == SyntheticShowcasePid)
+            {
+                InGameAssert.Skip("Target part's live pid coincides with the synthetic test pid — cannot exercise name-hit fallback");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            string fakeOriginal = "Bug456Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            // Save state for rollback.
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
+            int beforeCrewCount = target.protoModuleCrew.Count;
+
+            Recording syntheticRecording = null;
+            bool addedToCommitted = false;
+            bool placedCrew = false;
+
+            // Capture log output so we can assert on the name-fallback INFO line
+            // and the summary counter.
+            var logLines = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+
+                // Build a snapshot that DELIBERATELY uses a pid that does NOT
+                // match the live target — this forces tier-1 to miss and tier-2
+                // (name-hit) to carry the placement. The part NAME must match
+                // the live target's partInfo.name.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", target.partInfo.name);
+                partNode.AddValue("persistentId", SyntheticShowcasePid.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-orphan-456-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "Bug456TestVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+
+                RecordingStore.AddCommittedInternal(syntheticRecording);
+                addedToCommitted = true;
+
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+
+                InGameAssert.IsGreaterThan(placed, 0,
+                    $"PlaceOrphanedReplacements should have placed at least 1 stand-in via name-fallback (placed={placed})");
+                placedCrew = target.protoModuleCrew.Contains(standIn);
+                InGameAssert.IsTrue(placedCrew,
+                    $"Stand-in '{standIn.name}' should be in target part '{target.partInfo.title}' after name-hit fallback");
+                InGameAssert.AreEqual(beforeCrewCount + 1, target.protoModuleCrew.Count,
+                    $"Target part crew count should have increased by 1 " +
+                    $"(before={beforeCrewCount}, after={target.protoModuleCrew.Count})");
+
+                // Log-assertion: the dedicated "match=name-fallback" INFO line
+                // must have fired so future playtests can grep for it.
+                bool sawNameFallbackLog = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("match=name-fallback"))
+                    {
+                        sawNameFallbackLog = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawNameFallbackLog,
+                    "Expected a [CrewReservation] INFO line with 'match=name-fallback' — name-hit fallback path did not log its success");
+
+                // Log-assertion: the summary line must increment nameHitFallbacks.
+                bool sawNameHitCounter = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("[CrewReservation]")
+                        && line.Contains("Orphan placement pass:")
+                        && line.Contains("nameHitFallbacks=1"))
+                    {
+                        sawNameHitCounter = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawNameHitCounter,
+                    "Expected summary log with 'nameHitFallbacks=1' — counter did not increment on successful fallback");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug456 end-to-end: name-hit fallback placed '{standIn.name}' " +
+                    $"in '{target.partInfo.title}' from synthetic pid={SyntheticShowcasePid} snapshot");
+            }
+            finally
+            {
+                // Restore log sink first so cleanup doesn't pollute the captured lines.
+                ParsekLog.TestSinkForTesting = priorSink;
+
+                if (placedCrew && target.protoModuleCrew.Contains(standIn))
+                    target.RemoveCrewmember(standIn);
+
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+
+                if (addedToCommitted)
+                    RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
                 InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
                     $"Rollback failed: target part crew count not restored " +
                     $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
@@ -3338,5 +3832,677 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region StrategyLifecycle (#439 Phase A follow-up)
+
+        // Snapshot/restore helpers for Funds/Science/Reputation. Used by the
+        // StrategyLifecycle tests so a non-zero `InitialCost*` strategy leaves
+        // the save numerically unchanged. The restore uses AddFunds/AddScience/
+        // AddReputation with `TransactionReasons.None` — matches the KspStatePatcher
+        // pattern. These calls DO emit FundsChanged/ScienceChanged/ReputationChanged
+        // events into GameStateStore, so tests must restrict their event assertions
+        // to the specific StrategyActivated/StrategyDeactivated event they expect,
+        // not a blanket "no other events" check.
+
+        private static (double funds, float science, float reputation) SnapshotFinancials()
+        {
+            double funds = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+            float science = ResearchAndDevelopment.Instance != null
+                ? ResearchAndDevelopment.Instance.Science : 0f;
+            float reputation = Reputation.Instance != null
+                ? Reputation.Instance.reputation : 0f;
+            return (funds, science, reputation);
+        }
+
+        private static void RestoreFinancials(double fundsBefore, float scienceBefore, float repBefore)
+        {
+            // Suppress resource-event capture for the duration of the restore
+            // so the AddFunds/AddScience/SetReputation calls below do NOT emit
+            // synthetic FundsChanged/ScienceChanged/ReputationChanged events
+            // into GameStateStore. Without this guard, the test would leave
+            // test-generated resource events behind in the save even after the
+            // numeric balances are restored.
+            using (SuppressionGuard.Resources())
+            {
+                if (Funding.Instance != null)
+                {
+                    double delta = fundsBefore - Funding.Instance.Funds;
+                    if (System.Math.Abs(delta) > 0.01)
+                        Funding.Instance.AddFunds(delta, TransactionReasons.None);
+                }
+                if (ResearchAndDevelopment.Instance != null)
+                {
+                    float delta = scienceBefore - ResearchAndDevelopment.Instance.Science;
+                    if (Mathf.Abs(delta) > 0.01f)
+                        ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
+                }
+                if (Reputation.Instance != null)
+                {
+                    // Mirror KspStatePatcher.PatchReputation: SetReputation (NOT
+                    // AddReputation) because AddReputation applies KSP's reputation
+                    // curve, which would leave permanent drift on any rep-costing
+                    // strategy. SetReputation writes the absolute value directly.
+                    if (Mathf.Abs(repBefore - Reputation.Instance.reputation) > 0.01f)
+                        Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                }
+            }
+        }
+
+        private static Strategies.Strategy FindActivatableStockStrategy()
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null) return null;
+            var list = system.Strategies;
+            if (list == null) return null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null) continue;
+                if (s.IsActive) continue;
+                if (s.Config == null) continue;
+                string reason;
+                if (!s.CanBeActivated(out reason)) continue;
+                return s;
+            }
+            return null;
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "#439 Phase A: StrategyLifecyclePatch postfixes emit StrategyActivated/StrategyDeactivated events into GameStateStore for a real Strategies.Strategy instance.")]
+        public IEnumerator ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents()
+        {
+            // Gate 1: career-mode only — StrategySystem is null outside career.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
+            // Gate 2: StrategySystem singleton available.
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null)
+            {
+                InGameAssert.Skip("StrategySystem.Instance is null — Admin facility may be missing or scene not ready");
+                yield break;
+            }
+
+            // Gate 3: at least one activatable strategy. No cost gate — teardown
+            // restores Funds/Science/Reputation via snapshot-diff.
+            var strategy = FindActivatableStockStrategy();
+            if (strategy == null)
+            {
+                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
+                yield break;
+            }
+
+            string configName = strategy.Config.Name ?? "";
+            ParsekLog.Info("TestRunner",
+                $"StrategyLifecycle test target: configName={configName} title={strategy.Title} " +
+                $"setupF={strategy.InitialCostFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"setupS={strategy.InitialCostScience.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"setupR={strategy.InitialCostReputation.ToString("R", CultureInfo.InvariantCulture)}");
+
+            // Snapshot financials BEFORE activation so teardown can restore.
+            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+
+            // Snapshot event and ledger-action counts so teardown can truncate
+            // back to the pre-test tail. The test exercises a real KSC capture
+            // path which (per GameStateRecorder.OnStrategyActivated) ALSO
+            // forwards into LedgerOrchestrator.OnKscSpending in KSC-scope,
+            // writing a StrategyActivate GameAction to the ledger. Teardown
+            // removes both to keep the save byte-equivalent (ignoring strategy
+            // dateActivated/dateDeactivated bookkeeping on Strategies.Strategy
+            // itself, which stock sets unconditionally and Parsek does not own).
+            int eventCountBefore = GameStateStore.EventCount;
+            int ledgerCountBefore = Ledger.Actions.Count;
+
+            // Install log sink chained to prior sink.
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+
+            // Note: GameStateRecorder.IsReplayingActions is false during normal
+            // test-runner execution — we are not inside a KspStatePatcher walk — so
+            // the lifecycle postfixes WILL emit their events. If a future change
+            // starts a recalculation walk mid-test, this assumption breaks and the
+            // test's event-find step will fail with a clear message.
+
+            bool activateOk = strategy.Activate();
+            yield return null;
+
+            // deactSnapshot is set inside the first try and read in the second;
+            // initialize to GameStateStore.EventCount so a throw before the
+            // deactivate assignment still gives the second try a sane lower
+            // bound (tail slice would simply be empty, failing the event-find
+            // with a clear message rather than an IndexOutOfRangeException).
+            int deactSnapshot = GameStateStore.EventCount;
+            bool deactivateOk = false;
+            try
+            {
+                InGameAssert.IsTrue(activateOk, "Strategy.Activate returned false");
+                InGameAssert.IsTrue(strategy.IsActive,
+                    "Strategy.IsActive should be true after Activate returned true");
+
+                // Find the first StrategyActivated event after the snapshot cursor.
+                bool foundActivate = false;
+                string activateDetail = null;
+                double activateUt = 0;
+                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyActivated
+                        && evt.key == configName)
+                    {
+                        foundActivate = true;
+                        activateDetail = evt.detail;
+                        activateUt = evt.ut;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(foundActivate,
+                    $"Expected StrategyActivated event with key='{configName}' in tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+                // Note: do NOT assert ut > 0. On a fresh career save the
+                // activation can legitimately happen at Planetarium UT 0.0,
+                // which would false-negative a perfectly valid capture. The
+                // event-found assertion above already proves the postfix fired
+                // and stamped the row with the current UT.
+                // Silence unused-variable warning on activateUt:
+                _ = activateUt;
+                InGameAssert.IsNotNull(activateDetail, "StrategyActivated event detail must not be null");
+                InGameAssert.Contains(activateDetail, "title=");
+                InGameAssert.Contains(activateDetail, "factor=");
+                InGameAssert.Contains(activateDetail, "setupFunds=");
+                InGameAssert.Contains(activateDetail, "source=");
+                InGameAssert.Contains(activateDetail, "target=");
+
+                // Log-line assertion: [GameStateRecorder] + StrategyActivated + key.
+                bool sawActivateLog = captured.Any(l =>
+                    l.Contains("[GameStateRecorder]")
+                    && l.Contains("StrategyActivated")
+                    && l.Contains(configName));
+                InGameAssert.IsTrue(sawActivateLog,
+                    $"Expected [GameStateRecorder] INFO log line for StrategyActivated '{configName}'");
+
+                // Deactivate inside the try so the finally-block fallback only
+                // fires on an exception. Snapshot the event cursor first so the
+                // second-phase tail slice only contains the deactivate row.
+                deactSnapshot = GameStateStore.EventCount;
+                deactivateOk = strategy.Deactivate();
+            }
+            catch
+            {
+                // Ensure the sink + financials are restored on an exception path.
+                // We leave the sink installed on the happy path so the second
+                // yield-and-assert block can read the deactivate log line that
+                // was emitted synchronously inside strategy.Deactivate above.
+                if (strategy.IsActive)
+                {
+                    try { strategy.Deactivate(); }
+                    catch (System.Exception innerEx)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
+                    }
+                }
+                ParsekLog.TestSinkForTesting = priorSink;
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                throw;
+            }
+
+            yield return null;
+
+            try
+            {
+                InGameAssert.IsTrue(deactivateOk, "Strategy.Deactivate returned false");
+                InGameAssert.IsFalse(strategy.IsActive,
+                    "Strategy.IsActive should be false after Deactivate returned true");
+
+                bool foundDeactivate = false;
+                string deactivateDetail = null;
+                for (int i = deactSnapshot; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyDeactivated
+                        && evt.key == configName)
+                    {
+                        foundDeactivate = true;
+                        deactivateDetail = evt.detail;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(foundDeactivate,
+                    $"Expected StrategyDeactivated event with key='{configName}' in tail slice [{deactSnapshot}..{GameStateStore.EventCount})");
+                InGameAssert.IsNotNull(deactivateDetail,
+                    "StrategyDeactivated event detail must not be null");
+                InGameAssert.Contains(deactivateDetail, "activeDurationSec=");
+
+                // Log-line assertion for Deactivate. The deactivate log was
+                // emitted synchronously inside the strategy.Deactivate call in
+                // the previous try, so it is already sitting in `captured`.
+                bool sawDeactivateLog = captured.Any(l =>
+                    l.Contains("[GameStateRecorder]")
+                    && l.Contains("StrategyDeactivated")
+                    && l.Contains(configName));
+                InGameAssert.IsTrue(sawDeactivateLog,
+                    $"Expected [GameStateRecorder] INFO log line for StrategyDeactivated '{configName}'");
+            }
+            finally
+            {
+                if (strategy.IsActive)
+                {
+                    try { strategy.Deactivate(); }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
+                    }
+                }
+                ParsekLog.TestSinkForTesting = priorSink;
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                // Truncate events and ledger actions AFTER the restore so the
+                // restore's (resource-suppressed) calls can't append stray rows
+                // between the assertion slice read and the truncation. Both
+                // truncations are silent no-ops if nothing was added.
+                GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                Ledger.TruncateActionsForTesting(ledgerCountBefore);
+            }
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "#439 Phase A: Activate()=false path (already-active) does NOT emit StrategyActivated (pins the __result==true filter in StrategyLifecyclePatch).")]
+        public void FailedActivation_DoesNotEmitEvent()
+        {
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                return;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                return;
+            }
+
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null)
+            {
+                InGameAssert.Skip("StrategySystem.Instance is null");
+                return;
+            }
+
+            var strategy = FindActivatableStockStrategy();
+            if (strategy == null)
+            {
+                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
+                return;
+            }
+
+            string configName = strategy.Config.Name ?? "";
+
+            // Snapshot financials — the first (successful) Activate below will
+            // spend setup costs that we must restore in teardown.
+            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+
+            // Snapshot event and ledger-action counts for cleanup. Set before
+            // the try so the finally always sees a valid baseline (matches
+            // pre-activation state, so truncation purges BOTH the first
+            // Activate and the failed second Activate from the save).
+            int preTestEventCount = GameStateStore.EventCount;
+            int preTestLedgerCount = Ledger.Actions.Count;
+
+            try
+            {
+                // Activate the strategy FIRST so the second Activate hits the
+                // already-active short-circuit and returns false.
+                bool firstActivate = strategy.Activate();
+                if (!firstActivate)
+                {
+                    InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
+                    return;
+                }
+
+                int eventCountBefore = GameStateStore.EventCount;
+
+                // Second Activate — KSP short-circuits when IsActive is true and
+                // returns false. The postfix should detect __result=false and skip.
+                bool ok = strategy.Activate();
+                InGameAssert.IsFalse(ok,
+                    "Strategy.Activate should return false when already active");
+
+                // Walk the tail slice — must find NO StrategyActivated events
+                // with matching key.
+                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                {
+                    var evt = GameStateStore.Events[i];
+                    if (evt.eventType == GameStateEventType.StrategyActivated
+                        && evt.key == configName)
+                    {
+                        InGameAssert.Fail(
+                            $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
+                            $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                    }
+                }
+
+                ParsekLog.Verbose("TestRunner",
+                    $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
+                    $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+            }
+            finally
+            {
+                if (strategy.IsActive)
+                {
+                    try { strategy.Deactivate(); }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex.Message}");
+                    }
+                }
+                RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                // Purge test-generated events and ledger actions so the save
+                // stays save-neutral across repeated category runs. See
+                // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+                // teardown for the same pattern.
+                GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                Ledger.TruncateActionsForTesting(preTestLedgerCount);
+            }
+        }
+
+        #endregion
+
+        #region Bug #450 B3 Lazy Reentry FX
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: TryBuildReentryFx on a real Unity GameObject still returns a ReentryFxInfo for an empty ghost root, and the lazy-build helper clears the pending flag while counting the build success.")]
+        public void Bug450B3_LazyBuild_OnEmptyGhostRoot_ClearsFlagAndCountsBuild()
+        {
+            // Residual-risk coverage for the plan's "in-game only" test gap: verifies
+            // the live-Unity lazy-build path wiring. We do NOT construct a real ghost
+            // (that requires an active snapshot + AvailablePart + Unity prefab), but
+            // we DO exercise TryBuildReentryFx with a genuine GameObject so the Unity
+            // APIs inside (GetComponentsInChildren, Mesh.CombineMeshes, ParticleSystem
+            // setup) run against a real scene. Even with no renderers or meshes, the
+            // builder still returns a non-null ReentryFxInfo for a non-null root, so
+            // the lazy-build wrapper must clear the flag, store the info, and bump
+            // reentryFxBuildsThisSession exactly once.
+            var ghostRoot = new GameObject("ParsekTestGhost_B3");
+            runner.TrackForCleanup(ghostRoot);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestB3",
+                ghost = ghostRoot,
+                reentryFxPendingBuild = true,
+                heatInfos = new System.Collections.Generic.Dictionary<uint, HeatGhostInfo>(),
+                reentryFxInfo = null,
+            };
+
+            // Use a fresh engine instance so the session-wide build counter reads
+            // cleanly from DiagnosticsState. The engine constructor is free of
+            // side-effects besides field initialisation.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            int buildsBefore = DiagnosticsState.health.reentryFxBuildsThisSession;
+
+            engine.TryPerformLazyReentryBuildForTesting(
+                recIdx: 999, state, vesselName: "TestB3",
+                bodyName: "Kerbin", altitude: 50_000);
+
+            // Flag clears after the build fires (one-shot, no retry storm).
+            InGameAssert.IsFalse(state.reentryFxPendingBuild,
+                "Lazy build must clear reentryFxPendingBuild after the build succeeds");
+            InGameAssert.IsNotNull(state.reentryFxInfo,
+                "Empty ghost roots should still produce a non-null ReentryFxInfo");
+            // Counter bumps on non-null build. Empty ghost root still returns info,
+            // so the session build counter must increase by exactly one.
+            int buildsAfter = DiagnosticsState.health.reentryFxBuildsThisSession;
+            InGameAssert.AreEqual(buildsBefore + 1, buildsAfter,
+                "reentryFxBuildsThisSession must increment when TryBuildReentryFx returns info");
+            // A frame-slot IS consumed (we did invoke the build). Confirms the
+            // counter lives in the unthrottled-success path.
+            InGameAssert.AreEqual(1, engine.FrameLazyReentryBuildCountForTesting,
+                "A build attempt must consume one per-frame slot regardless of result");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
+        public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
+        {
+            // Pin the cross-file contract between the B3 helper's speed floor and
+            // TrajectoryMath.ReentryPotentialSpeedFloor. If these drift apart, a
+            // trajectory that `HasReentryPotential` accepts may be stranded in
+            // pending-forever state at spawn, or vice versa. The constant lives in
+            // TrajectoryMath so the floor is a single source of truth.
+            float floor = TrajectoryMath.ReentryPotentialSpeedFloor;
+            InGameAssert.IsTrue(floor >= 100f && floor <= 1000f,
+                $"ReentryPotentialSpeedFloor={floor} is outside the expected 100-1000 m/s sanity range; B3 speed gate may be miscalibrated");
+
+            // Just at the floor → build fires.
+            InGameAssert.IsTrue(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor, speedFloorMetersPerSecond: floor),
+                "At exactly the speed floor, the build must fire");
+            // Just below the floor → build does NOT fire.
+            InGameAssert.IsFalse(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor - 1f, speedFloorMetersPerSecond: floor),
+                "One m/s below the speed floor, the build must NOT fire");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#406 follow-up: ReusePrimaryGhostAcrossCycle preserves the ghost GameObject identity, the camera pivot, and reentryFxInfo across a loop-cycle boundary instead of destroy+spawn. The session spawn counter does not bump; the reuse counter does. Also asserts the happy-path VERBOSE log line (\"ghost reused across loop cycle\") fires with the expected index/vessel/cycle tokens — clean-context review finding #12 against PR #394.")]
+        public void Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity()
+        {
+            // Build a minimal live-Unity ghost root + cameraPivot child so the
+            // reuse helper's Transform walks execute against a real hierarchy.
+            // This is the integration counterpart to the pure-helper xUnit
+            // coverage in `Bug406GhostReuseLoopCycleTests.cs` — it exercises
+            // the engine entry point on a state with a non-null ghost.
+            //
+            // Why this matters: the xUnit tests can only drive the `ghost == null`
+            // defensive branch (no Unity available). A refactor that swaps the
+            // reuse path to destroy+spawn under the hood would pass every xUnit
+            // test and only fail here — where we observe the GameObject
+            // reference identity across the call.
+            var ghostRoot = new GameObject("ParsekTestGhost_Bug406Reuse");
+            runner.TrackForCleanup(ghostRoot);
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(ghostRoot.transform, false);
+
+            // Two visible child "parts" — one will be deactivated to simulate
+            // a prior-cycle decouple, which the reuse path must reactivate.
+            var part1 = new GameObject("part1");
+            part1.transform.SetParent(ghostRoot.transform, false);
+            var part2 = new GameObject("part2");
+            part2.transform.SetParent(ghostRoot.transform, false);
+            part2.SetActive(false);  // simulate decoupled
+
+            // Pre-built reentryFxInfo stand-in so the reuse path's preservation
+            // invariant is observable. The field is preserved by reference;
+            // destroying/rebuilding it would swap to a new instance.
+            var reentryInfoMarker = new ReentryFxInfo();
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestReuse",
+                ghost = ghostRoot,
+                cameraPivot = cameraPivotObj.transform,
+                loopCycleIndex = 4,
+                playbackIndex = 50,
+                partEventIndex = 10,
+                explosionFired = true,
+                pauseHidden = true,
+                reentryFxInfo = reentryInfoMarker,
+                reentryFxPendingBuild = false,
+                heatInfos = new System.Collections.Generic.Dictionary<uint, HeatGhostInfo>(),
+            };
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            int spawnsBefore = DiagnosticsState.health.ghostBuildsThisSession;
+            int reusesBefore = DiagnosticsState.health.ghostReusedAcrossCycleThisSession;
+            int destroysBefore = DiagnosticsState.health.ghostDestroysThisSession;
+
+            // Minimal trajectory stub — ReusePrimaryGhostAcrossCycle's inner
+            // PrimeLoadedGhostForPlaybackUT dereferences `traj.VesselName` via
+            // UpdateReentryFx, so traj must be non-null. Positioner stays null
+            // above so PositionLoadedGhostAtPlaybackUT early-returns without
+            // trying to move the test GameObject.
+            var traj = new TestTrajectoryForBug406();
+
+            // Capture log lines across the reuse call so the happy-path VERBOSE
+            // emitted by ReusePrimaryGhostAcrossCycle can be asserted. Without
+            // this assertion, a silent regression that re-routes the reuse path
+            // to destroy+spawn would still pass every identity/counter check
+            // here (a destroy+spawn path that happened to preserve Unity
+            // references in a pool would satisfy ReferenceEquals, and the
+            // diagnostic counters could be wired to bump the reuse counter
+            // regardless). The VERBOSE log line is the distinctive tell that
+            // the reuse branch was taken — see clean-context review finding #12
+            // against PR #394. Reset rate limits first so this test is
+            // deterministic when re-run within the 5-second rate window of a
+            // prior invocation in the same KSP session.
+            ParsekLog.ResetRateLimitsForTesting();
+            var capturedLog = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => { capturedLog.Add(line); priorSink?.Invoke(line); };
+            try
+            {
+                engine.ReusePrimaryGhostAcrossCycle(
+                    index: 99, traj: traj, flags: default, state,
+                    playbackUT: 0.0, newCycleIndex: 5);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            // Log-line assertion: the reuse path MUST emit the distinctive
+            // "ghost reused across loop cycle" VERBOSE, and it MUST carry the
+            // recording index, vessel name, and both cycle indices so a log
+            // reader can confirm which ghost reused and which cycle boundary
+            // it straddled. If the orchestrator is refactored to call the log
+            // helper with a different format string (or to skip it entirely
+            // on a fast path), this assertion is what flags the regression.
+            string reuseLine = capturedLog.FirstOrDefault(l => l.Contains("ghost reused across loop cycle"));
+            InGameAssert.IsNotNull(reuseLine,
+                "ReusePrimaryGhostAcrossCycle must emit a VERBOSE containing \"ghost reused across loop cycle\"; " +
+                "if this fails, either the log line was removed or VerboseRateLimited suppressed it (ResetRateLimitsForTesting guards against the latter)");
+            InGameAssert.Contains(reuseLine, "#99",
+                "reuse log line must carry the recording index (#99 in this test) so log readers can correlate per-ghost reuse events");
+            InGameAssert.Contains(reuseLine, "TestReuse",
+                "reuse log line must carry the vessel name (\"TestReuse\") so log readers can correlate by vessel instead of by index");
+            InGameAssert.Contains(reuseLine, "from cycle=4",
+                "reuse log line must carry the previous cycle index so cycle-boundary regressions are visible in logs");
+            InGameAssert.Contains(reuseLine, "to cycle=5",
+                "reuse log line must carry the new cycle index so cycle-boundary regressions are visible in logs");
+            InGameAssert.Contains(reuseLine, "[VERBOSE]",
+                "reuse log line must be emitted at VERBOSE level — a level drift to INFO/WARN would spam production logs");
+            InGameAssert.Contains(reuseLine, "[Engine]",
+                "reuse log line must be emitted under the Engine subsystem tag for grep-ability");
+
+            // Identity invariants: the ghost GameObject and the cameraPivot
+            // Transform are the SAME instances they were before. The
+            // reentryFxInfo reference is preserved.
+            InGameAssert.IsTrue(ReferenceEquals(ghostRoot, state.ghost),
+                "ReusePrimaryGhostAcrossCycle must NOT replace state.ghost — identity preservation is the whole optimisation");
+            InGameAssert.IsTrue(ReferenceEquals(cameraPivotObj.transform, state.cameraPivot),
+                "cameraPivot Transform identity must survive the reuse — WatchModeController/FlightCamera hold refs through the retarget");
+            InGameAssert.IsTrue(ReferenceEquals(reentryInfoMarker, state.reentryFxInfo),
+                "reentryFxInfo must be preserved by reference; destroy+rebuild would swap this to null then a new instance");
+
+            // Hierarchy invariants: part2 (the simulated decoupled part) is
+            // now active again, matching the snapshot baseline for the new cycle.
+            InGameAssert.IsTrue(part1.activeSelf, "part1 was active; must remain active after reuse");
+            InGameAssert.IsTrue(part2.activeSelf,
+                "part2 was deactivated to simulate prior-cycle decouple; reuse must re-activate it");
+
+            // State invariants: iterators rewound, per-cycle flags reset,
+            // new cycle index applied.
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "playbackIndex must reset to 0 for the new cycle");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "partEventIndex must reset to 0 for the new cycle");
+            InGameAssert.AreEqual(5L, state.loopCycleIndex,
+                "loopCycleIndex must advance to the new cycle");
+            InGameAssert.IsFalse(state.explosionFired,
+                "explosionFired must reset so the new cycle can re-decide");
+            InGameAssert.IsFalse(state.pauseHidden,
+                "pauseHidden must reset so the new cycle re-evaluates pause-window");
+
+            // Counter invariants (#414 and #450 B3): reuse does not consume a
+            // spawn slot and does not bump the lazy-reentry-build cap. The
+            // reuse counter IS bumped so diagnostics can count cycles.
+            int spawnsAfter = DiagnosticsState.health.ghostBuildsThisSession;
+            int reusesAfter = DiagnosticsState.health.ghostReusedAcrossCycleThisSession;
+            int destroysAfter = DiagnosticsState.health.ghostDestroysThisSession;
+            InGameAssert.AreEqual(spawnsBefore, spawnsAfter,
+                "ghostBuildsThisSession must NOT bump on reuse — reuse is not a spawn (#414 invariant)");
+            InGameAssert.AreEqual(reusesBefore + 1, reusesAfter,
+                "ghostReusedAcrossCycleThisSession must bump exactly once per reuse");
+            InGameAssert.AreEqual(destroysBefore, destroysAfter,
+                "ghostDestroysThisSession must NOT bump on reuse — the ghost was never destroyed");
+            InGameAssert.AreEqual(0, engine.FrameSpawnCountForTesting,
+                "frameSpawnCount must NOT bump on reuse (#414 spawn throttle must not be consumed)");
+            InGameAssert.AreEqual(0, engine.FrameLazyReentryBuildCountForTesting,
+                "frameLazyReentryBuildCount must NOT bump on reuse itself (the NEXT frame's UpdateReentryFx may build, but that is the B3 path, not reuse)");
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// Minimal IPlaybackTrajectory for Bug406 in-game test: all collections empty
+    /// so ApplyPartEvents / ApplyFlagEvents early-return, no snapshot so
+    /// GetGhostSnapshot returns null, non-null VesselName so UpdateReentryFx
+    /// does not NRE, zero points/orbit/surface so PositionLoadedGhostAtPlaybackUT
+    /// does not try to move the test GameObject even if a positioner were wired.
+    /// Kept in this file (same assembly as IPlaybackTrajectory) so it can
+    /// implement the internal interface without InternalsVisibleTo gymnastics.
+    /// </summary>
+    internal class TestTrajectoryForBug406 : IPlaybackTrajectory
+    {
+        public System.Collections.Generic.List<TrajectoryPoint> Points { get; } = new System.Collections.Generic.List<TrajectoryPoint>();
+        public System.Collections.Generic.List<OrbitSegment> OrbitSegments { get; } = new System.Collections.Generic.List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public System.Collections.Generic.List<TrackSection> TrackSections { get; } = new System.Collections.Generic.List<TrackSection>();
+        public double StartUT => 0;
+        public double EndUT => 0;
+        public int RecordingFormatVersion => 0;
+        public System.Collections.Generic.List<PartEvent> PartEvents { get; } = new System.Collections.Generic.List<PartEvent>();
+        public System.Collections.Generic.List<FlagEvent> FlagEvents { get; } = new System.Collections.Generic.List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "TestReuse";
+        public string RecordingId => "test-b406";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
     }
 }

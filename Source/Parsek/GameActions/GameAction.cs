@@ -51,7 +51,7 @@ namespace Parsek
         Other            = 4,
         /// <summary>
         /// Synthetic earning injected by <see cref="LedgerOrchestrator.MigrateLegacyTreeResources"/>
-        /// on load to reconcile a pre-Phase-F tree's persisted `DeltaFunds` residual against the
+        /// on load to reconcile a pre-Phase-F tree's persisted legacy funds residual against the
         /// ledger. Tag-only — <see cref="FundsModule"/> treats it as a normal earning via its
         /// default branch.
         /// </summary>
@@ -325,6 +325,12 @@ namespace Parsek
 
         /// <summary>One-time cost in source resource on activation.</summary>
         public float SetupCost;
+
+        /// <summary>One-time science cost on activation.</summary>
+        public float SetupScienceCost;
+
+        /// <summary>One-time reputation cost on activation.</summary>
+        public float SetupReputationCost;
 
         // ---- Initial seed fields ----
 
@@ -904,6 +910,8 @@ namespace Parsek
             n.AddValue("targetResource", ((int)TargetResource).ToString(IC));
             n.AddValue("commitment", Commitment.ToString("R", IC));
             n.AddValue("setupCost", SetupCost.ToString("R", IC));
+            n.AddValue("setupSci", SetupScienceCost.ToString("R", IC));
+            n.AddValue("setupRep", SetupReputationCost.ToString("R", IC));
         }
 
         private static void DeserializeStrategyActivate(ConfigNode n, GameAction a)
@@ -913,6 +921,8 @@ namespace Parsek
             TryParseEnum(n, "targetResource", out a.TargetResource);
             TryParseFloat(n, "commitment", out a.Commitment);
             TryParseFloat(n, "setupCost", out a.SetupCost);
+            TryParseFloat(n, "setupSci", out a.SetupScienceCost);
+            TryParseFloat(n, "setupRep", out a.SetupReputationCost);
         }
 
         private void SerializeStrategyDeactivate(ConfigNode n)

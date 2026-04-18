@@ -167,10 +167,12 @@ namespace Parsek.InGameTests
         /// GhostPidsResolveToProtoVessels).
         ///
         /// Order (matches the rewind path in ParsekFlight.DestroyAllTimelineGhosts):
-        /// 1. Delegate to ParsekFlight.Instance.DestroyAllTimelineGhosts() when available
+        /// 1. Exit watch mode first (skip camera restore) so stock camera state does not
+        ///    retain a destroyed ghost transform across the next frame.
+        /// 2. Delegate to ParsekFlight.Instance.DestroyAllTimelineGhosts() when available
         ///    — this does RemoveAllGhostVessels (vessel.Die + dict clear) followed by
         ///    engine.DestroyAllGhosts (primary + overlap GO destroy + engine dict clear).
-        /// 2. Safety net: ResetBetweenTestRuns on GhostMapPresence, idempotent and
+        /// 3. Safety net: ResetBetweenTestRuns on GhostMapPresence, idempotent and
         ///    synchronous, catches any PID that lingered past step 1 (e.g. if Die()
         ///    throws, or if we are not in the flight scene and ParsekFlight.Instance is
         ///    null but ghost-map bookkeeping is somehow non-empty from a previous scene).
@@ -190,6 +192,17 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight != null)
             {
+                try
+                {
+                    flight.ExitWatchModeBeforeTimelineGhostCleanup(
+                        $"PerformBetweenRunCleanup:{reason}");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"PerformBetweenRunCleanup: watch exit before cleanup threw: {ex.Message}");
+                }
+
                 try
                 {
                     ghostsBefore = flight.Engine?.GhostCount ?? 0;

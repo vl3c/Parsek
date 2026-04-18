@@ -49,7 +49,10 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
-- `#386` Ghost map and tracking station icons now hide their label by default, show on hover, and pin on click — matching stock KSP.
+- Real Spawn Control proximity gate tightened: candidate range cut from 500 m to 250 m and a new <=2 m/s relative-speed requirement (derived frame-agnostically from the change in active-vessel/ghost separation between scans), so fast-forward only offers ghosts you have actually rendezvoused with.
+- `#450 B3` Ghost spawn hitch reduced on reentry-capable recordings: the reentry-FX build is now deferred until the ghost actually enters atmosphere above Mach 1.2. Orbital-only and sub-Mach-1.2 trajectories skip the build entirely; a per-session `deferred / buildsAvoided` counter in the diagnostics health line shows how often the deferral saved real build work.
+- Map view ghost icon right-click now pins the label (stock behavior) instead of opening the Parsek menu. Left-click still opens the menu.
+- `#386` Ghost map and tracking station icons now hide their label by default and toggle it with a left click on the icon; hover no longer reveals the label, and non-left clicks pass through to stock handlers.
 - Gloops Flight Recorder window keeps its three buttons (Start/Stop, Preview, Discard) in fixed positions across states, graying out unavailable actions instead of rearranging them.
 - `#416` Recordings table header and body columns now line up across recording, group, and chain rows. Row index numbers sit under the `#` character, buttons (G/W/FF/R) and the Period input are 10 px inset from the cell left, and body text indents 5 px to match header text.
 - Replaced the four sampling sliders with a single **Recorder Sample Density** setting (Low / Medium / High). Legacy slider-based saves migrate to the nearest preset on load.
@@ -64,6 +67,8 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `T68` Added cleanup-order unit coverage for watch-mode exit-before-destroy, plus in-game regressions for watch-cleanup and low-altitude Kerbin ghost spawn exception containment.
+- `#458` Added a binary sidecar regression test for duplicated flat-prefix loads and expanded the in-game committed-recording monotonicity failure to report track-section prefix/source diagnostics.
 - `#371` Added a `MergeInto` continuous-EVA boundary merge round-trip test plus an assertion that the optimizer rejects orbital-phase pairs.
 - `#384` Added the Learstar A1 S16 mission to the `DefaultCareer` fixture so `InjectAllRecordings` covers a far-away / map-view recording.
 - `#399` Regression tests for `ScienceModule.ComputeTotalSpendings` at duplicate UTs.
@@ -74,6 +79,7 @@ All notable changes to Parsek are documented here.
 - `T66` In-game runtime regression for fresh watch-entry camera orientation (canonical pitch/heading, no 180° flip).
 - `T61` Two hydration-salvage regression tests covering `RestoreHydrationFailedRecordingsFromPendingTree` and mixed subset-restorable trees.
 - `#365` Unit coverage for v2/v3 binary sidecar reader bounds and full codec round-trip matrix.
+- Added runtime in-game test for strategy lifecycle Harmony patch capture (#439 Phase A follow-up).
 
 ### Documentation
 
@@ -81,6 +87,19 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fix #439B: strategy activate setup cost reconciliation now covers Funds, Science, and Reputation legs, closing the known limitation that shipped with #439.
+- `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
+- `#406 follow-up` Looping ghosts now reuse the same ghost GameObject across loop-cycle boundaries instead of destroying and rebuilding, eliminating the remaining ~21 ms per-cycle hitch on flight recordings with reentry FX. Per-cycle mutable state (engine throttle, RCS power, robotic servo, char intensity, reentry intensity) resets to the fresh-spawn baseline so the new cycle does not inherit stale readings.
+- `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
+- `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
+- `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.
+- `#455` `PatchMilestones` no longer spams thousands of `repeatable node '<Body>/<Name>' is missing stock record fields` WARNs on every recalculation; one-shot per-body progress nodes (`Bop/Orbit`, `Dres/Flight`, …) now correctly fall through to the one-shot patch path instead of being short-circuited by the repeatable-record branch.
+- `#387` Ghost map icons for `DeployedScienceController` and `DeployedGroundPart` now render the stock icon instead of the generic diamond fallback; their sprites live on separate atlas textures that the single-atlas init path used to silently reject.
+- Loop period cells now show the runtime-effective overlap cadence when the 10-ghost cap raises a recording's launch cadence; clamped rows render in amber, explain the clamp in the Recordings window tooltip area, and still preserve the raw stored value when you start editing.
+- Overlap cadence clamping now snaps directly to the minimum cap-safe cadence instead of overshooting in powers of two.
+- Fix #440: post-walk reconciliation now covers strategy-transformed and curve-applied reward types (contract complete/fail/cancel, milestone, reputation earning/penalty, KSC-path funds/science earning), emitting a warning when post-walk derived values diverge from observed KSP deltas.
+- Fix #440B: commit-time earnings reconciliation (`ReconcileEarningsWindow`) now reads post-walk `Transformed*` / `EffectiveRep` / `EffectiveScience` reward fields, matching the rewind-path post-walk hook and closing a latent double-WARN on future non-identity reward transforms. Also silences a false-positive subject-cap WARN that fired on capped science subjects.
+- Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers and eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates.
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
 - `#451` R&D part-purchase ledger now records the actual stock debit in `cost=` (`0` under bypass=on, `entryCost` under bypass=off). Load heals the immediately previous bad save shape so stock-default free auto-unlocks no longer reload as paid purchases or reserved funds.
@@ -89,11 +108,12 @@ All notable changes to Parsek are documented here.
 - `#446` Discarding a Gloops Flight Recorder ghost-only recording no longer throws a `NullReferenceException` on the next UI frame.
 - `#445` Rollout costs for vessels cancelled before launch are now captured in the ledger; previously the build cost vanished when the player reverted to VAB/SPH without ever starting a recording.
 - `#444` Vessel recoveries from the tracking station or post-flight summary now reach the ledger; previously funds recovered outside a live recording window were silently dropped.
+- Fix `#436` (Phase F): remove tree-level `DeltaFunds`/`DeltaScience`/`DeltaReputation` and the standalone resource applier. Legacy saves still migrate on first load via Phase A, and `TreeFormatVersion` now warns if a pre-Phase-F save cannot be recovered.
 - `#443` Milestone rewards now patch the stored event correctly on saves that have been reverted at least once; previously `Kerbin/Landing` and similar `OnProgressComplete` milestones landed in the ledger with `funds=0` on any save with a non-zero milestone epoch.
 - `#442` World-record progress nodes (`RecordsSpeed`/`Altitude`/`Distance`/`Depth`) now credit their funds and reputation rewards to the ledger; previously every world-first dropped its entire reward because the nodes call `AwardProgress` without firing `OnProgressComplete`.
 - Every non-revert tree-commit path now disarms the legacy lump-sum replay on the just-committed tree, matching in-flight Commit Flight so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
 - Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.
-- KSC-side ledger writes (part purchases, tech unlocks, facility upgrades/repairs, crew hires, contract advances) now key-match against their paired `FundsChanged`/`ScienceChanged` event and WARN on missing or mismatched deltas, surfacing missing earning channels at the point they occur. Transformed reward types (contract, milestone, reputation) are skipped with VERBOSE pending a post-walk reconciliation hook.
+- KSC-side ledger writes (part purchases, tech unlocks, facility upgrades/repairs, crew hires, contract advances) now key-match against their paired `FundsChanged`/`ScienceChanged` event and WARN on missing or mismatched deltas, surfacing missing earning channels at the point they occur. Transformed reward types (contract, milestone, reputation) stay VERBOSE-skipped on the KSC per-action path and are reconciled by the post-walk hook added in #440.
 - Removed the legacy tree lump-sum and per-recording resource replay paths; committed recordings are now the single source of truth for funds, science, and reputation.
 - `#434` KSP's stock crash/mission report now shows first on vessel destruction; Parsek's merge dialog no longer pre-empts it. Revert to Launch/VAB/SPH soft-clears the pending recording so a flight quicksave can still be F9'd back in, with the bumped milestone epoch keeping reverted events out of the current ledger.
 - `#434` Fixed a NullReferenceException in `RevertDetector.Subscribe` that aborted `ParsekScenario.OnLoad` before the merge-dialog dispatch path could run, so going back to Space Center after a flight silently auto-committed the pending tree instead of showing the merge/discard dialog.
@@ -135,15 +155,13 @@ All notable changes to Parsek are documented here.
 - `#424` The `Show ghosts in Tracking Station` toggle now responds to flips made from KSP's stock Game Parameters UI.
 - `#425` Map-view ghost markers no longer stay stuck on the fallback diamond for an entire scene when the first draw hits an uninitialized prefab or icon array.
 - Rewind now filters the ledger walk to actions at or before the rewind UT, so post-rewind T0 no longer re-credits milestones or other post-rewind events. Contract deadlines that expired between the last pre-cutoff action and the rewind target now correctly fail, and tech-research affordability checks use current UT so post-rewind unlocks cannot read future science.
-
-### Known Limitations
-
-- KSP career strategies (Leadership Initiative, Open-Source Tech Program, etc.) are not yet captured by the ledger. Activating a strategy that diverts or grants resources can produce `PatchFunds: suspicious drawdown` WARN lines in `KSP.log` and small balance corrections after scene transitions until strategy lifecycle capture lands (tracked as `#439`). Fresh careers that do not activate strategies are unaffected.
+- `InjectAllRecordings` now refuses live-save injection while KSP is actively holding `KSP.log`, and `scripts/collect-logs.py` snapshots live recording sidecars by default under the save bundle while preserving the legacy `parsek/Recordings` copy; `--skip-recordings` still opts out.
 
 ### Maintenance
 
 - `#392` Added clarifying comments to the `HasSeed` early-return guards in `PatchScience`/`PatchFunds`/`PatchReputation`.
 - `#372` Removed orphaned synthetic-scenario test helpers.
+- `#454` `GameStateRecorder.Emit` and `GameStateStore.AddEvent` now take `ref GameStateEvent` so field stamps (`epoch`, `recordingId`) propagate to the caller's local — eliminates the value-type field-mirror bug class that produced #443.
 
 ---
 

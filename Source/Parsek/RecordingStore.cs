@@ -2651,7 +2651,6 @@ namespace Parsek
 
             for (int i = 0; i < committedTrees.Count; i++)
             {
-                committedTrees[i].ResourcesApplied = false;
                 foreach (var rec in committedTrees[i].Recordings.Values)
                     ResetRecordingPlaybackFields(rec);
             }
@@ -2812,20 +2811,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Tree-scoped mirror of the tree half of <see cref="MarkAllFullyApplied"/>: sets
-        /// <c>tree.ResourcesApplied = true</c> and advances each recording's
-        /// <c>LastAppliedResourceIndex</c> to the last point for recordings with non-empty
-        /// <c>Points</c>. Does NOT touch <see cref="MilestoneStore.Milestones"/> — that
-        /// global mutation is specifically what callers need to avoid when marking a
-        /// single tree applied (see plan Phase C, `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`).
-        /// Returns the number of recordings whose applied index was advanced. Safe to call
-        /// with a null tree (returns 0).
+        /// Tree-scoped mirror of the tree half of <see cref="MarkAllFullyApplied"/>:
+        /// advances each recording's <c>LastAppliedResourceIndex</c> to the last point
+        /// for recordings with non-empty <c>Points</c>. Does NOT touch
+        /// <see cref="MilestoneStore.Milestones"/> — that global mutation is specifically
+        /// what callers need to avoid when marking a single tree fully applied (see plan
+        /// Phase C, `docs/dev/plans/fix-ledger-lump-sum-reconciliation.md`). Returns the
+        /// number of recordings whose applied index was advanced. Safe to call with a
+        /// null tree (returns 0).
         /// </summary>
         internal static int MarkTreeAsApplied(RecordingTree tree)
         {
             if (tree == null) return 0;
-
-            tree.ResourcesApplied = true;
 
             int advanced = 0;
             foreach (var rec in tree.Recordings.Values)
@@ -2865,11 +2862,17 @@ namespace Parsek
             int treeCount = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
-                if (!committedTrees[i].ResourcesApplied)
+                int advanced = 0;
+                foreach (var rec in committedTrees[i].Recordings.Values)
                 {
-                    committedTrees[i].ResourcesApplied = true;
-                    treeCount++;
+                    if (rec == null || rec.Points.Count == 0)
+                        continue;
+
+                    rec.LastAppliedResourceIndex = rec.Points.Count - 1;
+                    advanced++;
                 }
+                if (advanced > 0)
+                    treeCount++;
             }
 
             var milestones = MilestoneStore.Milestones;

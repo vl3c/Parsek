@@ -54,8 +54,9 @@ namespace Parsek
         // the flight scene. Per-frame cost scales with this value (mesh
         // renderers, FX, audio, positioner). Combined with
         // GhostPlaybackLogic.ComputeEffectiveLaunchCadence the cap is
-        // strictly observed — cadence is doubled until ceil(duration/cadence)
-        // fits, so no cycle is ever silently culled mid-trajectory.
+        // strictly observed — cadence is raised to the minimum value that
+        // keeps ceil(duration/cadence) within the cap, so no cycle is ever
+        // silently culled mid-trajectory.
         internal const int MaxOverlapGhostsPerRecording = 10;
         internal const double OverlapExplosionHoldSeconds = 3.0;
         internal const int MaxActiveExplosions = 30;
@@ -68,16 +69,58 @@ namespace Parsek
         // this cap; see plan-414-spawn-throttle.md for the full call-site taxonomy.
         internal const int MaxSpawnsPerFrame = 2;
 
+        // Bug #450 B3: cap on deferred reentry-FX builds that can fire on a single frame.
+        // Without a cap, N ghosts crossing atmosphereDepth in the same frame would each
+        // pay the ~7 ms TryBuildReentryFx cost, relocating the bimodal spawn-burst pattern
+        // to atmosphere-entry-time rather than eliminating it. The atmosphere-entry window
+        // is many frames wide (ghosts approach the boundary at ~hundreds of m/s vs a
+        // ~100 km atmosphere depth), so a 1-frame delay on the excess builds is invisible.
+        internal const int MaxLazyReentryBuildsPerFrame = 2;
+
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
         private int frameDestroyCount;
+        // Bug #450 B3: per-frame counters for deferred-reentry-build throttling.
+        // Reset each frame alongside the #414 counters.
+        private int frameLazyReentryBuildCount;
+        private int frameLazyReentryBuildDeferred;
         // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
         // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
         private int frameSpawnDeferred;
+        // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
+        // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
+        // continue / remove), so it reflects total overlap dispatch work regardless of whether
+        // the iteration expired the ghost, repositioned it, or removed a null entry. Reset each
+        // frame alongside the other frame counters so the mainLoop breakdown WARN (#460 latch)
+        // can report `meanPerDispatch = mainLoop / (trajectoriesIterated + overlapIterations)`
+        // alongside `meanPerTraj`, distinguishing "slow per-trajectory dispatch" from "many
+        // overlap ghosts per trajectory" when the WARN fires on the next qualifying spike.
+        private int frameOverlapGhostIterationCount;
         // Bug #414: largest single BuildGhostVisualsWithMetrics cost (in Stopwatch ticks) seen
         // this frame. Reset each frame; surfaced via PlaybackBudgetPhases.spawnMaxMicroseconds
         // so the breakdown WARN reveals whether one ghost alone is blowing the budget.
         private long frameMaxSpawnTicks;
+
+        // Bug #450: per-sub-phase tick accumulators captured while processing the single
+        // spawn that is the new heaviest of this frame. Latched inside the finally block of
+        // BuildGhostVisualsWithMetrics when deltaTicks > frameMaxSpawnTicks. Reset each frame.
+        // Surfaced via PlaybackBudgetPhases.heaviestSpawn* so the one-shot breakdown WARN can
+        // attribute a single heavy spawn's cost across snapshot / timeline / dicts / reentry.
+        private long frameHeaviestSpawnSnapshotResolveTicks;
+        private long frameHeaviestSpawnTimelineTicks;
+        private long frameHeaviestSpawnDictionariesTicks;
+        private long frameHeaviestSpawnReentryTicks;
+        private long frameHeaviestSpawnOtherTicks;
+        private HeaviestSpawnBuildType frameHeaviestSpawnBuildType;
+
+        // Bug #450: "last spawn" per-sub-phase tick deltas written by TryPopulateGhostVisuals
+        // and read by BuildGhostVisualsWithMetrics.finally when deciding whether this call is
+        // the new frame heaviest. Reset at the start of TryPopulateGhostVisuals to guarantee
+        // stale values from a prior call cannot leak into a later spawn's attribution.
+        private long lastSpawnSnapshotResolveTicks;
+        private long lastSpawnTimelineTicks;
+        private long lastSpawnDictionariesTicks;
+        private long lastSpawnReentryTicks;
 
         // Diagnostics: reusable Stopwatches (allocated once, no per-frame GC)
         private readonly Stopwatch updateStopwatch = new Stopwatch();
@@ -90,6 +133,15 @@ namespace Parsek
         private readonly Stopwatch deferredCreatedStopwatch = new Stopwatch();
         private readonly Stopwatch deferredCompletedStopwatch = new Stopwatch();
         private readonly Stopwatch observabilityStopwatch = new Stopwatch();
+        // Bug #450: per-sub-phase spawn stopwatches. Accumulate across every spawn in the
+        // frame; ElapsedTicks at populate time gives the aggregate surfaced via
+        // PlaybackBudgetPhases.build*Microseconds. Per-call deltas (captured via pre-call
+        // ElapsedTicks + post-call subtraction, identical to the #414 spawnStopwatch pattern)
+        // feed the heaviest-spawn latch. Zero per-frame GC.
+        private readonly Stopwatch buildSnapshotResolveStopwatch = new Stopwatch();
+        private readonly Stopwatch buildTimelineStopwatch = new Stopwatch();
+        private readonly Stopwatch buildDictionariesStopwatch = new Stopwatch();
+        private readonly Stopwatch buildReentryFxStopwatch = new Stopwatch();
 
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
@@ -177,7 +229,7 @@ namespace Parsek
         /// effectiveCadence, duration) tuple. Re-emits only when one of the
         /// inputs changes — so a dense overlap recording is silent steady-state
         /// after its cadence stabilises. Surfaces the user-visible consequence
-        /// of cap-driven cadence doubling so the adjustment is never silent.
+        /// of the cap-driven cadence adjustment so the change is never silent.
         /// </summary>
         private void LogOverlapCadenceIfChanged(
             int index, IPlaybackTrajectory traj,
@@ -312,6 +364,29 @@ namespace Parsek
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
+            // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
+            // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
+            frameOverlapGhostIterationCount = 0;
+            // Bug #450 B3: reset lazy-reentry-build per-frame counters each tick so the
+            // cap applies within a single UpdatePlayback call.
+            frameLazyReentryBuildCount = 0;
+            frameLazyReentryBuildDeferred = 0;
+            // Bug #450: reset per-frame heaviest-spawn breakdown fields so the latch starts
+            // empty each frame. No heaviest spawn yet -> HeaviestSpawnBuildType.None. The
+            // lastSpawn*Ticks fields are NOT reset here because TryPopulateGhostVisuals
+            // resets them itself at its head every call — any read of frameHeaviestSpawn*
+            // happens only inside the PlaybackBudgetPhases populate block below, strictly
+            // after all BuildGhostVisualsWithMetrics calls this frame have run. Scene-
+            // cleanup paths (DestroyAllGhosts, ReindexAfterDelete) do not need to clear
+            // these fields either — they run outside UpdatePlayback, and the next frame's
+            // reset at the head of UpdatePlayback zeroes everything before any producer
+            // touches it. Same invariant #414's frameMaxSpawnTicks already relies on.
+            frameHeaviestSpawnSnapshotResolveTicks = 0;
+            frameHeaviestSpawnTimelineTicks = 0;
+            frameHeaviestSpawnDictionariesTicks = 0;
+            frameHeaviestSpawnReentryTicks = 0;
+            frameHeaviestSpawnOtherTicks = 0;
+            frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
             // Phase 7 of Rewind-to-Staging (design §3.3): per-frame count of
             // trajectories skipped because their recording is in the active
             // session's SuppressedSubtree. Included in the frame-summary log
@@ -330,6 +405,11 @@ namespace Parsek
             deferredCreatedStopwatch.Reset();
             deferredCompletedStopwatch.Reset();
             observabilityStopwatch.Reset();
+            // Bug #450: reset per-sub-phase spawn stopwatches (same pattern as #414).
+            buildSnapshotResolveStopwatch.Reset();
+            buildTimelineStopwatch.Reset();
+            buildDictionariesStopwatch.Reset();
+            buildReentryFxStopwatch.Reset();
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
@@ -608,6 +688,22 @@ namespace Parsek
             long elapsedMicrosecondsAtLoopEnd = elapsedTicksAtLoopEnd * 1000000L / Stopwatch.Frequency;
             long mainLoopMicroseconds = elapsedMicrosecondsAtLoopEnd - spawnMicroseconds - destroyMicroseconds;
             if (mainLoopMicroseconds < 0) mainLoopMicroseconds = 0;
+            // Bug #450: per-sub-phase aggregate = sum across all spawns in the frame.
+            long buildSnapshotResolveMicroseconds = buildSnapshotResolveStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildTimelineFromSnapshotMicroseconds = buildTimelineStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildDictionariesMicroseconds = buildDictionariesStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildReentryFxMicroseconds = buildReentryFxStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            // Residual = outer spawn time − attributed sub-phases (covers camera pivot,
+            // materials, MaterialPropertyBlock, SetActive, appearance reset). Floors at 0 so
+            // sub-microsecond rounding between the four sub-phase ticks and spawnMicroseconds
+            // cannot produce a negative.
+            long buildOtherMicroseconds = spawnMicroseconds
+                - buildSnapshotResolveMicroseconds
+                - buildTimelineFromSnapshotMicroseconds
+                - buildDictionariesMicroseconds
+                - buildReentryFxMicroseconds;
+            if (buildOtherMicroseconds < 0) buildOtherMicroseconds = 0;
+
             var phases = new PlaybackBudgetPhases
             {
                 mainLoopMicroseconds = mainLoopMicroseconds,
@@ -618,11 +714,28 @@ namespace Parsek
                 deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
                 trajectoriesIterated = trajectoriesIterated,
+                // Bug #460: total overlap-ghost iterations this frame so the mainLoop
+                // breakdown WARN can compute `meanPerDispatch` alongside `meanPerTraj`.
+                overlapGhostIterationCount = frameOverlapGhostIterationCount,
                 createdEventsFired = createdEventsFired,
                 completedEventsFired = completedEventsFired,
                 spawnsAttempted = frameSpawnCount,
                 spawnsThrottled = frameSpawnDeferred,
                 spawnMaxMicroseconds = frameMaxSpawnTicks * 1000000L / Stopwatch.Frequency,
+                // Bug #450: per-sub-phase aggregate across every spawn this frame.
+                buildSnapshotResolveMicroseconds = buildSnapshotResolveMicroseconds,
+                buildTimelineFromSnapshotMicroseconds = buildTimelineFromSnapshotMicroseconds,
+                buildDictionariesMicroseconds = buildDictionariesMicroseconds,
+                buildReentryFxMicroseconds = buildReentryFxMicroseconds,
+                buildOtherMicroseconds = buildOtherMicroseconds,
+                // Bug #450: heaviest-spawn breakdown (latched on whichever single
+                // BuildGhostVisualsWithMetrics call produced the largest delta).
+                heaviestSpawnSnapshotResolveMicroseconds = frameHeaviestSpawnSnapshotResolveTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnTimelineFromSnapshotMicroseconds = frameHeaviestSpawnTimelineTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnDictionariesMicroseconds = frameHeaviestSpawnDictionariesTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnReentryFxMicroseconds = frameHeaviestSpawnReentryTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnOtherMicroseconds = frameHeaviestSpawnOtherTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnBuildType = frameHeaviestSpawnBuildType,
             };
 
             // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
@@ -977,9 +1090,22 @@ namespace Parsek
                 });
 
                 GhostPlaybackLogic.ResetReentryFx(state, index);
-                DestroyGhost(index, traj, flags, reason: "loop cycle boundary");
-                ghostActive = false;
-                state = null;
+
+                // #406 follow-up: reuse the ghost GameObject across the loop
+                // cycle boundary instead of destroy+spawn. The reuse preserves
+                // the ghost hierarchy, reentryFxInfo, reentryFxPendingBuild
+                // (#450 B3), all info dictionaries, cameraPivot identity,
+                // and horizonProxy; it resets playback iterators, explosionFired,
+                // pauseHidden, rcsSuppressed, lightPlaybackStates, fakeCanopies,
+                // logicalPartIds (re-materialised from snapshot), and part
+                // visibility (previous-cycle decoupled parts get reactivated).
+                // This path does NOT consume a #414 spawn slot and does NOT
+                // increment frameLazyReentryBuildCount. See
+                // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
+                // preservation table.
+                ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+                // state is the same object; ghostActive stays true. Skip the
+                // "state == null" first-spawn branch below.
             }
 
             // Looped ghost distance gating
@@ -991,19 +1117,13 @@ namespace Parsek
 
             if (state == null)
             {
-                // Bug #414: two paths reach here:
-                //   (a) very first loop-ghost spawn for this trajectory — safe to throttle
-                //       because nothing visible is being replaced; a 1-frame delay on first
-                //       appearance is invisible.
-                //   (b) the single-ghost cycle-rebuild branch above that destroyed the
-                //       prior ghost and nulled state — NOT safe to throttle. Under sustained
-                //       spawn backlog, a throttled cycle-rebuild can leave the recording
-                //       ghostless for multiple frames, which the ExplosionHoldEnd camera
-                //       anchor only masks for the expected 1-frame gap.
-                // The `cycleChanged` flag (captured at line 852) is true iff we're in case
-                // (b). The OVERLAP-loop cycle change (UpdateOverlapPlayback) is exempt for
-                // the same reason via its unconditional overlap-move-before-spawn sequence.
-                if (!cycleChanged && !TryReserveSpawnSlot(index, "loop-first-spawn"))
+                // True first-spawn path: no ghost has ever existed this session
+                // for this recording. Safe to throttle via the #414 spawn slot
+                // cap because nothing visible is being replaced. Post-#406 the
+                // cycle-rebuild branch above never falls through here — it
+                // always reuses the existing ghost — so the throttle is always
+                // safe on this line.
+                if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
                     return;
                 SpawnGhost(index, traj, loopUT);
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
@@ -1104,11 +1224,12 @@ namespace Parsek
 
             // #443: Compute the effective launch cadence. If the user-configured
             // period would produce more simultaneously-live cycles than the cap,
-            // cadence is doubled until ceil(duration/cadence) <= cap. The user's
-            // stored period is unchanged — only the runtime spawn rate adjusts.
-            // This replaces the pre-fix behaviour of silently culling older
-            // cycles via GetActiveCycles's newest-cycle clamp (which stacked
-            // ghosts near launch under short user periods).
+            // cadence is raised to the minimum value that makes
+            // ceil(duration/cadence) <= cap. The user's stored period is
+            // unchanged — only the runtime spawn rate adjusts. This replaces
+            // the pre-fix behaviour of silently culling older cycles via
+            // GetActiveCycles's newest-cycle clamp (which stacked ghosts near
+            // launch under short user periods).
             double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 intervalSeconds, duration, MaxOverlapGhostsPerRecording);
             LogOverlapCadenceIfChanged(index, traj, intervalSeconds, effectiveCadence, duration);
@@ -1239,6 +1360,14 @@ namespace Parsek
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
+                // Bug #460: count every overlap-ghost iteration (including null-entry
+                // cleanup) before any continue / remove, so the mainLoop breakdown WARN's
+                // `overlapGhostIterationCount` reflects the full overlap dispatch work
+                // that `mainLoopMicroseconds` covers. Matters for distinguishing
+                // "slow per-trajectory dispatch" from "many overlap ghosts per trajectory"
+                // on the next post-#460 playtest spike.
+                frameOverlapGhostIterationCount++;
+
                 var ovState = overlaps[i];
                 if (ovState == null)
                 {
@@ -1361,7 +1490,10 @@ namespace Parsek
                 state.pauseHidden = true;
                 GhostPlaybackLogic.HideAllGhostParts(state);
             }
-            if (state.reentryFxInfo != null)
+            // Bug #450 B3: widened guard — pending-but-not-yet-built ghosts also need
+            // UpdateReentryFx to run so the lazy build can fire if the loop-pause frame
+            // happens to be the first one in atmosphere.
+            if (state.reentryFxInfo != null || state.reentryFxPendingBuild)
             {
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
@@ -1676,12 +1808,22 @@ namespace Parsek
         /// Update reentry visual effects for a ghost. Computes atmospheric density,
         /// Mach number, and intensity, then drives glow/fire/shell layers.
         /// </summary>
+        /// <remarks>
+        /// Bug #450 B3: entry condition widened to allow ghosts whose reentry build
+        /// was deferred at spawn (<c>state.reentryFxPendingBuild == true</c>) to
+        /// reach the body/atmosphere lookup below. The lazy build fires inside this
+        /// method after the body is resolved so there is no duplicate
+        /// <c>FlightGlobals.Bodies.Find</c> on the hot path. Drive-to-zero paths
+        /// short-circuit to a plain return when <c>reentryFxInfo</c> is still null
+        /// (nothing to drive, we're just waiting for in-atmosphere conditions).
+        /// </remarks>
         internal void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName, float warpRate)
         {
-            var info = state.reentryFxInfo;
-            if (info == null || state.ghost == null) return;
+            if (state == null || state.ghost == null) return;
+            if (state.reentryFxInfo == null && !state.reentryFxPendingBuild) return;
 
-            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            var info = state.reentryFxInfo;
+            if (info != null && GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
             {
                 DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
                     state.lastInterpolatedAltitude, vesselName);
@@ -1694,7 +1836,8 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(bodyName))
             {
-                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
                 return;
             }
 
@@ -1708,23 +1851,63 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-nobody",
                     $"ReentryFx: body '{bodyName}' not found — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
-            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
-            float speed = surfaceVel.magnitude;
-
             if (!body.atmosphere)
             {
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
             if (altitude >= body.atmosphereDepth)
             {
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                if (info != null)
+                    DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
+            }
+
+            // Compute surface velocity BEFORE the lazy-build decision so the speed
+            // gate can fire. `ReentryPotentialSpeedFloor` (400 m/s ≈ Mach 1.2 at
+            // sea-level Kerbin) is shared with `HasReentryPotential` and gates out
+            // pad launches where the ghost starts at 0 m/s — without this gate,
+            // ghosts whose first playback point is already in-atmosphere (every
+            // KSC launch recording) would still pay the full 7 ms build on frame 1,
+            // just attributed to mainLoop instead of spawn.
+            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
+            float speed = surfaceVel.magnitude;
+
+            // Bug #450 B3: lazy-build seam. Reuses the body + atmosphere + altitude
+            // + speed checks above. If the build is throttled or the gate fails,
+            // return (for null info) — next frame will retry while still in
+            // atmosphere. Flag cleared only when the build actually fires, see
+            // TryPerformLazyReentryBuild.
+            //
+            // Under warp-suppression the FX subsystem would drive-to-zero anyway
+            // (see GhostPlaybackLogic.ShouldSuppressVisualFx); doing a ~7 ms build
+            // of FX we immediately hide contradicts the suppression policy. Defer
+            // one more frame past the warp drop-out — the ghost hasn't moved
+            // meaningfully during warp anyway.
+            if (state.reentryFxPendingBuild)
+            {
+                if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+                    return;
+                if (!GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                        state.reentryFxPendingBuild, bodyName, body.atmosphere,
+                        altitude, body.atmosphereDepth,
+                        speed, TrajectoryMath.ReentryPotentialSpeedFloor))
+                {
+                    // In-atmosphere but still too slow for FX to be imminent
+                    // (typical KSC launch below ~Mach 1.2). Return — info is null,
+                    // nothing to drive. Next frame will re-check.
+                    return;
+                }
+                TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);
+                info = state.reentryFxInfo;
+                if (info == null) return;
             }
 
             double pressure = body.GetPressure(altitude);
@@ -1753,6 +1936,77 @@ namespace Parsek
 
             DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName, state);
             info.lastIntensity = smoothedIntensity;
+        }
+
+        /// <summary>
+        /// Bug #450 B3: perform the deferred reentry-FX build. Called from inside
+        /// <see cref="UpdateReentryFx"/> after its body/atmosphere/altitude guards have
+        /// already confirmed the ghost is in atmosphere, so there is no duplicate
+        /// <c>FlightGlobals.Bodies.Find</c> lookup. Respects
+        /// <see cref="MaxLazyReentryBuildsPerFrame"/> to prevent a burst of simultaneous
+        /// atmosphere-entries from producing the same bimodal hitch #450 is trying to
+        /// eliminate.
+        /// </summary>
+        private void TryPerformLazyReentryBuild(
+            int recIdx, GhostPlaybackState state, string vesselName,
+            string bodyName, double altitude)
+        {
+            // Defensive idempotency: the production call site in UpdateReentryFx guards
+            // on state.reentryFxPendingBuild, but this method is also exposed as a test
+            // seam. A re-entrant call with the flag already cleared must be a no-op.
+            if (state == null || !state.reentryFxPendingBuild) return;
+
+            if (frameLazyReentryBuildCount >= MaxLazyReentryBuildsPerFrame)
+            {
+                frameLazyReentryBuildDeferred++;
+                // Per-index rate-limit key so a burst of same-frame throttles does
+                // not collapse into a single shared-key log line — the counter
+                // captures the count, but the per-ghost identity matters for
+                // post-playtest diagnosis. 1-second window still bounds volume per
+                // ghost.
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-throttle-{recIdx}",
+                    $"Lazy reentry build throttled: #{recIdx} deferred to next frame " +
+                    $"(used {frameLazyReentryBuildCount}/{MaxLazyReentryBuildsPerFrame})", 1.0);
+                return;  // Flag stays true — retry next frame while still in atmosphere.
+            }
+
+            // Defensive: heatInfos is only nulled by ClearLoadedVisualReferences (which
+            // also clears our pending flag) or by a full rebuild path. If we somehow
+            // land here with a null it, clear the flag so we don't burn CPU every
+            // frame on an impossible build, and let the subsystem self-heal on the
+            // next rebuild.
+            if (state.heatInfos == null)
+            {
+                state.reentryFxPendingBuild = false;
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-noheat-{recIdx}",
+                    $"Lazy reentry build skipped for #{recIdx} \"{vesselName}\" — " +
+                    $"state.heatInfos is null (rebuild likely in flight); clearing flag", 5.0);
+                return;
+            }
+
+            frameLazyReentryBuildCount++;
+            state.reentryFxPendingBuild = false;  // One-shot: clear even if build fails.
+            var built = GhostVisualBuilder.TryBuildReentryFx(
+                state.ghost, state.heatInfos, recIdx, vesselName);
+            state.reentryFxInfo = built;
+            // Count actual builds only — the counter semantic is "FX objects produced",
+            // used by the diagnostics `reentryFx built X` line. A failed TryBuildReentryFx
+            // (returns null) is observable via `deferred - built > expected` and is NOT
+            // a build.
+            if (built != null)
+            {
+                DiagnosticsState.health.reentryFxBuildsThisSession++;
+                ParsekLog.Verbose("ReentryFx",
+                    $"Lazy reentry build fired for ghost #{recIdx} \"{vesselName}\" — " +
+                    $"body={bodyName} alt={altitude:F0}m " +
+                    $"(deferred at spawn, built on first atmospheric frame)");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("ReentryFx", $"lazy-buildnull-{recIdx}",
+                    $"Lazy reentry build returned null for #{recIdx} \"{vesselName}\" — " +
+                    $"body={bodyName} alt={altitude:F0}m (flag cleared, no retry)", 5.0);
+            }
         }
 
         private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude,
@@ -2118,9 +2372,158 @@ namespace Parsek
         #region Ghost lifecycle
 
         /// <summary>
+        /// #406 follow-up: reuse the existing ghost GameObject across a
+        /// loop-cycle boundary instead of destroy+spawn. The ghost hierarchy
+        /// (parts, particle systems, audio sources, cloned materials) and
+        /// reentry FX resources (mesh, particle system, glow materials) survive;
+        /// only playback iterators, per-cycle flags, and transient per-cycle
+        /// state are reset. Visibility of parts hidden by prior-cycle events
+        /// (decouple/destroy/inventory placed) is restored via
+        /// <see cref="GhostPlaybackLogic.ReactivateGhostPartHierarchyForLoopRewind"/>
+        /// and the initial-spawn visibility baseline re-applied. Does NOT
+        /// consume a #414 spawn slot, does NOT increment
+        /// <c>frameSpawnCount</c>, does NOT fire <c>OnGhostCreated</c> (the
+        /// ghost was never destroyed). Fires
+        /// <c>OnLoopCameraAction(RetargetToNewGhost)</c> at the end so the
+        /// host (WatchModeController / ParsekFlight) can re-snap the camera
+        /// to the ghost's post-wrap position — the <c>cameraPivot</c>
+        /// Transform identity is preserved across the reuse so any hard
+        /// references held by the camera code remain valid.
+        /// </summary>
+        internal void ReusePrimaryGhostAcrossCycle(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            GhostPlaybackState state, double playbackUT, long newCycleIndex)
+        {
+            if (state == null || state.ghost == null)
+            {
+                ParsekLog.Warn("Engine",
+                    $"ReusePrimaryGhostAcrossCycle: #{index} called with null ghost — skipping");
+                return;
+            }
+
+            long previousCycle = state.loopCycleIndex;
+
+            // Step 0: parity with SpawnGhost + DestroyGhost dedupe hygiene —
+            // the prior-cycle end may have fired a trajectory completion event
+            // (added to completedEventFired) and emitted a missing-audio-clip
+            // warning (tracked in GhostVisualBuilder.ClearMissingAudioClipWarnings).
+            // Today's destroy+spawn path clears both. Mirroring here so reuse
+            // does not suppress the new cycle's legitimate completion event
+            // nor over-dedupe the audio warning across cycles.
+            completedEventFired.Remove(index);
+            GhostVisualBuilder.ClearMissingAudioClipWarnings(state.ghost.name);
+
+            // Step 1: pure-static per-cycle state reset. See
+            // GhostPlaybackLogic.ResetForLoopCycle for the field-by-field
+            // preservation table in
+            // docs/dev/plan-406-ghost-reuse-loop-cycles.md.
+            GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex);
+
+            // Step 1b: Unity-touching cleanup that cannot live inside the
+            // pure-logic ResetForLoopCycle (xUnit JIT-verify would trip
+            // SecurityException on Unity type references). These were
+            // originally called from inside ResetForLoopCycle and moved out
+            // after a review finding — ordering is preserved: restore RCS
+            // emitters before downstream code re-inspects `rcsSuppressed`,
+            // destroy fake canopy GameObjects so stale decouple stubs from
+            // the prior cycle do not linger in the scene.
+            GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+
+            // Step 2: re-activate any part GameObjects hidden by prior-cycle
+            // events (decouple, destroy, inventory placed, pause-window
+            // HideAllGhostParts). Without this, a Learstar-class ghost that
+            // jettisoned stages on the previous cycle would start the new
+            // cycle with those stages invisible.
+            int reactivated = GhostPlaybackLogic.ReactivateGhostPartHierarchyForLoopRewind(state);
+
+            // Step 3: restore the logical-part-id set to the full snapshot
+            // baseline — prior-cycle decouple/destroy events pruned pids out
+            // of this set. The same helper is used by the spawn path, so
+            // semantics match identically.
+            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
+            if (snapshot != null)
+                state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
+
+            // Step 4: re-apply the spawn-time visibility baseline for
+            // inventory placements and compound parts. Inventory parts
+            // whose first event is InventoryPartPlaced start hidden;
+            // compound parts whose target is missing start hidden. Both
+            // helpers are idempotent and safe to re-run.
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
+            GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+
+            // Step 5: rebuild the reentry emission mesh to include the
+            // now-active parts. RebuildReentryMeshes uses GetComponentsInChildren
+            // (active only), so without this rebuild the mesh would stay
+            // stale (only the post-decouple subset from the prior cycle)
+            // until the new cycle fires its own decouple event. For the
+            // Learstar A1 class (decouples precede reentry), the
+            // user-visible impact is nil — but on recordings where the
+            // new cycle re-enters atmosphere BEFORE the first decouple,
+            // the stale mesh would make reentry FX emit from too few
+            // verts. Skipped when reentryFxInfo is null (showcase/EVA or
+            // #450 B3 still pending build) — RebuildReentryMeshes itself
+            // early-returns on null anyway, the null check here just
+            // avoids the MeshFilter scan.
+            if (state.reentryFxInfo != null)
+                GhostVisualBuilder.RebuildReentryMeshes(state.ghost, state.reentryFxInfo);
+
+            // Step 5b: re-apply spawn-time module baselines that ResetForLoopCycle
+            // cannot touch because they are Unity-touching: heat parts back to
+            // cold, deployables re-stowed, jettison panels re-attached, and —
+            // for zero-engine-event recordings (pure debris boosters) — the
+            // orphan engine/audio auto-start. Fresh-spawn behaviour in
+            // TryPopulateGhostVisuals does each of these; without this step the
+            // second cycle onward would inherit the prior cycle's end-state
+            // (hot + deployed + jettisoned + silent) instead of replaying from
+            // the same baseline the first cycle did. See the helper's XML doc
+            // for the per-branch rationale.
+            GhostPlaybackLogic.ReapplySpawnTimeModuleBaselinesForLoopCycle(state, traj);
+
+            // Step 6: re-prime the ghost at the new cycle's playbackUT.
+            // PrimeLoadedGhostForPlaybackUT resets playbackIndex+partEventIndex
+            // (already 0 post-reset, but it's cheap and idempotent),
+            // positions the ghost, applies ApplyFrameVisuals with
+            // allowTransientEffects: false so decouple puffs do not re-fire,
+            // hides the ghost GO, and resets appearance tracking. Same call
+            // the spawn path uses, so reuse and spawn converge on identical
+            // post-condition state.
+            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
+
+            DiagnosticsState.health.ghostReusedAcrossCycleThisSession++;
+
+            // Distinctive UTF-16 string for the DLL verification recipe.
+            ParsekLog.VerboseRateLimited("Engine", $"reuse-{index}",
+                $"Ghost #{index} \"{state.vesselName}\" ghost reused across loop cycle: " +
+                $"from cycle={previousCycle} to cycle={newCycleIndex} " +
+                $"(reactivated={reactivated} parts, " +
+                $"reentryFxPendingBuild={state.reentryFxPendingBuild}, " +
+                $"reentryFxInfo={(state.reentryFxInfo != null ? "present" : "null")})", 1.0);
+
+            // Camera handshake: same event the spawn path fires so the host
+            // can re-snap to the ghost's post-wrap pivot position. The pivot
+            // Transform identity is preserved, but the underlying GameObject
+            // has moved (PrimeLoadedGhostForPlaybackUT -> positioner.PositionLoop
+            // placed it at loopUT on the new cycle), so the retarget is
+            // essential for watch-mode follow.
+            OnLoopCameraAction?.Invoke(new CameraActionEvent
+            {
+                Index = index,
+                Action = CameraActionType.RetargetToNewGhost,
+                NewCycleIndex = newCycleIndex,
+                GhostPivot = state.cameraPivot,
+                Trajectory = traj,
+                Flags = flags
+            });
+        }
+
+        /// <summary>
         /// Spawns a timeline ghost for the given trajectory at the specified index.
         /// Builds the ghost mesh from the snapshot, or falls back to a sphere.
-        /// Populates all ghost info dictionaries and reentry FX.
+        /// Populates all ghost info dictionaries and reentry FX. Called for the
+        /// first appearance of a ghost in a session; subsequent loop cycles go
+        /// through <see cref="ReusePrimaryGhostAcrossCycle"/> instead.
         /// </summary>
         internal void SpawnGhost(int index, IPlaybackTrajectory traj, double playbackUT)
         {
@@ -2140,7 +2543,7 @@ namespace Parsek
                 flagEventIndex = 0
             };
 
-            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out string buildType))
+            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out HeaviestSpawnBuildType buildType))
                 return;
 
             PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
@@ -2148,17 +2551,17 @@ namespace Parsek
             ghostStates[index] = state;
 
             ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
-                $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType}, " +
+                $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType.ToLogToken()}, " +
                 $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
                 $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
         }
 
         private bool BuildGhostVisualsWithMetrics(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            bool resetCompletedEventDedup, out string buildType)
+            bool resetCompletedEventDedup, out HeaviestSpawnBuildType buildType)
         {
             bool built = false;
-            buildType = null;
+            buildType = HeaviestSpawnBuildType.None;
             // Bug #414: record per-spawn cost so the breakdown WARN surfaces whether a single
             // heavy ghost is the culprit vs many light ones. Take the pre-call tick count
             // before Start() resumes the stopwatch so the delta is this call only.
@@ -2178,7 +2581,28 @@ namespace Parsek
                 spawnStopwatch.Stop();
                 long deltaTicks = spawnStopwatch.ElapsedTicks - preCallTicks;
                 if (deltaTicks > frameMaxSpawnTicks)
+                {
                     frameMaxSpawnTicks = deltaTicks;
+                    // Bug #450: this call is the new frame-heaviest — latch its sub-phase
+                    // breakdown so the one-shot WARN can attribute whichever single spawn
+                    // dominates. Copy the per-call deltas set by TryPopulateGhostVisuals;
+                    // "other" is the residual that preserves the sum+residual = delta
+                    // invariant the tests assert. The enum arrives directly through the
+                    // out-param — no string-classification coupling between engine and
+                    // diagnostics layer (prior revision had that brittleness).
+                    frameHeaviestSpawnSnapshotResolveTicks = lastSpawnSnapshotResolveTicks;
+                    frameHeaviestSpawnTimelineTicks = lastSpawnTimelineTicks;
+                    frameHeaviestSpawnDictionariesTicks = lastSpawnDictionariesTicks;
+                    frameHeaviestSpawnReentryTicks = lastSpawnReentryTicks;
+                    long attributedTicks =
+                        lastSpawnSnapshotResolveTicks
+                        + lastSpawnTimelineTicks
+                        + lastSpawnDictionariesTicks
+                        + lastSpawnReentryTicks;
+                    long otherTicks = deltaTicks - attributedTicks;
+                    frameHeaviestSpawnOtherTicks = otherTicks < 0 ? 0 : otherTicks;
+                    frameHeaviestSpawnBuildType = buildType;
+                }
                 if (built)
                     DiagnosticsState.health.ghostBuildsThisSession++;
             }
@@ -2213,19 +2637,65 @@ namespace Parsek
             => frameSpawnCount++;
         internal int FrameSpawnCountForTesting => frameSpawnCount;
         internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
+        // Bug #450 B3 test hooks. Narrow seam that lets tests drive the lazy-build
+        // decision + throttle without constructing a full Unity scene (TryBuildReentryFx
+        // needs a live GameObject, so tests here will stay on the counter/flag observation
+        // side and defer the actual-build assertion to the in-game RuntimeTests fixture).
+        internal void TryPerformLazyReentryBuildForTesting(
+            int recIdx, GhostPlaybackState state, string vesselName,
+            string bodyName, double altitude)
+            => TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);
+        internal int FrameLazyReentryBuildCountForTesting => frameLazyReentryBuildCount;
+        internal int FrameLazyReentryBuildDeferredForTesting => frameLazyReentryBuildDeferred;
+        internal void SetFrameLazyReentryBuildCountForTesting(int value)
+            => frameLazyReentryBuildCount = value;
         internal void ResetPerFrameCountersForTesting()
         {
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameMaxSpawnTicks = 0;
+            // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
+            // test seams see a clean heaviest-spawn latch.
+            frameHeaviestSpawnSnapshotResolveTicks = 0;
+            frameHeaviestSpawnTimelineTicks = 0;
+            frameHeaviestSpawnDictionariesTicks = 0;
+            frameHeaviestSpawnReentryTicks = 0;
+            frameHeaviestSpawnOtherTicks = 0;
+            frameHeaviestSpawnBuildType = HeaviestSpawnBuildType.None;
+            lastSpawnSnapshotResolveTicks = 0;
+            lastSpawnTimelineTicks = 0;
+            lastSpawnDictionariesTicks = 0;
+            lastSpawnReentryTicks = 0;
+            buildSnapshotResolveStopwatch.Reset();
+            buildTimelineStopwatch.Reset();
+            buildDictionariesStopwatch.Reset();
+            buildReentryFxStopwatch.Reset();
+            // Bug #450 B3: mirror the production reset so tests see a clean cap each call.
+            frameLazyReentryBuildCount = 0;
+            frameLazyReentryBuildDeferred = 0;
+            // Bug #460: mirror the production reset for the overlap-iteration counter so
+            // tests that read FrameOverlapGhostIterationCountForTesting (or otherwise drive
+            // multiple synthetic frames) see a clean counter each call.
+            frameOverlapGhostIterationCount = 0;
         }
+
+        internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
 
         private bool TryPopulateGhostVisuals(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            out string buildType)
+            out HeaviestSpawnBuildType buildType)
         {
-            buildType = null;
+            buildType = HeaviestSpawnBuildType.None;
+            // Bug #450: reset per-call sub-phase deltas so a prior (shorter-lived) spawn's
+            // attribution cannot leak into this call's heaviest-spawn latch. Each delta is
+            // captured via pre/post Start-Stop subtraction below, matching the #414
+            // spawnStopwatch pattern.
+            lastSpawnSnapshotResolveTicks = 0;
+            lastSpawnTimelineTicks = 0;
+            lastSpawnDictionariesTicks = 0;
+            lastSpawnReentryTicks = 0;
+
             if (state == null)
                 return false;
 
@@ -2233,8 +2703,22 @@ namespace Parsek
             GhostBuildResult buildResult = null;
             GameObject ghost = null;
             bool builtFromSnapshot = false;
-            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
 
+            // Bug #450 sub-phase 1: snapshot resolve. Included even though it's trivial so
+            // the breakdown reconciles — callers reading the log can sanity-check that
+            // snapshot+timeline+dicts+reentry+other ≈ spawnMax.
+            long snapshotResolvePre = buildSnapshotResolveStopwatch.ElapsedTicks;
+            buildSnapshotResolveStopwatch.Start();
+            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
+            buildSnapshotResolveStopwatch.Stop();
+            lastSpawnSnapshotResolveTicks = buildSnapshotResolveStopwatch.ElapsedTicks - snapshotResolvePre;
+
+            // Bug #450 sub-phase 2: timeline build (the dominant suspect). Covers both the
+            // snapshot path (BuildTimelineGhostFromSnapshot — part instantiation, engine FX
+            // size-boost, audio wiring) and the sphere fallback (CreateGhostSphere). Grouping
+            // them gives a single bucket for "ghost GameObject construction".
+            long timelinePre = buildTimelineStopwatch.ElapsedTicks;
+            buildTimelineStopwatch.Start();
             // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
             if (snapshot != null)
             {
@@ -2247,6 +2731,9 @@ namespace Parsek
 
             if (ghost == null)
                 ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+            buildTimelineStopwatch.Stop();
+            lastSpawnTimelineTicks = buildTimelineStopwatch.ElapsedTicks - timelinePre;
+
             if (ghost == null)
                 return false;
 
@@ -2260,6 +2747,13 @@ namespace Parsek
             state.ghost = ghost;
             state.cameraPivot = cameraPivotObj.transform;
             state.horizonProxy = horizonProxyObj.transform;
+
+            // Bug #450 sub-phase 3: dictionaries. Subtree map + logical-id set +
+            // PopulateGhostInfoDictionaries + inventory/compound visibility are all
+            // snapshot-walk consumers; grouped as one bucket because splitting at this
+            // granularity isn't actionable for a Phase B fix.
+            long dictionariesPre = buildDictionariesStopwatch.ElapsedTicks;
+            buildDictionariesStopwatch.Start();
             state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
             state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
 
@@ -2276,27 +2770,46 @@ namespace Parsek
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+            buildDictionariesStopwatch.Stop();
+            lastSpawnDictionariesTicks = buildDictionariesStopwatch.ElapsedTicks - dictionariesPre;
 
+            // Bug #450 sub-phase 4: reentry FX. Bracket the ENTIRE reentry decision
+            // (classification + build or skip) in a single window so the O(n)
+            // HasReentryPotential scan over trajectory points on non-orbital recordings
+            // is attributed to the reentry bucket rather than leaking into "other". If
+            // the scan dominated and we lumped it into "other", Phase B would see a big
+            // residual and pick the wrong fix branch.
             // Gate reentry FX build: stationary part-showcase ghosts, EVA walks, and slow
             // suborbital hops below Mach 1.5 can never produce reentry visuals, so we skip
             // the mesh-combine + ParticleSystem + glow-material clone work entirely. With
             // hundreds of ghosts looping, rebuilding reentry FX on every loop-cycle
             // boundary was the dominant cost in the map-view perf tank (#406).
+            long reentryPre = buildReentryFxStopwatch.ElapsedTicks;
+            buildReentryFxStopwatch.Start();
             if (TrajectoryMath.HasReentryPotential(traj))
             {
-                state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                    ghost, state.heatInfos, index, traj.VesselName);
-                DiagnosticsState.health.reentryFxBuildsThisSession++;
+                // Bug #450 B3: defer the ~7 ms TryBuildReentryFx work to the first
+                // in-atmosphere frame. Ghosts that never enter atmosphere (orbital-only
+                // fly-bys, pad ghosts that never launch, sub-400 m/s suborbital hops
+                // that stay above the boundary) save the entire build cost. The lazy
+                // build fires from inside UpdateReentryFx after its body lookup so
+                // there is no duplicate FlightGlobals.Bodies.Find.
+                state.reentryFxInfo = null;
+                state.reentryFxPendingBuild = true;
+                DiagnosticsState.health.reentryFxDeferredThisSession++;
             }
             else
             {
                 state.reentryFxInfo = null;
+                state.reentryFxPendingBuild = false;
                 DiagnosticsState.health.reentryFxSkippedThisSession++;
                 ParsekLog.VerboseRateLimited("ReentryFx", $"skip-{index}",
                     $"Skipped reentry FX build for ghost #{index} \"{traj.VesselName}\" " +
                     $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s " +
                     $"and no orbit segments (cannot produce reentry visuals)", 5.0);
             }
+            buildReentryFxStopwatch.Stop();
+            lastSpawnReentryTicks = buildReentryFxStopwatch.ElapsedTicks - reentryPre;
             state.reentryMpb = new MaterialPropertyBlock();
 
             // Keep fresh builds hidden until the playback loop has positioned them at the
@@ -2307,8 +2820,10 @@ namespace Parsek
             ResetGhostAppearanceTracking(state);
 
             buildType = builtFromSnapshot
-                ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
-                : "sphere fallback";
+                ? (traj.GhostVisualSnapshot != null
+                    ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                    : HeaviestSpawnBuildType.VesselSnapshot)
+                : HeaviestSpawnBuildType.SphereFallback;
             return true;
         }
 
@@ -2374,12 +2889,12 @@ namespace Parsek
             if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
                 return false;
 
-            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out string buildType))
+            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out HeaviestSpawnBuildType buildType))
                 return false;
 
             PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
             ParsekLog.VerboseRateLimited("Engine", $"rebuild-{index}",
-                $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType}, {reason})", 1.0);
+                $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType.ToLogToken()}, {reason})", 1.0);
             return HasLoadedGhostVisuals(state);
         }
 

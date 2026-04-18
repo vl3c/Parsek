@@ -246,7 +246,7 @@ namespace Parsek.Tests
                 key = "contract-1",
                 detail = ""
             };
-            GameStateRecorder.Emit(evt, "test");
+            GameStateRecorder.Emit(ref evt, "test");
 
             // Branch 2: orphan contract snapshots (must be removed when the matching
             // ContractAccepted event is purged — PurgeOrphanedContractSnapshots).

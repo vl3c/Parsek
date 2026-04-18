@@ -55,7 +55,7 @@ namespace Parsek
         /// with an active recorder but no tag). All captured-event sites in this class route through
         /// <c>Emit</c>.
         /// </summary>
-        internal static void Emit(GameStateEvent evt, string source)
+        internal static void Emit(ref GameStateEvent evt, string source)
         {
             string tag = ResolveCurrentRecordingTag();
             if (string.IsNullOrEmpty(evt.recordingId))
@@ -79,7 +79,11 @@ namespace Parsek
                 ParsekLog.Warn("GameStateRecorder",
                     $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
 
-            GameStateStore.AddEvent(evt);
+            // #454: `ref evt` propagates AddEvent's `e.epoch = MilestoneStore.CurrentEpoch`
+            // stamp back to the caller's local. Callers that cache `evt` after Emit (e.g.
+            // RegisterPendingMilestoneEvent) see the stamped epoch/recordingId automatically,
+            // so there is no value-type field-mirror footgun to work around.
+            GameStateStore.AddEvent(ref evt);
         }
 
         /// <summary>
@@ -356,7 +360,7 @@ namespace Parsek
                 key = guid,
                 detail = detail
             };
-            Emit(evt, "ContractAccepted");
+            Emit(ref evt, "ContractAccepted");
 
             // Store full contract snapshot for reversal
             try
@@ -412,7 +416,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(evt, "ContractCompleted");
+            Emit(ref evt, "ContractCompleted");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
 
@@ -440,7 +444,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(evt, "ContractFailed");
+            Emit(ref evt, "ContractFailed");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
@@ -466,7 +470,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(evt, "ContractCancelled");
+            Emit(ref evt, "ContractCancelled");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
@@ -480,13 +484,14 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            Emit(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractDeclined,
                 key = contract.ContractGuid.ToString(),
                 detail = title
-            }, "ContractDeclined");
+            };
+            Emit(ref evt, "ContractDeclined");
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
         }
 
@@ -530,7 +535,7 @@ namespace Parsek
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
             };
-            Emit(evt, "TechResearched");
+            Emit(ref evt, "TechResearched");
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
 
             // Write directly to ledger when at KSC (not during flight recording)
@@ -572,7 +577,7 @@ namespace Parsek
                 valueBefore = Funding.Instance != null ? Funding.Instance.Funds + chargedCost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
-            Emit(evt, "PartPurchased");
+            Emit(ref evt, "PartPurchased");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost})");
 
@@ -634,7 +639,7 @@ namespace Parsek
                 key = name,
                 detail = $"trait={crew.trait ?? ""};cost={hireCost.ToString("R", ic)}"
             };
-            Emit(evt, "CrewHired");
+            Emit(ref evt, "CrewHired");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
                 $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
@@ -666,13 +671,14 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            Emit(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewRemoved,
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
-            }, "KerbalRemoved");
+            };
+            Emit(ref evt, "KerbalRemoved");
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
         }
 
@@ -757,7 +763,7 @@ namespace Parsek
                 key = name,
                 detail = $"from={oldStatus};to={newStatus}"
             };
-            Emit(evt, "KerbalStatusChange");
+            Emit(ref evt, "KerbalStatusChange");
             pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
         }
@@ -773,13 +779,14 @@ namespace Parsek
             string name = pcm?.name ?? "";
             string trait = pcm?.experienceTrait?.TypeName ?? "Pilot";
 
-            Emit(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.KerbalRescued,
                 key = name,
                 detail = $"trait={trait}"
-            }, "KerbalRescued");
+            };
+            Emit(ref evt, "KerbalRescued");
 
             ParsekLog.Info("GameStateRecorder", $"Game state: KerbalRescued '{name}' (trait={trait})");
         }
@@ -819,14 +826,15 @@ namespace Parsek
             }
 
             double ut = Planetarium.GetUniversalTime();
-            Emit(new GameStateEvent
+            var fundsEvt = new GameStateEvent
             {
                 ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
-            }, "FundsChanged");
+            };
+            Emit(ref fundsEvt, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
 
             // #445: VesselRollout deducts the vessel cost when the player launches from
@@ -874,14 +882,15 @@ namespace Parsek
                 return;
             }
 
-            Emit(new GameStateEvent
+            var sciEvt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ScienceChanged,
                 key = reason.ToString(),
                 valueBefore = oldScience,
                 valueAfter = newScience
-            }, "ScienceChanged");
+            };
+            Emit(ref sciEvt, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
         }
 
@@ -905,14 +914,15 @@ namespace Parsek
                 return;
             }
 
-            Emit(new GameStateEvent
+            var repEvt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ReputationChanged,
                 key = reason.ToString(),
                 valueBefore = oldReputation,
                 valueAfter = newReputation
-            }, "ReputationChanged");
+            };
+            Emit(ref repEvt, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
         }
 
@@ -1021,28 +1031,12 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(0.0, 0f, 0.0)
             };
-            Emit(evt, "MilestoneAchieved");
+            Emit(ref evt, "MilestoneAchieved");
 
-            // #443: Emit (via AddEvent) stamps the current MilestoneStore epoch onto the
-            // event slot it appends to the store. GameStateEvent is a value type, so the
-            // local `evt` here did NOT receive that stamp — it still holds epoch=0. The
-            // cached copy must mirror the stored copy, otherwise UpdateEventDetail's
-            // ut+eventType+key+epoch lookup misses on any save where CurrentEpoch != 0
-            // (i.e. every save with at least one revert in its history).
-            evt.epoch = MilestoneStore.CurrentEpoch;
-            // #443 review: Emit also mutates evt.recordingId on its local copy when the
-            // caller didn't pre-populate it (see Emit's `if (string.IsNullOrEmpty(...))`
-            // branch). No consumer reads recordingId off the cached pending entry today,
-            // but mirroring it here closes the same value-type field-mirror footgun
-            // proactively — if a future caller ever consults evt.recordingId after enrich,
-            // it sees the same string the stored slot carries. Mirrors Emit's stamp logic
-            // (only fill when blank) so we don't overwrite a caller-supplied tag. The
-            // proper structural fix is to refactor Emit/AddEvent to take `ref
-            // GameStateEvent` so all field mutations propagate to the caller in one place;
-            // tracked as bug #453 in docs/dev/todo-and-known-bugs.md.
-            if (string.IsNullOrEmpty(evt.recordingId))
-                evt.recordingId = ResolveCurrentRecordingTag() ?? "";
-
+            // #454: Emit/AddEvent take `ref GameStateEvent`, so `evt` here already carries
+            // the stamped epoch and recordingId — no mirror needed. The cached copy below
+            // is guaranteed to match the stored slot's key fields.
+            //
             // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
             // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
             // OnProgressComplete and the AwardProgress postfix derive deterministically
@@ -1260,7 +1254,7 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(funds, rep, sci)
             };
-            Emit(evt, "MilestoneAchievedStandalone");
+            Emit(ref evt, "MilestoneAchievedStandalone");
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
@@ -1340,6 +1334,288 @@ namespace Parsek
 
             // No body field — top-level node with unique ID (FirstLaunch, ReachSpace, etc.)
             return bareId;
+        }
+
+        #endregion
+
+        #region Strategy Lifecycle (#439 Phase A)
+
+        /// <summary>
+        /// Called from the Harmony postfix on <c>Strategies.Strategy.Activate</c> when
+        /// <c>__result == true</c> (stock returns false on a CanBeActivated miss). Emits a
+        /// <see cref="GameStateEventType.StrategyActivated"/> event carrying the strategy's
+        /// configured setup costs; downstream <see cref="GameStateEventConverter"/> parses
+        /// the detail and the ledger's <see cref="LedgerOrchestrator.ClassifyAction"/>
+        /// reconciles the funds setup cost against the paired
+        /// <c>FundsChanged(StrategySetup)</c> event KSP fires inside <c>Activate()</c>.
+        ///
+        /// Respects <see cref="IsReplayingActions"/> so recalculation replays stay silent.
+        /// Internal static for testability — the Harmony postfix is the only production
+        /// call site.
+        /// </summary>
+        internal static void OnStrategyActivated(Strategies.Strategy strategy)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyActivated: suppressed during action replay");
+                return;
+            }
+            if (strategy == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyActivated: null strategy - skipped");
+                return;
+            }
+            if (strategy.Config == null)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    "OnStrategyActivated: strategy.Config is null - skipped");
+                return;
+            }
+
+            string key = strategy.Config.Name ?? "";
+            string title = strategy.Title ?? "";
+            string dept = strategy.DepartmentName ?? "";
+            float factor = strategy.Factor;
+            float setupFunds = strategy.InitialCostFunds;
+            float setupSci = strategy.InitialCostScience;
+            float setupRep = strategy.InitialCostReputation;
+            StrategyResource sourceResource;
+            StrategyResource targetResource;
+            if (!TryExtractStrategyResourceFlow(strategy, out sourceResource, out targetResource))
+            {
+                sourceResource = StrategyResource.Funds;
+                targetResource = StrategyResource.Funds;
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.StrategyActivated,
+                key = key,
+                detail = BuildStrategyActivateDetail(title, dept, factor,
+                    setupFunds, setupSci, setupRep,
+                    sourceResource: sourceResource, targetResource: targetResource)
+            };
+            Emit(ref evt, "StrategyActivated");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: StrategyActivated '{key}' title='{title}' dept='{dept}' " +
+                $"factor={factor.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"setupFunds={setupFunds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"setupSci={setupSci.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"setupRep={setupRep.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            // KSC-side forwarding mirror: StrategyActivate actions with a non-zero setup
+            // cost need to land on the ledger immediately when the player activates from
+            // the Administration building (i.e. outside flight). The commit-time
+            // ConvertEvents path will also pick up flight-scope strategies. The #431 gate
+            // skips the ledger write when the event was tagged during a teardown window.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Called from the Harmony postfix on <c>Strategies.Strategy.Deactivate</c> when
+        /// <c>__result == true</c>. Emits <see cref="GameStateEventType.StrategyDeactivated"/>.
+        /// Stock Deactivate has no resource cost, so the classifier maps this to
+        /// <see cref="LedgerOrchestrator.KscReconcileClass.NoResourceImpact"/>.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void OnStrategyDeactivated(Strategies.Strategy strategy)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyDeactivated: suppressed during action replay");
+                return;
+            }
+            if (strategy == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnStrategyDeactivated: null strategy - skipped");
+                return;
+            }
+            if (strategy.Config == null)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    "OnStrategyDeactivated: strategy.Config is null - skipped");
+                return;
+            }
+
+            string key = strategy.Config.Name ?? "";
+            string title = strategy.Title ?? "";
+            string dept = strategy.DepartmentName ?? "";
+            float factor = strategy.Factor;
+            double now = Planetarium.GetUniversalTime();
+            double activeDurationSec = now - strategy.DateActivated;
+            if (activeDurationSec < 0) activeDurationSec = 0;
+
+            var evt = new GameStateEvent
+            {
+                ut = now,
+                eventType = GameStateEventType.StrategyDeactivated,
+                key = key,
+                detail = BuildStrategyDeactivateDetail(title, dept, factor, activeDurationSec)
+            };
+            Emit(ref evt, "StrategyDeactivated");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: StrategyDeactivated '{key}' title='{title}' dept='{dept}' " +
+                $"factor={factor.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"activeDurationSec={activeDurationSec.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            // Mirror the KSC-forwarding path even though StrategyDeactivate is a
+            // NoResourceImpact action — the ledger still needs the StrategyDeactivate row
+            // so StrategiesModule can pair activate/deactivate during the walk.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Pure: builds the semicolon-separated detail string for a StrategyActivated
+        /// event. Format:
+        /// <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;source=&lt;src&gt;;target=&lt;tgt&gt;;setupFunds=&lt;sf&gt;;setupSci=&lt;ss&gt;;setupRep=&lt;sr&gt;</c>.
+        /// Numerics serialized with InvariantCulture "R" (round-trip) so comma-locale
+        /// hosts do not break the converter-side parse.
+        /// Internal static for direct unit testing without a KSP runtime.
+        /// </summary>
+        internal static string BuildStrategyActivateDetail(
+            string title, string dept, float factor,
+            float setupFunds, float setupSci, float setupRep,
+            StrategyResource sourceResource = StrategyResource.Funds,
+            StrategyResource targetResource = StrategyResource.Funds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return $"title={title ?? ""};" +
+                   $"dept={dept ?? ""};" +
+                   $"factor={factor.ToString("R", ic)};" +
+                   $"source={sourceResource};" +
+                   $"target={targetResource};" +
+                   $"setupFunds={setupFunds.ToString("R", ic)};" +
+                   $"setupSci={setupSci.ToString("R", ic)};" +
+                   $"setupRep={setupRep.ToString("R", ic)}";
+        }
+
+        /// <summary>
+        /// Pure: builds the semicolon-separated detail string for a StrategyDeactivated
+        /// event. Format: <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;activeDurationSec=&lt;d&gt;</c>.
+        /// Internal static for direct unit testing.
+        /// </summary>
+        internal static string BuildStrategyDeactivateDetail(
+            string title, string dept, float factor, double activeDurationSec)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return $"title={title ?? ""};" +
+                   $"dept={dept ?? ""};" +
+                   $"factor={factor.ToString("R", ic)};" +
+                   $"activeDurationSec={activeDurationSec.ToString("R", ic)}";
+        }
+
+        internal static bool TryExtractStrategyResourceFlow(
+            Strategies.Strategy strategy,
+            out StrategyResource sourceResource,
+            out StrategyResource targetResource)
+        {
+            sourceResource = StrategyResource.Funds;
+            targetResource = StrategyResource.Funds;
+
+            if (strategy == null || strategy.Effects == null)
+                return false;
+
+            for (int i = 0; i < strategy.Effects.Count; i++)
+            {
+                object effect = strategy.Effects[i];
+                if (effect == null)
+                    continue;
+
+                if (TryExtractCurrencyConverterFlow(effect, out sourceResource, out targetResource))
+                    return true;
+
+                if (TryExtractCurrencyOperationFlow(effect, out sourceResource))
+                {
+                    targetResource = sourceResource;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryExtractCurrencyConverterFlow(
+            object effect,
+            out StrategyResource sourceResource,
+            out StrategyResource targetResource)
+        {
+            sourceResource = StrategyResource.Funds;
+            targetResource = StrategyResource.Funds;
+
+            Type effectType = effect.GetType();
+            if (!string.Equals(effectType.FullName, "Strategies.Effects.CurrencyConverter",
+                    StringComparison.Ordinal))
+                return false;
+
+            var inputField = effectType.GetField("input",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var outputField = effectType.GetField("output",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (inputField == null || outputField == null)
+                return false;
+
+            return TryParseStrategyCurrency(inputField.GetValue(effect), out sourceResource)
+                && TryParseStrategyCurrency(outputField.GetValue(effect), out targetResource);
+        }
+
+        private static bool TryExtractCurrencyOperationFlow(
+            object effect,
+            out StrategyResource resource)
+        {
+            resource = StrategyResource.Funds;
+
+            Type effectType = effect.GetType();
+            if (!string.Equals(effectType.FullName, "Strategies.Effects.CurrencyOperation",
+                    StringComparison.Ordinal))
+                return false;
+
+            var currencyField = effectType.GetField("currency",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            return currencyField != null
+                && TryParseStrategyCurrency(currencyField.GetValue(effect), out resource);
+        }
+
+        private static bool TryParseStrategyCurrency(
+            object rawCurrency,
+            out StrategyResource resource)
+        {
+            resource = StrategyResource.Funds;
+            if (rawCurrency == null)
+                return false;
+
+            int value;
+            try
+            {
+                value = Convert.ToInt32(rawCurrency, System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return false;
+            }
+
+            switch (value)
+            {
+                case 0:
+                    resource = StrategyResource.Funds;
+                    return true;
+                case 1:
+                    resource = StrategyResource.Science;
+                    return true;
+                case 2:
+                    resource = StrategyResource.Reputation;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         #endregion
@@ -1426,7 +1702,7 @@ namespace Parsek
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
                             };
-                            Emit(evt, eventType.ToString());
+                            Emit(ref evt, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
 
@@ -1462,12 +1738,13 @@ namespace Parsek
                                 ? GameStateEventType.BuildingRepaired
                                 : GameStateEventType.BuildingDestroyed;
 
-                            Emit(new GameStateEvent
+                            var bldEvt = new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = db.id
-                            }, eventType.ToString());
+                            };
+                            Emit(ref bldEvt, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{db.id}'");
                         }

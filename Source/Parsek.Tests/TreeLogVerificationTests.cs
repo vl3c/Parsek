@@ -121,8 +121,7 @@ namespace Parsek.Tests
             {
                 Id = "tree_c5",
                 TreeName = "Save Test",
-                RootRecordingId = "rec_0",
-                ResourcesApplied = true
+                RootRecordingId = "rec_0"
             };
 
             tree.Recordings["rec_0"] = MakeTreeRecording("rec_0", "tree_c5");
@@ -158,8 +157,7 @@ namespace Parsek.Tests
             {
                 Id = "tree_c6",
                 TreeName = "Load Test",
-                RootRecordingId = "rec_0",
-                ResourcesApplied = false
+                RootRecordingId = "rec_0"
             };
             tree.Recordings["rec_0"] = MakeTreeRecording("rec_0", "tree_c6");
             tree.Recordings["rec_1"] = MakeTreeRecording("rec_1", "tree_c6");

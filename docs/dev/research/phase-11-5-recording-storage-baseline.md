@@ -27,8 +27,9 @@ The two dominant wastes are:
 
 ## Post-Slice-3 Rebaseline
 
-Measured from the current follow-up storage corpus in
-`logs/2026-04-12_1549_storage-followup-playtest/parsek/Recordings/` after the section-authoritative
+Measured from the current follow-up storage corpus in the collected bundle's
+save-scoped `saves/<save>/Parsek/Recordings/` payload (the log pack also keeps
+the legacy `parsek/Recordings/` compatibility copy) after the section-authoritative
 `v1` sidecar work and ghost snapshot alias mode landed:
 
 - total recording sidecar payload: `5,609,867` bytes (`5.35 MiB`)
@@ -94,7 +95,8 @@ optimization target.
 
 The April 13 snapshot compression slice (Deflate-compressed `_vessel.craft` / `_ghost.craft`
 via `SnapshotSidecarCodec`) changes the picture. Measured across the five most recent playtest
-bundles that include a `parsek/Recordings/` payload, all post-compression:
+bundles that include the save-scoped `saves/<save>/Parsek/Recordings/` payload
+(with a legacy `parsek/Recordings/` compatibility copy), all post-compression:
 
 | bundle | `.prec` | `_vessel.craft` | `_ghost.craft` | AUTH total | readable-mirror total |
 | --- | ---: | ---: | ---: | ---: | ---: |

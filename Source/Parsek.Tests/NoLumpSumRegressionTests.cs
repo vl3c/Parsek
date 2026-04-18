@@ -59,8 +59,8 @@ namespace Parsek.Tests
         private static RecordingTree MakeStressTestTree(double deltaFunds)
         {
             // Mirrors the +34400 reproducer: a committed tree with one recording
-            // whose UT window is [100, 200], a non-zero persisted DeltaFunds, and
-            // ResourcesApplied=false (the bit Phase A migrates).
+            // whose UT window is [100, 200] and a non-zero persisted legacy
+            // residual (the bit Phase A migrates on load).
             var rec = new Recording
             {
                 RecordingId = "rec-stress",
@@ -75,11 +75,14 @@ namespace Parsek.Tests
                 Id = "tree-stress",
                 TreeName = "StressTree",
                 RootRecordingId = "rec-stress",
-                ActiveRecordingId = "rec-stress",
-                DeltaFunds = deltaFunds,
-                ResourcesApplied = false
+                ActiveRecordingId = "rec-stress"
             };
             tree.Recordings[rec.RecordingId] = rec;
+            tree.SetLegacyResidualForTesting(
+                deltaFunds: deltaFunds,
+                deltaScience: 0.0,
+                deltaReputation: 0f,
+                resourcesApplied: false);
             return tree;
         }
 
@@ -123,8 +126,7 @@ namespace Parsek.Tests
             Assert.Single(migratedFunds);
             Assert.Equal(34400f, migratedFunds[0].FundsAwarded, precision: 0);
             Assert.Equal(200.0, migratedFunds[0].UT);
-            Assert.True(tree.ResourcesApplied,
-                "Phase A must mark the tree applied so the migration is idempotent across reloads.");
+            Assert.Equal(1, tree.Recordings["rec-stress"].LastAppliedResourceIndex);
         }
 
         [Fact]

@@ -57,13 +57,14 @@ namespace Parsek.Tests
         [Fact]
         public void Recovery_ContractAccepted_Synthesized()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var contractEvt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "c-guid-1",
                 detail = "title=Mun;deadline=NaN;failFunds=0;failRep=0"
-            });
+            };
+            GameStateStore.AddEvent(ref contractEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
@@ -75,20 +76,22 @@ namespace Parsek.Tests
         [Fact]
         public void Recovery_PartPurchased_Synthesized()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var mk1Evt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod",
                 detail = "cost=600"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref mk1Evt);
+            var tankEvt = new GameStateEvent
             {
                 ut = 201,
                 eventType = GameStateEventType.PartPurchased,
                 key = "liquidFuelTank",
                 detail = "cost=300"
-            });
+            };
+            GameStateStore.AddEvent(ref tankEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
@@ -123,13 +126,14 @@ namespace Parsek.Tests
         [Fact]
         public void Recovery_Idempotent_SecondCallIsNoOp()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var contractEvt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "c-guid-idem",
                 detail = "title=X"
-            });
+            };
+            GameStateStore.AddEvent(ref contractEvt);
 
             int firstPass = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
             int secondPass = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
@@ -156,17 +160,18 @@ namespace Parsek.Tests
             // a lower-level add to simulate leftover events. RemoveEvent/AddEvent won't
             // preserve the epoch we want, so we set CurrentEpoch before adding.
             MilestoneStore.CurrentEpoch = 3;
-            GameStateStore.AddEvent(oldEvt);
+            GameStateStore.AddEvent(ref oldEvt);
 
             // Now switch to the current epoch and add a fresh event.
             MilestoneStore.CurrentEpoch = 5;
-            GameStateStore.AddEvent(new GameStateEvent
+            var newEvt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "new-guid",
                 detail = "title=new"
-            });
+            };
+            GameStateStore.AddEvent(ref newEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
@@ -189,13 +194,14 @@ namespace Parsek.Tests
                 ContractId = "already-there"
             });
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var alreadyEvt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "already-there",
                 detail = ""
-            });
+            };
+            GameStateStore.AddEvent(ref alreadyEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
@@ -273,27 +279,30 @@ namespace Parsek.Tests
         [Fact]
         public void Recovery_MultipleEventTypes_AllSynthesized()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var c1Evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "c1",
                 detail = "title=a"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref c1Evt);
+            var p1Evt = new GameStateEvent
             {
                 ut = 101,
                 eventType = GameStateEventType.PartPurchased,
                 key = "p1",
                 detail = "cost=500"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref p1Evt);
+            var p2Evt = new GameStateEvent
             {
                 ut = 102,
                 eventType = GameStateEventType.PartPurchased,
                 key = "p2",
                 detail = "cost=200"
-            });
+            };
+            GameStateStore.AddEvent(ref p2Evt);
             GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "s1", science = 2f, subjectMaxValue = 10f },
