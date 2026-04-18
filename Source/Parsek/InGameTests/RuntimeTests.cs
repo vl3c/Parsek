@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -41,6 +42,7 @@ namespace Parsek.InGameTests
             }
 
             int valid = 0, skippedRoots = 0;
+            var monotonicFailures = new List<string>();
             foreach (var rec in recordings)
             {
                 InGameAssert.IsNotNull(rec.RecordingId, $"Recording has null ID");
@@ -55,15 +57,89 @@ namespace Parsek.InGameTests
                 }
 
                 // Time should be monotonically non-decreasing
+                bool monotonic = true;
                 for (int i = 1; i < rec.Points.Count; i++)
                 {
-                    InGameAssert.IsTrue(rec.Points[i].ut >= rec.Points[i - 1].ut,
-                        $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut} < previous {rec.Points[i - 1].ut}");
+                    if (rec.Points[i].ut < rec.Points[i - 1].ut)
+                    {
+                        int prefixMatchCount = CountTrackSectionPrefixMatches(rec);
+                        string firstPostPrefixSource = DescribeFirstPostPrefixPointSource(rec, prefixMatchCount);
+                        monotonicFailures.Add(
+                            $"Recording {rec.RecordingId}: point {i} UT {rec.Points[i].ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"< previous {rec.Points[i - 1].ut.ToString("R", CultureInfo.InvariantCulture)}; " +
+                            $"trackSections={rec.TrackSections?.Count ?? 0} prefixMatchCount={prefixMatchCount} " +
+                            $"firstPostPrefixSource={firstPostPrefixSource}");
+                        monotonic = false;
+                        break;
+                    }
                 }
-                valid++;
+
+                if (monotonic)
+                    valid++;
             }
+
+            InGameAssert.IsTrue(monotonicFailures.Count == 0, string.Join(System.Environment.NewLine, monotonicFailures.ToArray()));
             ParsekLog.Verbose("TestRunner",
                 $"Validated {valid} committed recordings, {skippedRoots} tree root(s) skipped");
+
+            int CountTrackSectionPrefixMatches(Recording rec)
+            {
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                    return 0;
+
+                var rebuiltPoints = new List<TrajectoryPoint>();
+                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                int max = System.Math.Min(rebuiltPoints.Count, rec.Points.Count);
+                int prefixMatchCount = 0;
+                while (prefixMatchCount < max &&
+                    TrajectoryPointsEqual(rebuiltPoints[prefixMatchCount], rec.Points[prefixMatchCount]))
+                {
+                    prefixMatchCount++;
+                }
+
+                return prefixMatchCount;
+            }
+
+            string DescribeFirstPostPrefixPointSource(Recording rec, int prefixMatchCount)
+            {
+                if (rec.Points == null || prefixMatchCount < 0 || prefixMatchCount >= rec.Points.Count)
+                    return "none";
+
+                TrajectoryPoint target = rec.Points[prefixMatchCount];
+                for (int sectionIndex = 0; sectionIndex < rec.TrackSections.Count; sectionIndex++)
+                {
+                    List<TrajectoryPoint> frames = rec.TrackSections[sectionIndex].frames;
+                    if (frames == null)
+                        continue;
+
+                    for (int frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+                    {
+                        if (TrajectoryPointsEqual(frames[frameIndex], target))
+                            return $"section[{sectionIndex}] source={rec.TrackSections[sectionIndex].source} frame[{frameIndex}]";
+                    }
+                }
+
+                return "flat-only";
+            }
+
+            bool TrajectoryPointsEqual(TrajectoryPoint a, TrajectoryPoint b)
+            {
+                return a.ut == b.ut
+                    && a.latitude == b.latitude
+                    && a.longitude == b.longitude
+                    && a.altitude == b.altitude
+                    && a.rotation.x == b.rotation.x
+                    && a.rotation.y == b.rotation.y
+                    && a.rotation.z == b.rotation.z
+                    && a.rotation.w == b.rotation.w
+                    && a.velocity.x == b.velocity.x
+                    && a.velocity.y == b.velocity.y
+                    && a.velocity.z == b.velocity.z
+                    && a.bodyName == b.bodyName
+                    && a.funds == b.funds
+                    && a.science == b.science
+                    && a.reputation == b.reputation;
+            }
         }
 
         #endregion
@@ -3753,6 +3829,86 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.TestSinkForTesting = prevSink;
             }
+        }
+
+        #endregion
+
+        #region Bug #450 B3 Lazy Reentry FX
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: TryBuildReentryFx on a real Unity GameObject returns null for an empty ghost root, and the lazy-build helper clears the pending flag without incrementing the builds counter.")]
+        public void Bug450B3_LazyBuild_OnEmptyGhostRoot_ClearsFlagWithoutCountingBuild()
+        {
+            // Residual-risk coverage for the plan's "in-game only" test gap: verifies
+            // the live-Unity lazy-build path wiring. We do NOT construct a real ghost
+            // (that requires an active snapshot + AvailablePart + Unity prefab), but
+            // we DO exercise TryBuildReentryFx with a genuine GameObject so the Unity
+            // APIs inside (GetComponentsInChildren, Mesh.CombineMeshes, ParticleSystem
+            // setup) run against a real scene. An empty ghost root produces no mesh
+            // coverage → TryBuildReentryFx returns null → the lazy-build wrapper must
+            // clear the flag and NOT bump reentryFxBuildsThisSession.
+            var ghostRoot = new GameObject("ParsekTestGhost_B3");
+            runner.TrackForCleanup(ghostRoot);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestB3",
+                ghost = ghostRoot,
+                reentryFxPendingBuild = true,
+                heatInfos = new System.Collections.Generic.Dictionary<uint, HeatGhostInfo>(),
+                reentryFxInfo = null,
+            };
+
+            // Use a fresh engine instance so the session-wide build counter reads
+            // cleanly from DiagnosticsState. The engine constructor is free of
+            // side-effects besides field initialisation.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            int buildsBefore = DiagnosticsState.health.reentryFxBuildsThisSession;
+
+            engine.TryPerformLazyReentryBuildForTesting(
+                recIdx: 999, state, vesselName: "TestB3",
+                bodyName: "Kerbin", altitude: 50_000);
+
+            // Flag clears regardless of build success (one-shot, no retry storm).
+            InGameAssert.IsFalse(state.reentryFxPendingBuild,
+                "Lazy build must clear reentryFxPendingBuild even when TryBuildReentryFx returns null");
+            // Counter only bumps on non-null build. Empty ghost root → null → no bump.
+            int buildsAfter = DiagnosticsState.health.reentryFxBuildsThisSession;
+            InGameAssert.AreEqual(buildsBefore, buildsAfter,
+                "reentryFxBuildsThisSession must NOT increment when TryBuildReentryFx returns null");
+            // A frame-slot IS consumed (we did invoke the build). Confirms the
+            // counter lives in the unthrottled-success path.
+            InGameAssert.AreEqual(1, engine.FrameLazyReentryBuildCountForTesting,
+                "A build attempt must consume one per-frame slot regardless of result");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
+        public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
+        {
+            // Pin the cross-file contract between the B3 helper's speed floor and
+            // TrajectoryMath.ReentryPotentialSpeedFloor. If these drift apart, a
+            // trajectory that `HasReentryPotential` accepts may be stranded in
+            // pending-forever state at spawn, or vice versa. The constant lives in
+            // TrajectoryMath so the floor is a single source of truth.
+            float floor = TrajectoryMath.ReentryPotentialSpeedFloor;
+            InGameAssert.IsTrue(floor >= 100f && floor <= 1000f,
+                $"ReentryPotentialSpeedFloor={floor} is outside the expected 100-1000 m/s sanity range; B3 speed gate may be miscalibrated");
+
+            // Just at the floor → build fires.
+            InGameAssert.IsTrue(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor, speedFloorMetersPerSecond: floor),
+                "At exactly the speed floor, the build must fire");
+            // Just below the floor → build does NOT fire.
+            InGameAssert.IsFalse(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor - 1f, speedFloorMetersPerSecond: floor),
+                "One m/s below the speed floor, the build must NOT fire");
         }
 
         #endregion
