@@ -5,7 +5,7 @@
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with Rewind-to-Staging. It assumes familiarity with the recording DAG, BranchPoint model, controller identity, ghost chains, and the additive-only invariant (see `parsek-flight-recorder-design.md`) and with the ledger model, immutable ActionId, reservations, and career-state replay (see `parsek-game-actions-and-resources-recorder-design.md`).*
 
 **Status:** shipped in v0.9.0.
-**Pre-implementation spec:** `docs/parsek-rewind-staging-design.md` (archived as-is). This document supersedes it as the source of truth for what actually shipped.
+**Pre-implementation spec:** `docs/dev/done/parsek-rewind-staging-design.md` (archived as-is alongside the v0.9 rollout). This document supersedes it as the source of truth for what actually shipped.
 **Related docs:** `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-routes-design.md`.
 
 ---
@@ -88,7 +88,7 @@ A re-fly never happens behind the player's back. It requires an explicit click o
 
 ### 2.7 Observable from logs alone
 
-Every decision point in §6 and every RP / marker / journal / sweep / reap state transition emits a log line. The tag catalog in §12 is what a KSP.log reader needs to reconstruct a session's history: the `[Rewind]`, `[RewindSave]`, `[RewindUI]`, `[ReFlySession]`, `[Supersede]`, `[LedgerSwap]`, `[MergeJournal]`, `[LoadSweep]`, `[UnfinishedFlights]`, `[CrewReservations]`, `[RevertInterceptor]`, `[Recording]`, `[ReconciliationBundle]`, `[ERS]`, `[ELS]` tags appear exactly where §6 and §8 say they do.
+Every decision point in §6 and every RP / marker / journal / sweep / reap state transition emits a log line. The tag catalog in §11 is what a KSP.log reader needs to reconstruct a session's history: the `[Rewind]`, `[RewindSave]`, `[RewindUI]`, `[ReFlySession]`, `[Supersede]`, `[LedgerSwap]`, `[MergeJournal]`, `[LoadSweep]`, `[UnfinishedFlights]`, `[CrewReservations]`, `[RevertInterceptor]`, `[Recording]`, `[ReconciliationBundle]`, `[ERS]`, `[ELS]` tags appear exactly where §6 and §11 say they do.
 
 ---
 
@@ -293,8 +293,8 @@ File: `Source/Parsek/Recording.cs:193–208`.
 | Field | Type | Purpose |
 |---|---|---|
 | `MergeState` | `MergeState` | Tri-state commit state (§5.1). |
-| `CreatingSessionId` | `string` | Session GUID for recordings produced during an active re-fly. `null` outside sessions. Used by the load-time spare-set logic (§8.9) when a session crashed. |
-| `SupersedeTargetId` | `string` | Transient — set only on `NotCommitted` provisional re-fly recordings to signal the intended supersede target. Cleared at merge when a concrete `RecordingSupersedeRelation` is appended. A non-empty value on `Immutable` / `CommittedProvisional` recordings triggers a Warn log and is treated as cleared (load-path legacy safety; see §8.9 step 5 and `LoadTimeSweep.ClearStraySupersedeTargets`). |
+| `CreatingSessionId` | `string` | Session GUID for recordings produced during an active re-fly. `null` outside sessions. Used by the load-time spare-set logic (§6.16) when a session crashed. |
+| `SupersedeTargetId` | `string` | Transient — set only on `NotCommitted` provisional re-fly recordings to signal the intended supersede target. Cleared at merge when a concrete `RecordingSupersedeRelation` is appended. A non-empty value on `Immutable` / `CommittedProvisional` recordings triggers a Warn log and is treated as cleared (load-path legacy safety; see §6.16 step 5 and `LoadTimeSweep.ClearStraySupersedeTargets`). |
 | `ProvisionalForRpId` | `string` | Back-pointer to the invoked RP's id. Set at invocation by `RewindInvoker.BuildProvisionalRecording` (`RewindInvoker.cs:527`). Null outside sessions. |
 
 `SupersededByRecordingId` is **NOT** a field on Recording. Visibility is a derived lookup through `RecordingSupersedeRelation`.
@@ -402,7 +402,7 @@ File: `Source/Parsek/RecordingSupersedeRelation.cs`.
 | `UT` | `double` | `Planetarium.UT` at which the merge occurred. |
 | `CreatedRealTime` | `string` | Wall-clock ISO-8601 UTC. |
 
-Stored in `ParsekScenario.RecordingSupersedes`. Append-only. Never mutated. Removed only by whole-tree discard (`TreeDiscardPurge.PurgeTree`, §6.11). Orphan relations (rare; endpoint missing from `RecordingStore`) stay in place with a Warn log on every load (`LoadTimeSweep.cs:274`); the forward walk in `EffectiveState.EffectiveRecordingId` handles an unresolved `NewRecordingId` as a chain terminator.
+Stored in `ParsekScenario.RecordingSupersedes`. Append-only. Never mutated. Removed only by whole-tree discard (`TreeDiscardPurge.PurgeTree`, §6.17). Orphan relations (rare; endpoint missing from `RecordingStore`) stay in place with a Warn log on every load (`LoadTimeSweep.cs:274`); the forward walk in `EffectiveState.EffectiveRecordingId` handles an unresolved `NewRecordingId` as a chain terminator.
 
 Node layout (emitted as `ENTRY` children of the `RECORDING_SUPERSEDES` parent node):
 
@@ -782,7 +782,7 @@ KSP's `ScenarioModule.OnSave` cannot preempt this synchronous block. The `Checkp
 
 Ghost playback engine, chain walker, map presence, watch mode enumerate `ERS \ SessionSuppressedSubtree(marker)`. Career subsystems read ERS / ELS directly.
 
-Nested multi-controllable splits during the session create additional session-provisional RPs with `CreatingSessionId = activeSession.SessionId`. Child recordings born in those splits carry the same `CreatingSessionId`. On session merge, all promote; on discard, all purge (load-time sweep spare-set logic, §6.13).
+Nested multi-controllable splits during the session create additional session-provisional RPs with `CreatingSessionId = activeSession.SessionId`. Child recordings born in those splits carry the same `CreatingSessionId`. On session merge, all promote; on discard, all purge (load-time sweep spare-set logic, §6.16).
 
 ### 6.12 Merging a re-fly session (staged commit, journaled)
 
@@ -1388,7 +1388,7 @@ The pre-impl spec's v0.5 sign-off condition was "crash recovery matrix covers ev
 6. Scene reloads into FLIGHT at the staging moment. A is the active vessel (live physics); B has been stripped and now plays back as a ghost from its committed recording. ABC plays back as a ghost up to the split moment, then terminates. Player's career state matches what it was immediately before Rewind (B's orbit entry + all milestones / contracts are intact).
 7. Player deploys A's parachute and lands it safely on the launch pad. Recorder finalizes A' with TerminalKind=Landed.
 8. Merge dialog → Merge to Timeline. `MergeJournalOrchestrator.RunMerge` drives through the nine phases. A → hidden (superseded); A' → Immutable + effective slot-1 representative. No tombstones (no kerbal died). RP-1 reap-eligible (both slots Immutable) → quicksave deleted, scenario entry removed, BranchPoint back-reference cleared.
-9. Unfinished Flights is now empty. The timeline shows B's orbit entry AND A''s safe landing; both play back on any subsequent rewind-to-launch.
+9. Unfinished Flights is now empty. The timeline shows B's orbit entry AND A's safe landing (the sealed slot points at `A'` via the supersede relation); both play back on any subsequent rewind-to-launch.
 
 ### A.2 EVA re-fly
 
