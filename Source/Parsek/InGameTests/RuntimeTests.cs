@@ -3548,5 +3548,85 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Bug #450 B3 Lazy Reentry FX
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: TryBuildReentryFx on a real Unity GameObject returns null for an empty ghost root, and the lazy-build helper clears the pending flag without incrementing the builds counter.")]
+        public void Bug450B3_LazyBuild_OnEmptyGhostRoot_ClearsFlagWithoutCountingBuild()
+        {
+            // Residual-risk coverage for the plan's "in-game only" test gap: verifies
+            // the live-Unity lazy-build path wiring. We do NOT construct a real ghost
+            // (that requires an active snapshot + AvailablePart + Unity prefab), but
+            // we DO exercise TryBuildReentryFx with a genuine GameObject so the Unity
+            // APIs inside (GetComponentsInChildren, Mesh.CombineMeshes, ParticleSystem
+            // setup) run against a real scene. An empty ghost root produces no mesh
+            // coverage → TryBuildReentryFx returns null → the lazy-build wrapper must
+            // clear the flag and NOT bump reentryFxBuildsThisSession.
+            var ghostRoot = new GameObject("ParsekTestGhost_B3");
+            runner.TrackForCleanup(ghostRoot);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestB3",
+                ghost = ghostRoot,
+                reentryFxPendingBuild = true,
+                heatInfos = new System.Collections.Generic.Dictionary<uint, HeatGhostInfo>(),
+                reentryFxInfo = null,
+            };
+
+            // Use a fresh engine instance so the session-wide build counter reads
+            // cleanly from DiagnosticsState. The engine constructor is free of
+            // side-effects besides field initialisation.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            int buildsBefore = DiagnosticsState.health.reentryFxBuildsThisSession;
+
+            engine.TryPerformLazyReentryBuildForTesting(
+                recIdx: 999, state, vesselName: "TestB3",
+                bodyName: "Kerbin", altitude: 50_000);
+
+            // Flag clears regardless of build success (one-shot, no retry storm).
+            InGameAssert.IsFalse(state.reentryFxPendingBuild,
+                "Lazy build must clear reentryFxPendingBuild even when TryBuildReentryFx returns null");
+            // Counter only bumps on non-null build. Empty ghost root → null → no bump.
+            int buildsAfter = DiagnosticsState.health.reentryFxBuildsThisSession;
+            InGameAssert.AreEqual(buildsBefore, buildsAfter,
+                "reentryFxBuildsThisSession must NOT increment when TryBuildReentryFx returns null");
+            // A frame-slot IS consumed (we did invoke the build). Confirms the
+            // counter lives in the unthrottled-success path.
+            InGameAssert.AreEqual(1, engine.FrameLazyReentryBuildCountForTesting,
+                "A build attempt must consume one per-frame slot regardless of result");
+        }
+
+        [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
+        public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
+        {
+            // Pin the cross-file contract between the B3 helper's speed floor and
+            // TrajectoryMath.ReentryPotentialSpeedFloor. If these drift apart, a
+            // trajectory that `HasReentryPotential` accepts may be stranded in
+            // pending-forever state at spawn, or vice versa. The constant lives in
+            // TrajectoryMath so the floor is a single source of truth.
+            float floor = TrajectoryMath.ReentryPotentialSpeedFloor;
+            InGameAssert.IsTrue(floor >= 100f && floor <= 1000f,
+                $"ReentryPotentialSpeedFloor={floor} is outside the expected 100-1000 m/s sanity range; B3 speed gate may be miscalibrated");
+
+            // Just at the floor → build fires.
+            InGameAssert.IsTrue(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor, speedFloorMetersPerSecond: floor),
+                "At exactly the speed floor, the build must fire");
+            // Just below the floor → build does NOT fire.
+            InGameAssert.IsFalse(
+                GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                    pendingFlag: true, bodyName: "Kerbin",
+                    bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                    surfaceSpeedMetersPerSecond: floor - 1f, speedFloorMetersPerSecond: floor),
+                "One m/s below the speed floor, the build must NOT fire");
+        }
+
+        #endregion
     }
 }

@@ -40,6 +40,12 @@ namespace Parsek
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public Dictionary<uint, GameObject> fakeCanopies;
         public ReentryFxInfo reentryFxInfo;
+        // Bug #450 B3: true when trajectory had reentry potential at spawn but the
+        // expensive TryBuildReentryFx call was deferred to the first in-atmosphere
+        // frame. Transitions to false the moment a lazy build fires (or is deemed
+        // impossible — e.g. heatInfos was nulled by a rebuild that also clears
+        // this flag via ClearLoadedVisualReferences). One-shot per ghost lifetime.
+        public bool reentryFxPendingBuild;
         public MaterialPropertyBlock reentryMpb; // per-ghost to avoid shared-state bugs with overlapping ghosts
         public bool explosionFired;
         public bool pauseHidden;
@@ -85,6 +91,7 @@ namespace Parsek
             compoundPartInfos = null;
             fakeCanopies = null;
             reentryFxInfo = null;
+            reentryFxPendingBuild = false;
             reentryMpb = null;
             pauseHidden = false;
             rcsSuppressed = false;
