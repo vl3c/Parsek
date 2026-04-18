@@ -30,10 +30,16 @@ namespace Parsek.Tests
         public void ExitWatchModeBeforeTimelineGhostCleanup_WhenWatching_LogsBeforeDestroyAllGhosts()
         {
             bool? skipCameraRestore = null;
+            var steps = new List<string>();
 
             bool exited = ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(
                 isWatchingGhost: true,
-                exitWatchMode: skip => skipCameraRestore = skip,
+                exitWatchMode: skip =>
+                {
+                    steps.Add(skip ? "exit-true" : "exit-false");
+                    skipCameraRestore = skip;
+                },
+                detachStockCameraTarget: () => steps.Add("detach"),
                 context: "unit-test",
                 watchFocusForLogs: "watch=rec#7");
 
@@ -41,6 +47,7 @@ namespace Parsek.Tests
 
             Assert.True(exited);
             Assert.True(skipCameraRestore.HasValue && skipCameraRestore.Value);
+            Assert.Equal(new[] { "detach", "exit-true" }, steps);
 
             int exitIndex = logLines.FindIndex(line =>
                 line.Contains("[CameraFollow]")
@@ -63,6 +70,7 @@ namespace Parsek.Tests
             bool exited = ParsekFlight.ExitWatchModeBeforeTimelineGhostCleanup(
                 isWatchingGhost: false,
                 exitWatchMode: _ => callbackInvoked = true,
+                detachStockCameraTarget: () => callbackInvoked = true,
                 context: "unit-test-noop",
                 watchFocusForLogs: "watch=none");
 
