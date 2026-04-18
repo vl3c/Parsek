@@ -138,12 +138,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SpawnMicrosecondsZero_SuppressesBuildBreakdown()
+        public void SpawnMaxBelowThreshold_SuppressesBuildBreakdown()
         {
-            // A budget spike caused purely by mainLoop / deferred events with no spawn time
-            // has nothing to attribute across build sub-phases. Emitting five zeros under
-            // `heaviestSpawn[type=none ...]` would be noise; the latch must stay unfired so
-            // the next real spawn-dominated spike gets its diagnostic.
+            // A budget spike whose heaviest single spawn is below the 15 ms bimodal
+            // threshold (e.g. incidental cheap prewarm during a mainLoop-driven hitch)
+            // must NOT consume the #450 latch. Otherwise the first such frame burns the
+            // session's only sample before the real single-spawn regression fires.
+            var phases = BimodalSingleSpawnPhases();
+            phases.spawnMicroseconds = 3_000;          // 3ms spread across spawns
+            phases.spawnMaxMicroseconds = 3_000;        // single-spawn max well under 15 ms
+            phases.buildSnapshotResolveMicroseconds = 50;
+            phases.buildTimelineFromSnapshotMicroseconds = 2_500;
+            phases.buildDictionariesMicroseconds = 300;
+            phases.buildReentryFxMicroseconds = 100;
+            phases.buildOtherMicroseconds = 50;
+            phases.heaviestSpawnSnapshotResolveMicroseconds = 50;
+            phases.heaviestSpawnTimelineFromSnapshotMicroseconds = 2_500;
+            phases.heaviestSpawnDictionariesMicroseconds = 300;
+            phases.heaviestSpawnReentryFxMicroseconds = 100;
+            phases.heaviestSpawnOtherMicroseconds = 50;
+            phases.heaviestSpawnBuildType = HeaviestSpawnBuildType.SphereFallback;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                40_100, 0, 1.0f, phases);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback spawn build breakdown"));
+
+            // Fire a real spawn-dominated spike (heaviest = 28.11ms, over threshold) next —
+            // the latch must still be armed so this one fires.
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                40_100, 0, 1.0f, BimodalSingleSpawnPhases());
+            Assert.Contains(logLines, l => l.Contains("Playback spawn build breakdown"));
+        }
+
+        [Fact]
+        public void SpawnMaxZero_SuppressesBuildBreakdown()
+        {
+            // A budget spike with literally zero spawn time (pure mainLoop / deferred-events
+            // hitch) has nothing to attribute and must leave the latch armed.
             var phases = BimodalSingleSpawnPhases();
             phases.spawnMicroseconds = 0;
             phases.spawnMaxMicroseconds = 0;
@@ -158,11 +190,6 @@ namespace Parsek.Tests
                 40_100, 0, 1.0f, phases);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Playback spawn build breakdown"));
-
-            // Fire a real spawn-dominated spike next — the latch must still be armed.
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
-                40_100, 0, 1.0f, BimodalSingleSpawnPhases());
-            Assert.Contains(logLines, l => l.Contains("Playback spawn build breakdown"));
         }
 
         [Fact]

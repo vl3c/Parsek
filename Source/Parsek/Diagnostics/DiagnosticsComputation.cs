@@ -687,6 +687,18 @@ namespace Parsek
         internal const double RecordingBudgetThresholdMs = 4.0;
 
         /// <summary>
+        /// Bug #450: minimum single-spawn cost (in microseconds) required before the
+        /// one-shot spawn-build breakdown WARN consumes its latch. Matches the 15 ms
+        /// figure the #450 todo entry proposes as the threshold where a spawn alone
+        /// exceeds the 8 ms frame budget enough to constitute the "bimodal" case a
+        /// count cap cannot cover. Gating on `spawnMaxMicroseconds` (not
+        /// `spawnMicroseconds` aggregate) means an incidental cheap prewarm or
+        /// watch-mode spawn on an otherwise non-spawn hitch cannot burn the
+        /// session's only #450 sample before the real regression fires.
+        /// </summary>
+        internal const long BuildBreakdownMinHeaviestSpawnMicroseconds = 15_000;
+
+        /// <summary>
         /// One-shot latch for the bug #414 per-phase breakdown log. Flipped true the first
         /// time a playback-budget-exceeded warning fires in the session; once latched, the
         /// breakdown is never re-emitted even on subsequent spikes. This keeps the steady-state
@@ -769,11 +781,17 @@ namespace Parsek
             }
 
             // Bug #450: emit the spawn-build sub-phase breakdown on its own one-shot latch.
-            // Skip when no spawn happened this frame — a budget spike with spawn=0 carries no
-            // useful attribution for the build path and would print a row of zeros. The latch
-            // is independent of #414's so Phase A collects data even when the session's first
+            // Gate on `spawnMaxMicroseconds >= BuildBreakdownMinHeaviestSpawnMicroseconds`
+            // (not just `spawnMicroseconds > 0`) so an incidental cheap prewarm or watch-
+            // mode spawn on a frame whose hitch was driven by something else cannot burn
+            // the session's only #450 sample before the real single-spawn regression fires.
+            // 15 ms is the threshold the #450 todo entry proposes as the bimodal line —
+            // above it, at least one spawn is, on its own, eating most of the frame budget,
+            // which is exactly the case Phase A is meant to diagnose. The latch itself is
+            // independent of #414's so Phase A collects data even when the session's first
             // spike already consumed the #414 latch before #450 rolled out.
-            if (!s_buildBreakdownOneShotFired && phases.spawnMicroseconds > 0)
+            if (!s_buildBreakdownOneShotFired
+                && phases.spawnMaxMicroseconds >= BuildBreakdownMinHeaviestSpawnMicroseconds)
             {
                 s_buildBreakdownOneShotFired = true;
                 ParsekLog.Warn("Diagnostics",

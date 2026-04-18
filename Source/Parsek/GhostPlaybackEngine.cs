@@ -2407,23 +2407,23 @@ namespace Parsek
             buildDictionariesStopwatch.Stop();
             lastSpawnDictionariesTicks = buildDictionariesStopwatch.ElapsedTicks - dictionariesPre;
 
-            // Bug #450 sub-phase 4: reentry FX. Only timed on the HasReentryPotential branch
-            // — the skip branch is trivial (a VerboseRateLimited log and a counter bump) and
-            // lumping it in with the build path would muddy the attribution. On the skip
-            // branch lastSpawnReentryTicks stays 0, which correctly reflects zero work.
+            // Bug #450 sub-phase 4: reentry FX. Bracket the ENTIRE reentry decision
+            // (classification + build or skip) in a single window so the O(n)
+            // HasReentryPotential scan over trajectory points on non-orbital recordings
+            // is attributed to the reentry bucket rather than leaking into "other". If
+            // the scan dominated and we lumped it into "other", Phase B would see a big
+            // residual and pick the wrong fix branch.
             // Gate reentry FX build: stationary part-showcase ghosts, EVA walks, and slow
             // suborbital hops below Mach 1.5 can never produce reentry visuals, so we skip
             // the mesh-combine + ParticleSystem + glow-material clone work entirely. With
             // hundreds of ghosts looping, rebuilding reentry FX on every loop-cycle
             // boundary was the dominant cost in the map-view perf tank (#406).
+            long reentryPre = buildReentryFxStopwatch.ElapsedTicks;
+            buildReentryFxStopwatch.Start();
             if (TrajectoryMath.HasReentryPotential(traj))
             {
-                long reentryPre = buildReentryFxStopwatch.ElapsedTicks;
-                buildReentryFxStopwatch.Start();
                 state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                     ghost, state.heatInfos, index, traj.VesselName);
-                buildReentryFxStopwatch.Stop();
-                lastSpawnReentryTicks = buildReentryFxStopwatch.ElapsedTicks - reentryPre;
                 DiagnosticsState.health.reentryFxBuildsThisSession++;
             }
             else
@@ -2435,6 +2435,8 @@ namespace Parsek
                     $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s " +
                     $"and no orbit segments (cannot produce reentry visuals)", 5.0);
             }
+            buildReentryFxStopwatch.Stop();
+            lastSpawnReentryTicks = buildReentryFxStopwatch.ElapsedTicks - reentryPre;
             state.reentryMpb = new MaterialPropertyBlock();
 
             // Keep fresh builds hidden until the playback loop has positioned them at the

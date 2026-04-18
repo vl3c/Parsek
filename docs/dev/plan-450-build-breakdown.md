@@ -159,6 +159,23 @@ so the build breakdown fires on the next spike after #450 rollout even if
 the session's first spike already consumed #414's latch before this code
 loaded. `ResetForTesting` clears both.
 
+**Threshold gate.** The #450 latch additionally requires
+`spawnMaxMicroseconds >= BuildBreakdownMinHeaviestSpawnMicroseconds` (15 ms,
+matching the bimodal threshold the original #450 todo entry proposes). An
+incidental cheap prewarm or watch-mode spawn on a frame whose hitch was
+driven by something else (mainLoop, deferred events) will NOT consume the
+latch — the only sample per session is reserved for the real single-spawn
+regression we're trying to diagnose. `spawnMaxMicroseconds` (not aggregate)
+is the right gate because this is the bimodal-single-spawn case.
+
+### Reentry bucket covers the potential-scan too
+
+`TrajectoryMath.HasReentryPotential` is `O(n)` in trajectory-point count
+on non-orbital recordings. Bracketing the entire `if (HasReentryPotential)`
+decision (classification + build or skip) in the reentry window ensures the
+scan cost is attributed to the reentry bucket rather than leaking into
+`other`, so Phase B branches on the correct dominant bucket.
+
 ### Steady-state overhead
 
 Per spawn: 4 `Start`/`Stop` pairs + 8 `ElapsedTicks` reads = 12 Stopwatch
