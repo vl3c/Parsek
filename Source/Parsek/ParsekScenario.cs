@@ -3126,6 +3126,19 @@ namespace Parsek
             bool updated = UpdateRecordingsForTerminalEvent(vesselName, TerminalState.Recovered, now);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{vesselName}' recovered — recording(s) updated with Recovered terminal state");
+
+            // #444: when recovery happens outside the Flight scene (tracking station or
+            // post-flight summary at KSC), KSP's FundsChanged(VesselRecovery) event lies
+            // between the committed recording's points window — CreateVesselCostActions
+            // never sees it and the funds get silently dropped from the ledger. Route the
+            // payout into the ledger as a real-time FundsEarning(Recovery) action tagged
+            // with the matching committed recording (or null for non-Parsek vessels).
+            // In-flight recovery is already covered by the terminal-state path above:
+            // UpdateRecordingsForTerminalEvent flips the live recording to Recovered, and
+            // the subsequent commit invokes CreateVesselCostActions which emits the same
+            // action — guarding here avoids double-counting.
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+                LedgerOrchestrator.OnVesselRecoveryFunds(now, vesselName, fromTrackingStation);
         }
 
         private void OnVesselTerminated(ProtoVessel pv)

@@ -2067,6 +2067,148 @@ namespace Parsek
         }
 
         /// <summary>
+        /// UT epsilon used by <see cref="OnVesselRecoveryFunds"/> when locating the paired
+        /// <see cref="GameStateEventType.FundsChanged"/>(<c>VesselRecovery</c>) event in
+        /// <see cref="GameStateStore.Events"/>. KSP fires the funds change immediately
+        /// before <c>onVesselRecovered</c>, so the two share the same UT to within a frame.
+        /// </summary>
+        internal const double VesselRecoveryEventEpsilonSeconds = 1.0;
+
+        /// <summary>
+        /// Reason-key string written by <see cref="GameStateRecorder"/>'s OnFundsChanged
+        /// handler when <c>TransactionReasons.VesselRecovery</c> is the cause. Stored as
+        /// a string literal so unit tests can synthesize the matching event without a live
+        /// KSP runtime.
+        /// </summary>
+        internal const string VesselRecoveryReasonKey = "VesselRecovery";
+
+        /// <summary>
+        /// #444: Called from <see cref="ParsekScenario"/>'s <c>onVesselRecovered</c> handler
+        /// when a vessel is recovered from outside the Flight scene (tracking station or the
+        /// post-flight summary at KSC). KSP emits <c>FundsChanged(VesselRecovery)</c> at the
+        /// recovery UT, but that event lies between recording windows for any committed
+        /// recording — <see cref="CreateVesselCostActions"/> only emits <see cref="FundsEarningSource.Recovery"/>
+        /// when the recording's <see cref="TerminalState"/> is <see cref="TerminalState.Recovered"/>
+        /// AND the funds delta falls inside its <see cref="Recording.Points"/> window. Recovery
+        /// performed after the recording has already ended misses both gates and the funds were
+        /// silently dropped from the ledger.
+        ///
+        /// <para>This routes the recovery payout into the ledger as a real-time
+        /// <see cref="GameActionType.FundsEarning"/> action with <see cref="FundsEarningSource.Recovery"/>.
+        /// The amount comes from the matching <see cref="GameStateEventType.FundsChanged"/> event
+        /// in <see cref="GameStateStore"/>; the recording tag is the latest committed recording
+        /// matching <paramref name="vesselName"/> (or null when no Parsek recording matches).</para>
+        ///
+        /// <para>In-flight recovery is handled by the existing terminal-state path:
+        /// <see cref="ParsekScenario.UpdateRecordingsForTerminalEvent"/> sets
+        /// <see cref="TerminalState.Recovered"/> on the live recording, and the subsequent
+        /// commit invokes <see cref="CreateVesselCostActions"/> which emits the same action.
+        /// The caller gates this method on <c>HighLogic.LoadedScene != GameScenes.FLIGHT</c>
+        /// to avoid double-counting.</para>
+        /// </summary>
+        /// <param name="ut">UT at which <c>onVesselRecovered</c> fired.</param>
+        /// <param name="vesselName">Recovered vessel name (used to tag the action with the matching recording).</param>
+        /// <param name="fromTrackingStation">Pass-through diagnostic flag for the log line.</param>
+        internal static void OnVesselRecoveryFunds(double ut, string vesselName, bool fromTrackingStation)
+        {
+            Initialize();
+
+            if (string.IsNullOrEmpty(vesselName))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: empty vesselName at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+                return;
+            }
+
+            // Locate the paired FundsChanged(VesselRecovery) event. KSP fires the funds change
+            // immediately before onVesselRecovered, so it should already be in the store. We
+            // search by reason key (TransactionReasons.VesselRecovery.ToString() == "VesselRecovery"
+            // — see GameStateRecorder.OnFundsChanged where the key is written) within a small
+            // UT window.
+            var events = GameStateStore.Events;
+            GameStateEvent matched = default;
+            bool found = false;
+            if (events != null)
+            {
+                for (int i = events.Count - 1; i >= 0; i--)
+                {
+                    var e = events[i];
+                    if (e.eventType != GameStateEventType.FundsChanged) continue;
+                    if (e.key != VesselRecoveryReasonKey) continue;
+                    if (Math.Abs(e.ut - ut) > VesselRecoveryEventEpsilonSeconds) continue;
+                    matched = e;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                ParsekLog.Warn(Tag,
+                    $"OnVesselRecoveryFunds: no paired FundsChanged(VesselRecovery) event " +
+                    $"within {VesselRecoveryEventEpsilonSeconds.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                    $"of ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"for vessel '{vesselName}' — funds gap will not be patched");
+                return;
+            }
+
+            double delta = matched.valueAfter - matched.valueBefore;
+            if (delta <= 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"has non-positive delta={delta.ToString("F1", CultureInfo.InvariantCulture)} — skipping (recovery payouts are positive)");
+                return;
+            }
+
+            // Find the latest committed recording matching the vessel name. Multiple
+            // recordings can share a name (e.g., revert + re-fly); the latest committed
+            // one is the recording the player most recently flew.
+            string recordingId = null;
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings != null)
+            {
+                Recording bestMatch = null;
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null) continue;
+                    if (rec.IsGhostOnly) continue;
+                    if (rec.VesselName != vesselName) continue;
+                    if (bestMatch == null || rec.EndUT > bestMatch.EndUT)
+                        bestMatch = rec;
+                }
+                if (bestMatch != null)
+                    recordingId = bestMatch.RecordingId;
+            }
+
+            // Allocate a sequence number from the same counter used by OnKscSpending so
+            // that recovery actions interleave deterministically with other KSC events
+            // captured at the same UT.
+            kscSequenceCounter++;
+
+            var action = new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.FundsEarning,
+                RecordingId = recordingId,
+                FundsAwarded = (float)delta,
+                FundsSource = FundsEarningSource.Recovery,
+                Sequence = kscSequenceCounter
+            };
+
+            Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"VesselRecovery funds patched: vessel='{vesselName}' " +
+                $"amount={delta.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");
+
+            RecalculateAndPatch();
+        }
+
+        /// <summary>
         /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
         /// KSC-write path: <see cref="Untransformed"/> types have raw action fields that
         /// equal the post-walk contribution (WARN on missing/mismatched event);

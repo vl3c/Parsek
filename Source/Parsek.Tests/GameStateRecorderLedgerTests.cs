@@ -34,10 +34,12 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            RecordingStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
@@ -262,6 +264,196 @@ namespace Parsek.Tests
             Assert.Equal(before, Ledger.Actions.Count);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("produced no action"));
+        }
+
+        // -------- #444: tracking-station / KSC vessel recovery routing --------
+
+        [Fact]
+        public void OnVesselRecoveryFunds_TrackingStationRecoveryBetweenRecordings_AddsFundsEarningTaggedToRecording()
+        {
+            // Reproduces the smoke-test bundle scenario: recording 1 ends at ut=177,
+            // player recovers the vessel from the tracking station at ut=3980 (between
+            // recordings — outside any window), KSP fires FundsChanged(VesselRecovery)
+            // which the converter drops. Without #444 the +4005 funds were silently
+            // lost; the routing path must land a FundsEarning(Recovery) action tagged
+            // with the recording's id and amount = the funds delta.
+            var rec = new Recording
+            {
+                RecordingId = "rec-tracking-station-recovery",
+                VesselName = "Test Probe",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 177.0, funds = 40000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            // KSP emits FundsChanged(VesselRecovery) at the recovery moment, captured
+            // by GameStateRecorder.OnFundsChanged into GameStateStore.
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 3980.4,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 40000.0,
+                valueAfter = 44005.0
+            });
+
+            int before = Ledger.Actions.Count;
+            LedgerOrchestrator.OnVesselRecoveryFunds(3980.4, "Test Probe", fromTrackingStation: true);
+
+            var recovery = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                a.RecordingId == "rec-tracking-station-recovery");
+            Assert.NotNull(recovery);
+            Assert.Equal(4005f, recovery.FundsAwarded);
+            Assert.Equal(3980.4, recovery.UT);
+            Assert.True(Ledger.Actions.Count > before);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("Test Probe") &&
+                l.Contains("fromTrackingStation=True"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_NoMatchingRecording_AddsActionWithNullRecordingId()
+        {
+            // Recovery of a vessel that has no Parsek recording (e.g., a stock vessel
+            // launched before the player installed Parsek) still credits funds to the
+            // ledger so the running balance stays in sync with KSP — just with a null
+            // RecordingId tag.
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 5000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 100.0,
+                valueAfter = 1100.0
+            });
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Stock Vessel", fromTrackingStation: false);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 5000.0) < 0.01);
+            Assert.NotNull(match);
+            Assert.Null(match.RecordingId);
+            Assert.Equal(1000f, match.FundsAwarded);
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_NoPairedFundsEvent_LogsWarnAndDoesNotAdd()
+        {
+            // Defensive guard: if onVesselRecovered fires but no FundsChanged(VesselRecovery)
+            // event sits within the epsilon window (e.g. corrupt event flow, mod conflict),
+            // the routing path WARNs and skips rather than fabricating a zero earning.
+            int before = Ledger.Actions.Count;
+            LedgerOrchestrator.OnVesselRecoveryFunds(7000.0, "Mystery Probe", fromTrackingStation: true);
+
+            Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("no paired FundsChanged(VesselRecovery) event") &&
+                l.Contains("Mystery Probe"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_EmptyVesselName_SkipsSilently()
+        {
+            // Defensive guard: caller (ParsekScenario) already filters empty names but
+            // the entry point also handles it — no ledger entry, verbose-only log.
+            int before = Ledger.Actions.Count;
+            LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, "", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, null, fromTrackingStation: false);
+
+            Assert.Equal(before, Ledger.Actions.Count);
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_MultipleRecordingsSameName_TagsLatestByEndUt()
+        {
+            // Two committed recordings with the same vessel name (revert + re-fly): the
+            // routing must pick the one with the larger EndUT — that's the most recently
+            // flown one and the one the recovery payout belongs to.
+            var oldRec = new Recording
+            {
+                RecordingId = "rec-old",
+                VesselName = "ReusableProbe",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            oldRec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            oldRec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(oldRec);
+
+            var newRec = new Recording
+            {
+                RecordingId = "rec-new",
+                VesselName = "ReusableProbe",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            newRec.Points.Add(new TrajectoryPoint { ut = 1000.0, funds = 38000.0 });
+            newRec.Points.Add(new TrajectoryPoint { ut = 1500.0, funds = 38000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(newRec);
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 4000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 38000.0,
+                valueAfter = 41000.0
+            });
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "ReusableProbe", fromTrackingStation: true);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 4000.0) < 0.01);
+            Assert.NotNull(match);
+            Assert.Equal("rec-new", match.RecordingId);
+            Assert.Equal(3000f, match.FundsAwarded);
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_GhostOnlyRecordingMatch_NotTagged()
+        {
+            // Ghost-only (Gloops) recordings have zero career footprint per #432 — they
+            // must NOT be the recordingId tag for a real recovery payout. The lookup
+            // skips them, falling back to null when no real recording matches.
+            var ghost = new Recording
+            {
+                RecordingId = "rec-ghost",
+                VesselName = "GloopsClone",
+                IsGhostOnly = true
+            };
+            ghost.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 0.0 });
+            ghost.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 0.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(ghost);
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 3000.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 100.0,
+                valueAfter = 600.0
+            });
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "GloopsClone", fromTrackingStation: true);
+
+            var match = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 3000.0) < 0.01);
+            Assert.NotNull(match);
+            Assert.Null(match.RecordingId);
+            Assert.Equal(500f, match.FundsAwarded);
         }
     }
 }

@@ -274,7 +274,9 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 444. `VesselRecovery` at tracking station falls outside every recording window
+## ~~444. `VesselRecovery` at tracking station falls outside every recording window~~
+
+**Status:** ~~Fixed~~. New `LedgerOrchestrator.OnVesselRecoveryFunds(ut, vesselName, fromTrackingStation)` is invoked from `ParsekScenario.OnVesselRecovered` whenever the recovery happens outside the Flight scene. It locates the paired `FundsChanged(VesselRecovery)` event in `GameStateStore` (within a 1.0 s epsilon), looks up the latest non-ghost-only committed recording matching `vesselName`, and writes a `FundsEarning(Recovery)` action with that recording id (or null when no Parsek recording matches) and amount = the event delta. In-flight recoveries continue to flow through the existing terminal-state path (`UpdateRecordingsForTerminalEvent` → `Recovered` → commit-time `CreateVesselCostActions`), so the FLIGHT-scene gate keeps the two paths from double-counting. New regression coverage in `GameStateRecorderLedgerTests.cs` (5 cases: smoke-test reproduction, non-Parsek vessel null tag, missing paired event WARN, latest-by-EndUT pick across same-named recordings, ghost-only recordings excluded from the lookup).
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17390-17462` window analysis. Recovering a vessel from the tracking station (or from the flight results screen at KSC) emits `FundsChanged(VesselRecovery)` at a UT that lies outside any recording window (e.g., between consecutive recordings). `LedgerOrchestrator.CreateVesselCostActions:486` only emits `FundsEarning(Recovery)` when the recording's `TerminalStateValue == Recovered` AND the event falls inside `Points[]`. Recovery performed after the recording has already ended misses this gate, and the `FundsChanged` event is dropped by the converter.
 
@@ -285,8 +287,6 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 **Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:2028-2053` (OnKscSpending), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged). New test in `GameStateRecorderLedgerTests.cs` or a sibling file.
 
 **Scope:** Medium. Crosses GameStateRecorder + LedgerOrchestrator. Medium priority — affects tracking-station recoveries and post-flight KSC recoveries.
-
-**Status:** TODO. Priority: medium.
 
 ---
 
