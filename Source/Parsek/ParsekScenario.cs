@@ -1507,6 +1507,11 @@ namespace Parsek
                     {
                         MergeJournalOrchestrator.RunFinisher();
                     }
+
+                    // Phase 11 housekeeping pass — same rationale as the
+                    // cold-start branch below; runs after the finisher so
+                    // live-session RPs stay put.
+                    RewindPointReaper.ReapOrphanedRPs();
                     return;
                 }
 
@@ -1692,6 +1697,14 @@ namespace Parsek
                 {
                     MergeJournalOrchestrator.RunFinisher();
                 }
+
+                // Phase 11 of Rewind-to-Staging (design §6.8 load-time sweep):
+                // housekeeping pass for RPs orphaned by merges that crashed
+                // between TagRpsForReap and the reaper, or whose slots went
+                // Immutable later via a non-rewind code path. Runs after the
+                // finisher so we never try to reap an RP whose session is
+                // still live.
+                RewindPointReaper.ReapOrphanedRPs();
             }
             finally
             {

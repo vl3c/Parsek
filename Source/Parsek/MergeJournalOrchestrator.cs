@@ -51,8 +51,13 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// Phase 10 tags session-provisional RPs for reap in Phase 11 (design §6.6
-    /// step 9); actual file deletion lands in Phase 11.
+    /// Phase 11 extends the RpReap checkpoint: after the session-provisional
+    /// flag is flipped (<see cref="TagRpsForReap"/>), the reaper
+    /// (<see cref="RewindPointReaper.ReapOrphanedRPs"/>) deletes the quicksave
+    /// file + scenario entry + BranchPoint back-reference for any RP whose
+    /// slots all resolve to <see cref="MergeState.Immutable"/>. RPs with an
+    /// open slot (NotCommitted / CommittedProvisional) stay put for a later
+    /// pass.
     /// </para>
     /// </summary>
     internal static class MergeJournalOrchestrator
@@ -212,9 +217,16 @@ namespace Parsek
             AdvancePhase(scenario, MergeJournal.Phases.Durable1Done);
             MaybeInject(Phase.Durable1Done);
 
-            // Step 6: tag session-provisional RPs for reap (§6.6 step 9).
-            // Phase 10 marks eligible RPs; Phase 11 deletes the quicksave file.
+            // Step 6: tag session-provisional RPs for reap (§6.6 step 9) and
+            // run the Phase 11 reaper so any RPs whose slots are all now
+            // Immutable have their quicksave file + scenario entry + BP back-
+            // reference removed. The tag flips SessionProvisional=false, which
+            // is a precondition for reap eligibility; the reaper then scans
+            // for RPs whose ChildSlots resolve to Immutable recordings. An RP
+            // whose slots are still CommittedProvisional / NotCommitted stays
+            // put for a later reap pass (load-time sweep or the next merge).
             TagRpsForReap(marker, scenario);
+            RewindPointReaper.ReapOrphanedRPs();
             AdvancePhase(scenario, MergeJournal.Phases.RpReap);
             MaybeInject(Phase.RpReap);
 
@@ -343,6 +355,7 @@ namespace Parsek
             if (fromPhase == MergeJournal.Phases.Durable1Done)
             {
                 TagRpsForReap(scenario.ActiveReFlySessionMarker, scenario);
+                RewindPointReaper.ReapOrphanedRPs();
                 AdvancePhase(scenario, MergeJournal.Phases.RpReap);
                 stepsDriven++;
             }
