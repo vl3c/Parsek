@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using Xunit;
 
@@ -22,8 +21,6 @@ namespace Parsek.Tests
     public class StrategyCaptureTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
-        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-
         public StrategyCaptureTests()
         {
             RecalculationEngine.ClearModules();
@@ -77,6 +74,25 @@ namespace Parsek.Tests
 
             // Eight semicolon-separated fields, order-stable.
             Assert.Equal(7, s.Split(';').Length - 1);
+        }
+
+        [Fact]
+        public void BuildStrategyActivateDetail_IncludesSciRepSetup()
+        {
+            logLines.Clear();
+
+            string s = GameStateRecorder.BuildStrategyActivateDetail(
+                title: "Aggressive Negotiations",
+                dept: "Administration",
+                factor: 0.3f,
+                setupFunds: 25000f,
+                setupSci: 12.5f,
+                setupRep: 8f);
+
+            Assert.Contains("setupFunds=25000", s);
+            Assert.Contains("setupSci=12.5", s);
+            Assert.Contains("setupRep=8", s);
+            Assert.Empty(logLines);
         }
 
         [Fact]
@@ -154,6 +170,29 @@ namespace Parsek.Tests
             Assert.Equal(7500f, action.SetupCost);
             Assert.Equal(1234.0, action.UT);
             Assert.Equal("rec-1", action.RecordingId);
+        }
+
+        [Fact]
+        public void ConvertStrategyActivated_ParsesSciRepSetupFromDetail()
+        {
+            logLines.Clear();
+
+            var evt = new GameStateEvent
+            {
+                ut = 1234.0,
+                eventType = GameStateEventType.StrategyActivated,
+                key = "AggressiveNegotiations",
+                detail = GameStateRecorder.BuildStrategyActivateDetail(
+                    "Aggressive Negotiations", "Administration",
+                    factor: 0.3f, setupFunds: 25000f, setupSci: 12.5f, setupRep: 8f)
+            };
+
+            var action = GameStateEventConverter.ConvertStrategyActivated(evt, "rec-1");
+
+            Assert.Equal(25000f, action.SetupCost);
+            Assert.Equal(12.5f, action.SetupScienceCost);
+            Assert.Equal(8f, action.SetupReputationCost);
+            Assert.Empty(logLines);
         }
 
         [Fact]
@@ -293,6 +332,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RoundTrip_StrategyActivatedWithSciRepSetup_SurvivesSaveLoad()
+        {
+            logLines.Clear();
+
+            var original = new GameAction
+            {
+                UT = 4242.25,
+                Type = GameActionType.StrategyActivate,
+                RecordingId = "rec-round-trip",
+                StrategyId = "AggressiveNegotiations",
+                Commitment = 0.3f,
+                SetupCost = 25000f,
+                SetupScienceCost = 12.5f,
+                SetupReputationCost = 8f
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            var reloaded = GameAction.DeserializeFrom(parent.GetNode("GAME_ACTION"));
+
+            Assert.Equal(original.Type, reloaded.Type);
+            Assert.Equal(original.UT, reloaded.UT);
+            Assert.Equal(original.RecordingId, reloaded.RecordingId);
+            Assert.Equal(original.StrategyId, reloaded.StrategyId);
+            Assert.Equal(original.Commitment, reloaded.Commitment);
+            Assert.Equal(original.SetupCost, reloaded.SetupCost);
+            Assert.Equal(original.SetupScienceCost, reloaded.SetupScienceCost);
+            Assert.Equal(original.SetupReputationCost, reloaded.SetupReputationCost);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
         public void EnumValues_StrategyActivatedAndDeactivated_AppendedAt20And21()
         {
             // Append-only enum contract: existing saves with event ids 0-19 continue
@@ -306,7 +377,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void ClassifyAction_StrategyActivate_Untransformed_PairsWithStrategySetup()
+        public void ClassifyAction_StrategyActivate_FundsLegPresent()
         {
             var a = new GameAction
             {
@@ -319,27 +390,27 @@ namespace Parsek.Tests
             var exp = LedgerOrchestrator.ClassifyAction(a);
 
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
-            Assert.Equal("StrategySetup", exp.ExpectedReasonKey);
-            Assert.Equal(-7500.0, exp.ExpectedDelta);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+            Assert.Equal("StrategySetup", exp.FundsLeg.ExpectedReasonKey);
+            Assert.Equal(-7500.0, exp.FundsLeg.ExpectedDelta);
         }
 
         [Fact]
         public void ClassifyAction_StrategyActivate_ZeroSetupCost_ShortCircuits()
         {
-            // Free-to-activate strategy: classifier says Untransformed, but the zero
-            // ExpectedDelta triggers the early return in ReconcileKscAction. Drive both
-            // the classifier and the reconciler to pin the behavior.
             var a = new GameAction
             {
                 Type = GameActionType.StrategyActivate,
                 StrategyId = "FreeStrat",
                 SetupCost = 0f,
+                SetupScienceCost = 0f,
+                SetupReputationCost = 0f,
                 UT = 100.0
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(0.0, exp.ExpectedDelta);
+            Assert.Equal(0, exp.LegCount);
 
             // Reconcile with an empty event stream -- must stay silent.
             LedgerOrchestrator.ReconcileKscAction(
@@ -422,6 +493,8 @@ namespace Parsek.Tests
             Assert.Equal(StrategyResource.Reputation, action.TargetResource);
             Assert.Equal(0.125f, action.Commitment);
             Assert.Equal(12345.5f, action.SetupCost);
+            Assert.Equal(0f, action.SetupScienceCost);
+            Assert.Equal(0f, action.SetupReputationCost);
         }
 
         // ================================================================
@@ -488,13 +561,13 @@ namespace Parsek.Tests
                 key = "UnpaidResearch",
                 detail = GameStateRecorder.BuildStrategyActivateDetail(
                     "Unpaid Research Program", "Science",
-                    factor: 0.1f, setupFunds: 5000f, setupSci: 0f, setupRep: 0f)
+                    factor: 0.1f, setupFunds: 5000f, setupSci: 4f, setupRep: 3f)
             };
             GameStateStore.AddEvent(ref evt);
 
-            // Also seed the paired FundsChanged(StrategySetup) event that KSP emits
-            // from inside Strategy.Activate(). The reconciler must match it cleanly
-            // so no WARN fires.
+            float repBefore = 100f;
+            var repResult = ReputationModule.ApplyReputationCurve(-3f, repBefore);
+
             var fundsEvt = new GameStateEvent
             {
                 ut = 1234.0,
@@ -504,6 +577,24 @@ namespace Parsek.Tests
                 valueAfter = 45000.0
             };
             GameStateStore.AddEvent(ref fundsEvt);
+            var scienceEvt = new GameStateEvent
+            {
+                ut = 1234.0,
+                eventType = GameStateEventType.ScienceChanged,
+                key = "StrategySetup",
+                valueBefore = 20.0,
+                valueAfter = 16.0
+            };
+            GameStateStore.AddEvent(ref scienceEvt);
+            var repEvt = new GameStateEvent
+            {
+                ut = 1234.0,
+                eventType = GameStateEventType.ReputationChanged,
+                key = "StrategySetup",
+                valueBefore = repBefore,
+                valueAfter = repBefore + repResult.actualDelta
+            };
+            GameStateStore.AddEvent(ref repEvt);
 
             LedgerOrchestrator.OnKscSpending(evt);
 
@@ -512,7 +603,11 @@ namespace Parsek.Tests
                 a.StrategyId == "UnpaidResearch");
             Assert.NotNull(written);
             Assert.Equal(5000f, written.SetupCost);
-            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation: Funds mismatch"));
+            Assert.Equal(4f, written.SetupScienceCost);
+            Assert.Equal(3f, written.SetupReputationCost);
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (sci)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (rep)"));
 
             // The INFO line from GameStateRecorder.OnContractCompleted's cousin is
             // the KSC spending line; pin it so the log-assertion requirement is met.
@@ -520,6 +615,54 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("KSC spending recorded") &&
                 l.Contains("StrategyActivate"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_StrategyActivateSetupCostsAffectScienceAndRepBalances()
+        {
+            LedgerOrchestrator.Initialize();
+            logLines.Clear();
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 20f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 100f
+            });
+
+            var action = new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.StrategyActivate,
+                StrategyId = "AggressiveNegotiations",
+                SetupScienceCost = 4f,
+                SetupReputationCost = 3f
+            };
+            Ledger.AddAction(action);
+
+            var repResult = ReputationModule.ApplyReputationCurve(-3f, 100f);
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(16.0, LedgerOrchestrator.Science.GetRunningScience(), 3);
+            Assert.Equal(16.0, LedgerOrchestrator.Science.GetAvailableScience(), 3);
+            Assert.Equal(4.0, LedgerOrchestrator.Science.GetTotalCommittedSpendings(), 3);
+            Assert.Equal(repResult.actualDelta, action.EffectiveRep, 0.001f);
+            Assert.Equal(repResult.newRep, LedgerOrchestrator.Reputation.GetRunningRep(), 0.001f);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("StrategyActivate science") &&
+                l.Contains("AggressiveNegotiations"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reputation]") &&
+                l.Contains("StrategyActivate rep") &&
+                l.Contains("AggressiveNegotiations"));
         }
 
         [Fact]

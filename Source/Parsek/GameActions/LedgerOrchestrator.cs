@@ -3120,17 +3120,67 @@ namespace Parsek
 
         /// <summary>
         /// Compact description of what an untransformed action expects to see in
-        /// GameStateStore: the event type, the KSP <c>TransactionReasons</c> key the
-        /// emitter writes on it, and the signed delta the action's raw field should
-        /// represent. Returned by <see cref="ClassifyAction"/>.
+        /// GameStateStore: up to three resource legs, each with its event type, the
+        /// KSP <c>TransactionReasons</c> key the emitter writes on it, and the signed
+        /// delta the action's raw field should represent. Returned by
+        /// <see cref="ClassifyAction"/>.
         /// </summary>
+        internal enum KscExpectationLegMode
+        {
+            Direct = 0,
+            ReputationCurve = 1
+        }
+
+        internal struct KscExpectationLeg
+        {
+            public bool IsPresent;
+            public GameStateEventType EventType;
+            public string ExpectedReasonKey;
+            public double ExpectedDelta;
+            public KscExpectationLegMode Mode;
+        }
+
         internal struct KscActionExpectation
         {
             public KscReconcileClass Class;
-            public GameStateEventType EventType; // meaningful only when Class == Untransformed
-            public string ExpectedReasonKey;      // matches GameStateEvent.key (TransactionReasons.ToString())
-            public double ExpectedDelta;         // signed
+            public KscExpectationLeg FundsLeg;
+            public KscExpectationLeg ScienceLeg;
+            public KscExpectationLeg ReputationLeg;
             public string SkipReason;            // meaningful only when Class == Transformed
+
+            public int LegCount
+            {
+                get
+                {
+                    int count = 0;
+                    if (FundsLeg.IsPresent) count++;
+                    if (ScienceLeg.IsPresent) count++;
+                    if (ReputationLeg.IsPresent) count++;
+                    return count;
+                }
+            }
+        }
+
+        private struct KscExpectedLegMatch
+        {
+            public GameAction Action;
+            public KscExpectationLeg Leg;
+        }
+
+        private static KscExpectationLeg CreateExpectationLeg(
+            GameStateEventType eventType,
+            string expectedReasonKey,
+            double expectedDelta,
+            KscExpectationLegMode mode = KscExpectationLegMode.Direct)
+        {
+            return new KscExpectationLeg
+            {
+                IsPresent = true,
+                EventType = eventType,
+                ExpectedReasonKey = expectedReasonKey,
+                ExpectedDelta = expectedDelta,
+                Mode = mode
+            };
         }
 
         /// <summary>
@@ -3175,53 +3225,59 @@ namespace Parsek
                         return new KscActionExpectation
                         {
                             Class = KscReconcileClass.Untransformed,
-                            EventType = GameStateEventType.FundsChanged,
-                            ExpectedReasonKey = "VesselRollout",
-                            ExpectedDelta = -action.FundsSpent
+                            FundsLeg = CreateExpectationLeg(
+                                GameStateEventType.FundsChanged,
+                                "VesselRollout",
+                                -action.FundsSpent)
                         };
                     }
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.FundsChanged,
-                        ExpectedReasonKey = "RnDPartPurchase",
-                        ExpectedDelta = -action.FundsSpent
+                        FundsLeg = CreateExpectationLeg(
+                            GameStateEventType.FundsChanged,
+                            "RnDPartPurchase",
+                            -action.FundsSpent)
                     };
 
                 case GameActionType.ScienceSpending:
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.ScienceChanged,
-                        ExpectedReasonKey = "RnDTechResearch",
-                        ExpectedDelta = -action.Cost
+                        ScienceLeg = CreateExpectationLeg(
+                            GameStateEventType.ScienceChanged,
+                            "RnDTechResearch",
+                            -action.Cost)
                     };
 
                 case GameActionType.FacilityUpgrade:
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.FundsChanged,
-                        ExpectedReasonKey = "StructureConstruction",
-                        ExpectedDelta = -action.FacilityCost
+                        FundsLeg = CreateExpectationLeg(
+                            GameStateEventType.FundsChanged,
+                            "StructureConstruction",
+                            -action.FacilityCost)
                     };
 
                 case GameActionType.FacilityRepair:
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.FundsChanged,
-                        ExpectedReasonKey = "StructureRepair",
-                        ExpectedDelta = -action.FacilityCost
+                        FundsLeg = CreateExpectationLeg(
+                            GameStateEventType.FundsChanged,
+                            "StructureRepair",
+                            -action.FacilityCost)
                     };
 
                 case GameActionType.KerbalHire:
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.FundsChanged,
-                        ExpectedReasonKey = "CrewRecruited",
-                        ExpectedDelta = -action.HireCost
+                        FundsLeg = CreateExpectationLeg(
+                            GameStateEventType.FundsChanged,
+                            "CrewRecruited",
+                            -action.HireCost)
                     };
 
                 case GameActionType.ContractAccept:
@@ -3231,33 +3287,45 @@ namespace Parsek
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.FundsChanged,
-                        ExpectedReasonKey = "ContractAdvance",
-                        ExpectedDelta = action.AdvanceFunds
+                        FundsLeg = CreateExpectationLeg(
+                            GameStateEventType.FundsChanged,
+                            "ContractAdvance",
+                            action.AdvanceFunds)
                     };
 
                 case GameActionType.StrategyActivate:
-                    // #439 Phase A: StrategyLifecyclePatch now captures strategy activations
-                    // and the converter populates SetupCost from the StrategyActivated event's
-                    // setupFunds field. KSP's Strategy.Activate() calls Funding.Add(-InitialCostFunds,
-                    // TransactionReasons.StrategySetup) inside the method body, so by the time
-                    // our postfix runs GameStateStore already holds a FundsChanged(StrategySetup)
-                    // event with the matching negative delta. Zero-setup-cost strategies hit the
-                    // zero-expected-delta early return in ReconcileKscAction.
-                    //
-                    // Known Phase A limitation: only the Funds leg is reconciled here — a
-                    // strategy with non-zero InitialCostScience or InitialCostReputation will
-                    // still emit false-positive WARNs on those resource legs. Stock
-                    // Administration-tier-1 strategies are funds-only, so most new careers
-                    // never trip it. Multi-resource KscActionExpectation is deferred to
-                    // Phase B (see docs/dev/plans/fix-439-strategy-lifecycle-capture.md).
-                    return new KscActionExpectation
+                    // Strategy.Activate() charges all three setup-cost resources with the
+                    // same TransactionReasons.StrategySetup key. Funds and science are
+                    // direct deltas. Reputation goes through KSP's granular curve, so the
+                    // reconciliation leg marks that and ReconcileKscAction derives the
+                    // expected actual delta from the observed starting rep.
+                    var strategyExpectation = new KscActionExpectation
                     {
-                        Class = KscReconcileClass.Untransformed,
-                        EventType = GameStateEventType.FundsChanged,
-                        ExpectedReasonKey = "StrategySetup",
-                        ExpectedDelta = -action.SetupCost
+                        Class = KscReconcileClass.Untransformed
                     };
+                    if (action.SetupCost != 0f)
+                    {
+                        strategyExpectation.FundsLeg = CreateExpectationLeg(
+                            GameStateEventType.FundsChanged,
+                            "StrategySetup",
+                            -action.SetupCost);
+                    }
+                    if (action.SetupScienceCost != 0f)
+                    {
+                        strategyExpectation.ScienceLeg = CreateExpectationLeg(
+                            GameStateEventType.ScienceChanged,
+                            "StrategySetup",
+                            -action.SetupScienceCost);
+                    }
+                    if (action.SetupReputationCost != 0f)
+                    {
+                        strategyExpectation.ReputationLeg = CreateExpectationLeg(
+                            GameStateEventType.ReputationChanged,
+                            "StrategySetup",
+                            -action.SetupReputationCost,
+                            KscExpectationLegMode.ReputationCurve);
+                    }
+                    return strategyExpectation;
 
                 // ---- Transformed: raw fields do not equal post-walk contribution. ----
 
@@ -3398,33 +3466,101 @@ namespace Parsek
                     break;
             }
 
-            // Zero-expected-delta actions (e.g. a ContractAccept with no advance) have no
-            // paired event — silent.
-            const double fundsTol = 1.0;
-            const double repTol = 0.1;
-            const double sciTol = 0.1;
+            if (expectation.LegCount == 0)
+                return;
+
+            ReconcileKscExpectationLeg(events, ledgerActions, action, ut, expectation.FundsLeg);
+            ReconcileKscExpectationLeg(events, ledgerActions, action, ut, expectation.ScienceLeg);
+            ReconcileKscExpectationLeg(events, ledgerActions, action, ut, expectation.ReputationLeg);
+        }
+
+        private static void ReconcileKscExpectationLeg(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            GameAction action,
+            double ut,
+            KscExpectationLeg leg)
+        {
+            if (!leg.IsPresent)
+                return;
 
             double tol;
-            switch (expectation.EventType)
+            switch (leg.EventType)
             {
-                case GameStateEventType.FundsChanged: tol = fundsTol; break;
-                case GameStateEventType.ReputationChanged: tol = repTol; break;
-                case GameStateEventType.ScienceChanged: tol = sciTol; break;
+                case GameStateEventType.FundsChanged: tol = 1.0; break;
+                case GameStateEventType.ReputationChanged: tol = 0.1; break;
+                case GameStateEventType.ScienceChanged: tol = 0.1; break;
                 default:
                     ParsekLog.Warn(Tag,
-                        $"KSC reconciliation: unexpected EventType {expectation.EventType} " +
+                        $"KSC reconciliation: unexpected EventType {leg.EventType} " +
                         $"for action {action.Type} — classifier bug");
                     return;
             }
 
-            if (Math.Abs(expectation.ExpectedDelta) <= tol)
+            if (Math.Abs(leg.ExpectedDelta) <= tol)
                 return;
 
-            // Sum expected across all ledger actions that classify to the same
-            // (EventType, ExpectedReasonKey) pair within the UT epsilon. Handles the
-            // coalescing case where back-to-back same-kind actions share one event.
-            double summedExpected = 0;
-            int expectedCount = 0;
+            double summedObserved = 0;
+            int observedCount = 0;
+            double earliestObservedUt = double.PositiveInfinity;
+            double earliestObservedBefore = 0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.eventType != leg.EventType) continue;
+                    if (Math.Abs(e.ut - ut) > KscReconcileEpsilonSeconds) continue;
+                    string eventKey = e.key ?? "";
+                    if (!string.Equals(eventKey, leg.ExpectedReasonKey, StringComparison.Ordinal))
+                        continue;
+
+                    if (observedCount == 0 || e.ut < earliestObservedUt)
+                    {
+                        earliestObservedUt = e.ut;
+                        earliestObservedBefore = e.valueBefore;
+                    }
+
+                    summedObserved += (e.valueAfter - e.valueBefore);
+                    observedCount++;
+                }
+            }
+
+            string channelTag = ResourceChannelTag(leg.EventType);
+            if (observedCount == 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={leg.ExpectedDelta:F1} " +
+                    $"(reason='{leg.ExpectedReasonKey}') but no matching {leg.EventType} event within " +
+                    $"{KscReconcileEpsilonSeconds:F1}s of ut={ut:F1} — missing earning channel or stale event?");
+                return;
+            }
+
+            var matchingLegs = CollectMatchingLegs(ledgerActions, action, ut, leg);
+            int expectedCount = matchingLegs.Count;
+            double summedExpected = ComputeExpectedDeltaForLeg(
+                leg,
+                matchingLegs,
+                earliestObservedBefore,
+                tol);
+
+            if (Math.Abs(summedExpected - summedObserved) > tol)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={leg.ExpectedDelta:F1}, " +
+                    $"aggregate expected={summedExpected:F1} across {expectedCount} ledger action(s) vs " +
+                    $"observed={summedObserved:F1} across {observedCount} event(s) keyed '{leg.ExpectedReasonKey}' " +
+                    $"— delta mismatch at ut={ut:F1}");
+            }
+        }
+
+        private static List<KscExpectedLegMatch> CollectMatchingLegs(
+            IReadOnlyList<GameAction> ledgerActions,
+            GameAction action,
+            double ut,
+            KscExpectationLeg targetLeg)
+        {
+            var matches = new List<KscExpectedLegMatch>();
             if (ledgerActions != null)
             {
                 for (int i = 0; i < ledgerActions.Count; i++)
@@ -3432,62 +3568,85 @@ namespace Parsek
                     var other = ledgerActions[i];
                     if (other == null) continue;
                     if (Math.Abs(other.UT - ut) > KscReconcileEpsilonSeconds) continue;
-                    var otherExp = ClassifyAction(other);
-                    if (otherExp.Class != KscReconcileClass.Untransformed) continue;
-                    if (otherExp.EventType != expectation.EventType) continue;
-                    if (otherExp.ExpectedReasonKey != expectation.ExpectedReasonKey) continue;
-                    if (Math.Abs(otherExp.ExpectedDelta) <= tol) continue;
-                    summedExpected += otherExp.ExpectedDelta;
-                    expectedCount++;
-                }
-            }
-            // Defensive: if the caller didn't include `action` in ledgerActions (e.g.
-            // called from a non-production path), count it ourselves.
-            if (expectedCount == 0)
-            {
-                summedExpected = expectation.ExpectedDelta;
-                expectedCount = 1;
-            }
-
-            // Sum observed across all matching events in the same UT epsilon. Coalescing
-            // typically collapses this to a single event, but summing is correct either way.
-            double summedObserved = 0;
-            int observedCount = 0;
-            if (events != null)
-            {
-                for (int i = 0; i < events.Count; i++)
-                {
-                    var e = events[i];
-                    if (e.eventType != expectation.EventType) continue;
-                    if (Math.Abs(e.ut - ut) > KscReconcileEpsilonSeconds) continue;
-                    string eventKey = e.key ?? "";
-                    if (!string.Equals(eventKey, expectation.ExpectedReasonKey, StringComparison.Ordinal))
-                        continue;
-                    summedObserved += (e.valueAfter - e.valueBefore);
-                    observedCount++;
+                    var otherExpectation = ClassifyAction(other);
+                    if (otherExpectation.Class != KscReconcileClass.Untransformed) continue;
+                    AddMatchingLeg(matches, other, otherExpectation.FundsLeg, targetLeg);
+                    AddMatchingLeg(matches, other, otherExpectation.ScienceLeg, targetLeg);
+                    AddMatchingLeg(matches, other, otherExpectation.ReputationLeg, targetLeg);
                 }
             }
 
-            string channelTag = ResourceChannelTag(expectation.EventType);
-
-            if (observedCount == 0)
+            if (matches.Count == 0)
             {
-                // No paired event whatsoever — the real "missing earning channel" signal.
-                ParsekLog.Warn(Tag,
-                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={expectation.ExpectedDelta:F1} " +
-                    $"(reason='{expectation.ExpectedReasonKey}') but no matching {expectation.EventType} event within " +
-                    $"{KscReconcileEpsilonSeconds:F1}s of ut={ut:F1} — missing earning channel or stale event?");
+                AddMatchingLeg(matches, action, targetLeg, targetLeg);
+            }
+
+            return matches;
+        }
+
+        private static void AddMatchingLeg(
+            List<KscExpectedLegMatch> matches,
+            GameAction action,
+            KscExpectationLeg candidate,
+            KscExpectationLeg target)
+        {
+            if (!candidate.IsPresent)
                 return;
+            if (candidate.EventType != target.EventType)
+                return;
+            if (candidate.Mode != target.Mode)
+                return;
+            if (!string.Equals(candidate.ExpectedReasonKey ?? "", target.ExpectedReasonKey ?? "", StringComparison.Ordinal))
+                return;
+
+            matches.Add(new KscExpectedLegMatch
+            {
+                Action = action,
+                Leg = candidate
+            });
+        }
+
+        private static double ComputeExpectedDeltaForLeg(
+            KscExpectationLeg leg,
+            List<KscExpectedLegMatch> matches,
+            double startingObservedValue,
+            double tol)
+        {
+            if (matches == null || matches.Count == 0)
+                return leg.ExpectedDelta;
+
+            if (leg.Mode != KscExpectationLegMode.ReputationCurve)
+            {
+                double sum = 0;
+                for (int i = 0; i < matches.Count; i++)
+                {
+                    if (Math.Abs(matches[i].Leg.ExpectedDelta) <= tol)
+                        continue;
+                    sum += matches[i].Leg.ExpectedDelta;
+                }
+                return sum;
             }
 
-            if (Math.Abs(summedExpected - summedObserved) > tol)
+            matches.Sort((a, b) =>
             {
-                ParsekLog.Warn(Tag,
-                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={expectation.ExpectedDelta:F1}, " +
-                    $"aggregate expected={summedExpected:F1} across {expectedCount} ledger action(s) vs " +
-                    $"observed={summedObserved:F1} across {observedCount} event(s) keyed '{expectation.ExpectedReasonKey}' " +
-                    $"— delta mismatch at ut={ut:F1}");
+                int utCompare = a.Action.UT.CompareTo(b.Action.UT);
+                if (utCompare != 0)
+                    return utCompare;
+                return a.Action.Sequence.CompareTo(b.Action.Sequence);
+            });
+
+            float currentRep = (float)startingObservedValue;
+            double curvedSum = 0;
+            for (int i = 0; i < matches.Count; i++)
+            {
+                float nominal = (float)matches[i].Leg.ExpectedDelta;
+                if (Math.Abs(nominal) <= tol)
+                    continue;
+                var result = ReputationModule.ApplyReputationCurve(nominal, currentRep);
+                curvedSum += result.actualDelta;
+                currentRep = result.newRep;
             }
+            return curvedSum;
         }
 
         /// <summary>Pure: short channel tag used in the reconciliation log lines.</summary>

@@ -549,34 +549,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// StrategyActivated -> StrategyActivate (#439 Phase A). <c>StrategyId</c> comes
-        /// from <c>evt.key</c> (strategy config Name). <c>Commitment</c> parses the
+        /// StrategyActivated -> StrategyActivate. <c>StrategyId</c> comes from
+        /// <c>evt.key</c> (strategy config Name). <c>Commitment</c> parses the
         /// <c>factor</c> detail field; <c>SourceResource</c> / <c>TargetResource</c>
         /// parse the recorder-emitted <c>source</c> / <c>target</c> detail fields so
         /// the Actions/Timeline/Career State UI preserves the real strategy flow.
-        /// <c>SetupCost</c> parses <c>setupFunds</c> — the sci/rep setup costs
-        /// (<c>setupSci</c>, <c>setupRep</c>) are deferred to Phase B because
-        /// <see cref="LedgerOrchestrator.KscActionExpectation"/> only carries a single
-        /// ExpectedDelta/EventType pair today. Internal static for testability.
+        /// Setup costs parse from <c>setupFunds</c>, <c>setupSci</c>, and
+        /// <c>setupRep</c> so the action carries all three setup resources through
+        /// conversion, save/load, recalculation, and KSC reconciliation.
+        /// Internal static for testability.
         /// </summary>
         internal static GameAction ConvertStrategyActivated(GameStateEvent evt, string recordingId)
         {
-            float factor = 0f;
-            string factorStr = ExtractDetail(evt.detail, "factor");
-            if (factorStr != null)
-                float.TryParse(factorStr, NumberStyles.Float, IC, out factor);
-
+            float factor = ParseDetailFloat(evt.detail, "factor");
             StrategyResource sourceResource = ParseStrategyResource(
                 ExtractDetail(evt.detail, "source"),
                 StrategyResource.Funds);
             StrategyResource targetResource = ParseStrategyResource(
                 ExtractDetail(evt.detail, "target"),
                 StrategyResource.Funds);
-
-            float setupFunds = 0f;
-            string setupFundsStr = ExtractDetail(evt.detail, "setupFunds");
-            if (setupFundsStr != null)
-                float.TryParse(setupFundsStr, NumberStyles.Float, IC, out setupFunds);
+            float setupFunds = ParseDetailFloat(evt.detail, "setupFunds");
+            float setupSci = ParseDetailFloat(evt.detail, "setupSci");
+            float setupRep = ParseDetailFloat(evt.detail, "setupRep");
 
             return new GameAction
             {
@@ -587,7 +581,9 @@ namespace Parsek
                 SourceResource = sourceResource,
                 TargetResource = targetResource,
                 Commitment = factor,
-                SetupCost = setupFunds
+                SetupCost = setupFunds,
+                SetupScienceCost = setupSci,
+                SetupReputationCost = setupRep
             };
         }
 
@@ -621,6 +617,15 @@ namespace Parsek
         private static string ExtractDetail(string detail, string key)
         {
             return GameStateEventDisplay.ExtractDetailField(detail, key);
+        }
+
+        private static float ParseDetailFloat(string detail, string key)
+        {
+            float value = 0f;
+            string raw = ExtractDetail(detail, key);
+            if (raw != null)
+                float.TryParse(raw, NumberStyles.Float, IC, out value);
+            return value;
         }
 
         private static StrategyResource ParseStrategyResource(

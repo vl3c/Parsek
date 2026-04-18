@@ -161,9 +161,11 @@ namespace Parsek.Tests
             var exp = LedgerOrchestrator.ClassifyAction(action);
 
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
-            Assert.Equal("VesselRollout", exp.ExpectedReasonKey);
-            Assert.Equal(-5000.0, exp.ExpectedDelta);
+            Assert.Equal(1, exp.LegCount);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+            Assert.Equal("VesselRollout", exp.FundsLeg.ExpectedReasonKey);
+            Assert.Equal(-5000.0, exp.FundsLeg.ExpectedDelta);
         }
 
         [Fact]
@@ -180,7 +182,8 @@ namespace Parsek.Tests
 
             var exp = LedgerOrchestrator.ClassifyAction(action);
 
-            Assert.Equal("RnDPartPurchase", exp.ExpectedReasonKey);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal("RnDPartPurchase", exp.FundsLeg.ExpectedReasonKey);
         }
 
         // ----------------------------------------------------------------
