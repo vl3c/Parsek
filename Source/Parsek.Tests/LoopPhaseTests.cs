@@ -707,6 +707,51 @@ namespace Parsek.Tests
             // NaN -> clamped to MinCycleDuration=5. 5 -> ceil(60/5)=12 > 10 -> 10: ceil(60/10)=6 <= 10.
             Assert.Equal(10.0, effective);
         }
+
+        /// <summary>
+        /// #443 P1 regression: the engine assigns loopCycleIndex using the EFFECTIVE cadence
+        /// (after cadence-doubling), but WatchModeController.ResolveWatchPlaybackUT was passing
+        /// the user-requested period to ComputeOverlapCycleLoopUT. Under any cadence-adjusted
+        /// recording this produced the wrong cycleStartUT and jumped the watched ghost to the
+        /// wrong phase. This test pins the invariant: with the effective cadence, the phase
+        /// reconstruction matches what the engine computed when it assigned the cycle index.
+        /// </summary>
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase()
+        {
+            // Engine side: user period=1, duration=164, cap=10 -> effective=20.
+            // At currentUT=100 with loopStartUT=0: lastCycle=floor(100/20)=5. The engine
+            // positions the primary at phase=currentUT - lastCycle*effective = 0, loopUT=loopStart.
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 1.0, duration: 164.0, maxCycles: 10);
+            Assert.Equal(20.0, effective);
+
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 100.0, loopStartUT: 0.0, duration: 164.0,
+                intervalSeconds: effective, loopCycleIndex: 5);
+
+            Assert.Equal(0.0, loopUT, 6);
+        }
+
+        /// <summary>
+        /// Regression guard: feeding the user-requested period (instead of the effective
+        /// cadence) to ComputeOverlapCycleLoopUT produces a diverging phase. The helper
+        /// defensively clamps intervalSeconds to MinCycleDuration=5, so for user period=1
+        /// we get cycleDuration=5 — still wrong vs the engine's effective=20, but not 95.
+        /// cycleStartUT=0+5*5=25, phase=100-25=75.
+        /// </summary>
+        [Fact]
+        public void ComputeOverlapCycleLoopUT_UserPeriodWhileEngineDoubled_ProducesWrongPhase()
+        {
+            double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
+                currentUT: 100.0, loopStartUT: 0.0, duration: 164.0,
+                intervalSeconds: 1.0, loopCycleIndex: 5);
+
+            // The bug: watch-mode resolves to phase 75 (loopUT=75) instead of the engine's
+            // actual phase 0 (loopUT=0). Any non-zero value signals the drift.
+            Assert.NotEqual(0.0, loopUT);
+            Assert.Equal(75.0, loopUT, 6);
+        }
     }
 
     #endregion

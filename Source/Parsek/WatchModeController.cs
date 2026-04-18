@@ -2837,9 +2837,19 @@ namespace Parsek
                 if (resolveDuration <= GhostPlaybackLogic.MinCycleDuration)
                     return fallbackUT;
 
+                // #443: engine's UpdateOverlapPlayback assigns loopCycleIndex using the
+                // cadence-adjusted cadence (ComputeEffectiveLaunchCadence). Watch mode MUST
+                // reconstruct cycleStartUT with the same effective cadence or the computed
+                // phase drifts by (effective - user) * loopCycleIndex. Dispatch (IsOverlapLoop
+                // above) still uses the user period — that matches the engine's dispatch at
+                // GhostPlaybackEngine.cs:900.
+                double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                    intervalSeconds, resolveDuration,
+                    GhostPlaybackEngine.MaxOverlapGhostsPerRecording);
+
                 return GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                     Planetarium.GetUniversalTime(), loopStartUT, resolveDuration,
-                    intervalSeconds, currentState.loopCycleIndex);
+                    effectiveCadence, currentState.loopCycleIndex);
             }
 
             if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),
