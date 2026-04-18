@@ -247,23 +247,38 @@ follow-up is validation/tuning work against larger corpora rather than another p
 - defer trajectory thinning, compression, or lazy loading until the snapshot bucket is re-measured
   and still justifies more work
 
----
+### v0.9 — Rewind to Staging
 
-## Phase 12: Rewind to Staging (v0.9, in design)
+Phase 12 shipped: re-fly unfinished missions after multi-controllable splits (staging, undock, EVA
+with 2+ controllable outputs). Full design: [`docs/parsek-rewind-staging.md`](parsek-rewind-staging.md).
+The pre-implementation spec that drove v0.9 is archived at
+[`docs/dev/done/parsek-rewind-staging-design.md`](dev/done/parsek-rewind-staging-design.md).
 
-Go back to a past multi-controllable split event and fly the sibling vessel you did not originally fly. The motivating case is booster recovery: launch an AB stack, stage, take B to orbit and commit - then rewind to the separation moment and fly A back down as a self-landing booster. The same mechanism covers any split that produces two or more controllable entities: stage decouples, undocks, and EVA.
-
-**Design doc:** [`docs/parsek-rewind-staging-design.md`](parsek-rewind-staging-design.md).
-
-- **Rewind Points at split time** - every multi-controllable split writes a KSP quicksave into `saves/<save>/Parsek/RewindPoints/` plus a persistent-id-to-slot map captured at save time, so the post-load strip can reliably identify which vessels to replace with ghosts.
-- **Unfinished Flights group** - a virtual, computed group in the Recordings Manager lists every committed BG-crash sibling whose parent split has a Rewind Point. Membership updates automatically as flights are flown and merged.
-- **Append-only supersede** - invoking a Rewind Point and merging a new attempt adds a `RecordingSupersede(old, new)` relation record. The original recording is never mutated or deleted; ghost/claim subsystems filter via the relation list. Preserves the flight-recorder's monotonic additive tree invariant.
-- **Narrow v1 supersede scope** - the only ledger retirement on supersede is `KerbalDeath` (and reputation penalties bundled with it); kerbals return to active via the normal reservation walk. Contract completions, milestones, facility upgrades, strategies, tech, science, and other rep/funds deltas from the original attempt stay in career totals (these are KSP-sticky and can't be safely re-emitted).
-- **Crashed re-fly stays rewindable** - merging a crashed attempt commits it as `CommittedProvisional Crashed`; the supersede chain extends and the slot remains an Unfinished Flight the player can try again. Merging a stable outcome (Landed, Orbited, Recovered) seals the slot.
-- **Effective-state model** - a single `Effective Recording Set` plus `Effective Ledger Set` abstraction gives every subsystem one rule for "what counts right now." A narrow session-suppressed subtree carve-out applies during an active re-fly only to physical-visibility subsystems (ghost walker, claim tracker, map/tracking-station/CommNet). Career state keeps reading through directly.
-- **Journaled staged merge** - irreversible file operations (deleting reap-eligible Rewind Point quicksaves) happen only after a durable save, so crashes mid-merge are recoverable on the next load.
-
-This slots between the shipped v0.8.x work and Phase 13. Phase 13 (logistics routes) does not depend on it, and it does not depend on Phase 13 - both use the resource/inventory/crew manifests shipped in Phase 11.
+- **Rewind Points at split time** — every multi-controllable split writes a KSP quicksave to
+  `saves/<save>/Parsek/RewindPoints/<rpId>.sfs` plus a persistent-id-to-slot map captured at save
+  time, so the post-load strip can reliably identify which vessels to replace with ghosts.
+- **Unfinished Flights UI group** — a virtual, computed group in the Recordings Manager lists every
+  committed BG-crash sibling whose parent split has a Rewind Point. Non-hideable, non-drop-target;
+  clicking Rewind re-flies the sibling from the moment of the split.
+- **Append-only supersede** — merging a re-fly appends a `RecordingSupersede(old, new)` relation.
+  The original recording is never mutated or deleted; ghost/claim subsystems filter via the relation
+  list. Tree invariant preserved (additive only).
+- **Narrow v1 supersede scope** — the only ledger retirement on supersede is `KerbalDeath` plus
+  reputation penalties bundled with it; kerbals return to active via the normal reservation walk.
+  Contracts, milestones, facilities, strategies, tech, science, and other rep/funds deltas stay
+  sticky in career totals.
+- **Crashed re-fly stays rewindable** — merging a crashed attempt commits as `CommittedProvisional`
+  and remains an Unfinished Flight the player can try again. Merging a stable outcome seals the slot
+  as `Immutable`.
+- **Effective-state model** — `EffectiveRecordingSet` and `EffectiveLedgerSet` give every subsystem
+  one rule for "what counts right now." A narrow session-suppressed subtree carve-out applies during
+  an active re-fly only to physical-visibility subsystems (ghost walker, claim tracker, map /
+  tracking-station / CommNet). Career state reads ERS/ELS directly.
+- **Journaled staged merge** — irreversible file operations (deleting reap-eligible Rewind Point
+  quicksaves) happen only after a durable save, and the nine-phase `MergeJournal` recovers the merge
+  on the next load if a crash occurs mid-sequence.
+- **Revert-during-re-fly dialog** — intercepts stock Revert-to-Launch while a session is active and
+  offers Retry from Rewind Point / Full Revert (Discard Re-fly) / Continue Flying.
 
 ---
 
