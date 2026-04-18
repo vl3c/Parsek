@@ -26,8 +26,21 @@ namespace Parsek
             { "MonoPropellant_Heavy",  "sound_rocket_spurts" },
             { "MonoPropellant_Medium", "sound_rocket_mini" },
             { "MonoPropellant_Light",  "sound_rocket_mini" },
-            { "XenonGas",             "sound_IonEngine" },
-            { "ElectricCharge",       "sound_IonEngine" },
+            // Ion engines: stock cfg references `clip = sound_IonEngine` in EFFECTS
+            // (see GameData/Squad/Parts/Engine/ionEngine/ionEngine.cfg), but that
+            // asset is NOT surfaced through `GameDatabase.GetAudioClip` in KSP 1.12
+            // — confirmed by enumerating GameData/Squad/Sounds (no `sound_IonEngine`
+            // .wav/.ogg) and by the playtest log
+            // logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log lines
+            // 15772/18092/22369/26985/35917/41246/45772 (same 7 misses dedupe'd by
+            // #421's per-(ghost,pid,clip) WARN gate). Substitute the quietest
+            // available rocket clip rather than emit a permanent "AudioClip not
+            // found" WARN. The dedupe machinery in
+            // `GhostVisualBuilder.WarnMissingAudioClipOnce` stays as a safety net
+            // for any future genuinely-missing clip; for the ion case the mapping
+            // itself is the fix. Bug #423.
+            { "XenonGas",             "sound_rocket_mini" },
+            { "ElectricCharge",       "sound_rocket_mini" },
             { "IntakeAir",            "sound_jet_deep" },
             { "Fallback",             "sound_rocket_spurts" }
         };
@@ -192,7 +205,9 @@ namespace Parsek
             return curve;
         }
 
-        private static string LookupClip(string key)
+        // internal (not private) so unit tests can assert preset-map entries
+        // directly without standing up a real `Part` (which requires Unity runtime).
+        internal static string LookupClip(string key)
         {
             string result;
             return presetMap.TryGetValue(key, out result) ? result : null;

@@ -888,26 +888,19 @@ Added `ParsekSettings.CurrentOverrideForTesting` hook so unit tests can exercise
 
 ---
 
-## 423. Stock ion engine audio clip `sound_IonEngine` is missing on ghost playback (underlying cause behind the #421 dedupe)
+## ~~423. Stock ion engine audio clip `sound_IonEngine` is missing on ghost playback (underlying cause behind the #421 dedupe)~~
 
 **Source:** review follow-up on PR #328's `#421` fix. `#421` only deduped the `GhostAudio` "AudioClip not found" WARN per `(ghost, pid, clip path)`. The underlying reason the clip cannot be resolved at ghost-build time was intentionally left for a separate pass so the dedupe could ship first.
 
 **Concern:** Every live-career and showcase ghost that carries a stock ion engine (`ionEngine` / `IX-6315 "Dawn"`) silently plays without engine audio during ghost playback, which is a visual-fidelity regression relative to the real vessel. The playtest log that surfaced `#421` (`logs/2026-04-16_2226_pr316-v3-small-engine/KSP.log:15772, 18092, 22369, 26985, 35917, 41246, 45772`) shows the warn firing 7 times for the same `ionEngine` pid=100000 — the clip path `sound_IonEngine` never resolves.
 
-**Investigation hints:**
+**Investigation outcome:** The stock cfg `GameData/Squad/Parts/Engine/ionEngine/ionEngine.cfg` does reference `clip = sound_IonEngine` in its `EFFECTS { IonPlume { AUDIO { ... } } }` block (so Parsek's `GhostAudioPresets.presetMap` was using exactly the cfg-declared name), but the audio asset is NOT surfaced through `GameDatabase.GetAudioClip` in KSP 1.12 — `GameData/Squad/Sounds/` ships only the rocket/explosion/UI clips (`sound_rocket_hard`/`mini`/`spurts`, `sound_jet_deep`, `sound_explosion_*`, etc.) and no `sound_IonEngine` .wav/.ogg/asset bundle entry that `GameDatabase` indexes. Sibling presets for the other engine families (jet, all rocket variants) all resolve cleanly in the same playtest log, confirming the issue is specific to this one missing clip rather than an asset-bundle scanning timing bug. Per the bug spec, this is the "genuinely missing from the install" branch — adjust the lookup rather than logging WARN forever.
 
-- Grep `Source/Parsek/GhostAudio*` / `GhostVisualBuilder.TryBuildAudioFX` for `sound_IonEngine` and trace where the clip path is synthesized. Likely candidates:
-  - `GhostAudioPresets.presetMap` is emitting `sound_IonEngine` for the `XenonGas` / `ElectricCharge` propellant branch when the stock cfg's actual clip name differs (KSP post-1.12 may ship the clip under `KSP/Sounds/...` or a different base name).
-  - The ghost-build path is looking up the clip via `GameDatabase.Instance.GetAudioClip(...)` with a synthesized path that doesn't match what the stock cfg `EFFECTS { ... RUNNING { ... AUDIO { clip = <path> } } }` block references.
-  - KSP's AudioClip database may not be populated at the UT the ghost is built (ghost-build runs on scenario load, before `GameDatabase` finishes scanning stock sounds in some startup paths).
-- Decompile or read `Assembly-CSharp` for the `ionEngine` part's `EFFECTS` config to compare the clip reference against what Parsek is looking up. See `reference_ksp_decompilation.md` for the `ilspycmd` workflow.
-- Check whether the stock `ionEngine` cfg has been renamed between KSP versions (e.g. `sound_Engine_IonEngine` vs `sound_IonEngine` vs just a `.ogg` path), and whether the mod's clip-resolution code copes with the variant.
+**Fix:** in `GhostAudioPresets.presetMap`, remap `XenonGas` and `ElectricCharge` from the unresolvable `sound_IonEngine` to `sound_rocket_mini` (the quietest available stock clip), so ion engines get a subtle whisper of audio instead of either silence or a permanent WARN. The `#421` dedupe machinery in `GhostVisualBuilder.WarnMissingAudioClipOnce` is left intact as a safety net for any other future genuinely-missing clip. Inline comment in `GhostAudioPresets.cs` records the investigation outcome and points back at the playtest log lines.
 
-**Proposed fix:** depends on root cause. If the preset map is wrong, fix the preset. If the clip is in `GameData/Squad/Sounds/` under a different path, update the lookup. If the clip resolves late, defer the audio build or retry on first playback tick. Whatever the root fix, the `#421` dedupe machinery can stay — it becomes a cheap safety net for any other future genuinely-missing clips.
+**Files touched:** `Source/Parsek/GhostAudioPresets.cs` (remap + investigation comment, expose `LookupClip` as `internal` for direct test coverage), `Source/Parsek.Tests/GhostAudioTests.cs` (regression `[Theory]` asserting the ion keys never map back to `sound_IonEngine` and that the rest of the preset map is unchanged).
 
-**Files to touch:** probably `Source/Parsek/GhostAudioPresets.cs` (or wherever the preset map lives), `Source/Parsek/GhostVisualBuilder.cs` (`TryBuildAudioFX`), and a unit test that asserts the correct clip path for the `ionEngine` part name under a mock `GameDatabase`.
-
-**Status:** TODO. Size: S. Low priority — no gameplay regression, only a subtle audio fidelity miss on a specific stock engine. Blocked on inspecting the stock cfg.
+**Status:** ~~Fixed~~. Size: S.
 
 ---
 

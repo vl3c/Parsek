@@ -89,6 +89,62 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Preset Map Coverage (bug #423)
+
+        // Bug #423: stock cfg references `sound_IonEngine` for the ion engine,
+        // but that asset is not surfaced via `GameDatabase.GetAudioClip` in
+        // KSP 1.12. The preset map must NOT emit `sound_IonEngine` for the ion
+        // propellant keys, otherwise every ion-engine ghost spams the
+        // "AudioClip not found" WARN that #421 dedupe'd. Substitute with a clip
+        // that does ship in stock GameData.
+        [Theory]
+        [InlineData("XenonGas")]
+        [InlineData("ElectricCharge")]
+        public void LookupClip_IonPropellants_DoNotMapToMissingStockClip(string propellantKey)
+        {
+            string clip = GhostAudioPresets.LookupClip(propellantKey);
+            Assert.NotNull(clip);
+            Assert.NotEqual("sound_IonEngine", clip);
+        }
+
+        [Theory]
+        [InlineData("XenonGas", "sound_rocket_mini")]
+        [InlineData("ElectricCharge", "sound_rocket_mini")]
+        public void LookupClip_IonPropellants_MapToQuietRocketSubstitute(
+            string propellantKey, string expectedClip)
+        {
+            Assert.Equal(expectedClip, GhostAudioPresets.LookupClip(propellantKey));
+        }
+
+        // Regression guard for the rest of the preset map: the ion fix must
+        // not perturb the other propellant entries the playtest log confirms
+        // resolve cleanly (`sound_rocket_hard`, `sound_rocket_spurts`,
+        // `sound_rocket_mini`, `sound_jet_deep`).
+        [Theory]
+        [InlineData("LiquidFuel_Heavy",      "sound_rocket_hard")]
+        [InlineData("LiquidFuel_Medium",     "sound_rocket_hard")]
+        [InlineData("LiquidFuel_Light",      "sound_rocket_spurts")]
+        [InlineData("SolidFuel_Heavy",       "sound_rocket_hard")]
+        [InlineData("SolidFuel_Medium",      "sound_rocket_hard")]
+        [InlineData("SolidFuel_Light",       "sound_rocket_spurts")]
+        [InlineData("MonoPropellant_Heavy",  "sound_rocket_spurts")]
+        [InlineData("MonoPropellant_Medium", "sound_rocket_mini")]
+        [InlineData("MonoPropellant_Light",  "sound_rocket_mini")]
+        [InlineData("IntakeAir",             "sound_jet_deep")]
+        [InlineData("Fallback",              "sound_rocket_spurts")]
+        public void LookupClip_NonIonEntries_Unchanged(string key, string expectedClip)
+        {
+            Assert.Equal(expectedClip, GhostAudioPresets.LookupClip(key));
+        }
+
+        [Fact]
+        public void LookupClip_UnknownKey_ReturnsNull()
+        {
+            Assert.Null(GhostAudioPresets.LookupClip("NoSuchPreset"));
+        }
+
+        #endregion
+
         #region Atmosphere Factor
 
         [Fact]
