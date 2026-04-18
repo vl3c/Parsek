@@ -251,17 +251,21 @@ namespace Parsek
                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
                 $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
-            // 5b. #394: commit-time reconciliation — compare the sum of dropped
+            // 6. Recalculate + patch. Must run BEFORE ReconcileEarningsWindow so the
+            // walk populates derived fields (Transformed* / EffectiveRep / EffectiveScience)
+            // that the reconciliation switch now reads. See #440B.
+            RecalculateAndPatch();
+
+            // 5b. #394 / #440B: commit-time reconciliation -- compare the sum of dropped
             // FundsChanged/ReputationChanged/ScienceChanged events (which the converter
             // intentionally drops, see GameStateEventConverter:121-130) against the
             // sum of effective emitted Funds/Rep/Science actions in the same UT window.
             // Log WARN on mismatch. Log-only: the drop block itself must stay, because
             // re-emitting those events would double-count against recovery + contract +
-            // milestone channels (review §5.1 regression guard).
+            // milestone channels (review section 5.1 regression guard).
+            // #440B: now runs AFTER RecalculateAndPatch so it can read post-walk derived
+            // fields; mirrors ReconcilePostWalk semantics and closes the double-WARN risk.
             ReconcileEarningsWindow(events, actions, startUT, endUT);
-
-            // 6. Recalculate + patch
-            RecalculateAndPatch();
         }
 
         /// <summary>
@@ -273,6 +277,15 @@ namespace Parsek
         /// Note: vesselCost and science actions are already merged into <paramref name="newActions"/>
         /// by <see cref="OnRecordingCommitted"/> before this runs, so they are summed implicitly
         /// through the single <c>newActions</c> walk and do not need separate parameters.
+        /// </para>
+        /// <para>
+        /// #440B: this method must run AFTER <see cref="RecalculateAndPatch"/> populates
+        /// derived fields on the seeded actions. The switch reads post-walk values --
+        /// TransformedFundsReward / TransformedScienceReward / EffectiveRep / EffectiveScience
+        /// -- matching the rewind-path <see cref="ReconcilePostWalk"/> hook. Calling this
+        /// before the walk reads zero for every derived field and warns spuriously on
+        /// every contract. The Effective-gated cases (ContractComplete, MilestoneAchievement,
+        /// ScienceEarning, FundsEarning) mirror the module-side skip on duplicates.
         /// </para>
         /// </summary>
         internal static void ReconcileEarningsWindow(
@@ -325,26 +338,39 @@ namespace Parsek
                     switch (a.Type)
                     {
                         case GameActionType.FundsEarning:
+                            // #440B: preemptive parity with FundsModule, which skips
+                            // crediting when !Effective. No TransformedFundsAwarded
+                            // exists today; read raw FundsAwarded.
+                            if (!a.Effective) break;
                             emittedFundsDelta += a.FundsAwarded;
                             break;
                         case GameActionType.FundsSpending:
                             emittedFundsDelta -= a.FundsSpent;
                             break;
                         case GameActionType.ReputationEarning:
-                            emittedRepDelta += a.NominalRep;
+                            // #440B: EffectiveRep is curve-applied by ReputationModule
+                            // (ApplyReputationCurve). Mirrors ReconcilePostWalk.
+                            emittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ReputationPenalty:
-                            emittedRepDelta -= a.NominalPenalty;
+                            // #440B: EffectiveRep is signed negative for penalties
+                            // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
+                            emittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractComplete:
-                            emittedFundsDelta += a.FundsReward;
-                            emittedRepDelta += a.RepReward;
-                            emittedSciDelta += a.ScienceReward;
+                            // #440B: read post-walk Transformed* / EffectiveRep. Gate on
+                            // Effective to skip duplicate completions (module skips credit).
+                            if (!a.Effective) break;
+                            emittedFundsDelta += a.TransformedFundsReward;
+                            emittedRepDelta += a.EffectiveRep;
+                            emittedSciDelta += a.TransformedScienceReward;
                             break;
                         case GameActionType.ContractFail:
                         case GameActionType.ContractCancel:
+                            // #440B: funds penalty has no transform today; keep raw.
+                            // Rep penalty: EffectiveRep is already signed negative.
                             emittedFundsDelta -= a.FundsPenalty;
-                            emittedRepDelta -= a.RepPenalty;
+                            emittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractAccept:
                             // #438 gap #1: without this case the advance payment's
@@ -356,7 +382,7 @@ namespace Parsek
                             break;
                         case GameActionType.FacilityUpgrade:
                             // #438 gap #6: symmetric to the KSC-side ReconcileKscAction
-                            // path — a facility spend inside a recording's commit window
+                            // path -- a facility spend inside a recording's commit window
                             // must subtract from the emitted delta to match the store's
                             // negative FundsChanged.
                             emittedFundsDelta -= a.FacilityCost;
@@ -367,12 +393,20 @@ namespace Parsek
                             facilityRepairCount++;
                             break;
                         case GameActionType.MilestoneAchievement:
+                            // #440B: rep leg reads EffectiveRep (curve-applied). Funds/Sci
+                            // legs keep raw MilestoneFundsAwarded / MilestoneScienceAwarded
+                            // (no transform today). Gate on Effective for duplicate milestones.
+                            if (!a.Effective) break;
                             emittedFundsDelta += a.MilestoneFundsAwarded;
-                            emittedRepDelta += a.MilestoneRepAwarded;
+                            emittedRepDelta += a.EffectiveRep;
                             emittedSciDelta += a.MilestoneScienceAwarded;
                             break;
                         case GameActionType.ScienceEarning:
-                            emittedSciDelta += a.ScienceAwarded;
+                            // #440B: EffectiveScience is post-subject-cap (ScienceModule).
+                            // At cap, EffectiveScience=0 while ScienceAwarded != 0 --
+                            // this silences a false-positive WARN on capped subjects.
+                            if (!a.Effective) break;
+                            emittedSciDelta += a.EffectiveScience;
                             break;
                         case GameActionType.ScienceSpending:
                             emittedSciDelta -= a.Cost;
