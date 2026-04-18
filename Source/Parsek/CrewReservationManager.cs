@@ -307,6 +307,15 @@ namespace Parsek
             int skippedSnapshotMiss = 0;                 // Warn: orphan but no snapshot trail
             int skippedNoMatchingPart = 0;               // Warn: snapshot found but no live part
 
+            // Bug #456 telemetry: count how each placement actually resolved the
+            // live part — pid-hits vs name-hit fallbacks. A synthetic pid=100000
+            // showcase ghost can never pid-match a freshly-launched real vessel
+            // (KSP picks a random part pid at spawn), so name-hit fallbacks are
+            // the only path for those cases. Surfaces in the summary line so
+            // future playtests distinguish pid vs name resolution at a glance.
+            int pidHits = 0;
+            int nameHitFallbacks = 0;
+
             // Build the snapshot list once. Use GhostVisualSnapshot (recording-start
             // state) — VesselSnapshot is end-of-recording and would not contain a
             // crew member who EVA'd mid-recording.
@@ -414,13 +423,18 @@ namespace Parsek
                     continue;
                 }
 
-                // Find a matching part on the active vessel. Two-tier match only
-                // (PR #175 review): persistentId → partInfo.name. The previous
-                // tier-3 "any part with free capacity" fallback was removed because
-                // a misplaced stand-in (e.g. dropped into a passenger cabin instead
-                // of the command pod) is arguably worse than an unplaced one and
-                // would silently mask the bug it's trying to fix.
-                Part target = FindTargetPartForOrphan(seat.PartPid, seat.PartName);
+                // Find a matching part on the active vessel. Two-tier match
+                // (PR #175 review → bug #456): persistentId → partInfo.name (prefer
+                // the part with the FEWEST free seats, i.e. the tightest fit).
+                // The previous tier-3 "any part with free capacity" fallback was
+                // removed in PR #175 because a misplaced stand-in (e.g. dropped into
+                // a passenger cabin instead of the command pod) is arguably worse
+                // than an unplaced one and would silently mask the bug it's trying
+                // to fix. The tightest-fit rule keeps that guarantee even when
+                // multiple parts share the snapshot part name (the cockpit typically
+                // has fewer seats than a passenger cabin).
+                Part target = FindTargetPartForOrphan(
+                    seat.PartPid, seat.PartName, out SeatMatchKind matchKind);
                 if (target == null)
                 {
                     // Preserve the distinctive "snapshot pid=0" signal (bug #413):
@@ -433,7 +447,8 @@ namespace Parsek
                     ParsekLog.Warn("CrewReservation",
                         $"Orphan placement: no matching part with free seat in active vessel for " +
                         $"'{originalName}' → '{replacementName}' " +
-                        $"(snapshot {pidDiagnostic} name='{seat.PartName}') — stand-in left in roster");
+                        $"(snapshot {pidDiagnostic} name='{seat.PartName}') — stand-in left in roster " +
+                        $"(attempted pidHits={pidHits} nameHitFallbacks={nameHitFallbacks})");
                     skippedNoMatchingPart++;
                     continue;
                 }
@@ -447,14 +462,35 @@ namespace Parsek
                 // Keep the local activeVesselCrewNames set in sync so a subsequent
                 // orphan that maps to the same kerbal doesn't false-collide.
                 activeVesselCrewNames.Add(replacementName);
-                CrewLog($"Orphan placement: '{originalName}' → '{replacement.name}' " +
-                    $"placed in part '{target.partInfo.title}' " +
-                    $"(snapshot pid={seat.PartPid}, live pid={target.persistentId})");
+
+                // Bug #456: call out which matcher tier actually fired. A name-hit
+                // fallback is the signal that a synthetic-pid snapshot (typically
+                // a showcase ghost with pid=100000) landed in a real vessel whose
+                // KSP-assigned pid doesn't match — the placement still worked but
+                // future playtests should be able to grep for this line to confirm
+                // the fallback path is load-bearing.
+                if (matchKind == SeatMatchKind.PidHit)
+                {
+                    pidHits++;
+                    CrewLog($"Orphan placement: '{originalName}' → '{replacement.name}' " +
+                        $"placed in part '{target.partInfo.title}' " +
+                        $"(snapshot pid={seat.PartPid}, live pid={target.persistentId}, match=pid)");
+                }
+                else
+                {
+                    nameHitFallbacks++;
+                    ParsekLog.Info("CrewReservation",
+                        $"Orphan placement: '{originalName}' → '{replacement.name}' " +
+                        $"placed in part '{target.partInfo.title}' " +
+                        $"(snapshot pid={seat.PartPid} name='{seat.PartName}', " +
+                        $"live pid={target.persistentId}, match=name-fallback)");
+                }
             }
 
             if (orphanCount > 0)
             {
                 CrewLog($"Orphan placement pass: orphans={orphanCount} placed={placed} " +
+                    $"pidHits={pidHits} nameHitFallbacks={nameHitFallbacks} " +
                     $"rescuedFromMissing={rescuedFromMissing} " +
                     $"skippedReplacementNotInRoster={skippedReplacementNotInRoster} " +
                     $"skippedDeadOrMissingReplacement={skippedDeadOrMissingReplacement} " +
@@ -492,46 +528,64 @@ namespace Parsek
 
         /// <summary>
         /// Walks the active vessel looking for a part to place an orphan stand-in into.
-        /// Two-tier match (PR #175 review): persistentId → partInfo.name+free seat.
-        /// The previous "any free seat" tier was removed because a misplaced stand-in
-        /// (e.g. into a passenger cabin instead of the command pod) is arguably worse
-        /// than an unplaced one and would silently mask the bug we're fixing.
+        /// Two-tier match (PR #175 review → bug #456): persistentId → partInfo.name
+        /// + free seat, preferring the part with the FEWEST free seats (tightest fit).
+        ///
+        /// The tier-3 "any free seat" match was removed in PR #175 because a
+        /// misplaced stand-in (e.g. dropped into a passenger cabin instead of the
+        /// command pod) is arguably worse than an unplaced one and would silently
+        /// mask the bug we're fixing. Bug #456 adds the tightest-fit rule on the
+        /// tier-2 name match: when multiple parts share the snapshot part name,
+        /// pick the one with the fewest free seats so single-seat cockpits win
+        /// over multi-seat passenger cabins.
+        ///
         /// Returns null if no matching part has a free seat.
         /// </summary>
-        private static Part FindTargetPartForOrphan(uint snapshotPartPid, string snapshotPartName)
+        private static Part FindTargetPartForOrphan(
+            uint snapshotPartPid, string snapshotPartName, out SeatMatchKind matchKind)
         {
+            matchKind = SeatMatchKind.None;
             var av = FlightGlobals.ActiveVessel;
             if (av == null) return null;
 
-            // 1. Match by persistentId (most reliable for post-revert vessels
-            //    where part PIDs are preserved from the snapshot).
-            if (snapshotPartPid != 0)
+            // Build a lightweight snapshot of the live vessel's parts so the
+            // decision logic (pid-hit vs name-hit with tightest-fit) can run in
+            // a pure helper that unit tests exercise without a live KSP vessel.
+            var candidates = new List<ActivePartSeat>(av.parts.Count);
+            for (int p = 0; p < av.parts.Count; p++)
             {
-                for (int p = 0; p < av.parts.Count; p++)
+                var part = av.parts[p];
+                int freeSeats = PartFreeSeats(part);
+                candidates.Add(new ActivePartSeat
                 {
-                    var part = av.parts[p];
-                    if (part.persistentId == snapshotPartPid && PartHasFreeSeat(part))
-                        return part;
-                }
+                    PersistentId = part.persistentId,
+                    PartName = part.partInfo != null ? part.partInfo.name : null,
+                    FreeSeats = freeSeats
+                });
             }
 
-            // 2. Match by partInfo.name with free capacity. Walk in order, take first.
-            if (!string.IsNullOrEmpty(snapshotPartName))
-            {
-                for (int p = 0; p < av.parts.Count; p++)
-                {
-                    var part = av.parts[p];
-                    if (part.partInfo != null && part.partInfo.name == snapshotPartName && PartHasFreeSeat(part))
-                        return part;
-                }
-            }
+            int matchIdx = TryResolveActiveVesselPartForSeat(
+                snapshotPartPid, snapshotPartName, candidates, out matchKind);
+            return matchIdx >= 0 ? av.parts[matchIdx] : null;
+        }
 
-            return null;
+        /// <summary>
+        /// Returns the number of free crew seats on a live part (0 if none or
+        /// the part has no crew capacity). Matches the test-time
+        /// <see cref="ActivePartSeat.FreeSeats"/> so the pure helper and the
+        /// live path agree on what counts as "has a free seat".
+        /// </summary>
+        private static int PartFreeSeats(Part part)
+        {
+            if (part == null || part.CrewCapacity <= 0) return 0;
+            int occupied = part.protoModuleCrew != null ? part.protoModuleCrew.Count : 0;
+            int free = part.CrewCapacity - occupied;
+            return free > 0 ? free : 0;
         }
 
         private static bool PartHasFreeSeat(Part part)
         {
-            return part != null && part.CrewCapacity > 0 && part.protoModuleCrew.Count < part.CrewCapacity;
+            return PartFreeSeats(part) > 0;
         }
 
         #endregion
@@ -775,6 +829,104 @@ namespace Parsek
             public bool Found;
             public uint PartPid;     // PART node 'pid' value (matches Part.persistentId on the live vessel)
             public string PartName;  // PART node 'name' value (matches part.partInfo.name)
+        }
+
+        /// <summary>
+        /// Bug #456 — which matcher tier produced a successful orphan placement.
+        /// Exposed so `PlaceOrphanedReplacements` can count pid-hits vs
+        /// name-hit fallbacks and surface the split in its summary log.
+        /// </summary>
+        internal enum SeatMatchKind
+        {
+            None = 0,
+            PidHit = 1,
+            NameHit = 2,
+        }
+
+        /// <summary>
+        /// Bug #456 — lightweight view of a live vessel part used by the pure
+        /// seat-matcher helper. Avoids taking a hard dependency on the KSP
+        /// <see cref="Part"/> type so `TryResolveActiveVesselPartForSeat` is
+        /// fully unit-testable.
+        /// </summary>
+        internal struct ActivePartSeat
+        {
+            public uint PersistentId;
+            public string PartName;
+            public int FreeSeats;
+        }
+
+        /// <summary>
+        /// Bug #456 — pure seat-match decision.
+        ///
+        /// Two tiers:
+        ///   1. <b>PidHit</b>: snapshot <paramref name="snapshotPartPid"/> is
+        ///      non-zero and matches an active part's PersistentId that still has
+        ///      a free seat. A pid hit always wins over a name hit — this keeps
+        ///      the old behaviour for post-revert vessels where part PIDs survive,
+        ///      and defends against brittle false-positives when an identical-name
+        ///      reassembled vessel happens to share the snapshot pid.
+        ///   2. <b>NameHit</b> (fallback): no pid match, or the snapshot pid is
+        ///      zero or the pid-matched part is full. Find all parts whose
+        ///      <c>PartName</c> equals <paramref name="snapshotPartName"/> AND
+        ///      have at least one free seat, and return the one with the
+        ///      <i>fewest</i> free seats (tightest fit). Ties broken by index
+        ///      (first occurrence wins). This prefers cockpits (typically 1 seat)
+        ///      over passenger cabins (typically 4+ seats) when both share the
+        ///      part name — which doesn't happen in stock, but defends against
+        ///      part mods that reuse part.cfg <c>name =</c> across variants.
+        ///
+        /// Returns <c>-1</c> when neither tier matches, in which case
+        /// <paramref name="matchKind"/> is <see cref="SeatMatchKind.None"/>.
+        /// </summary>
+        internal static int TryResolveActiveVesselPartForSeat(
+            uint snapshotPartPid,
+            string snapshotPartName,
+            IList<ActivePartSeat> activeParts,
+            out SeatMatchKind matchKind)
+        {
+            matchKind = SeatMatchKind.None;
+            if (activeParts == null || activeParts.Count == 0) return -1;
+
+            // Tier 1: pid-hit.
+            if (snapshotPartPid != 0)
+            {
+                for (int i = 0; i < activeParts.Count; i++)
+                {
+                    var p = activeParts[i];
+                    if (p.PersistentId == snapshotPartPid && p.FreeSeats > 0)
+                    {
+                        matchKind = SeatMatchKind.PidHit;
+                        return i;
+                    }
+                }
+            }
+
+            // Tier 2: name-hit with tightest-fit (min free seats).
+            if (!string.IsNullOrEmpty(snapshotPartName))
+            {
+                int bestIdx = -1;
+                int bestFreeSeats = int.MaxValue;
+                for (int i = 0; i < activeParts.Count; i++)
+                {
+                    var p = activeParts[i];
+                    if (string.IsNullOrEmpty(p.PartName)) continue;
+                    if (p.PartName != snapshotPartName) continue;
+                    if (p.FreeSeats <= 0) continue;
+                    if (p.FreeSeats < bestFreeSeats)
+                    {
+                        bestFreeSeats = p.FreeSeats;
+                        bestIdx = i;
+                    }
+                }
+                if (bestIdx >= 0)
+                {
+                    matchKind = SeatMatchKind.NameHit;
+                    return bestIdx;
+                }
+            }
+
+            return -1;
         }
 
         /// <summary>
