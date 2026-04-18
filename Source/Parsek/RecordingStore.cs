@@ -78,6 +78,42 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
+
+        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
+        // one-shot legacy migration log. Each RecordingTree.LoadRecordingFrom pass
+        // that promotes a legacy `committed = True/False` bool to MergeState tri-state
+        // bumps this counter; the scenario load emits a single Info line with the total.
+        internal static int LegacyMergeStateMigrationCount;
+        // Flag: one-shot log has been emitted for the current session. Flipped on first
+        // emission; reset by ResetForTesting and by EmitLegacyMergeStateMigrationLogOnce.
+        private static bool legacyMergeStateMigrationLogEmitted;
+
+        internal static void BumpLegacyMergeStateMigrationCounterForTesting()
+        {
+            LegacyMergeStateMigrationCount++;
+        }
+
+        /// <summary>
+        /// Emits the one-shot <c>[Recording] Legacy migration:</c> Info log summarising
+        /// how many recordings were promoted from the binary <c>committed</c> bool to
+        /// the <see cref="Parsek.MergeState"/> tri-state this session. Idempotent: a
+        /// second call is a no-op. Counter is NOT reset so repeated loads within a
+        /// session (e.g. tests asserting idempotence) do not double-count.
+        /// </summary>
+        internal static void EmitLegacyMergeStateMigrationLogOnce()
+        {
+            if (legacyMergeStateMigrationLogEmitted) return;
+            if (LegacyMergeStateMigrationCount <= 0) return;
+            ParsekLog.Info("Recording",
+                $"Legacy migration: {LegacyMergeStateMigrationCount} recordings mapped from committed-bool to MergeState tri-state");
+            legacyMergeStateMigrationLogEmitted = true;
+        }
+
+        internal static void ResetLegacyMergeStateMigrationForTesting()
+        {
+            LegacyMergeStateMigrationCount = 0;
+            legacyMergeStateMigrationLogEmitted = false;
+        }
         // Auto-assigned-standalone-group tracking has two storage locations:
         //   1. Recording.AutoAssignedStandaloneGroupName (authoritative, persisted
         //      via RecordingTree save/load as `autoAssignedStandaloneGroup`).
@@ -2148,6 +2184,7 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             PendingStashedThisTransition = false;
+            ResetLegacyMergeStateMigrationForTesting();
         }
 
         /// <summary>

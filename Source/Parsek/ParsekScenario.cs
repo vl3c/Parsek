@@ -22,6 +22,24 @@ namespace Parsek
 
         #endregion
 
+        #region Rewind-to-Staging persistence (design sections 5.1 - 5.9)
+
+        // These collections are persistence-only in Phase 1. Behavior wiring (RP
+        // creation, reap, session lifecycle, merge journal finisher) lands in
+        // later phases; Phase 1 only guarantees OnSave/OnLoad round-trip and
+        // the empty-default on pre-feature saves.
+        public List<RewindPoint> RewindPoints = new List<RewindPoint>();
+        public List<RecordingSupersedeRelation> RecordingSupersedes = new List<RecordingSupersedeRelation>();
+        public List<LedgerTombstone> LedgerTombstones = new List<LedgerTombstone>();
+
+        /// <summary>Singleton; non-null only during an active re-fly session.</summary>
+        public ReFlySessionMarker ActiveReFlySessionMarker;
+
+        /// <summary>Singleton; non-null only during a staged-commit merge.</summary>
+        public MergeJournal ActiveMergeJournal;
+
+        #endregion
+
 
         // Vessel switch detection: FLIGHT→FLIGHT transitions from vessel switching
         // are NOT reverts and must not trigger orphan strip/cleanup.
@@ -338,6 +356,9 @@ namespace Parsek
 
                 SaveTreeRecordings(node);
                 PersistGameStateAndMilestones(node);
+                // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
+                // only in Phase 1; no behavior wired to these collections yet.
+                SaveRewindStagingState(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 if (GhostMapPresence.ghostMapVesselPids.Count > 0)
@@ -613,6 +634,154 @@ namespace Parsek
                 $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
         }
 
+        /// <summary>
+        /// Persists the Rewind-to-Staging Phase 1 collections and singletons
+        /// (design sections 5.1 - 5.9). Idempotent: always re-creates the four
+        /// parent nodes from scratch so stale entries from a prior save do not
+        /// leak into the new one.
+        /// </summary>
+        private void SaveRewindStagingState(ConfigNode node)
+        {
+            node.RemoveNodes("REWIND_POINTS");
+            node.RemoveNodes("RECORDING_SUPERSEDES");
+            node.RemoveNodes("LEDGER_TOMBSTONES");
+            node.RemoveNodes(ReFlySessionMarker.NodeName);
+            node.RemoveNodes(MergeJournal.NodeName);
+
+            int rpCount = 0;
+            if (RewindPoints != null && RewindPoints.Count > 0)
+            {
+                var parent = node.AddNode("REWIND_POINTS");
+                for (int i = 0; i < RewindPoints.Count; i++)
+                {
+                    if (RewindPoints[i] == null) continue;
+                    RewindPoints[i].SaveInto(parent);
+                    rpCount++;
+                }
+            }
+
+            int supersedeCount = 0;
+            if (RecordingSupersedes != null && RecordingSupersedes.Count > 0)
+            {
+                var parent = node.AddNode("RECORDING_SUPERSEDES");
+                for (int i = 0; i < RecordingSupersedes.Count; i++)
+                {
+                    if (RecordingSupersedes[i] == null) continue;
+                    RecordingSupersedes[i].SaveInto(parent);
+                    supersedeCount++;
+                }
+            }
+
+            int tombCount = 0;
+            if (LedgerTombstones != null && LedgerTombstones.Count > 0)
+            {
+                var parent = node.AddNode("LEDGER_TOMBSTONES");
+                for (int i = 0; i < LedgerTombstones.Count; i++)
+                {
+                    if (LedgerTombstones[i] == null) continue;
+                    LedgerTombstones[i].SaveInto(parent);
+                    tombCount++;
+                }
+            }
+
+            bool markerWritten = false;
+            string markerSessionId = null;
+            if (ActiveReFlySessionMarker != null)
+            {
+                ActiveReFlySessionMarker.SaveInto(node);
+                markerWritten = true;
+                markerSessionId = ActiveReFlySessionMarker.SessionId;
+            }
+
+            bool journalWritten = false;
+            string journalId = null;
+            if (ActiveMergeJournal != null)
+            {
+                ActiveMergeJournal.SaveInto(node);
+                journalWritten = true;
+                journalId = ActiveMergeJournal.JournalId;
+            }
+
+            // Per-section tagged lines (design §10 tag conventions). Emitted
+            // alongside the consolidated summary below so log-grep by tag still
+            // works even when the summary line changes shape.
+            ParsekLog.Info("Rewind", $"RewindPoints saved: {rpCount}");
+            ParsekLog.Info("Supersede", $"RecordingSupersedes saved: {supersedeCount}");
+            ParsekLog.Info("LedgerSwap", $"LedgerTombstones saved: {tombCount}");
+            ParsekLog.Info("ReFlySession",
+                $"Marker saved: {(markerWritten ? (markerSessionId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("MergeJournal",
+                $"Journal saved: {(journalWritten ? (journalId ?? "<no-id>") : "none")}");
+
+            ParsekLog.Info("Scenario",
+                $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
+                $"tombstones={tombCount} marker={markerWritten} journal={journalWritten}");
+        }
+
+        /// <summary>
+        /// Restores the Rewind-to-Staging Phase 1 collections and singletons.
+        /// Missing parent nodes yield empty lists and null singletons so
+        /// pre-feature saves round-trip cleanly (design section 9).
+        /// </summary>
+        private void LoadRewindStagingState(ConfigNode node)
+        {
+            RewindPoints = new List<RewindPoint>();
+            RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            LedgerTombstones = new List<LedgerTombstone>();
+            ActiveReFlySessionMarker = null;
+            ActiveMergeJournal = null;
+
+            ConfigNode rpParent = node.GetNode("REWIND_POINTS");
+            if (rpParent != null)
+            {
+                var entries = rpParent.GetNodes("POINT");
+                for (int i = 0; i < entries.Length; i++)
+                    RewindPoints.Add(RewindPoint.LoadFrom(entries[i]));
+            }
+
+            ConfigNode sParent = node.GetNode("RECORDING_SUPERSEDES");
+            if (sParent != null)
+            {
+                var entries = sParent.GetNodes("ENTRY");
+                for (int i = 0; i < entries.Length; i++)
+                    RecordingSupersedes.Add(RecordingSupersedeRelation.LoadFrom(entries[i]));
+            }
+
+            ConfigNode tParent = node.GetNode("LEDGER_TOMBSTONES");
+            if (tParent != null)
+            {
+                var entries = tParent.GetNodes("ENTRY");
+                for (int i = 0; i < entries.Length; i++)
+                    LedgerTombstones.Add(LedgerTombstone.LoadFrom(entries[i]));
+            }
+
+            ConfigNode markerNode = node.GetNode(ReFlySessionMarker.NodeName);
+            if (markerNode != null)
+                ActiveReFlySessionMarker = ReFlySessionMarker.LoadFrom(markerNode);
+
+            ConfigNode journalNode = node.GetNode(MergeJournal.NodeName);
+            if (journalNode != null)
+                ActiveMergeJournal = MergeJournal.LoadFrom(journalNode);
+
+            // Per-section tagged lines (design §10 tag conventions). Emitted
+            // alongside the consolidated summary below so log-grep by tag still
+            // works even when the summary line changes shape.
+            ParsekLog.Info("Rewind", $"RewindPoints loaded: {RewindPoints.Count}");
+            ParsekLog.Info("Supersede",
+                $"RecordingSupersedes loaded: {RecordingSupersedes.Count}");
+            ParsekLog.Info("LedgerSwap",
+                $"LedgerTombstones loaded: {LedgerTombstones.Count}");
+            ParsekLog.Info("ReFlySession",
+                $"Marker loaded: {(ActiveReFlySessionMarker != null ? (ActiveReFlySessionMarker.SessionId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("MergeJournal",
+                $"Journal loaded: {(ActiveMergeJournal != null ? (ActiveMergeJournal.JournalId ?? "<no-id>") : "none")}");
+
+            ParsekLog.Info("Scenario",
+                $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
+                $"supersedes={RecordingSupersedes.Count} tombstones={LedgerTombstones.Count} " +
+                $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)}");
+        }
+
         // Static flag: only load from save once per KSP session.
         // On revert, the launch quicksave has stale data — the in-memory
         // static list is the real source of truth within a session.
@@ -699,6 +868,10 @@ namespace Parsek
                 if (!RewindContext.IsRewinding)
                     KerbalLoadRepairDiagnostics.Begin();
                 LoadCrewAndGroupState(node);
+                // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Load runs
+                // on every OnLoad so a revert or scene change rebuilds the lists
+                // from .sfs rather than reusing stale in-memory state.
+                LoadRewindStagingState(node);
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
                 stateRecorder?.Unsubscribe();

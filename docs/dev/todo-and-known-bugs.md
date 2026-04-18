@@ -18,6 +18,26 @@ Only #433 remains open. Once it ships, the `MilestoneStore.CurrentEpoch` filter 
 
 ---
 
+## Rewind to Staging (v0.9)
+
+Phased rollout of the Rewind-to-Staging feature. Design doc lives at
+`docs/parsek-rewind-staging-design.md`; plan + sequencing at
+`docs/dev/plan-rewind-staging.md`.
+
+- ~~**Phase 1** — Data model + legacy migration. `MergeState` tri-state on
+  `Recording`, `GameAction.ActionId` auto + deterministic legacy hash,
+  `RewindPoint` + `ChildSlot` + `RecordingSupersedeRelation` +
+  `LedgerTombstone` + `ReFlySessionMarker` + `MergeJournal`,
+  `BranchPoint.RewindPointId`, `ParsekScenario` persistence for the new
+  collections, one-shot migration Info logs, unit tests + in-game
+  `Part.persistentId` stability test. No user-visible behavior change.~~
+- **Phase 2 (next)** — ERS/ELS shared utility with the tombstone-only ELS
+  filter (design §3.1, §3.2, §5.5 derived helpers). No UI hooks yet; the
+  filter needs to exist before Phase 3's grep-audit conversion phase can
+  start.
+
+---
+
 ## Post-review follow-ups on PR #307 (career-earnings-bundle)
 
 After the initial 11-bug bundle landed on `fix/career-earnings-bundle`, an independent

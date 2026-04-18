@@ -23,6 +23,36 @@ namespace Parsek
         /// <summary>Read-only view of all actions in the ledger.</summary>
         internal static IReadOnlyList<GameAction> Actions => actions;
 
+        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
+        // one-shot legacy ActionId migration log. Bumped from GameAction.DeserializeFrom
+        // whenever a legacy action without `actionId` gets a deterministic rehydrated id.
+        internal static int LegacyActionIdMigrationCount;
+        private static bool legacyActionIdMigrationLogEmitted;
+
+        internal static void BumpLegacyActionIdMigrationCounterForTesting()
+        {
+            LegacyActionIdMigrationCount++;
+        }
+
+        /// <summary>
+        /// Emits the one-shot <c>[Ledger] Assigned deterministic ActionIds to N legacy actions</c>
+        /// Info log. Idempotent across repeated calls within a session.
+        /// </summary>
+        internal static void EmitLegacyActionIdMigrationLogOnce()
+        {
+            if (legacyActionIdMigrationLogEmitted) return;
+            if (LegacyActionIdMigrationCount <= 0) return;
+            ParsekLog.Info("Ledger",
+                $"Assigned deterministic ActionIds to {LegacyActionIdMigrationCount} legacy actions");
+            legacyActionIdMigrationLogEmitted = true;
+        }
+
+        internal static void ResetLegacyActionIdMigrationForTesting()
+        {
+            LegacyActionIdMigrationCount = 0;
+            legacyActionIdMigrationLogEmitted = false;
+        }
+
         /// <summary>Appends a single action to the in-memory ledger.</summary>
         internal static void AddAction(GameAction action)
         {
@@ -291,6 +321,9 @@ namespace Parsek
                 actions = newActions;
                 ParsekLog.Verbose("Ledger",
                     $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, parseErrors={parseErrors}");
+                // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
+                // legacy ActionId migration log if any actions were rehydrated on load.
+                EmitLegacyActionIdMigrationLogOnce();
                 return true;
             }
             catch (Exception ex)
@@ -597,6 +630,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             actions = new List<GameAction>();
+            ResetLegacyActionIdMigrationForTesting();
         }
 
         // ================================================================
