@@ -1530,8 +1530,27 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowArchive");
             if (hidden != rec.Hidden)
             {
-                rec.Hidden = hidden;
-                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
+                // Phase 14 of Rewind-to-Staging (design §7.33 / §7.30): an
+                // Unfinished Flight is a diagnostic of an unresolved split
+                // sibling. Hiding would sweep the re-fly opportunity out of
+                // the player's view, so we refuse the toggle + toast a clear
+                // warning. The recording's Hidden flag stays unchanged.
+                if (unfinishedFlightRowDepth > 0
+                    && EffectiveState.IsUnfinishedFlight(rec))
+                {
+                    ParsekLog.Warn("UnfinishedFlights",
+                        $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
+                    ParsekLog.ScreenMessage(
+                        $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
+                        "Re-fly the rewind point or merge as Immutable to clear it from the list.",
+                        4f);
+                }
+                else
+                {
+                    rec.Hidden = hidden;
+                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
+                }
             }
 
             GUILayout.EndHorizontal();
