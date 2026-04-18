@@ -26,9 +26,13 @@ namespace Parsek.Tests
     public class LegacyMigrationTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
 
         public LegacyMigrationTests()
         {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -40,8 +44,8 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = true;
-            RecordingStore.SuppressLogging = true;
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
         }

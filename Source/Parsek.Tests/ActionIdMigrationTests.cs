@@ -21,9 +21,13 @@ namespace Parsek.Tests
     public class ActionIdMigrationTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
 
         public ActionIdMigrationTests()
         {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -32,9 +36,10 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = true;
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
+            Ledger.ResetForTesting();
         }
 
         private static ConfigNode LegacyActionNode(double ut, GameActionType type, string recordingId, int seq)

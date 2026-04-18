@@ -15,9 +15,13 @@ namespace Parsek.Tests
     public class ChildSlotEffectiveRecordingIdTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
 
         public ChildSlotEffectiveRecordingIdTests()
         {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -26,7 +30,8 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = true;
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
         }
 
         private static RecordingSupersedeRelation Rel(string oldId, string newId)
