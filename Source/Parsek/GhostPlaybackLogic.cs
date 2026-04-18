@@ -16,9 +16,29 @@ namespace Parsek
         // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
-        internal const double DefaultLoopIntervalSeconds = 10.0;
+        // User-facing default for fresh ParsekSettings.autoLoopIntervalSeconds and the
+        // Settings "reset" path. Also used as an engine fallback when a trajectory's loop
+        // interval is NaN/infinite/unset. NOT an "untouched" sentinel for the optimizer.
+        internal const double DefaultLoopIntervalSeconds = 30.0;
+
+        // Sentinel value used by RecordingOptimizer.CanAutoMerge to detect an
+        // "uncustomized" loop interval on a Recording, and by Recording.LoopIntervalSeconds
+        // as its field initializer. The two MUST stay equal — a fresh Recording whose loop
+        // settings the user never touched must compare equal to this constant, otherwise
+        // the optimizer treats it as user-customized and refuses to auto-merge. This
+        // value is deliberately decoupled from DefaultLoopIntervalSeconds so changing the
+        // user-facing default doesn't silently break auto-merge for legacy saves or fresh
+        // untouched captures.
+        internal const double UntouchedLoopIntervalSentinel = 10.0;
+
         internal const double MinLoopDurationSeconds = 1.0;
-        internal const double MinCycleDuration = 1.0;
+        // Minimum user-requested loop period / minimum cycle duration. Periods
+        // below this floor are clamped at UI input and by engine math. 5s is
+        // the smallest value that lets a typical KSP rocket clear launch
+        // clamps between successive cycles, and matches the 5 m/s first-motion
+        // threshold used by TrajectoryMath.FindFirstMovingPoint so the
+        // static-pad visual window of one cycle no longer overlaps the next.
+        internal const double MinCycleDuration = 5.0;
         // #410: shared boundary tolerance for loop-phase comparisons. Used by
         // ComputeLoopPhaseFromUT and TryComputeLoopPlaybackUT to keep both helpers in sync
         // on whether the ghost is "still playing the final frame" vs "entered the pause
@@ -279,6 +299,41 @@ namespace Parsek
             if (firstActiveCycle < lastActiveCycle - maxCycles + 1)
                 firstActiveCycle = lastActiveCycle - maxCycles + 1;
             if (firstActiveCycle < 0) firstActiveCycle = 0;
+        }
+
+        /// <summary>
+        /// Computes the runtime launch cadence for an overlap-looped recording so
+        /// that the number of simultaneously-live cycles (ceil(duration/cadence))
+        /// never exceeds <paramref name="maxCycles"/>. Starts from the
+        /// user-requested period (clamped to <see cref="MinCycleDuration"/>) and
+        /// doubles it until the cycle count fits. Returns the effective cadence
+        /// in seconds; the user's stored loop period is unchanged — only the
+        /// runtime spawn rate is adjusted. Guarantees the per-recording ghost
+        /// clone count stays within the cap without silently culling cycles
+        /// mid-trajectory (the pre-fix behaviour stacked ghosts near launch).
+        /// </summary>
+        internal static double ComputeEffectiveLaunchCadence(
+            double userPeriod, double duration, int maxCycles)
+        {
+            double period = Math.Max(userPeriod, MinCycleDuration);
+            if (double.IsNaN(period) || double.IsInfinity(period))
+                period = MinCycleDuration;
+            if (duration <= 0 || maxCycles <= 0)
+                return period;
+
+            // Defensive ceiling: the doubling loop always terminates because
+            // each iteration halves the theoretical cycle count, but cap the
+            // iteration count at 64 to guard against pathological inputs.
+            int safety = 64;
+            while (safety-- > 0 && CeilingDivPositive(duration, period) > maxCycles)
+                period *= 2.0;
+            return period;
+        }
+
+        private static long CeilingDivPositive(double numerator, double denominator)
+        {
+            if (denominator <= 0) return long.MaxValue;
+            return (long)Math.Ceiling(numerator / denominator);
         }
 
         /// <summary>
