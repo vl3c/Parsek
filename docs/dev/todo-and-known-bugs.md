@@ -290,19 +290,19 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 443. `EnrichPendingMilestoneRewards` write-back silently fails for some node IDs
+## ~~443. `EnrichPendingMilestoneRewards` write-back silently fails for some node IDs~~
+
+**Status:** ~~Fixed~~ in this PR. Re-keyed the pending map from `ProgressNode` reference to qualified milestone id (`PendingMilestoneEventById`, e.g. `Kerbin/Landing`) at both the `OnProgressComplete` writer and the `ProgressRewardPatch.RoutePostfix` reader. Promoted the no-pending-event miss log from `Verbose` to `Warn` and added a defensive `Warn` when `GameStateStore.UpdateEventDetail` reports no matching slot. Investigation also surfaced the actual root cause: `GameStateEvent` is a struct, so `GameStateStore.AddEvent`'s `e.epoch = MilestoneStore.CurrentEpoch` stamp landed on the appended slot but not on the caller's local `evt`; the cached pending entry kept `epoch=0` while the stored slot carried the live epoch, so `UpdateEventDetail`'s `ut+type+key+epoch` lookup missed on every save where `CurrentEpoch != 0` (i.e. every save with at least one revert in its history). Fixed by mirroring `MilestoneStore.CurrentEpoch` onto the cached pending event after `Emit`. Three new unit tests pin the happy path under non-zero epoch, the defensive store-miss warn path, and re-key tolerance to aliased `ProgressNode` instances.
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:17459-17462`. `FundsChanged +800 (Progression)` fires at ut=4134.8 for the `Kerbin/Landing` node. The patch's INFO log reports enrichment success, but no `Updated event detail` line follows and the subsequent commit at KSP.log:18024 credits the milestone with `funds=0`. Same pattern may affect other OnProgressComplete-emitting nodes; only Records* (which don't fire OnProgressComplete at all) are covered by #442.
 
-**Root cause (suspected):** `pendingMilestoneEvents` in `GameStateRecorder` keys the map by `ProgressNode` reference or a stringified ID that doesn't match what `EnrichPendingMilestoneRewards` looks up. When `Complete()` re-enters the patch chain, the pending-event map entry for that node ID is missed. The miss is logged only at `Verbose` — invisible in default log settings.
+**Root cause:** Two compounding defects. (1) `GameStateEvent` is a value type; `GameStateStore.AddEvent` stamps `MilestoneStore.CurrentEpoch` onto the appended slot but not onto the caller's local copy, so the cached pending entry's `epoch` field stayed at 0 while the stored slot carried the live epoch. `UpdateEventDetail` matches on `ut + eventType + key + epoch`, so the lookup missed on every save whose epoch had ever been bumped (every save with at least one revert in its history). (2) The pending map was keyed by `ProgressNode` reference, leaving a latent risk of instance-aliasing inside KSP's reward pipeline — and the miss log was `Verbose`, invisible in default log settings.
 
-**Fix:** Key the `pendingMilestoneEvents` map by `node.Id` string (not ProgressNode reference). Change the miss log from `Verbose` to `Warn` so it's visible in default logs. Add a unit test: `pendingMilestoneEvents` with a known ID, call enrichment with the same ID, assert map updated.
+**Fix:** Re-key `PendingMilestoneEventById` by qualified id string, mirror `MilestoneStore.CurrentEpoch` onto the cached event after `Emit`, promote the miss log to `Warn` with id+rewards+map-size context, add a defensive `Warn` when `UpdateEventDetail` returns false, and pin the behavior with three unit tests (end-to-end at `epoch=3`, store-miss warn, aliased-instance enrich).
 
-**Files:** `Source/Parsek/GameStateRecorder.cs:847-892` (OnProgressComplete), `Source/Parsek/GameStateRecorder.cs:915-980` (EnrichPendingMilestoneRewards), `Source/Parsek/Patches/ProgressRewardPatch.cs`.
+**Files:** `Source/Parsek/GameStateRecorder.cs` (OnProgressComplete + new `RegisterPendingMilestoneEvent` seam, `EnrichPendingMilestoneRewards`, `PendingMilestoneEventById`), `Source/Parsek/Patches/ProgressRewardPatch.cs` (id-keyed branch lookup), `Source/Parsek.Tests/MilestoneRewardCaptureTests.cs` (3 new tests + migrated existing tests off the old field name).
 
-**Scope:** Small — localized to one file. New unit test.
-
-**Status:** TODO. Priority: high. Pairs with #442; expect them fixed together since they share the ProgressRewardPatch code path.
+**Scope:** Small — three files. Surgical, composes with #442's standalone-emit path.
 
 ---
 
