@@ -260,6 +260,10 @@ namespace Parsek.Tests
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+            // Log-assertion: the not-crashed reject path must emit a distinguishing
+            // Verbose line so the rejection is visible post-hoc (design §10.5).
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("notCrashed"));
         }
 
         [Fact]
