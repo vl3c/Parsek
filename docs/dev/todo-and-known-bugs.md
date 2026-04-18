@@ -55,8 +55,22 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `GroupPickerUI`, `RecordingsTableUI` table body, `SettingsWindowUI` wipe,
   `ParsekUI` map-marker deduplication + wipe). CI gate:
   `scripts/grep-audit-ers-els.ps1` + allowlist + `GrepAuditTests.cs`.~~
-- **Phase 4 (next)** — RP creation + deferred quicksave + scene guard +
-  warp-to-0 + root-save-then-move.
+- ~~**Phase 4** — RP creation + deferred quicksave + scene guard +
+  warp-to-0 + root-save-then-move.~~ `SegmentBoundaryLogic.IdentifyControllableChildren`
+  + `IsMultiControllableSplit` gate every split site; `RewindPointAuthor.Begin`
+  stamps `BranchPoint.RewindPointId` + appends to `ParsekScenario.RewindPoints`
+  synchronously and defers one frame before the stock `GamePersistence.SaveGame`
+  + `FileIOUtils.SafeMove` into `Parsek/RewindPoints/<rpId>.sfs`. Warp drop is
+  wrapped in a `finally` so a mid-save throw still restores the player's rate.
+  Partial-slot failure marks the slot Disabled with reason `no-live-vessel`;
+  all-slots failure marks the RP Corrupted and keeps it for diagnostics.
+  `ParsekFlight.CreateSplitBranch` + `ProcessBreakupEvent` wire the author
+  with a per-call `RecordingResolver` that maps `OriginChildRecordingId` ->
+  `Vessel.persistentId` without touching `RecordingStore.CommittedRecordings`.
+  Three in-game tests (`CaptureRPOnStaging`, `SavePathRootThenMove`,
+  `WarpZeroedDuringSave`) cover the end-to-end flow.
+- **Phase 5 (next)** — Unfinished Flights UI (read-only; rewind buttons
+  disabled). §5 of the design doc.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so

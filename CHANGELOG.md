@@ -11,6 +11,7 @@ All notable changes to Parsek are documented here.
 - Phase 1: data model for Rewind to Staging (no user-visible behavior yet).
 - Phase 2: ERS/ELS effective-state helper (no user-visible behavior yet).
 - Phase 3: raw recording/ledger readers routed through ERS/ELS helpers; CI grep-audit gate added.
+- Phase 4: rewind points captured at multi-controllable splits; quicksave deferred to next frame.
 
 ---
 
