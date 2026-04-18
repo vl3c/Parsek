@@ -237,8 +237,9 @@ namespace Parsek
         {
             if (!showRecordingsWindow) showRecordingsWindow = true;
 
-            // Find the recording
-            var committed = RecordingStore.CommittedRecordings;
+            // [Phase 3] ERS-routed: cross-link navigation resolves to the
+            // effective set only; hidden/superseded recordings cannot be scrolled to.
+            var committed = EffectiveState.ComputeERS();
             Recording target = null;
             for (int i = 0; i < committed.Count; i++)
             {
@@ -251,7 +252,7 @@ namespace Parsek
 
             if (target == null)
             {
-                ParsekLog.Warn("UI", $"Cross-link: recording {recordingId} not found in committed list");
+                ParsekLog.Warn("UI", $"Cross-link: recording {recordingId} not found in effective recording set");
                 return;
             }
 
@@ -982,6 +983,14 @@ namespace Parsek
                 DeleteGhostOnlyRecording(delIdx);
             }
 
+            // [ERS-exempt] reason: the recordings-table window is the authoritative
+            // management surface — it lists, sorts, renames, groups, and deletes
+            // recordings by index into the raw committed list (including
+            // NotCommitted rows when present). Sort + delete index-paths would
+            // shift under ERS, breaking user actions. Visibility filters
+            // (Hidden, HideActive, superseded chain blocks) continue to be
+            // handled inline per-row as before.
+            // TODO(phase 6+): migrate recording table to recording-id-keyed rows.
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
 
@@ -2434,6 +2443,8 @@ namespace Parsek
         /// </summary>
         private void DeleteGhostOnlyRecording(int index)
         {
+            // [ERS-exempt] reason: delete operates by index into the raw
+            // committed list. See TODO(phase 6+) on DrawRecordingsWindow.
             var committed = RecordingStore.CommittedRecordings;
             if (index < 0 || index >= committed.Count)
             {
@@ -3549,6 +3560,9 @@ namespace Parsek
 
                     if (submitPeriod)
                     {
+                        // [ERS-exempt] reason: loopPeriodFocusedRi is an index
+                        // into the raw committed list used by the recordings
+                        // table. See TODO(phase 6+) on DrawRecordingsWindow.
                         CommitLoopPeriodEdit(RecordingStore.CommittedRecordings);
                         Event.current.Use();
                     }

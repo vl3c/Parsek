@@ -44,6 +44,10 @@ namespace Parsek
 
         public void OpenForRecording(int ri, Vector2 mousePos)
         {
+            // [ERS-exempt] reason: `ri` is an index into RecordingStore.CommittedRecordings
+            // passed in from the caller's recordings table (which itself is index-aligned
+            // with the raw store). Converting to ERS here would de-align the index.
+            // TODO(phase 6+): migrate GroupPickerUI to recording-id-keyed inputs.
             var rec = RecordingStore.CommittedRecordings[ri];
             groupPopupOpen = true;
             groupPopupRecIdx = ri;
@@ -81,6 +85,9 @@ namespace Parsek
             groupPopupRecIndices = new List<int>();
 
             var seen = new HashSet<int>();
+            // [ERS-exempt] reason: recordingIndices are indices into
+            // RecordingStore.CommittedRecordings; bounds-check must use the
+            // same space. See TODO(phase 6+) on OpenForRecording.
             var committed = RecordingStore.CommittedRecordings;
             if (recordingIndices != null)
             {
@@ -144,6 +151,8 @@ namespace Parsek
             if (memberIndices == null || memberIndices.Count == 0)
                 return commonGroups;
 
+            // [ERS-exempt] reason: memberIndices are indices into
+            // RecordingStore.CommittedRecordings. See TODO(phase 6+) on OpenForRecording.
             var committed = RecordingStore.CommittedRecordings;
             var allGroups = RecordingStore.GetGroupNames();
             for (int g = 0; g < allGroups.Count; g++)
@@ -370,6 +379,8 @@ namespace Parsek
 
         private void ApplyGroupPopupChanges()
         {
+            // [ERS-exempt] reason: group mutations are applied to recordings by
+            // index from the live table. See TODO(phase 6+) on OpenForRecording.
             var committed = RecordingStore.CommittedRecordings;
 
             if (groupPopupGroup != null)

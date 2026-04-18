@@ -472,6 +472,10 @@ namespace Parsek
         {
             GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
 
+            // [ERS-exempt] reason: the wipe-all button reports the raw count of
+            // stored recordings (including NotCommitted / superseded) because the
+            // wipe path clears the whole store via RecordingStore.ClearCommitted().
+            // ERS would under-count and mislead the user.
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int milestoneCount = MilestoneStore.Milestones.Count;
 
