@@ -708,14 +708,15 @@ namespace Parsek.Tests
             // tree's UT window but is semantically unrelated (KSC activity during the
             // flight's real-time duration).
             MilestoneStore.CurrentEpoch = 0;
-            GameStateStore.AddEvent(new GameStateEvent
+            var contractEvt = new GameStateEvent
             {
                 ut = 150.0,
                 eventType = GameStateEventType.ContractAccepted,
                 key = "contract-guid-di",
                 detail = "title=Test",
                 epoch = 0
-            });
+            };
+            GameStateStore.AddEvent(ref contractEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 

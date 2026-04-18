@@ -55,7 +55,7 @@ namespace Parsek
         /// with an active recorder but no tag). All captured-event sites in this class route through
         /// <c>Emit</c>.
         /// </summary>
-        internal static void Emit(GameStateEvent evt, string source)
+        internal static void Emit(ref GameStateEvent evt, string source)
         {
             string tag = ResolveCurrentRecordingTag();
             if (string.IsNullOrEmpty(evt.recordingId))
@@ -79,7 +79,11 @@ namespace Parsek
                 ParsekLog.Warn("GameStateRecorder",
                     $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
 
-            GameStateStore.AddEvent(evt);
+            // #454: `ref evt` propagates AddEvent's `e.epoch = MilestoneStore.CurrentEpoch`
+            // stamp back to the caller's local. Callers that cache `evt` after Emit (e.g.
+            // RegisterPendingMilestoneEvent) see the stamped epoch/recordingId automatically,
+            // so there is no value-type field-mirror footgun to work around.
+            GameStateStore.AddEvent(ref evt);
         }
 
         /// <summary>
@@ -356,7 +360,7 @@ namespace Parsek
                 key = guid,
                 detail = detail
             };
-            Emit(evt, "ContractAccepted");
+            Emit(ref evt, "ContractAccepted");
 
             // Store full contract snapshot for reversal
             try
@@ -412,7 +416,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(evt, "ContractCompleted");
+            Emit(ref evt, "ContractCompleted");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
 
@@ -440,7 +444,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(evt, "ContractFailed");
+            Emit(ref evt, "ContractFailed");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
@@ -466,7 +470,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(evt, "ContractCancelled");
+            Emit(ref evt, "ContractCancelled");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
 
@@ -480,13 +484,14 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
-            Emit(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractDeclined,
                 key = contract.ContractGuid.ToString(),
                 detail = title
-            }, "ContractDeclined");
+            };
+            Emit(ref evt, "ContractDeclined");
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
         }
 
@@ -530,7 +535,7 @@ namespace Parsek
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
             };
-            Emit(evt, "TechResearched");
+            Emit(ref evt, "TechResearched");
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
 
             // Write directly to ledger when at KSC (not during flight recording)
@@ -572,7 +577,7 @@ namespace Parsek
                 valueBefore = Funding.Instance != null ? Funding.Instance.Funds + chargedCost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             };
-            Emit(evt, "PartPurchased");
+            Emit(ref evt, "PartPurchased");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost})");
 
@@ -634,7 +639,7 @@ namespace Parsek
                 key = name,
                 detail = $"trait={crew.trait ?? ""};cost={hireCost.ToString("R", ic)}"
             };
-            Emit(evt, "CrewHired");
+            Emit(ref evt, "CrewHired");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: CrewHired '{name}' ({crew.trait ?? "?"}) " +
                 $"cost={hireCost.ToString("R", ic)} activeCrewCount={activeCrewCount}");
@@ -666,13 +671,14 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            Emit(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewRemoved,
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
-            }, "KerbalRemoved");
+            };
+            Emit(ref evt, "KerbalRemoved");
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
         }
 
@@ -757,7 +763,7 @@ namespace Parsek
                 key = name,
                 detail = $"from={oldStatus};to={newStatus}"
             };
-            Emit(evt, "KerbalStatusChange");
+            Emit(ref evt, "KerbalStatusChange");
             pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
         }
@@ -773,13 +779,14 @@ namespace Parsek
             string name = pcm?.name ?? "";
             string trait = pcm?.experienceTrait?.TypeName ?? "Pilot";
 
-            Emit(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.KerbalRescued,
                 key = name,
                 detail = $"trait={trait}"
-            }, "KerbalRescued");
+            };
+            Emit(ref evt, "KerbalRescued");
 
             ParsekLog.Info("GameStateRecorder", $"Game state: KerbalRescued '{name}' (trait={trait})");
         }
@@ -819,14 +826,15 @@ namespace Parsek
             }
 
             double ut = Planetarium.GetUniversalTime();
-            Emit(new GameStateEvent
+            var fundsEvt = new GameStateEvent
             {
                 ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
-            }, "FundsChanged");
+            };
+            Emit(ref fundsEvt, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
 
             // #445: VesselRollout deducts the vessel cost when the player launches from
@@ -874,14 +882,15 @@ namespace Parsek
                 return;
             }
 
-            Emit(new GameStateEvent
+            var sciEvt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ScienceChanged,
                 key = reason.ToString(),
                 valueBefore = oldScience,
                 valueAfter = newScience
-            }, "ScienceChanged");
+            };
+            Emit(ref sciEvt, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
         }
 
@@ -905,14 +914,15 @@ namespace Parsek
                 return;
             }
 
-            Emit(new GameStateEvent
+            var repEvt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ReputationChanged,
                 key = reason.ToString(),
                 valueBefore = oldReputation,
                 valueAfter = newReputation
-            }, "ReputationChanged");
+            };
+            Emit(ref repEvt, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
         }
 
@@ -1021,28 +1031,12 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(0.0, 0f, 0.0)
             };
-            Emit(evt, "MilestoneAchieved");
+            Emit(ref evt, "MilestoneAchieved");
 
-            // #443: Emit (via AddEvent) stamps the current MilestoneStore epoch onto the
-            // event slot it appends to the store. GameStateEvent is a value type, so the
-            // local `evt` here did NOT receive that stamp — it still holds epoch=0. The
-            // cached copy must mirror the stored copy, otherwise UpdateEventDetail's
-            // ut+eventType+key+epoch lookup misses on any save where CurrentEpoch != 0
-            // (i.e. every save with at least one revert in its history).
-            evt.epoch = MilestoneStore.CurrentEpoch;
-            // #443 review: Emit also mutates evt.recordingId on its local copy when the
-            // caller didn't pre-populate it (see Emit's `if (string.IsNullOrEmpty(...))`
-            // branch). No consumer reads recordingId off the cached pending entry today,
-            // but mirroring it here closes the same value-type field-mirror footgun
-            // proactively — if a future caller ever consults evt.recordingId after enrich,
-            // it sees the same string the stored slot carries. Mirrors Emit's stamp logic
-            // (only fill when blank) so we don't overwrite a caller-supplied tag. The
-            // proper structural fix is to refactor Emit/AddEvent to take `ref
-            // GameStateEvent` so all field mutations propagate to the caller in one place;
-            // tracked as bug #453 in docs/dev/todo-and-known-bugs.md.
-            if (string.IsNullOrEmpty(evt.recordingId))
-                evt.recordingId = ResolveCurrentRecordingTag() ?? "";
-
+            // #454: Emit/AddEvent take `ref GameStateEvent`, so `evt` here already carries
+            // the stamped epoch and recordingId — no mirror needed. The cached copy below
+            // is guaranteed to match the stored slot's key fields.
+            //
             // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
             // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
             // OnProgressComplete and the AwardProgress postfix derive deterministically
@@ -1260,7 +1254,7 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(funds, rep, sci)
             };
-            Emit(evt, "MilestoneAchievedStandalone");
+            Emit(ref evt, "MilestoneAchievedStandalone");
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
@@ -1426,7 +1420,7 @@ namespace Parsek
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
                             };
-                            Emit(evt, eventType.ToString());
+                            Emit(ref evt, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
 
@@ -1462,12 +1456,13 @@ namespace Parsek
                                 ? GameStateEventType.BuildingRepaired
                                 : GameStateEventType.BuildingDestroyed;
 
-                            Emit(new GameStateEvent
+                            var bldEvt = new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = db.id
-                            }, eventType.ToString());
+                            };
+                            Emit(ref bldEvt, eventType.ToString());
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{db.id}'");
                         }

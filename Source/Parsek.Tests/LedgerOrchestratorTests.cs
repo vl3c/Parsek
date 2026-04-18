@@ -331,7 +331,7 @@ namespace Parsek.Tests
                 valueBefore = 47000.0,
                 valueAfter = 48250.0
             };
-            GameStateStore.AddEvent(recoveryEvent);
+            GameStateStore.AddEvent(ref recoveryEvent);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-recovery-paired-event", 100.0, 300.0);
 
@@ -462,14 +462,15 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var recoveryEvt = new GameStateEvent
             {
                 ut = 130.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 47000.0,
                 valueAfter = 49000.0
-            });
+            };
+            GameStateStore.AddEvent(ref recoveryEvt);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-single-pt-paired-recovery", 100.0, 130.0);
 

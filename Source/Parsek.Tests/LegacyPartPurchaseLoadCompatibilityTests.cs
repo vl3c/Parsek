@@ -33,7 +33,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryRecoverBrokenLedgerOnLoad_UnambiguousSavedFundsCharge_RewritesLegacyEventAndAction()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 200.0,
                 eventType = GameStateEventType.PartPurchased,
@@ -41,15 +41,17 @@ namespace Parsek.Tests
                 detail = "cost=450",
                 valueBefore = 10450.0,
                 valueAfter = 10000.0
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref partEvt);
+            var fundsEvt = new GameStateEvent
             {
                 ut = 200.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = "RnDPartPurchase",
                 valueBefore = 10800.0,
                 valueAfter = 10000.0
-            });
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
@@ -71,7 +73,7 @@ namespace Parsek.Tests
         [Fact]
         public void RepairLegacyPartPurchaseActionsOnLoad_WithUnambiguousSavedFundsCharge_RewritesPersistedFundsSpent()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 200.0,
                 eventType = GameStateEventType.PartPurchased,
@@ -79,15 +81,17 @@ namespace Parsek.Tests
                 detail = "cost=450",
                 valueBefore = 10450.0,
                 valueAfter = 10000.0
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref partEvt);
+            var fundsEvt = new GameStateEvent
             {
                 ut = 200.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = "RnDPartPurchase",
                 valueBefore = 10800.0,
                 valueAfter = 10000.0
-            });
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
 
             Ledger.AddAction(new GameAction
             {
@@ -110,7 +114,7 @@ namespace Parsek.Tests
         {
             GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 200.0,
                 eventType = GameStateEventType.PartPurchased,
@@ -118,7 +122,8 @@ namespace Parsek.Tests
                 detail = "cost=450",
                 valueBefore = 10450.0,
                 valueAfter = 10000.0
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
@@ -142,7 +147,7 @@ namespace Parsek.Tests
         {
             GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 200.0,
                 eventType = GameStateEventType.PartPurchased,
@@ -150,7 +155,8 @@ namespace Parsek.Tests
                 detail = "cost=450",
                 valueBefore = 10450.0,
                 valueAfter = 10000.0
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             Ledger.AddAction(new GameAction
             {
@@ -192,7 +198,7 @@ namespace Parsek.Tests
         {
             GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var mk1Evt = new GameStateEvent
             {
                 ut = 200.00,
                 eventType = GameStateEventType.PartPurchased,
@@ -200,8 +206,9 @@ namespace Parsek.Tests
                 detail = "cost=450",
                 valueBefore = 10450.0,
                 valueAfter = 10000.0
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref mk1Evt);
+            var batteryEvt = new GameStateEvent
             {
                 ut = 200.05,
                 eventType = GameStateEventType.PartPurchased,
@@ -209,15 +216,17 @@ namespace Parsek.Tests
                 detail = "cost=120",
                 valueBefore = 10120.0,
                 valueAfter = 10000.0
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref batteryEvt);
+            var fundsEvt = new GameStateEvent
             {
                 ut = 200.02,
                 eventType = GameStateEventType.FundsChanged,
                 key = "RnDPartPurchase",
                 valueBefore = 10920.0,
                 valueAfter = 10000.0
-            });
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 

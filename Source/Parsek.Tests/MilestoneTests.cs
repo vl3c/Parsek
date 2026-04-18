@@ -205,13 +205,14 @@ namespace Parsek.Tests
         public void MilestoneStore_CreateMilestone_SetsCorrectUTRange()
         {
             // Add a semantic event in range
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 200);
 
@@ -223,20 +224,22 @@ namespace Parsek.Tests
         [Fact]
         public void MilestoneStore_CreateMilestone_CopiesEventsInRange()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref techEvt);
+            var partEvt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 200);
 
@@ -250,24 +253,26 @@ namespace Parsek.Tests
         public void MilestoneStore_CreateMilestone_ExcludesOutOfRangeEvents()
         {
             // First milestone covers UT 0-100
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             var m1 = MilestoneStore.CreateMilestone("rec1", 100);
             Assert.NotNull(m1);
 
             // Add event at UT 150 — should be in second milestone, not first
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             var m2 = MilestoneStore.CreateMilestone("rec2", 200);
 
@@ -290,22 +295,24 @@ namespace Parsek.Tests
         [Fact]
         public void MilestoneStore_MultipleSequential()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             var m1 = MilestoneStore.CreateMilestone("rec1", 100);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
             var m2 = MilestoneStore.CreateMilestone("rec2", 200);
 
             Assert.NotNull(m1);
@@ -321,23 +328,25 @@ namespace Parsek.Tests
         {
             // Add event at epoch 0
             MilestoneStore.CurrentEpoch = 0;
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
 
             // Switch to epoch 1 (simulating revert)
             MilestoneStore.CurrentEpoch = 1;
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 60,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 100);
 
@@ -350,37 +359,41 @@ namespace Parsek.Tests
         [Fact]
         public void MilestoneStore_CreateMilestone_ExcludesRawResourceEvents()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref techEvt);
+            var fundsEvt = new GameStateEvent
             {
                 ut = 51,
                 eventType = GameStateEventType.FundsChanged,
                 key = "TechCost",
                 valueBefore = 10000,
                 valueAfter = 9995
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
+            var scienceEvt = new GameStateEvent
             {
                 ut = 52,
                 eventType = GameStateEventType.ScienceChanged,
                 key = "TechCost",
                 valueBefore = 100,
                 valueAfter = 95
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref scienceEvt);
+            var repEvt = new GameStateEvent
             {
                 ut = 53,
                 eventType = GameStateEventType.ReputationChanged,
                 key = "Unknown",
                 valueBefore = 50,
                 valueAfter = 55
-            });
+            };
+            GameStateStore.AddEvent(ref repEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 100);
 
@@ -394,20 +407,22 @@ namespace Parsek.Tests
         public void MilestoneStore_CreateMilestone_SortsEventsByUT()
         {
             // Add events out of order
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 80,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref partEvt);
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 100);
 
@@ -422,20 +437,22 @@ namespace Parsek.Tests
         [Fact]
         public void Milestone_LastReplayedIndex_InitializedToEnd()
         {
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref techEvt);
+            var partEvt = new GameStateEvent
             {
                 ut = 60,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             var milestone = MilestoneStore.CreateMilestone("rec1", 100);
 
@@ -568,13 +585,14 @@ namespace Parsek.Tests
         public void FlushPendingEvents_CapturesOrphanedEvents()
         {
             // Events that happened without a recording commit
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
 
             var milestone = MilestoneStore.FlushPendingEvents(100);
 
@@ -588,13 +606,14 @@ namespace Parsek.Tests
         public void FlushPendingEvents_NoOpWhenNoNewEvents()
         {
             // Create a milestone that covers UT 0-100
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
             // No new events after UT 100
@@ -607,23 +626,25 @@ namespace Parsek.Tests
         public void FlushPendingEvents_OnlyCapturesNewEvents()
         {
             // First milestone covers UT 0-100
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
             // New event at UT 150
-            GameStateStore.AddEvent(new GameStateEvent
+            var partEvt = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
 
             var milestone = MilestoneStore.FlushPendingEvents(200);
 
@@ -672,12 +693,13 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.CurrentEpoch = 5;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.TechResearched,
                 key = "test"
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             Assert.Equal(5u, GameStateStore.Events[0].epoch);
 
@@ -693,13 +715,14 @@ namespace Parsek.Tests
         public void CreateMilestone_StartUT_IgnoresOldEpochMilestones()
         {
             // Old epoch milestone with high EndUT
-            GameStateStore.AddEvent(new GameStateEvent
+            var oldTechEvt = new GameStateEvent
             {
                 ut = 200,
                 eventType = GameStateEventType.TechResearched,
                 key = "oldTech",
                 detail = "cost=10"
-            });
+            };
+            GameStateStore.AddEvent(ref oldTechEvt);
             MilestoneStore.CreateMilestone("rec1", 300);
             Assert.Equal(1, MilestoneStore.MilestoneCount);
 
@@ -707,13 +730,14 @@ namespace Parsek.Tests
             MilestoneStore.CurrentEpoch++;
 
             // New event at UT 50 (below old milestone's EndUT of 300)
-            GameStateStore.AddEvent(new GameStateEvent
+            var newPartEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref newPartEvt);
 
             // Without epoch-aware watermark, this would be skipped (50 <= 300)
             var m = MilestoneStore.CreateMilestone("rec2", 100);
@@ -726,32 +750,35 @@ namespace Parsek.Tests
         public void CreateMilestone_StartUT_UsesCurrentEpochMilestones()
         {
             // Create two milestones in the same epoch
-            GameStateStore.AddEvent(new GameStateEvent
+            var tech1Evt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "tech1",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref tech1Evt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var part1Evt = new GameStateEvent
             {
                 ut = 150,
                 eventType = GameStateEventType.PartPurchased,
                 key = "part1",
                 detail = "cost=300"
-            });
+            };
+            GameStateStore.AddEvent(ref part1Evt);
             MilestoneStore.CreateMilestone("rec2", 200);
 
             // Event at UT 80 (within first milestone's range) should NOT be captured again
-            GameStateStore.AddEvent(new GameStateEvent
+            var dupEvt = new GameStateEvent
             {
                 ut = 80,
                 eventType = GameStateEventType.TechResearched,
                 key = "duplicateTech",
                 detail = "cost=10"
-            });
+            };
+            GameStateStore.AddEvent(ref dupEvt);
             var m = MilestoneStore.CreateMilestone(null, 250);
             // Should be null — no new events after UT 200 watermark
             Assert.Null(m);
@@ -766,20 +793,22 @@ namespace Parsek.Tests
         {
             MilestoneStore.CurrentEpoch = 0;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref techEvt);
+            var partEvt = new GameStateEvent
             {
                 ut = 60,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref partEvt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
             Assert.Equal(2, MilestoneStore.GetPendingEventCount());
@@ -790,25 +819,27 @@ namespace Parsek.Tests
         {
             MilestoneStore.CurrentEpoch = 0;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var oldTechEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref oldTechEvt);
             MilestoneStore.CreateMilestone("rec1", 100);
 
             // Increment epoch (simulating revert)
             MilestoneStore.CurrentEpoch = 1;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var newPartEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.PartPurchased,
                 key = "mk1pod.v2",
                 detail = "cost=600"
-            });
+            };
+            GameStateStore.AddEvent(ref newPartEvt);
             MilestoneStore.CreateMilestone("rec2", 100);
 
             // Only the epoch=1 milestone counts (1 event)
@@ -826,13 +857,14 @@ namespace Parsek.Tests
         {
             MilestoneStore.CurrentEpoch = 0;
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var techEvt = new GameStateEvent
             {
                 ut = 50,
                 eventType = GameStateEventType.TechResearched,
                 key = "basicRocketry",
                 detail = "cost=5"
-            });
+            };
+            GameStateStore.AddEvent(ref techEvt);
             // CrewStatusChanged should be filtered from milestones by CreateMilestone,
             // but even if present in a deserialized milestone it should not be counted
             MilestoneStore.CreateMilestone("rec1", 100);

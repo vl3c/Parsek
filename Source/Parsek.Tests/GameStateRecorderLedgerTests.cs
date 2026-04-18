@@ -347,14 +347,15 @@ namespace Parsek.Tests
 
             // KSP emits FundsChanged(VesselRecovery) at the recovery moment, captured
             // by GameStateRecorder.OnFundsChanged into GameStateStore.
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 3980.4,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 40000.0,
                 valueAfter = 44005.0
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             int before = Ledger.Actions.Count;
             LedgerOrchestrator.OnVesselRecoveryFunds(3980.4, "Test Probe", fromTrackingStation: true);
@@ -381,14 +382,15 @@ namespace Parsek.Tests
             // launched before the player installed Parsek) still credits funds to the
             // ledger so the running balance stays in sync with KSP — just with a null
             // RecordingId tag.
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 5000.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 100.0,
                 valueAfter = 1100.0
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Stock Vessel", fromTrackingStation: false);
 
@@ -457,14 +459,15 @@ namespace Parsek.Tests
             newRec.Points.Add(new TrajectoryPoint { ut = 1500.0, funds = 38000.0 });
             RecordingStore.AddRecordingWithTreeForTesting(newRec);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 4000.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 38000.0,
                 valueAfter = 41000.0
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "ReusableProbe", fromTrackingStation: true);
 
@@ -493,14 +496,15 @@ namespace Parsek.Tests
             ghost.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 0.0 });
             RecordingStore.AddRecordingWithTreeForTesting(ghost);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 3000.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 100.0,
                 valueAfter = 600.0
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "GloopsClone", fromTrackingStation: true);
 
@@ -523,22 +527,24 @@ namespace Parsek.Tests
             // two parts: GameStateStore stops coalescing FundsChanged(VesselRecovery), and
             // OnVesselRecoveryFunds consumes a stable per-event fingerprint so each callback
             // pairs to exactly one funds delta.
-            GameStateStore.AddEvent(new GameStateEvent
+            var evtA = new GameStateEvent
             {
                 ut = 3000.00,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 0.0,
                 valueAfter = 100.0   // A = +100
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref evtA);
+            var evtB = new GameStateEvent
             {
                 ut = 3000.04,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 100.0,
                 valueAfter = 800.0   // B = +700
-            });
+            };
+            GameStateStore.AddEvent(ref evtB);
 
             LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "DebrisB", fromTrackingStation: true);
             LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "DebrisA", fromTrackingStation: true);
@@ -589,14 +595,15 @@ namespace Parsek.Tests
             recB.Points.Add(new TrajectoryPoint { ut = 3800.0, funds = 38000.0 });
             RecordingStore.AddRecordingWithTreeForTesting(recB);
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = 3500.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
                 valueBefore = 38000.0,
                 valueAfter = 39500.0
-            });
+            };
+            GameStateStore.AddEvent(ref evt);
 
             LedgerOrchestrator.OnVesselRecoveryFunds(3500.0, "Twinned", fromTrackingStation: true);
 
@@ -668,7 +675,7 @@ namespace Parsek.Tests
             // GameStateStore still coalesces non-recovery resource events that share the
             // same eventType AND recordingId tag within 0.1 s. Use different tags so the
             // unrelated Strategies delta stays distinct from the recovery delta.
-            GameStateStore.AddEvent(new GameStateEvent
+            var recoveryEvt = new GameStateEvent
             {
                 ut = 7000.00,
                 eventType = GameStateEventType.FundsChanged,
@@ -676,8 +683,9 @@ namespace Parsek.Tests
                 recordingId = "tag-recovery",
                 valueBefore = 10000.0,
                 valueAfter = 12000.0   // recovery: +2000
-            });
-            GameStateStore.AddEvent(new GameStateEvent
+            };
+            GameStateStore.AddEvent(ref recoveryEvt);
+            var strategyEvt = new GameStateEvent
             {
                 ut = 7000.05,   // within pairing epsilon AND within coalesce epsilon, but distinct tag
                 eventType = GameStateEventType.FundsChanged,
@@ -685,7 +693,8 @@ namespace Parsek.Tests
                 recordingId = "tag-strategy",
                 valueBefore = 12000.0,
                 valueAfter = 11500.0   // strategy fee: -500, more recent in store, different key
-            });
+            };
+            GameStateStore.AddEvent(ref strategyEvt);
 
             // Both events sit within VesselRecoveryEventEpsilonSeconds of ut=7000.05.
             // Reverse-search hits the Strategies event first; the key gate must reject it
@@ -728,7 +737,7 @@ namespace Parsek.Tests
             };
             Ledger.AddAction(preSeeded);
 
-            GameStateStore.AddEvent(recoveryEvent);
+            GameStateStore.AddEvent(ref recoveryEvent);
 
             int before = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -768,7 +777,7 @@ namespace Parsek.Tests
                 FundsSource = FundsEarningSource.Recovery,
                 DedupKey = null
             });
-            GameStateStore.AddEvent(recoveryEvent);
+            GameStateStore.AddEvent(ref recoveryEvent);
 
             LedgerOrchestrator.OnKspLoad(new HashSet<string>(), maxUT: 10000.0);
 
@@ -823,7 +832,7 @@ namespace Parsek.Tests
                 FundsSource = FundsEarningSource.Recovery,
                 DedupKey = null
             });
-            GameStateStore.AddEvent(recoveryEvent);
+            GameStateStore.AddEvent(ref recoveryEvent);
 
             LedgerOrchestrator.OnKspLoad(new HashSet<string>(), maxUT: 10000.0);
 

@@ -28,7 +28,7 @@ namespace Parsek
 
         #region Event Management
 
-        internal static void AddEvent(GameStateEvent e)
+        internal static void AddEvent(ref GameStateEvent e)
         {
             // Stamp current epoch for branch isolation
             e.epoch = MilestoneStore.CurrentEpoch;
