@@ -184,12 +184,11 @@ namespace Parsek
 
         /// <summary>
         /// Optional secondary dedup discriminator. Populated for action types whose
-        /// natural key (<see cref="RecordingId"/>) collides at KSC when multiple entries
-        /// share the same null/empty RecordingId at near-identical UT — notably
-        /// <see cref="FundsSpendingSource.Other"/> part purchases, where the part name
-        /// disambiguates. Serialized for <see cref="FundsSpending"/> so save/load and
-        /// the load-time recovery migration (<see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/>)
-        /// can still match historical part-purchase actions against their source events.
+        /// natural key (<see cref="RecordingId"/>) collides at near-identical UTs —
+        /// notably <see cref="FundsSpendingSource.Other"/> part purchases (part name)
+        /// and <see cref="FundsEarningSource.Recovery"/> payouts (paired recovery-event
+        /// fingerprint). Serialized for both <see cref="FundsEarning"/> and
+        /// <see cref="FundsSpending"/> so save/load preserves the same dedup identity.
         /// See <see cref="LedgerOrchestrator.GetActionKey"/>.
         /// </summary>
         public string DedupKey;
@@ -605,12 +604,15 @@ namespace Parsek
         {
             n.AddValue("fundsAwarded", FundsAwarded.ToString("R", IC));
             n.AddValue("fundsSource", ((int)FundsSource).ToString(IC));
+            if (!string.IsNullOrEmpty(DedupKey))
+                n.AddValue("dedupKey", DedupKey);
         }
 
         private static void DeserializeFundsEarning(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "fundsAwarded", out a.FundsAwarded);
             TryParseEnum(n, "fundsSource", out a.FundsSource);
+            a.DedupKey = n.GetValue("dedupKey");
         }
 
         private void SerializeFundsSpending(ConfigNode n)

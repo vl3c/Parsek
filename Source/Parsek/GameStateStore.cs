@@ -38,7 +38,8 @@ namespace Parsek
             // update it instead. #431: the tag equality gate is required — without
             // it, an untagged career slot + tagged in-flight event within epsilon
             // would merge into an untagged slot and silently drop the tag, leaking
-            // through the discard purge.
+            // through the discard purge. FundsChanged(VesselRecovery) is excluded:
+            // the recovery ledger path needs a stable 1:1 event/callback pairing.
             if (IsResourceEvent(e.eventType) && events.Count > 0)
             {
                 string incomingTag = e.recordingId ?? "";
@@ -46,8 +47,16 @@ namespace Parsek
                 {
                     var existing = events[i];
                     string existingTag = existing.recordingId ?? "";
+                    bool withinWindow = Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon;
+                    if (withinWindow &&
+                        (BlocksResourceCoalescing(existing) || BlocksResourceCoalescing(e)))
+                    {
+                        // VesselRecovery is a hard barrier: do not coalesce across it.
+                        break;
+                    }
+
                     if (existing.eventType == e.eventType &&
-                        Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon &&
+                        withinWindow &&
                         string.Equals(existingTag, incomingTag, StringComparison.Ordinal))
                     {
                         // Update the existing event's valueAfter
@@ -73,6 +82,21 @@ namespace Parsek
             return type == GameStateEventType.FundsChanged ||
                    type == GameStateEventType.ScienceChanged ||
                    type == GameStateEventType.ReputationChanged;
+        }
+
+        /// <summary>
+        /// FundsChanged(VesselRecovery) must stay 1:1 with the KSP callback that
+        /// produced it. Coalescing a recovery delta with an adjacent resource event
+        /// breaks recovery-action pairing and can misattribute or double-count the
+        /// payout later in LedgerOrchestrator.
+        /// </summary>
+        private static bool BlocksResourceCoalescing(GameStateEvent e)
+        {
+            return e.eventType == GameStateEventType.FundsChanged &&
+                   string.Equals(
+                       e.key,
+                       LedgerOrchestrator.VesselRecoveryReasonKey,
+                       StringComparison.Ordinal);
         }
 
         /// <summary>

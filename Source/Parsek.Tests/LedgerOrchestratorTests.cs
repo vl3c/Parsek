@@ -310,6 +310,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CreateVesselCostActions_PairedRecoveryEventPreferredOverPointDelta()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-recovery-paired-event",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 47000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var recoveryEvent = new GameStateEvent
+            {
+                ut = 300.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 47000.0,
+                valueAfter = 48250.0
+            };
+            GameStateStore.AddEvent(recoveryEvent);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-recovery-paired-event", 100.0, 300.0);
+
+            Assert.Equal(2, actions.Count);
+            var recoveryAction = actions[1];
+            Assert.Equal(GameActionType.FundsEarning, recoveryAction.Type);
+            Assert.Equal(FundsEarningSource.Recovery, recoveryAction.FundsSource);
+            Assert.Equal(1250.0, (double)recoveryAction.FundsAwarded, 1);
+            Assert.Equal(300.0, recoveryAction.UT);
+            Assert.Equal(
+                LedgerOrchestrator.BuildRecoveryEventDedupKey(recoveryEvent),
+                recoveryAction.DedupKey);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void CreateVesselCostActions_NoResourceDelta_ProducesNoActions()
         {
             var rec = new Recording
@@ -388,7 +427,8 @@ namespace Parsek.Tests
         [Fact]
         public void CreateVesselCostActions_RecoveredSinglePoint_NoRecoveryAction()
         {
-            // Recovery requires >= 2 points to compute delta
+            // Without a paired FundsChanged(VesselRecovery) event, the fallback recovery
+            // heuristic still requires >= 2 points to compute a delta.
             var rec = new Recording
             {
                 RecordingId = "rec-single-pt",
@@ -405,6 +445,40 @@ namespace Parsek.Tests
             Assert.Single(actions);
             Assert.Equal(GameActionType.FundsSpending, actions[0].Type);
             Assert.Equal(3000.0, (double)actions[0].FundsSpent, 1);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_RecoveredSinglePoint_WithPairedEvent_ProducesRecoveryAction()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-single-pt-paired-recovery",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 47000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 130.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 47000.0,
+                valueAfter = 49000.0
+            });
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-single-pt-paired-recovery", 100.0, 130.0);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Contains(actions, a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery &&
+                System.Math.Abs(a.UT - 130.0) < 0.01 &&
+                System.Math.Abs(a.FundsAwarded - 2000f) < 0.01f);
 
             RecordingStore.ResetForTesting();
         }

@@ -721,6 +721,39 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void ShouldIgnoreOverlapCycleEvent_NonWatchedCycle_Ignored()
+        {
+            Assert.True(WatchModeController.ShouldIgnoreOverlapCycleEvent(
+                eventCycleIndex: 3, watchedCycleIndex: 5));
+        }
+
+        [Fact]
+        public void ShouldIgnoreOverlapCycleEvent_WatchedCycle_NotIgnored()
+        {
+            Assert.False(WatchModeController.ShouldIgnoreOverlapCycleEvent(
+                eventCycleIndex: 5, watchedCycleIndex: 5));
+        }
+
+        [Fact]
+        public void ShouldIgnoreOverlapCycleEvent_ReadyForNextSentinel_IgnoresRealEvent()
+        {
+            // After a prior ExplosionHoldEnd for the watched cycle, the field sits at
+            // -1 (ready-for-next). A subsequent event for a newer real cycle must not
+            // re-enter the handler and stomp the bridge/retarget state machine.
+            Assert.True(WatchModeController.ShouldIgnoreOverlapCycleEvent(
+                eventCycleIndex: 7, watchedCycleIndex: -1));
+        }
+
+        [Fact]
+        public void ShouldIgnoreOverlapCycleEvent_HoldingSentinel_IgnoresRealEvent()
+        {
+            // While holding after an explosion on the watched cycle, field is -2.
+            // Another overlap cycle expiring must not interrupt the hold.
+            Assert.True(WatchModeController.ShouldIgnoreOverlapCycleEvent(
+                eventCycleIndex: 4, watchedCycleIndex: -2));
+        }
+
         private static WatchModeController MakeUninitializedWatchModeController()
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
