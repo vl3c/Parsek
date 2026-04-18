@@ -27,6 +27,11 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             GameStateStore.SuppressLogging = true;
+
+            // #448: symmetric with Dispose so a previous test that left the seam
+            // installed (e.g. crashed before its try/finally) does not leak its
+            // bypass override into this fixture's classifier calls.
+            LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
         }
 
         public void Dispose()
@@ -1074,6 +1079,52 @@ namespace Parsek.Tests
                     l.Contains("FundsSpending") &&
                     l.Contains("RnDPartPurchase") &&
                     l.Contains("no matching"));
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ClassifyAction_PartPurchase_BypassToggledMidFixture_ReclassifiesPerCall()
+        {
+            // #448 hardening: the bypass classifier must NOT cache its provider read.
+            // A future regression that memoizes IsBypassEntryPurchaseAfterResearch
+            // (or its provider lookup) for the lifetime of the process / fixture would
+            // freeze the first-seen value and silently break players who toggle the
+            // KSP difficulty mid-session. Drive both branches in a single fixture by
+            // swapping the provider between two ClassifyAction calls — action 1 must
+            // classify Transformed under bypass=true, action 2 must classify
+            // Untransformed once the same provider returns false.
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+
+                var action1 = new GameAction
+                {
+                    Type = GameActionType.FundsSpending,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 600f
+                };
+                var exp1 = LedgerOrchestrator.ClassifyAction(action1);
+                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp1.Class);
+                Assert.Contains("BypassEntryPurchaseAfterResearch", exp1.SkipReason);
+
+                // Flip the provider — same fixture, same static helper, no reset.
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+
+                var action2 = new GameAction
+                {
+                    Type = GameActionType.FundsSpending,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 400f
+                };
+                var exp2 = LedgerOrchestrator.ClassifyAction(action2);
+                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp2.Class);
+                Assert.Equal(GameStateEventType.FundsChanged, exp2.EventType);
+                Assert.Equal("RnDPartPurchase", exp2.ExpectedReasonKey);
+                Assert.Equal(-400, exp2.ExpectedDelta);
             }
             finally
             {

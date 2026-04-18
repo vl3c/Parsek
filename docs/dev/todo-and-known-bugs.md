@@ -58,6 +58,33 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 451. `OnPartPurchased` writes `part.cost` instead of `part.entryCost` — ledger over-debits R&D unlocks under bypass=off
+
+**Source:** discovered while addressing #448. `Source/Parsek/GameStateRecorder.cs:480` reads `float cost = part.cost`, then writes that into the `PartPurchased` event's `detail` (`cost=...`) and into the `valueBefore`/`valueAfter` fields used by `ConvertPartPurchased` to synthesize the `FundsSpending` ledger action's `FundsSpent`. KSP's actual entry-purchase deduction in stock `Funding.OnPartPurchased` (`Funding.cs:397`, decompiled) is `AddFunds(-aP.entryCost, TransactionReasons.RnDPartPurchase)` — i.e. the **R&D unlock price**, not the per-instance build cost.
+
+The two values are conceptually different and almost never numerically equal:
+- `AvailablePart.entryCost` is the one-time R&D unlock price set per-part in the .cfg (e.g. solidBooster_v2 entryCost=800).
+- `AvailablePart.cost` is the per-instance build cost charged at vessel rollout (e.g. solidBooster_v2 cost=450). Many stock parts have `entryCost = 2 × cost` or wider ratios; some mod parts set entryCost arbitrarily high (research gate) while keeping cost low (build affordability).
+
+**Why we didn't notice:** under KSP's stock-default `Difficulty.BypassEntryPurchaseAfterResearch=true`, `Funding.OnPartPurchased` returns at line 374 without calling `AddFunds`, so KSP charges the player nothing and our `cost`-vs-`entryCost` mismatch is masked — both sides are paying zero. #448's bypass-aware classifier downgrade now skips the per-action paired-event check in this mode, so the mismatch never trips the reconciler. **Under the harder difficulty (bypass=off)** KSP charges `entryCost` while our ledger debits `cost`, producing a per-purchase delta of `entryCost - cost`. The KSC reconciliation diagnostic (`ReconcileKscAction`) WILL fire a "delta mismatch" WARN per purchase (the matching `FundsChanged` event KSP fires carries `-entryCost`, our action expects `-cost`), and the FundsModule walk over-debits the player's bank by exactly that delta on every part unlock.
+
+**Concern:** in non-bypass careers the symptom is silent funds drift — players who unlock parts through the R&D screen will see Parsek's reconciled funds diverge from KSP's stock funds pool by the cumulative `(entryCost - cost)` sum. The `KspStatePatcher` writeback is per-recalc, so the divergence shows up as an apparent "fund leak" the next time the ledger walk runs. The reconciliation WARN at `LedgerOrchestrator.ReconcileKscAction` will fire on every purchase, but only in the bypass=off branch — bypass=on suppresses the WARN (#448) without fixing the underlying field mismatch.
+
+**Fix:** swap `part.cost` for `part.entryCost` in `GameStateRecorder.OnPartPurchased`. Two consequences to handle in the same change:
+- `valueBefore`/`valueAfter` must use `entryCost` so `ConvertPartPurchased`'s `FundsSpent = (float)(valueBefore - valueAfter)` matches what KSP actually deducted.
+- `detail` should keep the `cost=` key for save-format backward compat but write `entryCost`'s value. Optionally add a separate `entryCost=` token for clarity (parser already tolerant of unknown tokens).
+- Re-derive any callers/tests that hard-coded `part.cost` semantics. Check `GameActionsLedgerTests` and `GameStateRecorderLedgerTests` for `cost=` assertions.
+
+**Files:** `Source/Parsek/GameStateRecorder.cs:480-499` (swap field), `Source/Parsek/GameStateEventConverter.cs` (verify `ConvertPartPurchased` consumes the new value correctly), `Source/Parsek.Tests/GameStateRecorderLedgerTests.cs` and `Source/Parsek.Tests/EarningsReconciliationTests.cs` (regression test asserting `entryCost` semantics under bypass=off).
+
+**Scope:** Small. Single-field swap plus test coverage. Format-compat note: existing `.sfs` saves with old `cost=` events will still load — `ConvertPartPurchased` already parses `cost=` from event detail, the change is what value lives behind that key.
+
+**Dependencies:** #448 shipped (bypass classifier downgrade) — without #448, the mismatch under bypass=off was masked behind the false-positive WARN flood; now that bypass=on is silent, the bypass=off mismatch is the next visible diagnostic that will fire when a player runs the harder difficulty.
+
+**Status:** TODO. Priority: medium. Player-visible only on the harder no-bypass difficulty (small minority of careers), but a real correctness bug — the ledger over-debits by `entryCost - cost` per part unlock. Discovered via #448 review, not via in-game observation.
+
+---
+
 ## 450. Per-spawn time budgeting / coroutine split — #414 follow-up for bimodal single-spawn cost
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:11489`. One-shot #414 breakdown line (first exceeded frame in the session):

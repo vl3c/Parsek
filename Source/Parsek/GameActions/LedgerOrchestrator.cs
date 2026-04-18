@@ -2138,7 +2138,16 @@ namespace Parsek
                     // ledger action itself is authoritative for the FundsModule walk
                     // (whether the player paid is encoded in the action's FundsSpent),
                     // so skip the per-action paired-event check in this mode.
-                    if (IsBypassEntryPurchaseAfterResearch())
+                    //
+                    // Gate explicitly on FundsSpendingSource.Other: that is the KSC part-
+                    // purchase channel today (GameStateRecorder.OnPartPurchased →
+                    // ConvertPartPurchased writes source=Other). The earlier Strategy
+                    // branch above already returned, but a future FundsSpendingSource value
+                    // (e.g. a non-Other KSC producer) must NOT inherit this skip — its
+                    // paired-event expectation would be different. Keep the bypass guard
+                    // tied to the only source the bypass actually affects.
+                    if (action.FundsSpendingSource == FundsSpendingSource.Other &&
+                        IsBypassEntryPurchaseAfterResearch())
                     {
                         return new KscActionExpectation
                         {
@@ -2330,14 +2339,19 @@ namespace Parsek
                 case KscReconcileClass.Transformed:
                     // Rate-limited VERBOSE so a long session with many contract completions
                     // doesn't drown the log, but one line always lands on the first call
-                    // per type so the skip is observable during debugging. Two distinct
-                    // skip causes share this branch — strategy/curve transformations not
-                    // yet post-walk-aware (Phase D/E1.5), and #448's RnDPartPurchase
-                    // suppression when KSP fires no paired FundsChanged event under
-                    // BypassEntryPurchaseAfterResearch=true. The SkipReason carries the
-                    // distinction in the log.
+                    // per (action type, skip reason) pair so the skip is observable during
+                    // debugging. Multiple skip causes share this branch — Phase E1.5
+                    // strategy spending, and #448's RnDPartPurchase suppression under
+                    // BypassEntryPurchaseAfterResearch=true. Both can fire for the SAME
+                    // action.Type (FundsSpending), so a key keyed only on action.Type
+                    // would let whichever cause hits first suppress the other for the
+                    // entire rate-limit window. Include a hash of the SkipReason so each
+                    // distinct cause gets its own slot.
+                    int skipKeyHash = expectation.SkipReason != null
+                        ? expectation.SkipReason.GetHashCode()
+                        : 0;
                     ParsekLog.VerboseRateLimited(Tag,
-                        $"ksc-reconcile-skip:{action.Type}",
+                        $"ksc-reconcile-skip:{action.Type}:{skipKeyHash}",
                         $"KSC reconciliation: {action.Type} skipped " +
                         $"({expectation.SkipReason}) ut={ut:F1}");
                     return;
