@@ -366,5 +366,220 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RewindUI]") && l.Contains("marker is null"));
         }
+
+        // ---------- Prelaunch-target context ----------------------------
+
+        [Fact]
+        public void Show_LaunchTarget_BodyContainsLaunchpad()
+        {
+            var marker = MakeMarker();
+            string capturedBody = null;
+            ReFlyRevertDialog.BodyHookForTesting = (_, body) => capturedBody = body;
+            // Short-circuit the popup spawn so the test runs without a
+            // Unity canvas; the body hook still fires beforehand.
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            ReFlyRevertDialog.Show(marker, RevertTarget.Launch,
+                () => { }, () => { }, () => { });
+
+            Assert.NotNull(capturedBody);
+            Assert.Contains("launchpad", capturedBody);
+            Assert.DoesNotContain("VAB", capturedBody);
+            Assert.DoesNotContain("SPH", capturedBody);
+        }
+
+        [Fact]
+        public void Show_LegacyOverload_DefaultsToLaunchBody()
+        {
+            var marker = MakeMarker();
+            string capturedBody = null;
+            ReFlyRevertDialog.BodyHookForTesting = (_, body) => capturedBody = body;
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            // The back-compat 4-arg overload should forward with target=Launch.
+            ReFlyRevertDialog.Show(marker, () => { }, () => { }, () => { });
+
+            Assert.NotNull(capturedBody);
+            Assert.Contains("launchpad", capturedBody);
+        }
+
+        [Fact]
+        public void Show_PrelaunchTarget_BodyContainsVABorSPH()
+        {
+            var marker = MakeMarker();
+            string capturedBody = null;
+            ReFlyRevertDialog.BodyHookForTesting = (_, body) => capturedBody = body;
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            ReFlyRevertDialog.Show(marker, RevertTarget.Prelaunch,
+                () => { }, () => { }, () => { });
+
+            Assert.NotNull(capturedBody);
+            Assert.Contains("VAB", capturedBody);
+            Assert.Contains("SPH", capturedBody);
+            // Retry-returns-to-FLIGHT clarifier for the Prelaunch context.
+            Assert.Contains("FLIGHT", capturedBody);
+            Assert.DoesNotContain("launchpad", capturedBody);
+        }
+
+        [Fact]
+        public void Show_PrelaunchTarget_LogsTargetOnShownLine()
+        {
+            var marker = MakeMarker();
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            ReFlyRevertDialog.Show(marker, RevertTarget.Prelaunch,
+                () => { }, () => { }, () => { });
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Revert dialog shown")
+                && l.Contains("sess=" + marker.SessionId)
+                && l.Contains("target=Prelaunch"));
+        }
+
+        // ---------- Prelaunch interceptor prefix -------------------------
+
+        [Fact]
+        public void Prefix_RevertToPrelaunch_NoActiveSession_ReturnsTrue()
+        {
+            // No scenario marker — stock revert should proceed.
+            InstallScenario(marker: null);
+
+            bool result = RevertInterceptor.Prefix(RevertTarget.Prelaunch);
+
+            Assert.True(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RevertInterceptor]")
+                && l.Contains("allowing stock RevertToPrelaunch"));
+        }
+
+        [Fact]
+        public void Prefix_RevertToPrelaunch_ActiveSession_ReturnsFalse_ShowsDialog()
+        {
+            var marker = MakeMarker();
+            InstallScenario(marker: marker);
+
+            ReFlySessionMarker dialogMarker = null;
+            RevertInterceptor.DialogShowForTesting = m => dialogMarker = m;
+
+            bool result = RevertInterceptor.Prefix(RevertTarget.Prelaunch);
+
+            Assert.False(result);
+            Assert.Same(marker, dialogMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RevertInterceptor]")
+                && l.Contains("blocking stock RevertToPrelaunch")
+                && l.Contains("sess=" + marker.SessionId)
+                && l.Contains("target=Prelaunch"));
+        }
+
+        // ---------- Prelaunch FullRevertHandler --------------------------
+
+        [Fact]
+        public void FullRevertHandler_PrelaunchContext_InvokesStockRevertToPrelaunch()
+        {
+            var marker = MakeMarker();
+            var scenario = InstallScenario(marker: marker);
+
+            // Keep tree-purge hook off — no tree installed, we just want to
+            // observe the Prelaunch dispatch seam after marker-clear.
+            marker.TreeId = null;
+
+            bool prelaunchInvoked = false;
+            bool launchInvoked = false;
+            RevertInterceptor.StockRevertToPrelaunchInvokerForTesting = () => prelaunchInvoked = true;
+            RevertInterceptor.StockRevertInvokerForTesting = () => launchInvoked = true;
+
+            RevertInterceptor.FullRevertHandler(marker, RevertTarget.Prelaunch);
+
+            Assert.True(prelaunchInvoked);
+            Assert.False(launchInvoked);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+        }
+
+        [Fact]
+        public void FullRevertHandler_LaunchContext_InvokesStockRevertToLaunch()
+        {
+            // Regression: the existing Launch-context behaviour is unchanged.
+            var marker = MakeMarker();
+            var scenario = InstallScenario(marker: marker);
+            marker.TreeId = null;
+
+            bool prelaunchInvoked = false;
+            bool launchInvoked = false;
+            RevertInterceptor.StockRevertToPrelaunchInvokerForTesting = () => prelaunchInvoked = true;
+            RevertInterceptor.StockRevertInvokerForTesting = () => launchInvoked = true;
+
+            RevertInterceptor.FullRevertHandler(marker, RevertTarget.Launch);
+
+            Assert.True(launchInvoked);
+            Assert.False(prelaunchInvoked);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+        }
+
+        [Fact]
+        public void FullRevertHandler_PrelaunchContext_LogsTargetInEndLine()
+        {
+            var marker = MakeMarker();
+            InstallScenario(marker: marker);
+            marker.TreeId = null;
+
+            RevertInterceptor.StockRevertToPrelaunchInvokerForTesting = () => { };
+
+            RevertInterceptor.FullRevertHandler(marker, RevertTarget.Prelaunch, EditorFacility.SPH);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("End reason=fullRevert")
+                && l.Contains("sess=" + marker.SessionId)
+                && l.Contains("target=Prelaunch")
+                && l.Contains("facility=SPH"));
+        }
+
+        [Fact]
+        public void CancelHandler_PrelaunchContext_LogsTarget()
+        {
+            var marker = MakeMarker();
+            InstallScenario(marker: marker);
+
+            RevertInterceptor.CancelHandler(marker, RevertTarget.Prelaunch);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Revert dialog cancelled")
+                && l.Contains("sess=" + marker.SessionId)
+                && l.Contains("target=Prelaunch"));
+        }
+
+        [Fact]
+        public void RetryHandler_PrelaunchContext_LogsTarget_StillReinvokesRewind()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            var scenario = InstallScenario(marker: marker,
+                rps: new List<RewindPoint> { rp });
+
+            RewindPoint capturedRp = null;
+            ChildSlot capturedSlot = null;
+            RevertInterceptor.RewindInvokeStartForTesting = (r, s) =>
+            {
+                capturedRp = r;
+                capturedSlot = s;
+            };
+
+            RevertInterceptor.RetryHandler(marker, RevertTarget.Prelaunch);
+
+            Assert.NotNull(capturedRp);
+            Assert.NotNull(capturedSlot);
+            // Retry is RP-anchored: same RP + slot regardless of context.
+            Assert.Equal(rp.RewindPointId, capturedRp.RewindPointId);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("End reason=retry")
+                && l.Contains("sess=" + marker.SessionId)
+                && l.Contains("target=Prelaunch"));
+        }
     }
 }
