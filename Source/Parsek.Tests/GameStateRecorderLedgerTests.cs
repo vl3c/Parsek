@@ -693,5 +693,56 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("already exists in ledger"));
         }
+
+        [Fact]
+        public void OnKspLoad_LegacyRecoveryActionMissingDedupKey_IsRepairedAndReplayStillDedups()
+        {
+            var recoveryEvent = new GameStateEvent
+            {
+                ut = 9100.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 5000.0,
+                valueAfter = 6500.0
+            };
+            string expectedDedupKey = LedgerOrchestrator.BuildRecoveryEventDedupKey(recoveryEvent);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 9100.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = null,
+                FundsAwarded = 1500f,
+                FundsSource = FundsEarningSource.Recovery,
+                DedupKey = null
+            });
+            GameStateStore.AddEvent(recoveryEvent);
+
+            LedgerOrchestrator.OnKspLoad(new HashSet<string>(), maxUT: 10000.0);
+
+            var repaired = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+            Assert.Equal(expectedDedupKey, repaired.DedupKey);
+
+            int before = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(9100.0, "LegacyRecovery", fromTrackingStation: true);
+
+            int after = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+
+            Assert.Equal(before, after);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RepairMissingRecoveryDedupKeys") &&
+                l.Contains("repaired=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("already exists in ledger"));
+        }
     }
 }

@@ -467,6 +467,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResourceCoalescing_VesselRecoveryBarrier_DoesNotCoalesceAcrossOlderEvent()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.00,
+                eventType = GameStateEventType.FundsChanged,
+                key = "ContractReward",
+                valueBefore = 10000,
+                valueAfter = 12000
+            });
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.05,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 12000,
+                valueAfter = 13000
+            });
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 100.08,
+                eventType = GameStateEventType.FundsChanged,
+                key = "StrategySetup",
+                valueBefore = 13000,
+                valueAfter = 12900
+            });
+
+            Assert.Equal(3, GameStateStore.EventCount);
+            Assert.Equal("ContractReward", GameStateStore.Events[0].key);
+            Assert.Equal(12000, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(LedgerOrchestrator.VesselRecoveryReasonKey, GameStateStore.Events[1].key);
+            Assert.Equal("StrategySetup", GameStateStore.Events[2].key);
+            Assert.Equal(12900, GameStateStore.Events[2].valueAfter);
+        }
+
+        [Fact]
         public void ResourceCoalescing_DifferentTypes_NotCoalesced()
         {
             GameStateStore.ResetForTesting();

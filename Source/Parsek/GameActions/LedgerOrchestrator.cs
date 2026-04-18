@@ -919,6 +919,12 @@ namespace Parsek
             // On empty ledger (old save), this is a no-op.
             Ledger.Reconcile(validRecordingIds, maxUT);
 
+            // Compatibility repair for early #444 saves written before recovery
+            // FundsEarning.DedupKey was serialized. Rebuild the missing key from the
+            // loaded FundsChanged(VesselRecovery) event so replayed recoveries cannot
+            // double-credit after the per-session consumed set is cleared on load.
+            RepairMissingRecoveryDedupKeys();
+
             // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
             // Convert existing GameStateStore events into GameActions.
@@ -2137,6 +2143,7 @@ namespace Parsek
         /// recoveries — see consumed-index guard below for the second layer of protection.
         /// </summary>
         internal const double VesselRecoveryEventEpsilonSeconds = 0.1;
+        private const double LegacyRecoveryActionAmountTolerance = 0.01;
 
         /// <summary>
         /// Reason-key string written by <see cref="GameStateRecorder"/>'s OnFundsChanged
@@ -2229,6 +2236,98 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Compatibility repair for saves written before recovery FundsEarning actions
+        /// persisted <see cref="GameAction.DedupKey"/>. Rebuilds the missing key from
+        /// the matching loaded FundsChanged(VesselRecovery) event.
+        /// </summary>
+        private static void RepairMissingRecoveryDedupKeys()
+        {
+            var actions = Ledger.Actions;
+            var events = GameStateStore.Events;
+            if (actions == null || actions.Count == 0 || events == null || events.Count == 0)
+                return;
+
+            var reservedKeys = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action.Type != GameActionType.FundsEarning) continue;
+                if (action.FundsSource != FundsEarningSource.Recovery) continue;
+                if (string.IsNullOrEmpty(action.DedupKey)) continue;
+                reservedKeys.Add(action.DedupKey);
+            }
+
+            int scanned = 0;
+            int repaired = 0;
+            int unmatched = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action.Type != GameActionType.FundsEarning) continue;
+                if (action.FundsSource != FundsEarningSource.Recovery) continue;
+                if (!string.IsNullOrEmpty(action.DedupKey)) continue;
+
+                scanned++;
+                if (TryFindLegacyRecoveryDedupKey(action, events, reservedKeys, out string repairedKey))
+                {
+                    action.DedupKey = repairedKey;
+                    reservedKeys.Add(repairedKey);
+                    repaired++;
+                }
+                else
+                {
+                    unmatched++;
+                }
+            }
+
+            if (scanned > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RepairMissingRecoveryDedupKeys: scanned={scanned}, repaired={repaired}, unmatched={unmatched}");
+            }
+        }
+
+        /// <summary>
+        /// Matches a legacy recovery action lacking DedupKey back to its saved
+        /// FundsChanged(VesselRecovery) event using the action UT and credited amount.
+        /// </summary>
+        private static bool TryFindLegacyRecoveryDedupKey(
+            GameAction action,
+            IReadOnlyList<GameStateEvent> events,
+            HashSet<string> reservedKeys,
+            out string dedupKey)
+        {
+            dedupKey = null;
+            if (action == null || events == null)
+                return false;
+
+            double bestUtDistance = double.MaxValue;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (e.eventType != GameStateEventType.FundsChanged) continue;
+                if (e.key != VesselRecoveryReasonKey) continue;
+
+                double utDistance = Math.Abs(e.ut - action.UT);
+                if (utDistance > VesselRecoveryEventEpsilonSeconds) continue;
+
+                double delta = e.valueAfter - e.valueBefore;
+                if (Math.Abs(delta - action.FundsAwarded) > LegacyRecoveryActionAmountTolerance) continue;
+
+                string candidateKey = BuildRecoveryEventDedupKey(e);
+                if (reservedKeys.Contains(candidateKey)) continue;
+                if (utDistance >= bestUtDistance) continue;
+
+                dedupKey = candidateKey;
+                bestUtDistance = utDistance;
+                if (utDistance == 0)
+                    break;
+            }
+
+            return dedupKey != null;
         }
 
         /// <summary>

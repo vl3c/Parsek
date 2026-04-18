@@ -47,10 +47,16 @@ namespace Parsek
                 {
                     var existing = events[i];
                     string existingTag = existing.recordingId ?? "";
+                    bool withinWindow = Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon;
+                    if (withinWindow &&
+                        (BlocksResourceCoalescing(existing) || BlocksResourceCoalescing(e)))
+                    {
+                        // VesselRecovery is a hard barrier: do not coalesce across it.
+                        break;
+                    }
+
                     if (existing.eventType == e.eventType &&
-                        !BlocksResourceCoalescing(existing) &&
-                        !BlocksResourceCoalescing(e) &&
-                        Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon &&
+                        withinWindow &&
                         string.Equals(existingTag, incomingTag, StringComparison.Ordinal))
                     {
                         // Update the existing event's valueAfter
