@@ -2315,7 +2315,14 @@ namespace Parsek
                 if (utDistance > VesselRecoveryEventEpsilonSeconds) continue;
 
                 double delta = e.valueAfter - e.valueBefore;
-                if (Math.Abs(delta - action.FundsAwarded) > LegacyRecoveryActionAmountTolerance) continue;
+                // Recovery payouts are stored on GameAction as float and serialized with
+                // "R", so large amounts can round-trip back to double with more than a
+                // cent of widening error. Keep the existing cent floor (matching funds
+                // patch/no-op behavior) but widen it by the delta's own float-storage loss.
+                double amountTolerance = Math.Max(
+                    LegacyRecoveryActionAmountTolerance,
+                    Math.Abs(delta - (double)(float)delta));
+                if (Math.Abs(delta - action.FundsAwarded) > amountTolerance) continue;
 
                 string candidateKey = BuildRecoveryEventDedupKey(e);
                 if (reservedKeys.Contains(candidateKey)) continue;

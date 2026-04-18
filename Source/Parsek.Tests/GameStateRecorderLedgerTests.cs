@@ -744,5 +744,53 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("already exists in ledger"));
         }
+
+        [Fact]
+        public void OnKspLoad_LegacyRecoveryActionMissingDedupKey_LargeFloatRoundedAmount_IsRepaired()
+        {
+            const double recoveryAmount = 1234567.89;
+            float storedRecoveryAmount = (float)recoveryAmount;
+            Assert.True(Math.Abs(recoveryAmount - storedRecoveryAmount) > 0.01);
+
+            var recoveryEvent = new GameStateEvent
+            {
+                ut = 9200.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 5000.0,
+                valueAfter = 5000.0 + recoveryAmount
+            };
+            string expectedDedupKey = LedgerOrchestrator.BuildRecoveryEventDedupKey(recoveryEvent);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 9200.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = null,
+                FundsAwarded = storedRecoveryAmount,
+                FundsSource = FundsEarningSource.Recovery,
+                DedupKey = null
+            });
+            GameStateStore.AddEvent(recoveryEvent);
+
+            LedgerOrchestrator.OnKspLoad(new HashSet<string>(), maxUT: 10000.0);
+
+            var repaired = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+            Assert.Equal(expectedDedupKey, repaired.DedupKey);
+
+            int before = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(9200.0, "LegacyBigRecovery", fromTrackingStation: true);
+
+            int after = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+
+            Assert.Equal(before, after);
+        }
     }
 }
