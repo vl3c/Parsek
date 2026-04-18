@@ -485,6 +485,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.3 step 4 phase 1): adds a
+        /// provisional re-fly recording to the committed list in the same
+        /// synchronous block as the <see cref="ReFlySessionMarker"/> write.
+        /// Bumps <see cref="StateVersion"/> so the ERS cache invalidates
+        /// immediately; no disk flush (the provisional is durable via the
+        /// scenario save, not via sidecar files, until it is merged).
+        /// </summary>
+        internal static void AddProvisional(Recording rec)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Warn("RecordingStore", "AddProvisional called with null recording");
+                return;
+            }
+            committedRecordings.Add(rec);
+            BumpStateVersion();
+            ParsekLog.Verbose("RecordingStore",
+                $"AddProvisional: rec={rec.RecordingId} state={rec.MergeState} " +
+                $"supersedeTarget={rec.SupersedeTargetId ?? "<none>"} " +
+                $"total={committedRecordings.Count}");
+        }
+
+        /// <summary>
         /// Removes a recording from the internal committed list.
         /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
         /// </summary>
