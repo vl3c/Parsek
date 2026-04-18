@@ -685,18 +685,33 @@ namespace Parsek
             }
 
             bool markerWritten = false;
+            string markerSessionId = null;
             if (ActiveReFlySessionMarker != null)
             {
                 ActiveReFlySessionMarker.SaveInto(node);
                 markerWritten = true;
+                markerSessionId = ActiveReFlySessionMarker.SessionId;
             }
 
             bool journalWritten = false;
+            string journalId = null;
             if (ActiveMergeJournal != null)
             {
                 ActiveMergeJournal.SaveInto(node);
                 journalWritten = true;
+                journalId = ActiveMergeJournal.JournalId;
             }
+
+            // Per-section tagged lines (design §10 tag conventions). Emitted
+            // alongside the consolidated summary below so log-grep by tag still
+            // works even when the summary line changes shape.
+            ParsekLog.Info("Rewind", $"RewindPoints saved: {rpCount}");
+            ParsekLog.Info("Supersede", $"RecordingSupersedes saved: {supersedeCount}");
+            ParsekLog.Info("LedgerSwap", $"LedgerTombstones saved: {tombCount}");
+            ParsekLog.Info("ReFlySession",
+                $"Marker saved: {(markerWritten ? (markerSessionId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("MergeJournal",
+                $"Journal saved: {(journalWritten ? (journalId ?? "<no-id>") : "none")}");
 
             ParsekLog.Info("Scenario",
                 $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
@@ -747,6 +762,19 @@ namespace Parsek
             ConfigNode journalNode = node.GetNode(MergeJournal.NodeName);
             if (journalNode != null)
                 ActiveMergeJournal = MergeJournal.LoadFrom(journalNode);
+
+            // Per-section tagged lines (design §10 tag conventions). Emitted
+            // alongside the consolidated summary below so log-grep by tag still
+            // works even when the summary line changes shape.
+            ParsekLog.Info("Rewind", $"RewindPoints loaded: {RewindPoints.Count}");
+            ParsekLog.Info("Supersede",
+                $"RecordingSupersedes loaded: {RecordingSupersedes.Count}");
+            ParsekLog.Info("LedgerSwap",
+                $"LedgerTombstones loaded: {LedgerTombstones.Count}");
+            ParsekLog.Info("ReFlySession",
+                $"Marker loaded: {(ActiveReFlySessionMarker != null ? (ActiveReFlySessionMarker.SessionId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("MergeJournal",
+                $"Journal loaded: {(ActiveMergeJournal != null ? (ActiveMergeJournal.JournalId ?? "<no-id>") : "none")}");
 
             ParsekLog.Info("Scenario",
                 $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
