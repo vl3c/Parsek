@@ -121,7 +121,8 @@ namespace Parsek
                 ChildSlots = childSlots,
                 SessionProvisional = true,
                 Corrupted = false,
-                CreatingSessionId = null,
+                // If a re-fly session is active, the RP is speculative within that session context.
+                CreatingSessionId = scenario.ActiveReFlySessionMarker?.SessionId,
                 PidSlotMap = new Dictionary<uint, int>(),
                 RootPartPidMap = new Dictionary<uint, int>()
             };

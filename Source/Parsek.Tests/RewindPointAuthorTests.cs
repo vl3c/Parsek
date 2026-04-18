@@ -724,5 +724,48 @@ namespace Parsek.Tests
             }
         }
 
+        // --- CreatingSessionId ---------------------------------------------
+
+        /// <summary>
+        /// Phase 4 review: when a re-fly session is active at Begin-time, the RP
+        /// must record the active marker's <c>SessionId</c> in
+        /// <see cref="RewindPoint.CreatingSessionId"/> so it is recognizable as
+        /// speculative within that session context. When no session is active the
+        /// id stays null (covered implicitly by the other Begin tests).
+        /// </summary>
+        [Fact]
+        public void Begin_UnderActiveSession_CopiesCreatingSessionId()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            try
+            {
+                var scenario = MakeScenario();
+                scenario.ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_test123",
+                    TreeId = "tree_test",
+                    ActiveReFlyRecordingId = "rec_test",
+                    OriginChildRecordingId = "rec_origin",
+                    RewindPointId = "rp_prev",
+                    InvokedUT = 100.0
+                };
+
+                var bp = MakeBp("bp_session");
+                var slots = new List<ChildSlot> { Slot(0, "recA"), Slot(1, "recB") };
+
+                RewindPointAuthor.SyncRunForTesting = (rp, ctx) => { };
+                RewindPoint rp;
+                try
+                {
+                    rp = RewindPointAuthor.Begin(bp, slots, new List<uint> { 1u, 2u });
+                }
+                finally { RewindPointAuthor.SyncRunForTesting = null; }
+
+                Assert.NotNull(rp);
+                Assert.Equal("sess_test123", rp.CreatingSessionId);
+                Assert.Same(rp, scenario.RewindPoints.Single());
+            }
+            finally { HighLogic.LoadedScene = GameScenes.LOADING; }
+        }
     }
 }
