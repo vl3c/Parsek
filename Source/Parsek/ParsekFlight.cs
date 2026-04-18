@@ -2237,6 +2237,152 @@ namespace Parsek
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
             ParsekLog.RecState("CreateSplitBranch:exit", CaptureRecorderState());
+
+            // Phase 4 (Rewind-to-Staging): Undock + EVA paths call CreateSplitBranch
+            // directly. Both are multi-controllable when both outputs carry command
+            // authority (EVA kerbals and probe-cored vessels pass IsTrackableVessel).
+            // JointBreak flows through ProcessBreakupEvent; its RP hook lives there.
+            if (branchType == BranchPointType.Undock || branchType == BranchPointType.EVA)
+            {
+                TryAuthorRewindPointForSplit(bp, branchType, activeVessel, activeChild, backgroundVessel, bgChild);
+            }
+        }
+
+        /// <summary>
+        /// Phase 4 (Rewind-to-Staging, design §5.1 + §7.1 + §7.2 + §7.19): if the
+        /// split has >=2 controllable children, builds a <see cref="ChildSlot"/>
+        /// list from the freshly-created child recordings and hands it to
+        /// <see cref="RewindPointAuthor.Begin"/>. Called from both the Undock/EVA
+        /// side of <see cref="CreateSplitBranch"/> and from the structural
+        /// <c>ProcessBreakupEvent</c> path.
+        ///
+        /// <para>
+        /// The resolver returned here looks up the child PID by recording id in
+        /// <c>activeTree.Recordings</c>, because at split time the newly-created
+        /// child recordings are in the active tree but not yet committed.
+        /// </para>
+        /// </summary>
+        void TryAuthorRewindPointForSplit(
+            BranchPoint bp,
+            BranchPointType branchType,
+            Vessel activeVessel, Recording activeChild,
+            Vessel backgroundVessel, Recording backgroundChild)
+        {
+            if (bp == null)
+            {
+                ParsekLog.Warn("Rewind", $"TryAuthorRewindPointForSplit: bp is null ({branchType})");
+                return;
+            }
+
+            var candidatePids = new List<uint>();
+            if (activeVessel != null) candidatePids.Add(activeVessel.persistentId);
+            if (backgroundVessel != null) candidatePids.Add(backgroundVessel.persistentId);
+
+            uint origPid = activeVessel != null ? activeVessel.persistentId : 0;
+            var controllable = SegmentBoundaryLogic.IdentifyControllableChildren(origPid, candidatePids);
+
+            if (!SegmentBoundaryLogic.IsMultiControllableSplit(controllable.Count))
+            {
+                ParsekLog.Info("Rewind",
+                    $"Single-controllable split: no RP (bp={bp.Id} type={branchType} " +
+                    $"controllable={controllable.Count})");
+                return;
+            }
+
+            AuthorRewindPointFromVesselRecordings(
+                bp,
+                controllable,
+                new (Vessel vessel, Recording rec)[] {
+                    (activeVessel, activeChild),
+                    (backgroundVessel, backgroundChild)
+                });
+        }
+
+        /// <summary>
+        /// Phase 4: shared back-end for both Undock/EVA and Breakup RP authoring.
+        /// Builds <see cref="ChildSlot"/> entries for each controllable (vessel, recording)
+        /// pair whose PID is present in <paramref name="controllablePids"/>, then
+        /// delegates to <see cref="RewindPointAuthor.Begin"/>. The resolver returned
+        /// here maps <c>OriginChildRecordingId</c> -> <c>Vessel.persistentId</c> using
+        /// the just-built map so the deferred coroutine does not need to consult the
+        /// active tree or <c>RecordingStore.CommittedRecordings</c>.
+        /// </summary>
+        void AuthorRewindPointFromVesselRecordings(
+            BranchPoint bp,
+            List<uint> controllablePids,
+            IReadOnlyList<(Vessel vessel, Recording rec)> pairs)
+        {
+            var slots = new List<ChildSlot>();
+            var recIdToPid = new Dictionary<string, uint>(StringComparer.Ordinal);
+
+            int slotIndex = 0;
+            for (int i = 0; i < pairs.Count; i++)
+            {
+                var (vessel, rec) = pairs[i];
+                if (vessel == null || rec == null) continue;
+                if (!controllablePids.Contains(vessel.persistentId)) continue;
+                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+
+                slots.Add(new ChildSlot
+                {
+                    SlotIndex = slotIndex++,
+                    OriginChildRecordingId = rec.RecordingId,
+                    Controllable = true,
+                    Disabled = false,
+                    DisabledReason = null
+                });
+                recIdToPid[rec.RecordingId] = vessel.persistentId;
+            }
+
+            if (slots.Count < 2)
+            {
+                ParsekLog.Info("Rewind",
+                    $"Multi-controllable classifier passed ({controllablePids.Count}) but slot build " +
+                    $"produced only {slots.Count} entries (bp={bp.Id}); skipping RP");
+                return;
+            }
+
+            var ctx = new RewindPointAuthorContext
+            {
+                RecordingResolver = recId =>
+                    recIdToPid.TryGetValue(recId ?? "", out var pid) ? (uint?)pid : null
+            };
+
+            RewindPointAuthor.Begin(bp, slots, controllablePids, ctx);
+        }
+
+        /// <summary>
+        /// Phase 4: RP hook for structural joint-break (Breakup) branch points.
+        /// Treats the surviving parent + each controllable child fragment as
+        /// candidates; if at least 2 pass <see cref="SegmentBoundaryLogic.IdentifyControllableChildren"/>,
+        /// delegates to <see cref="AuthorRewindPointFromVesselRecordings"/>.
+        /// </summary>
+        void TryAuthorRewindPointForBreakup(
+            BranchPoint breakupBp,
+            IReadOnlyList<(Vessel vessel, Recording rec)> pairs)
+        {
+            if (breakupBp == null || pairs == null || pairs.Count == 0)
+                return;
+
+            var candidatePids = new List<uint>();
+            for (int i = 0; i < pairs.Count; i++)
+            {
+                var v = pairs[i].vessel;
+                if (v != null) candidatePids.Add(v.persistentId);
+            }
+
+            uint origPid = pairs.Count > 0 && pairs[0].vessel != null ? pairs[0].vessel.persistentId : 0;
+            var controllable = SegmentBoundaryLogic.IdentifyControllableChildren(origPid, candidatePids);
+
+            if (!SegmentBoundaryLogic.IsMultiControllableSplit(controllable.Count))
+            {
+                ParsekLog.Info("Rewind",
+                    $"Single-controllable split: no RP (bp={breakupBp.Id} type={breakupBp.Type} " +
+                    $"controllable={controllable.Count})");
+                return;
+            }
+
+            AuthorRewindPointFromVesselRecordings(breakupBp, controllable, pairs);
         }
 
         /// <summary>
@@ -3272,6 +3418,17 @@ namespace Parsek
             // These are NOT debris — they record indefinitely (no TTL) and can serve as
             // RELATIVE anchors during playback.
             var controlledChildren = crashCoalescer.LastEmittedControlledChildPids;
+
+            // Phase 4 (Rewind-to-Staging): collect (vessel, child recording) pairs
+            // for the controllable outputs of the breakup. The parent recording
+            // carrying the active vessel is also a controllable output (it survives
+            // the breakup in breakup-continuous design), so it participates in the
+            // multi-controllable classifier alongside the children.
+            var breakupControllablePairs = new List<(Vessel vessel, Recording rec)>();
+            Vessel activeVesselForBreakup = FlightGlobals.ActiveVessel;
+            if (activeVesselForBreakup != null)
+                breakupControllablePairs.Add((activeVesselForBreakup, activeRec));
+
             if (controlledChildren != null && controlledChildren.Count > 0)
             {
                 for (int i = 0; i < controlledChildren.Count; i++)
@@ -3303,6 +3460,9 @@ namespace Parsek
                             initialTrajectoryPoint: initialPoint);
                     }
 
+                    if (childVessel != null && childRec != null)
+                        breakupControllablePairs.Add((childVessel, childRec));
+
                     ParsekLog.Info("Coalescer",
                         $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
@@ -3310,6 +3470,13 @@ namespace Parsek
                         $"{DescribeBreakupChildSeedPose(breakupChildPoint, childVessel, Planetarium.GetUniversalTime())}");
                 }
             }
+
+            // Phase 4 (design §5.1 + §7.1 + §7.2 + §7.19): if this breakup produced
+            // >=2 controllable outputs (counting the surviving parent), author a
+            // RewindPoint. The author computes PidSlotMap / RootPartPidMap on the
+            // deferred frame and writes the quicksave atomically. §7.1 prunes the
+            // single-controllable case (no RP for debris-only breakups).
+            TryAuthorRewindPointForBreakup(breakupBp, breakupControllablePairs);
 
             // Also create debris child recordings for new debris from this breakup
             int skippedDebris = 0;
