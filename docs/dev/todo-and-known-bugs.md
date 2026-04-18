@@ -230,7 +230,7 @@ Out-of-scope rejected fix: seeding a synthetic second point at `ExplicitEndUT` i
 
 ---
 
-## 446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording
+## ~~446. `GloopsRecorderUI.DrawWindow` NRE after Discard Recording~~
 
 **Source:** smoke-test log bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:16211` (single `[EXC]` in the whole session). Reproduced at UT ≈ end-of-session after clicking "Discard Recording" on a saved Gloops recording. Stack: `GloopsRecorderUI.DrawWindow ... [0x001b6]` → `DrawIfOpen+<>c__DisplayClass10_0.<DrawIfOpen>b__0` → `GUILayout.LayoutedWindow.DoWindow`.
 
@@ -277,9 +277,9 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Files:** `Source/Parsek/UI/GloopsRecorderUI.cs:97-195` (re-evaluate locals after button blocks; optionally extract status-label helper), `Source/Parsek.Tests/` (new test), `CHANGELOG.md`.
 
-**Scope:** Small. Single-file fix, one small test.
+**Scope:** Small. Single-file fix, targeted unit tests.
 
-**Status:** TODO. Priority: medium. User-visible exception after a common UI action; recovers on next frame (IMGUI reruns `DrawWindow` with fresh locals) so the session isn't lost, but the `[EXC]` in KSP.log is a release-quality concern.
+**Status:** ~~Fixed~~ — `DrawWindow` now snapshots the button-row state into a `StatusSnapshot`, refreshes it from `flight` after the handlers run via `RefreshStatusSnapshot`, and dispatches the status ladder from that fresh snapshot before any saved-recording dereference. `Bug446GloopsDiscardNreTests` now calls the production helpers directly, covering both the original discard path and the same stale-local transition when Start New Recording clears a previously saved capture. The verbose `Gloops state changed mid-DrawWindow` log is emitted only when a button handler actually changed the tracked booleans, so the diagnostic stays high-signal in `KSP.log`.
 
 ---
 
