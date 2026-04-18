@@ -45,10 +45,27 @@ namespace Parsek
         /// </summary>
         internal static Func<string, bool> DeleteQuicksaveForTesting;
 
+        /// <summary>
+        /// Test seam: counter of every <see cref="PurgeTree"/> invocation,
+        /// incremented unconditionally at the top of the method (before the
+        /// null/empty guards or scenario lookup). Lets tests detect whether
+        /// <see cref="PurgeTree"/> was even ATTEMPTED irrespective of whether
+        /// the body ran to completion. Reset via
+        /// <see cref="ResetCallCountForTesting"/> or <see cref="ResetTestOverrides"/>.
+        /// </summary>
+        internal static int PurgeTreeCountForTesting;
+
+        /// <summary>Resets the <see cref="PurgeTreeCountForTesting"/> counter.</summary>
+        internal static void ResetCallCountForTesting()
+        {
+            PurgeTreeCountForTesting = 0;
+        }
+
         /// <summary>Clears all test seams.</summary>
         internal static void ResetTestOverrides()
         {
             DeleteQuicksaveForTesting = null;
+            PurgeTreeCountForTesting = 0;
         }
 
         /// <summary>
@@ -58,6 +75,11 @@ namespace Parsek
         /// </summary>
         internal static void PurgeTree(string treeId)
         {
+            // Unconditional attempt counter — increments even on early-return
+            // guard hits below, so tests can assert "PurgeTree was never
+            // called" via PurgeTreeCountForTesting == 0.
+            PurgeTreeCountForTesting++;
+
             if (string.IsNullOrEmpty(treeId))
             {
                 ParsekLog.Verbose(RewindTag, "PurgeTree: empty treeId — nothing to purge");
