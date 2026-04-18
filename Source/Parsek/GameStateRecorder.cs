@@ -120,6 +120,77 @@ namespace Parsek
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
             IsReplayingActions = false;
+            BypassEntryPurchaseAfterResearchProviderForTesting = null;
+        }
+
+        /// <summary>
+        /// Test-only seam for the stock R&amp;D-part-purchase difficulty toggle. Production
+        /// reads <c>HighLogic.CurrentGame.Parameters.Difficulty.BypassEntryPurchaseAfterResearch</c>
+        /// directly; tests install a provider to drive both branches without a live KSP game.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
+
+        /// <summary>
+        /// Returns whether the stock R&amp;D difficulty toggle is available and, if so,
+        /// whether KSP bypasses one-time part entry purchases after research.
+        /// </summary>
+        internal static bool TryGetBypassEntryPurchaseAfterResearch(out bool bypassEntryPurchaseAfterResearch)
+        {
+            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
+            if (provider != null)
+            {
+                bypassEntryPurchaseAfterResearch = provider();
+                return true;
+            }
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
+            {
+                bypassEntryPurchaseAfterResearch = false;
+                return false;
+            }
+
+            bypassEntryPurchaseAfterResearch =
+                game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
+        /// Defensive: returns false when no live game exists.
+        /// </summary>
+        internal static bool IsBypassEntryPurchaseAfterResearch()
+        {
+            bool bypassEntryPurchaseAfterResearch;
+            return TryGetBypassEntryPurchaseAfterResearch(out bypassEntryPurchaseAfterResearch)
+                && bypassEntryPurchaseAfterResearch;
+        }
+
+        /// <summary>
+        /// Builds the canonical PartPurchased event payload from stock KSP semantics:
+        /// when bypass is on, the player pays 0; when bypass is off, the player pays
+        /// the part's <c>entryCost</c> (not its rollout/build <c>cost</c>).
+        /// Internal static for unit test coverage.
+        /// </summary>
+        internal static GameStateEvent CreatePartPurchasedEvent(
+            string partName,
+            float entryCost,
+            bool bypassEntryPurchaseAfterResearch,
+            double ut,
+            double currentFunds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float chargedCost = bypassEntryPurchaseAfterResearch ? 0f : entryCost;
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartPurchased,
+                key = partName ?? "",
+                detail = "cost=" + chargedCost.ToString("R", ic),
+                valueBefore = currentFunds + chargedCost,
+                valueAfter = currentFunds
+            };
         }
 
         private bool subscribed = false;
@@ -477,22 +548,23 @@ namespace Parsek
             }
             if (part == null) return;
             var partName = part.name ?? "";
-            // InvariantCulture-safe: plain interpolation serializes floats with the
-            // system locale decimal separator, and ConvertPartPurchased parses with IC.
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            float cost = part.cost;
-
-            var evt = new GameStateEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                eventType = GameStateEventType.PartPurchased,
-                key = partName,
-                detail = "cost=" + cost.ToString("R", ic),
-                valueBefore = Funding.Instance != null ? Funding.Instance.Funds + cost : 0,
-                valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
-            };
+            double ut = Planetarium.GetUniversalTime();
+            double currentFunds = Funding.Instance != null ? Funding.Instance.Funds : 0;
+            bool bypassEntryPurchaseAfterResearch = IsBypassEntryPurchaseAfterResearch();
+            float entryCost = part.entryCost;
+            var evt = CreatePartPurchasedEvent(
+                partName,
+                entryCost,
+                bypassEntryPurchaseAfterResearch,
+                ut,
+                currentFunds);
+            double chargedCost = evt.valueBefore - evt.valueAfter;
             Emit(evt, "PartPurchased");
-            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={cost})");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: PartPurchased '{partName}' " +
+                $"(charged={chargedCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"entryCost={entryCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"bypass={bypassEntryPurchaseAfterResearch})");
 
             // #405: route to ledger immediately when at KSC. Relies on the DedupKey (§F)
             // to disambiguate part-name collisions.
@@ -726,15 +798,40 @@ namespace Parsek
                 return;
             }
 
+            double ut = Planetarium.GetUniversalTime();
             Emit(new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
             }, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+
+            // #445: VesselRollout deducts the vessel cost when the player launches from
+            // VAB/SPH onto the launchpad/runway. KSP captures this BEFORE
+            // FlightRecorder.CapturePreLaunchResources runs, so the recording-side
+            // CreateVesselCostActions sees a near-zero PreLaunchFunds-to-first-point delta
+            // and the cost was previously dropped on the floor (especially when the player
+            // cancels the rollout without ever starting a recording). Route the deduction
+            // through the ledger immediately as a FundsSpending(VesselBuild). A subsequent
+            // recording from the same vessel will adopt this action via TryAdoptRolloutAction.
+            //
+            // Sign/positivity contract: OnVesselRolloutSpending is the authoritative
+            // non-positive-cost guard (rejects cost <= 0 with VERBOSE) — we pass the
+            // negated delta unconditionally and let the orchestrator decide, so the
+            // contract is enforced in one place even if KSP ever fires a refund-style
+            // VesselRollout event.
+            //
+            // IsReplayingActions guard mirrors other career-event handlers — KspStatePatcher
+            // replays AddFunds during ledger walks and we must not synthesize new actions.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...FundsChanged(VesselRollout))
+            // above so OnVesselRolloutSpending's ReconcileKscAction can pair the action
+            // against the just-emitted event in GameStateStore.
+            if (reason == TransactionReasons.VesselRollout && !IsReplayingActions)
+                LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)

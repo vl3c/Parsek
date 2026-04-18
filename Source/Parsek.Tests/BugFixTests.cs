@@ -204,42 +204,43 @@ namespace Parsek.Tests
     public class Bug84_LoopPhaseOverflowTests
     {
         /// <summary>
-        /// #381: cycleDuration is max(period, MinCycleDuration=1). For a long-running loop,
-        /// the cycle count must not overflow int.MaxValue (2.147B) → use 3B elapsed seconds
-        /// with period=1s, giving ~3B cycles.
+        /// #443: cycleDuration = max(period, MinCycleDuration=5). For a long-running loop,
+        /// cycle count must not overflow int.MaxValue (2.147B). Use 15B elapsed seconds
+        /// with period=5s → 3B cycles.
         /// </summary>
         [Fact]
         public void ComputeLoopPhaseFromUT_LargeElapsed_NoOverflow()
         {
             double startUT = 100.0;
-            double endUT = 101.0;  // 1.0s recording
-            double elapsed = 3e9; // 3 billion seconds, period=1s → 3 billion cycles
+            double endUT = 105.0;  // 5.0s recording
+            double elapsed = 1.5e10; // 15 billion seconds, period=5s → 3 billion cycles
             double currentUT = startUT + elapsed;
 
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                currentUT, startUT, endUT, intervalSeconds: 1.0);
+                currentUT, startUT, endUT, intervalSeconds: 5.0);
 
             // Should NOT overflow — cycleIndex should be a large positive number
             Assert.True(cycleIndex > 0, $"cycleIndex should be positive, got {cycleIndex}");
             Assert.True(cycleIndex > int.MaxValue,
                 $"cycleIndex should exceed int.MaxValue for this test case, got {cycleIndex}");
-            Assert.InRange(cycleIndex, (long)(elapsed / 1.0) - 1, (long)(elapsed / 1.0) + 1);
+            Assert.InRange(cycleIndex, (long)(elapsed / 5.0) - 1, (long)(elapsed / 5.0) + 1);
             Assert.False(isInPause);
         }
 
         /// <summary>
-        /// At exactly the int.MaxValue boundary, ensure correct behavior.
+        /// At the int.MaxValue boundary under MinCycleDuration=5 (#443), elapsed must
+        /// exceed int.MaxValue * 5 to push cycle index past the overflow line.
         /// </summary>
         [Fact]
         public void ComputeLoopPhaseFromUT_IntMaxBoundary_HandledCorrectly()
         {
             double startUT = 0.0;
-            double duration = 1.0;
+            double duration = 5.0;
             double interval = 0.0;
-            // #381: cycleDuration = launch-to-launch period clamped to MinCycleDuration (1.0s).
-            double cycleDuration = Math.Max(interval, GhostPlaybackLogic.MinCycleDuration); // = 1.0
+            // #443: cycleDuration = period clamped to MinCycleDuration (5.0s).
+            double cycleDuration = Math.Max(interval, GhostPlaybackLogic.MinCycleDuration); // = 5.0
             double elapsedAtIntMax = (double)int.MaxValue * cycleDuration;
-            double currentUT = startUT + elapsedAtIntMax + 0.5; // midway through cycle int.MaxValue+1
+            double currentUT = startUT + elapsedAtIntMax + 2.5; // midway through cycle int.MaxValue+1
 
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT, startUT, startUT + duration, interval);
@@ -251,16 +252,16 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// GetActiveCycles also uses the long type for cycle counts.
-        /// MinCycleDuration clamps to 1.0s, so we need elapsed > int.MaxValue * 1.0.
-        /// Use 3 billion seconds (~95 years) to exceed int.MaxValue (2.147 billion).
+        /// GetActiveCycles uses long for cycle counts. With MinCycleDuration=5 (#443),
+        /// elapsed must exceed int.MaxValue * 5 ≈ 10.7B to overflow the int range.
+        /// Use 15 billion seconds (~475 years) to be safely past that.
         /// </summary>
         [Fact]
         public void GetActiveCycles_LargeElapsed_NoOverflow()
         {
             double startUT = 0.0;
-            double endUT = 1.0;  // 1.0s recording (won't be clamped)
-            double elapsed = 3e9; // 3 billion seconds, 1.0s cycle = 3 billion cycles
+            double endUT = 5.0;  // 5.0s recording (won't be clamped)
+            double elapsed = 1.5e10; // 15 billion seconds, 5.0s cycle = 3 billion cycles
             double currentUT = startUT + elapsed;
 
             long firstCycle, lastCycle;
@@ -276,23 +277,19 @@ namespace Parsek.Tests
 
         /// <summary>
         /// TryComputeLoopPlaybackUT static overload handles large cycles.
-        /// MinCycleDuration clamps to 1.0s, so we need elapsed > int.MaxValue * 1.0.
-        /// With zero interval and 1.0s recording, cycleDuration=1.0s is at the boundary.
-        /// Use a small positive interval to push cycleDuration to 2.0s so there's no
-        /// false-positive from the pause-window return-false path.
-        /// #381: use period=1 (= MinCycleDuration) with 2s duration so period < duration,
-        /// no pause window, and cycleDuration=1 gives 5e9 cycles.
+        /// #443: use period=5 (= MinCycleDuration) with 10s duration so period < duration,
+        /// no pause window. Elapsed 2.5e10 seconds → 5e9 cycles.
         /// </summary>
         [Fact]
         public void TryComputeLoopPlaybackUT_LargeElapsed_NoOverflow()
         {
             double startUT = 100.0;
-            double endUT = 102.0; // 2.0s recording
-            double elapsed = 5e9; // 5 billion seconds, period=1s → 5 billion cycles
+            double endUT = 110.0; // 10.0s recording
+            double elapsed = 2.5e10; // 25 billion seconds, period=5s → 5 billion cycles
             double currentUT = startUT + elapsed;
 
             bool result = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
-                currentUT, startUT, endUT, intervalSeconds: 1.0,
+                currentUT, startUT, endUT, intervalSeconds: 5.0,
                 out double loopUT, out long cycleIndex);
 
             Assert.True(result);

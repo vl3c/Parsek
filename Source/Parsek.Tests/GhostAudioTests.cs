@@ -21,6 +21,17 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        private static List<Propellant> MakePropellants(params string[] names)
+        {
+            var result = new List<Propellant>(names.Length);
+            for (int i = 0; i < names.Length; i++)
+            {
+                result.Add(new Propellant { name = names[i] });
+            }
+
+            return result;
+        }
+
         #region Propellant Classification
 
         [Fact]
@@ -33,6 +44,22 @@ namespace Parsek.Tests
         public void ClassifyPropellantType_EmptyReturnsUnknown()
         {
             Assert.Equal("Unknown", GhostAudioPresets.ClassifyPropellantType(new List<Propellant>()));
+        }
+
+        [Fact]
+        public void ClassifyPropellantType_IonMixedPropellants_PrefersXenonGas()
+        {
+            Assert.Equal("XenonGas",
+                GhostAudioPresets.ClassifyPropellantType(
+                    MakePropellants("ElectricCharge", "XenonGas")));
+        }
+
+        [Fact]
+        public void ClassifyPropellantType_PureElectricCharge_ReturnsElectricCharge()
+        {
+            Assert.Equal("ElectricCharge",
+                GhostAudioPresets.ClassifyPropellantType(
+                    MakePropellants("ElectricCharge")));
         }
 
         #endregion
@@ -85,6 +112,93 @@ namespace Parsek.Tests
         {
             string clip = GhostAudioPresets.ResolveEngineAudioClip(null, 0);
             Assert.Equal("sound_rocket_spurts", clip);
+        }
+
+        #endregion
+
+        #region Engine Preset Resolution (bug #423)
+
+        [Fact]
+        public void ResolveEngineAudioClip_IonPropellants_UseQuietSubstituteAndQuietVolumeCurve()
+        {
+            string clip = GhostAudioPresets.ResolveEngineAudioClip(
+                "ionEngine",
+                0,
+                MakePropellants("XenonGas", "ElectricCharge"),
+                2f,
+                out bool useQuietVolumeCurve);
+
+            Assert.True(useQuietVolumeCurve);
+            Assert.Equal("sound_rocket_mini", clip);
+        }
+
+        [Fact]
+        public void ResolveEngineAudioClip_PureElectricCharge_UsesQuietSubstituteAndQuietVolumeCurve()
+        {
+            string clip = GhostAudioPresets.ResolveEngineAudioClip(
+                "electricOnlyEngine",
+                0,
+                MakePropellants("ElectricCharge"),
+                5f,
+                out bool useQuietVolumeCurve);
+
+            Assert.True(useQuietVolumeCurve);
+            Assert.Equal("sound_rocket_mini", clip);
+        }
+
+        [Fact]
+        public void ResolveEngineAudioClip_JetPropellant_UsesQuietVolumeCurve()
+        {
+            string clip = GhostAudioPresets.ResolveEngineAudioClip(
+                "jetEngine",
+                0,
+                MakePropellants("IntakeAir", "LiquidFuel"),
+                130f,
+                out bool useQuietVolumeCurve);
+
+            Assert.True(useQuietVolumeCurve);
+            Assert.Equal("sound_jet_deep", clip);
+        }
+
+        [Theory]
+        [InlineData("LiquidFuel", 500f, "sound_rocket_hard")]
+        [InlineData("LiquidFuel", 100f, "sound_rocket_hard")]
+        [InlineData("LiquidFuel", 10f, "sound_rocket_spurts")]
+        [InlineData("SolidFuel", 500f, "sound_rocket_hard")]
+        [InlineData("SolidFuel", 100f, "sound_rocket_hard")]
+        [InlineData("SolidFuel", 10f, "sound_rocket_spurts")]
+        [InlineData("MonoPropellant", 100f, "sound_rocket_mini")]
+        [InlineData("MonoPropellant", 10f, "sound_rocket_mini")]
+        public void ResolveEngineAudioClip_RocketFamilies_KeepRocketVolumeCurve(
+            string propellantName, float maxThrust, string expectedClip)
+        {
+            string clip = GhostAudioPresets.ResolveEngineAudioClip(
+                "rocketEngine",
+                0,
+                MakePropellants(propellantName),
+                maxThrust,
+                out bool useQuietVolumeCurve);
+
+            Assert.False(useQuietVolumeCurve);
+            Assert.Equal(expectedClip, clip);
+        }
+
+        [Fact]
+        public void ResolveEngineAudioClip_UnknownPropellant_WarnsAndUsesFallback()
+        {
+            string clip = GhostAudioPresets.ResolveEngineAudioClip(
+                "weirdEngine",
+                2,
+                MakePropellants("Ore"),
+                75f,
+                out bool useQuietVolumeCurve);
+
+            Assert.False(useQuietVolumeCurve);
+            Assert.Equal("sound_rocket_spurts", clip);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostAudio]") &&
+                l.Contains("Unknown preset key 'Unknown_Medium'") &&
+                l.Contains("'weirdEngine'"));
         }
 
         #endregion

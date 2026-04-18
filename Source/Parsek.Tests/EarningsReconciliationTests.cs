@@ -939,5 +939,47 @@ namespace Parsek.Tests
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp.Class);
             Assert.Contains("Phase E1.5", exp.SkipReason);
         }
+
+        // ---------- #448 / #451: part-purchase zero-delta bypass path ----------
+
+        [Fact]
+        public void ReconcileKsc_PartPurchase_ZeroCost_NoMatchingEvent_Silent()
+        {
+            // Stock bypass=true careers do not pay part entry costs at all. The
+            // PartPurchased event now records FundsSpent=0 in that mode, so the
+            // reconciler should short-circuit on the zero expected delta without
+            // looking for a paired FundsChanged(RnDPartPurchase) event.
+            var events = new List<GameStateEvent>();
+            var action = new GameAction
+            {
+                UT = 201.3,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 0f,
+                DedupKey = "solidBooster.v2"
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 201.3);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ClassifyAction_PartPurchase_ZeroCost_StaysUntransformed()
+        {
+            var action = new GameAction
+            {
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 0f
+            };
+            var exp = LedgerOrchestrator.ClassifyAction(action);
+
+            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
+            Assert.Equal("RnDPartPurchase", exp.ExpectedReasonKey);
+            Assert.Equal(0, exp.ExpectedDelta);
+        }
     }
 }

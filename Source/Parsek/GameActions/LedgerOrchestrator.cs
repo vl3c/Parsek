@@ -79,6 +79,16 @@ namespace Parsek
         /// </summary>
         private static int kscSequenceCounter;
 
+        private const string RolloutDedupPrefix = "rollout:";
+
+        private struct RolloutAdoptionContext
+        {
+            public uint VesselPersistentId;
+            public string VesselName;
+            public string LaunchSiteName;
+            public bool IsLegacyBareKey;
+        }
+
         /// <summary>
         /// Fired after RecalculateAndPatch completes — signals that timeline data
         /// (recordings, ledger actions) may have changed. Subscribed by ParsekUI
@@ -124,6 +134,26 @@ namespace Parsek
 
             initialized = true;
             ParsekLog.Info(Tag, "Initialized: 8 modules registered");
+
+            // #444 review item 8: pin the VesselRecovery reason key against KSP's enum.ToString()
+            // so a future rename in TransactionReasons surfaces immediately instead of silently
+            // breaking the OnVesselRecoveryFunds pairing path. Wrapped in try/catch because
+            // unit tests run without the KSP assembly enum loaded.
+            try
+            {
+                string actualKey = TransactionReasons.VesselRecovery.ToString();
+                if (actualKey != VesselRecoveryReasonKey)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"VesselRecoveryReasonKey drift: constant='{VesselRecoveryReasonKey}' " +
+                        $"vs TransactionReasons.VesselRecovery.ToString()='{actualKey}' — " +
+                        $"OnVesselRecoveryFunds pairing will not match KSP events until the constant is updated");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag, $"VesselRecoveryReasonKey pin skipped (likely unit test without KSP enum): {ex.GetType().Name}");
+            }
         }
 
         /// <summary>
@@ -465,8 +495,35 @@ namespace Parsek
             double firstFunds = rec.Points[0].funds;
             double buildCost = rec.PreLaunchFunds - firstFunds;
 
+            // #445: KSP fires TransactionReasons.VesselRollout BEFORE PreLaunchFunds is
+            // captured (rollout deducts at editor->launchpad transition; CapturePreLaunchResources
+            // runs later in the FLIGHT scene). So in the normal pad-start record flow the
+            // rollout cost has already been written to the ledger by OnVesselRolloutSpending
+            // and buildCost above is ~0. Adopt that rollout action onto this recording so the
+            // ledger associates the cost with the trip instead of leaving it null-tagged.
+            //
+            // Claim gate: only recordings that STARTED from a launch-ready prelaunch state
+            // are allowed to adopt. Without this, a user who presses Record after liftoff
+            // (or later in ascent) would incorrectly steal the launch cost onto a mid-flight
+            // recording, and deleting that recording would wrongly remove the real vessel
+            // build cost from the ledger.
+            var adopted = CanRecordingAdoptRolloutAction(rec)
+                ? TryAdoptRolloutAction(recordingId, startUT, rec)
+                : null;
+
             if (buildCost > 0)
             {
+                if (adopted != null)
+                {
+                    // Rare case: rollout cost was written and there's still a positive
+                    // delta between PreLaunchFunds and the first frame (e.g. another
+                    // KSP-side deduction landed during launch). Emit the residual on top
+                    // of the adopted rollout action so neither cost goes missing.
+                    ParsekLog.Verbose(Tag,
+                        $"CreateVesselCostActions: residual buildCost={buildCost:F0} on top of " +
+                        $"adopted rollout (rolloutCost={adopted.FundsSpent:F0}) for '{recordingId}'");
+                }
+
                 result.Add(new GameAction
                 {
                     UT = startUT,
@@ -480,29 +537,75 @@ namespace Parsek
                     $"CreateVesselCostActions: vessel build cost={buildCost:F0} " +
                     $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
             }
-
-            // Recovery funds = last point's funds - second-to-last point's funds
-            // Only if the recording ended with vessel recovery.
-            if (rec.TerminalStateValue == TerminalState.Recovered && rec.Points.Count >= 2)
+            else if (adopted == null)
             {
-                double lastFunds = rec.Points[rec.Points.Count - 1].funds;
-                double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
-                double recoveryAmount = lastFunds - penultimateFunds;
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: zero build cost and no rollout adoption " +
+                    $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
+            }
 
-                if (recoveryAmount > 0)
+            // Recovery funds: prefer the paired FundsChanged(VesselRecovery) event near
+            // the recording end UT. This covers recoveries that happen after the last
+            // recorded point but before commit outside FLIGHT (e.g. post-flight KSC
+            // recovery). Fall back to the legacy "last point minus penultimate point"
+            // heuristic only when no paired funds event is present.
+            if (rec.TerminalStateValue == TerminalState.Recovered)
+            {
+                if (TryFindRecoveryFundsEvent(
+                        GameStateStore.Events,
+                        endUT,
+                        skipConsumed: false,
+                        out GameStateEvent pairedRecoveryEvent,
+                        out string pairedDedupKey))
                 {
-                    result.Add(new GameAction
+                    double pairedRecoveryAmount =
+                        pairedRecoveryEvent.valueAfter - pairedRecoveryEvent.valueBefore;
+                    if (pairedRecoveryAmount > 0)
                     {
-                        UT = endUT,
-                        Type = GameActionType.FundsEarning,
-                        RecordingId = recordingId,
-                        FundsAwarded = (float)recoveryAmount,
-                        FundsSource = FundsEarningSource.Recovery
-                    });
+                        result.Add(new GameAction
+                        {
+                            UT = pairedRecoveryEvent.ut,
+                            Type = GameActionType.FundsEarning,
+                            RecordingId = recordingId,
+                            FundsAwarded = (float)pairedRecoveryAmount,
+                            FundsSource = FundsEarningSource.Recovery,
+                            DedupKey = pairedDedupKey
+                        });
 
-                    ParsekLog.Verbose(Tag,
-                        $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
-                        $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
+                        ParsekLog.Verbose(Tag,
+                            $"CreateVesselCostActions: paired recovery funds={pairedRecoveryAmount:F0} " +
+                            $"(before={pairedRecoveryEvent.valueBefore:F0}, after={pairedRecoveryEvent.valueAfter:F0}) " +
+                            $"for '{recordingId}'");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"CreateVesselCostActions: paired recovery event for '{recordingId}' " +
+                            $"at ut={pairedRecoveryEvent.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+                    }
+                }
+                else if (rec.Points.Count >= 2)
+                {
+                    double lastFunds = rec.Points[rec.Points.Count - 1].funds;
+                    double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
+                    double recoveryAmount = lastFunds - penultimateFunds;
+
+                    if (recoveryAmount > 0)
+                    {
+                        result.Add(new GameAction
+                        {
+                            UT = endUT,
+                            Type = GameActionType.FundsEarning,
+                            RecordingId = recordingId,
+                            FundsAwarded = (float)recoveryAmount,
+                            FundsSource = FundsEarningSource.Recovery
+                        });
+
+                        ParsekLog.Verbose(Tag,
+                            $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
+                            $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
+                    }
                 }
             }
 
@@ -797,10 +900,15 @@ namespace Parsek
 
             RecalculationEngine.Recalculate(actions, utCutoff);
 
-            // KSP state mutations (PostWalk already called by engine)
+            // KSP state mutations (PostWalk already called by engine). Repeatable
+            // Records* nodes only rebuild strictly from ledger-backed thresholds on
+            // rewind-style cutoff walks; normal same-branch recalculations preserve the
+            // live in-tier best value because that finer-grained partial progress is not
+            // persisted in the ledger.
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                milestonesModule, facilitiesModule, contractsModule);
+                milestonesModule, facilitiesModule, contractsModule,
+                authoritativeRepeatableRecordState: utCutoff.HasValue);
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
             // per-subject credits. This prunes stale entries left behind when a
@@ -853,10 +961,17 @@ namespace Parsek
             // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
             migrateOldSaveEventsRanThisLoad = false;
+            consumedRecoveryEventKeys.Clear();
 
             // Reconcile first — prunes orphaned actions from the existing ledger.
             // On empty ledger (old save), this is a no-op.
             Ledger.Reconcile(validRecordingIds, maxUT);
+
+            // Compatibility repair for early #444 saves written before recovery
+            // FundsEarning.DedupKey was serialized. Rebuild the missing key from the
+            // loaded FundsChanged(VesselRecovery) event so replayed recoveries cannot
+            // double-credit after the per-session consumed set is cleared on load.
+            RepairMissingRecoveryDedupKeys();
 
             // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
@@ -1792,12 +1907,135 @@ namespace Parsek
             if (!string.IsNullOrEmpty(path))
             {
                 Ledger.LoadFromFile(path);
+                int repairedLegacyPartPurchaseEvents =
+                    GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
+                int repairedLegacyPartPurchaseActions =
+                    RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+                if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
+                {
+                    ParsekLog.Info(Tag,
+                        $"OnLoad: repaired legacy R&D part-purchase rows " +
+                        $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
+                }
                 ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
             }
             else
             {
                 ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
             }
+        }
+
+        /// <summary>
+        /// Rewrites persisted legacy part-purchase ledger rows whose stored funds debit
+        /// still reflects rollout <c>part.cost</c> instead of the historical R&amp;D
+        /// charge proved by saved game-state events. Existing version-1 ledger files
+        /// keep the same shape; the compatibility path mutates the in-memory actions
+        /// after load and before the first recalculation walk. Ambiguous rows are
+        /// preserved as-is rather than guessed from current runtime semantics; the
+        /// only no-funds fallback is the known stock-bypass save shape that rewrites
+        /// the matched <c>PartPurchased</c> event to zero-cost first.
+        /// </summary>
+        internal static int RepairLegacyPartPurchaseActionsOnLoad(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            if (ledgerActions == null || ledgerActions.Count == 0)
+                return 0;
+
+            int repaired = 0;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (!IsPartPurchaseFundsSpendingAction(action))
+                    continue;
+
+                float canonicalCost;
+                if (!TryResolveCanonicalPartPurchaseChargeForAction(action, events, out canonicalCost))
+                    continue;
+
+                if (Math.Abs(action.FundsSpent - canonicalCost) <= 0.01f)
+                    continue;
+
+                action.FundsSpent = canonicalCost;
+                repaired++;
+            }
+
+            return repaired;
+        }
+
+        private static bool IsPartPurchaseFundsSpendingAction(GameAction action)
+        {
+            return action != null &&
+                   action.Type == GameActionType.FundsSpending &&
+                   action.FundsSpendingSource == FundsSpendingSource.Other;
+        }
+
+        private static bool TryResolveCanonicalPartPurchaseChargeForAction(
+            GameAction action,
+            IReadOnlyList<GameStateEvent> events,
+            out float canonicalCost)
+        {
+            canonicalCost = 0f;
+            if (action == null)
+                return false;
+
+            GameStateEvent matchedEvent;
+            if (TryFindMatchingPartPurchasedEvent(events, action, out matchedEvent))
+            {
+                GameStateEvent rewrittenEvent;
+                if (GameStateStore.TryRewriteLegacyPartPurchaseEvent(
+                    matchedEvent, events, out rewrittenEvent))
+                {
+                    matchedEvent = rewrittenEvent;
+                }
+
+                if (GameStateStore.TryGetStoredPartPurchaseCost(
+                    matchedEvent.detail, out canonicalCost))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryFindMatchingPartPurchasedEvent(
+            IReadOnlyList<GameStateEvent> events,
+            GameAction action,
+            out GameStateEvent matchedEvent)
+        {
+            matchedEvent = default(GameStateEvent);
+            if (events == null || action == null)
+                return false;
+
+            string partName = action.DedupKey;
+            int fallbackCount = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.PartPurchased)
+                    continue;
+                if (Math.Abs(evt.ut - action.UT) > KscReconcileEpsilonSeconds)
+                    continue;
+
+                if (!string.IsNullOrEmpty(partName))
+                {
+                    if (string.Equals(evt.key, partName, StringComparison.Ordinal))
+                    {
+                        matchedEvent = evt;
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                matchedEvent = evt;
+                fallbackCount++;
+                if (fallbackCount > 1)
+                    return false;
+            }
+
+            return fallbackCount == 1;
         }
 
         /// <summary>
@@ -1816,6 +2054,7 @@ namespace Parsek
         internal static int TryRecoverBrokenLedgerOnLoad()
         {
             Initialize();
+            GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
 
             int recoveredFundsParts = 0;
             int recoveredContracts = 0;
@@ -2043,7 +2282,8 @@ namespace Parsek
             }
 
             // Assign a sequence number so multiple KSC events at the same UT have
-            // deterministic ordering in the recalculation sort.
+            // deterministic ordering in the recalculation sort. (See also
+            // OnVesselRolloutSpending, which follows this same pattern.)
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
@@ -2064,6 +2304,758 @@ namespace Parsek
             ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
 
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// #445: Called from <see cref="GameStateRecorder.OnFundsChanged"/> when KSP fires a
+        /// <c>TransactionReasons.VesselRollout</c> deduction (player launches a vessel from
+        /// VAB/SPH onto the launchpad/runway). Synthesizes a
+        /// <see cref="GameActionType.FundsSpending"/> with
+        /// <see cref="FundsSpendingSource.VesselBuild"/> at the moment of the deduction so
+        /// the ledger tracks the cost even when the player cancels the rollout without ever
+        /// starting a recording. The <see cref="GameAction.DedupKey"/> is set to a
+        /// <c>"rollout:"</c>-prefixed context key so a subsequent recording from the same
+        /// vessel/site can claim the action via <see cref="TryAdoptRolloutAction"/>
+        /// instead of double-charging.
+        /// </summary>
+        /// <param name="ut">Universal time of the rollout transaction.</param>
+        /// <param name="cost">Positive funds amount KSP deducted (rollout cost).</param>
+        internal static void OnVesselRolloutSpending(double ut, double cost)
+        {
+            OnVesselRolloutSpending(ut, cost, ResolveCurrentRolloutAdoptionContext());
+        }
+
+        /// <summary>
+        /// Test seam for rollout adoption context. Production calls the two-argument
+        /// overload, which resolves the current live vessel/site from KSP state.
+        /// </summary>
+        internal static void OnVesselRolloutSpending(
+            double ut,
+            double cost,
+            uint vesselPersistentId,
+            string vesselName,
+            string launchSiteName)
+        {
+            OnVesselRolloutSpending(
+                ut,
+                cost,
+                CreateRolloutAdoptionContext(vesselPersistentId, vesselName, launchSiteName));
+        }
+
+        private static void OnVesselRolloutSpending(double ut, double cost, RolloutAdoptionContext context)
+        {
+            Initialize();
+
+            if (cost <= 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRolloutSpending: non-positive cost={cost:F1} at UT={ut:F1}, skipping");
+                return;
+            }
+
+            // Sequence assignment mirrors OnKscSpending — see that method for the
+            // canonical pattern. Same-UT KSC writes need a deterministic order in the
+            // recalculation sort; the shared kscSequenceCounter provides it.
+            kscSequenceCounter++;
+            var action = new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.FundsSpending,
+                RecordingId = null,
+                FundsSpent = (float)cost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                DedupKey = BuildRolloutDedupKey(ut, context),
+                Sequence = kscSequenceCounter
+            };
+
+            Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"VesselRollout spending recorded: cost={cost:F0}, UT={ut:F1}, dedupKey={action.DedupKey}, " +
+                $"context={FormatRolloutAdoptionContext(context)}");
+
+            // Reuse the KSC reconciliation path. Classifier returns ExpectedReasonKey=
+            // "VesselRollout" for FundsSpending(VesselBuild), so the matching FundsChanged
+            // event emitted by OnFundsChanged is paired and any drift logs WARN.
+            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, ut);
+
+            RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// UT epsilon used by <see cref="OnVesselRecoveryFunds"/> when locating the paired
+        /// <see cref="GameStateEventType.FundsChanged"/>(<c>VesselRecovery</c>) event in
+        /// <see cref="GameStateStore.Events"/>. KSP fires the funds change immediately
+        /// before <c>onVesselRecovered</c>, so the two share the same UT to within a frame.
+        /// Tightened to 0.1 s (matching the dedup epsilon at line ~375 in
+        /// <see cref="DeduplicateAgainstLedger"/>) to avoid latching unrelated back-to-back
+        /// recoveries — see consumed-index guard below for the second layer of protection.
+        /// </summary>
+        internal const double VesselRecoveryEventEpsilonSeconds = 0.1;
+        private const double LegacyRecoveryActionAmountTolerance = 0.01;
+
+        /// <summary>
+        /// Reason-key string written by <see cref="GameStateRecorder"/>'s OnFundsChanged
+        /// handler when <c>TransactionReasons.VesselRecovery</c> is the cause. Stored as
+        /// a string literal so unit tests can synthesize the matching event without a live
+        /// KSP runtime. Pinned at <see cref="Initialize"/> time against
+        /// <c>TransactionReasons.VesselRecovery.ToString()</c> — drift logs WARN.
+        /// </summary>
+        internal const string VesselRecoveryReasonKey = "VesselRecovery";
+
+        /// <summary>
+        /// Dedup fingerprints of FundsChanged(VesselRecovery) events already consumed by
+        /// an <see cref="OnVesselRecoveryFunds"/> call. Uses immutable event payload
+        /// instead of mutable store indices so later list pruning/reindexing cannot
+        /// retarget a consumed marker onto a different event.
+        /// Cleared by <see cref="OnKspLoad"/> and <see cref="ResetForTesting"/>.
+        /// </summary>
+        private static readonly HashSet<string> consumedRecoveryEventKeys = new HashSet<string>();
+
+        /// <summary>
+        /// Stable fingerprint for a FundsChanged(VesselRecovery) event. Internal for
+        /// direct testability.
+        /// </summary>
+        internal static string BuildRecoveryEventDedupKey(GameStateEvent e)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}|{1}|{2:R}|{3:R}|{4:R}|{5}",
+                e.eventType,
+                e.key ?? "",
+                e.ut,
+                e.valueBefore,
+                e.valueAfter,
+                e.epoch);
+        }
+
+        /// <summary>
+        /// Locates the latest FundsChanged(VesselRecovery) event within the recovery
+        /// epsilon window. When <paramref name="skipConsumed"/> is true, events whose
+        /// dedup fingerprint is already in <see cref="consumedRecoveryEventKeys"/> are
+        /// ignored.
+        /// </summary>
+        private static bool TryFindRecoveryFundsEvent(
+            IReadOnlyList<GameStateEvent> events,
+            double ut,
+            bool skipConsumed,
+            out GameStateEvent matched,
+            out string dedupKey)
+        {
+            matched = default;
+            dedupKey = null;
+            if (events == null)
+                return false;
+
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (e.eventType != GameStateEventType.FundsChanged) continue;
+                if (e.key != VesselRecoveryReasonKey) continue;
+                if (Math.Abs(e.ut - ut) > VesselRecoveryEventEpsilonSeconds) continue;
+
+                string candidateKey = BuildRecoveryEventDedupKey(e);
+                if (skipConsumed && consumedRecoveryEventKeys.Contains(candidateKey)) continue;
+
+                matched = e;
+                dedupKey = candidateKey;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true when the ledger already contains a recovery earning sourced from
+        /// the same FundsChanged(VesselRecovery) event.
+        /// </summary>
+        private static bool HasRecoveryActionForDedupKey(string dedupKey)
+        {
+            if (string.IsNullOrEmpty(dedupKey))
+                return false;
+
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action.Type != GameActionType.FundsEarning) continue;
+                if (action.FundsSource != FundsEarningSource.Recovery) continue;
+                if (!string.Equals(action.DedupKey, dedupKey, StringComparison.Ordinal)) continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Compatibility repair for saves written before recovery FundsEarning actions
+        /// persisted <see cref="GameAction.DedupKey"/>. Rebuilds the missing key from
+        /// the matching loaded FundsChanged(VesselRecovery) event.
+        /// </summary>
+        private static void RepairMissingRecoveryDedupKeys()
+        {
+            var actions = Ledger.Actions;
+            var events = GameStateStore.Events;
+            if (actions == null || actions.Count == 0 || events == null || events.Count == 0)
+                return;
+
+            var reservedKeys = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action.Type != GameActionType.FundsEarning) continue;
+                if (action.FundsSource != FundsEarningSource.Recovery) continue;
+                if (string.IsNullOrEmpty(action.DedupKey)) continue;
+                reservedKeys.Add(action.DedupKey);
+            }
+
+            int scanned = 0;
+            int repaired = 0;
+            int unmatched = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action.Type != GameActionType.FundsEarning) continue;
+                if (action.FundsSource != FundsEarningSource.Recovery) continue;
+                if (!string.IsNullOrEmpty(action.DedupKey)) continue;
+
+                scanned++;
+                if (TryFindLegacyRecoveryDedupKey(action, events, reservedKeys, out string repairedKey))
+                {
+                    action.DedupKey = repairedKey;
+                    reservedKeys.Add(repairedKey);
+                    repaired++;
+                }
+                else
+                {
+                    unmatched++;
+                }
+            }
+
+            if (scanned > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RepairMissingRecoveryDedupKeys: scanned={scanned}, repaired={repaired}, unmatched={unmatched}");
+            }
+        }
+
+        /// <summary>
+        /// Matches a legacy recovery action lacking DedupKey back to its saved
+        /// FundsChanged(VesselRecovery) event using the action UT and credited amount.
+        /// </summary>
+        private static bool TryFindLegacyRecoveryDedupKey(
+            GameAction action,
+            IReadOnlyList<GameStateEvent> events,
+            HashSet<string> reservedKeys,
+            out string dedupKey)
+        {
+            dedupKey = null;
+            if (action == null || events == null)
+                return false;
+
+            double bestUtDistance = double.MaxValue;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (e.eventType != GameStateEventType.FundsChanged) continue;
+                if (e.key != VesselRecoveryReasonKey) continue;
+
+                double utDistance = Math.Abs(e.ut - action.UT);
+                if (utDistance > VesselRecoveryEventEpsilonSeconds) continue;
+
+                double delta = e.valueAfter - e.valueBefore;
+                // Recovery payouts are stored on GameAction as float and serialized with
+                // "R", so large amounts can round-trip back to double with more than a
+                // cent of widening error. Keep the existing cent floor (matching funds
+                // patch/no-op behavior) but widen it by the delta's own float-storage loss.
+                double amountTolerance = Math.Max(
+                    LegacyRecoveryActionAmountTolerance,
+                    Math.Abs(delta - (double)(float)delta));
+                if (Math.Abs(delta - action.FundsAwarded) > amountTolerance) continue;
+
+                string candidateKey = BuildRecoveryEventDedupKey(e);
+                if (reservedKeys.Contains(candidateKey)) continue;
+                if (utDistance >= bestUtDistance) continue;
+
+                dedupKey = candidateKey;
+                bestUtDistance = utDistance;
+                if (utDistance == 0)
+                    break;
+            }
+
+            return dedupKey != null;
+        }
+
+        /// <summary>
+        /// #444: Called from <see cref="ParsekScenario"/>'s <c>onVesselRecovered</c> handler
+        /// when a vessel is recovered from outside the Flight scene (tracking station or the
+        /// post-flight summary at KSC). KSP emits <c>FundsChanged(VesselRecovery)</c> at the
+        /// recovery UT, but that event lies between recording windows for any committed
+        /// recording — <see cref="CreateVesselCostActions"/> only emits <see cref="FundsEarningSource.Recovery"/>
+        /// when the recording's <see cref="TerminalState"/> is <see cref="TerminalState.Recovered"/>
+        /// AND the funds delta falls inside its <see cref="Recording.Points"/> window. Recovery
+        /// performed after the recording has already ended misses both gates and the funds were
+        /// silently dropped from the ledger.
+        ///
+        /// <para>This routes the recovery payout into the ledger as a real-time
+        /// <see cref="GameActionType.FundsEarning"/> action with <see cref="FundsEarningSource.Recovery"/>.
+        /// The amount comes from the matching <see cref="GameStateEventType.FundsChanged"/> event
+        /// in <see cref="GameStateStore"/>; the recording tag is the committed recording whose
+        /// <c>[StartUT, EndUT]</c> brackets <paramref name="ut"/> (preferred), then the most
+        /// recent same-named flight that ended at or before <paramref name="ut"/>, then the
+        /// global latest by EndUT. Falls back to <c>null</c> when no real recording matches.</para>
+        ///
+        /// <para>Each <see cref="GameStateStore.Events"/> entry can pair to at most one
+        /// recovery call: consumed recovery-event fingerprints are tracked in
+        /// <see cref="consumedRecoveryEventKeys"/> so a bulk-recover-debris burst (two
+        /// <c>onVesselRecovered</c> callbacks within the epsilon window) routes each call
+        /// to its own funds delta instead of double-latching the most recent event.</para>
+        ///
+        /// <para>In-flight recovery is handled by the existing terminal-state path:
+        /// <see cref="ParsekScenario.UpdateRecordingsForTerminalEvent"/> sets
+        /// <see cref="TerminalState.Recovered"/> on the live recording, and the subsequent
+        /// commit invokes <see cref="CreateVesselCostActions"/> which emits the same action.
+        /// <see cref="ParsekScenario"/> only calls this helper when no pending-tree
+        /// recording still owns the vessel, avoiding overlap with the commit-time path.</para>
+        ///
+        /// <para><b>Known false-positive in <see cref="ReconcileEarningsWindow"/>:</b> a future
+        /// recording-commit whose <c>[startUT, endUT]</c> overlaps <paramref name="ut"/> will
+        /// see this <c>FundsChanged(VesselRecovery)</c> event in-window but the matching
+        /// <c>FundsEarning(Recovery)</c> action lives in the pre-existing ledger (added here),
+        /// not in <c>newActions</c>. The reconciliation walk only sums <c>newActions</c>, so
+        /// it will WARN about a missing earning channel of magnitude
+        /// <c>delta</c>. Acceptable: the WARN is informational, the ledger is correct, and
+        /// folding pre-existing in-window recovery actions into the comparison would also
+        /// require accounting for in-window non-recovery deletions — out of scope for #444.</para>
+        /// </summary>
+        /// <param name="ut">UT at which <c>onVesselRecovered</c> fired.</param>
+        /// <param name="vesselName">Recovered vessel name (used to tag the action with the matching recording).</param>
+        /// <param name="fromTrackingStation">Pass-through diagnostic flag for the log line.</param>
+        internal static void OnVesselRecoveryFunds(double ut, string vesselName, bool fromTrackingStation)
+        {
+            Initialize();
+
+            if (string.IsNullOrEmpty(vesselName))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: empty vesselName at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+                return;
+            }
+
+            // Locate the paired FundsChanged(VesselRecovery) event. KSP fires the funds change
+            // immediately before onVesselRecovered, so it should already be in the store. We
+            // search by reason key (TransactionReasons.VesselRecovery.ToString() == "VesselRecovery"
+            // — see GameStateRecorder.OnFundsChanged where the key is written) within a small
+            // UT window, and skip dedup fingerprints already consumed by an earlier recovery
+            // call to protect against bulk-recover-debris double-latching.
+            if (!TryFindRecoveryFundsEvent(
+                    GameStateStore.Events,
+                    ut,
+                    skipConsumed: true,
+                    out GameStateEvent matched,
+                    out string dedupKey))
+            {
+                ParsekLog.Warn(Tag,
+                    $"OnVesselRecoveryFunds: no paired FundsChanged(VesselRecovery) event " +
+                    $"within {VesselRecoveryEventEpsilonSeconds.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                    $"of ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"for vessel '{vesselName}' — funds gap will not be patched");
+                return;
+            }
+
+            double delta = matched.valueAfter - matched.valueBefore;
+            if (delta <= 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"has delta={delta.ToString("F1", CultureInfo.InvariantCulture)} — skipping (zero or negative recovery value)");
+                consumedRecoveryEventKeys.Add(dedupKey);
+                return;
+            }
+
+            if (HasRecoveryActionForDedupKey(dedupKey))
+            {
+                consumedRecoveryEventKeys.Add(dedupKey);
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"already exists in ledger (dedupKey='{dedupKey}') — skipping duplicate add");
+                return;
+            }
+
+            // Pick the recording whose [StartUT, EndUT] brackets the recovery UT (the best
+            // semantic match for "the flight this recovery belongs to"); fall back to the
+            // most recent same-named flight that already ended at or before `ut`; final
+            // fallback is the global latest by EndUT, which preserves the original behavior
+            // for recoveries whose recording metadata has drifted (e.g., manual EndUT edit).
+            string recordingId = PickRecoveryRecordingId(vesselName, matched.ut);
+
+            // Mark consumed BEFORE adding the action so a re-entrant RecalculateAndPatch
+            // (or any future test that calls back into this method) cannot reuse the same
+            // paired funds event.
+            consumedRecoveryEventKeys.Add(dedupKey);
+
+            // Allocate a sequence number from the same counter used by OnKscSpending so
+            // that recovery actions interleave deterministically with other KSC events
+            // captured at the same UT.
+            kscSequenceCounter++;
+
+            var action = new GameAction
+            {
+                UT = matched.ut,
+                Type = GameActionType.FundsEarning,
+                RecordingId = recordingId,
+                FundsAwarded = (float)delta,
+                FundsSource = FundsEarningSource.Recovery,
+                DedupKey = dedupKey,
+                Sequence = kscSequenceCounter
+            };
+
+            Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"VesselRecovery funds patched: vessel='{vesselName}' " +
+                $"amount={delta.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");
+
+            RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// #445: Searches the ledger for an unclaimed rollout-tagged
+        /// <see cref="FundsSpendingSource.VesselBuild"/> action within
+        /// <see cref="RolloutAdoptionWindowSeconds"/> game seconds before
+        /// <paramref name="startUT"/>. If found, transfers ownership to
+        /// <paramref name="recordingId"/> by setting
+        /// <see cref="GameAction.RecordingId"/> and clearing
+        /// <see cref="GameAction.DedupKey"/>. Returns the adopted action or <c>null</c>.
+        /// <para>
+        /// Adoption avoids double-charging when a recording starts from a vessel that has
+        /// already incurred the rollout deduction at the launchpad. When multiple
+        /// unclaimed rollouts sit within the window, the search runs LIFO — but only
+        /// among actions whose stored rollout context matches the recording's current
+        /// vessel/site (prefer pid, else vessel name + launch site). This keeps a
+        /// stranded cancelled rollout from vessel A from being stolen by an unrelated
+        /// prelaunch recording B that happens to start nearby in the same 30-minute window.
+        /// </para>
+        /// </summary>
+        internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT)
+        {
+            return TryAdoptRolloutAction(recordingId, startUT, FindRecordingById(recordingId));
+        }
+
+        internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT, Recording rec)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            if (rec == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryAdoptRolloutAction: recording '{recordingId}' not found, cannot match rollout context");
+                return null;
+            }
+
+            RolloutAdoptionContext recordingContext = CreateRolloutAdoptionContext(rec);
+            if (!CanMatchRolloutAdoptionContext(recordingContext))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryAdoptRolloutAction: recording '{recordingId}' missing rollout context " +
+                    $"({FormatRolloutAdoptionContext(recordingContext)}), skipping adoption");
+                return null;
+            }
+
+            var actions = Ledger.Actions;
+            // LIFO scan: walk newest-first so the rollout immediately preceding this
+            // launch wins over any older unclaimed entries (cancelled rollouts) sitting
+            // in the same adoption window.
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var a = actions[i];
+                if (a == null) continue;
+                if (a.Type != GameActionType.FundsSpending) continue;
+                if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) continue;
+                if (!string.IsNullOrEmpty(a.RecordingId)) continue; // already adopted
+                if (string.IsNullOrEmpty(a.DedupKey)) continue;
+                if (!a.DedupKey.StartsWith(RolloutDedupPrefix, StringComparison.Ordinal)) continue;
+                // 0.5 s slack absorbs UT epsilon between OnFundsChanged ut and FlightRecorder startUT.
+                if (a.UT > startUT + 0.5) continue;
+                if (startUT - a.UT > RolloutAdoptionWindowSeconds) continue;
+                if (!RolloutAdoptionContextsMatch(ParseRolloutAdoptionContext(a.DedupKey), recordingContext))
+                    continue;
+
+                string oldDedup = a.DedupKey;
+                a.RecordingId = recordingId;
+                a.DedupKey = null;
+                ParsekLog.Info(Tag,
+                    $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
+                    $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
+                    $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s, " +
+                    $"context={FormatRolloutAdoptionContext(recordingContext)})");
+                return a;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"TryAdoptRolloutAction: no unclaimed rollout action within {RolloutAdoptionWindowSeconds:F0}s " +
+                $"before startUT={startUT:F1} for recording '{recordingId}' " +
+                $"with context {FormatRolloutAdoptionContext(recordingContext)}");
+            return null;
+        }
+
+        /// <summary>
+        /// Pure eligibility gate for rollout adoption. Only recordings that started from a
+        /// launch-ready PRELAUNCH state are allowed to claim a prior VesselRollout charge.
+        /// This deliberately excludes recordings started after liftoff (Flying/Sub-orbital/
+        /// Orbiting) so a late Record click cannot pull the vessel build cost into a
+        /// mid-flight recording and later refund it on delete/discard.
+        /// </summary>
+        internal static bool CanRecordingAdoptRolloutAction(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.StartSituation))
+                return false;
+
+            return rec.StartSituation.Equals("Prelaunch", StringComparison.OrdinalIgnoreCase)
+                || rec.StartSituation.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static RolloutAdoptionContext ResolveCurrentRolloutAdoptionContext()
+        {
+            try
+            {
+                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                if (activeVessel != null)
+                {
+                    string launchSiteName = FlightRecorder.ResolveLaunchSiteName(activeVessel, false);
+                    if (string.IsNullOrEmpty(launchSiteName))
+                        launchSiteName = TryResolveLaunchSiteNameFromFlightDriver();
+
+                    return CreateRolloutAdoptionContext(
+                        activeVessel.persistentId,
+                        Recording.ResolveLocalizedName(activeVessel.vesselName),
+                        launchSiteName);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ResolveCurrentRolloutAdoptionContext: ActiveVessel lookup failed: {ex.Message}");
+            }
+
+            return CreateRolloutAdoptionContext(
+                0u,
+                null,
+                TryResolveLaunchSiteNameFromFlightDriver());
+        }
+
+        private static string TryResolveLaunchSiteNameFromFlightDriver()
+        {
+            try
+            {
+                return FlightRecorder.HumanizeLaunchSiteName(FlightDriver.LaunchSiteName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag, $"TryResolveLaunchSiteNameFromFlightDriver failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static RolloutAdoptionContext CreateRolloutAdoptionContext(Recording rec)
+        {
+            if (rec == null)
+                return default(RolloutAdoptionContext);
+
+            return CreateRolloutAdoptionContext(
+                rec.VesselPersistentId,
+                rec.VesselName,
+                rec.LaunchSiteName);
+        }
+
+        private static RolloutAdoptionContext CreateRolloutAdoptionContext(
+            uint vesselPersistentId,
+            string vesselName,
+            string launchSiteName)
+        {
+            return new RolloutAdoptionContext
+            {
+                VesselPersistentId = vesselPersistentId,
+                VesselName = NormalizeRolloutContextText(vesselName),
+                LaunchSiteName = NormalizeRolloutContextText(launchSiteName)
+            };
+        }
+
+        private static string NormalizeRolloutContextText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return value.Trim();
+        }
+
+        private static bool CanMatchRolloutAdoptionContext(RolloutAdoptionContext context)
+        {
+            if (context.VesselPersistentId != 0)
+                return true;
+
+            return !string.IsNullOrEmpty(context.VesselName)
+                && !string.IsNullOrEmpty(context.LaunchSiteName);
+        }
+
+        private static bool RolloutAdoptionContextsMatch(
+            RolloutAdoptionContext actionContext,
+            RolloutAdoptionContext recordingContext)
+        {
+            // Compatibility: the immediately previous #445 follow-up persisted
+            // rollout adoption markers as bare "rollout:<UT>" keys with no
+            // vessel/site fields. Those saves still need to reattach the saved
+            // charge after upgrade/load, so preserve the legacy window-only
+            // adoption behavior for that exact key shape.
+            if (actionContext.IsLegacyBareKey)
+                return true;
+
+            if (actionContext.VesselPersistentId != 0 && recordingContext.VesselPersistentId != 0)
+                return actionContext.VesselPersistentId == recordingContext.VesselPersistentId;
+
+            return !string.IsNullOrEmpty(actionContext.VesselName)
+                && !string.IsNullOrEmpty(recordingContext.VesselName)
+                && !string.IsNullOrEmpty(actionContext.LaunchSiteName)
+                && !string.IsNullOrEmpty(recordingContext.LaunchSiteName)
+                && actionContext.VesselName.Equals(recordingContext.VesselName, StringComparison.OrdinalIgnoreCase)
+                && actionContext.LaunchSiteName.Equals(recordingContext.LaunchSiteName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string BuildRolloutDedupKey(double ut, RolloutAdoptionContext context)
+        {
+            return RolloutDedupPrefix
+                + ut.ToString("R", CultureInfo.InvariantCulture)
+                + "|pid=" + context.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                + "|site=" + Uri.EscapeDataString(context.LaunchSiteName ?? string.Empty)
+                + "|vessel=" + Uri.EscapeDataString(context.VesselName ?? string.Empty);
+        }
+
+        private static RolloutAdoptionContext ParseRolloutAdoptionContext(string dedupKey)
+        {
+            if (string.IsNullOrEmpty(dedupKey)
+                || !dedupKey.StartsWith(RolloutDedupPrefix, StringComparison.Ordinal))
+                return default(RolloutAdoptionContext);
+
+            var context = default(RolloutAdoptionContext);
+            string[] parts = dedupKey.Split('|');
+            if (parts.Length == 1)
+            {
+                context.IsLegacyBareKey = true;
+                return context;
+            }
+
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string part = parts[i];
+                if (part.StartsWith("pid=", StringComparison.Ordinal))
+                {
+                    uint.TryParse(
+                        part.Substring(4),
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out context.VesselPersistentId);
+                }
+                else if (part.StartsWith("site=", StringComparison.Ordinal))
+                {
+                    context.LaunchSiteName = NormalizeRolloutContextText(
+                        Uri.UnescapeDataString(part.Substring(5)));
+                }
+                else if (part.StartsWith("vessel=", StringComparison.Ordinal))
+                {
+                    context.VesselName = NormalizeRolloutContextText(
+                        Uri.UnescapeDataString(part.Substring(7)));
+                }
+            }
+
+            return context;
+        }
+
+        private static string FormatRolloutAdoptionContext(RolloutAdoptionContext context)
+        {
+            return $"pid={context.VesselPersistentId}, vessel='{context.VesselName ?? "(null)"}', " +
+                $"site='{context.LaunchSiteName ?? "(null)"}'";
+        }
+
+        /// <summary>
+        /// #445: maximum game-seconds gap between a <c>TransactionReasons.VesselRollout</c>
+        /// deduction and the start of the recording that should claim it. Measured in UT
+        /// (not wall-clock). Kept deliberately broad because players can sit on the
+        /// launchpad/runway for several real minutes before pressing Record; the
+        /// <see cref="CanRecordingAdoptRolloutAction"/> gate keeps this from spilling
+        /// into post-liftoff recordings. The boundary is inclusive: a recording whose
+        /// <c>startUT - rollout.UT</c> equals exactly this value still adopts (strict
+        /// <c>&gt;</c> comparison); value + epsilon does not.
+        /// </summary>
+        internal const double RolloutAdoptionWindowSeconds = 1800.0;
+
+        /// <summary>
+        /// #444 review item 2: pick the committed recording id that best matches a
+        /// vessel-recovery payout at <paramref name="ut"/>. Selection priority:
+        /// <list type="number">
+        ///   <item>Recording whose <c>[StartUT, EndUT]</c> brackets <paramref name="ut"/>
+        ///   (the flight that actually covers the recovery moment). If multiple bracket,
+        ///   pick the one with the largest EndUT.</item>
+        ///   <item>Most recent flight that ended at or before <paramref name="ut"/>
+        ///   (largest EndUT with EndUT &lt;= ut).</item>
+        ///   <item>Global latest by EndUT (preserved fallback for recoveries whose metadata
+        ///   has drifted, e.g., manual EndUT trim).</item>
+        /// </list>
+        /// Skips ghost-only recordings (zero career footprint per #432). Returns null when
+        /// no non-ghost-only recording matches <paramref name="vesselName"/>.
+        /// Internal static for testability.
+        /// </summary>
+        internal static string PickRecoveryRecordingId(string vesselName, double ut)
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return null;
+
+            Recording bracketing = null;       // tier 1
+            Recording mostRecentEnded = null;  // tier 2
+            Recording globalLatest = null;     // tier 3
+            int candidateCount = 0;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null) continue;
+                if (rec.IsGhostOnly) continue;
+                if (rec.VesselName != vesselName) continue;
+                candidateCount++;
+
+                double startUT = rec.StartUT;
+                double endUT = rec.EndUT;
+
+                // Tier 1: brackets ut
+                if (startUT <= ut && ut <= endUT)
+                {
+                    if (bracketing == null || endUT > bracketing.EndUT)
+                        bracketing = rec;
+                }
+
+                // Tier 2: ended at or before ut
+                if (endUT <= ut)
+                {
+                    if (mostRecentEnded == null || endUT > mostRecentEnded.EndUT)
+                        mostRecentEnded = rec;
+                }
+
+                // Tier 3: global latest
+                if (globalLatest == null || endUT > globalLatest.EndUT)
+                    globalLatest = rec;
+            }
+
+            Recording pick = bracketing ?? mostRecentEnded ?? globalLatest;
+            if (pick == null) return null;
+
+            string tier = bracketing != null ? "bracketing"
+                        : mostRecentEnded != null ? "most-recent-ended"
+                        : "global-latest";
+            ParsekLog.Verbose(Tag,
+                $"PickRecoveryRecordingId: vessel='{vesselName}' ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"candidates={candidateCount} tier={tier} pick={pick.RecordingId}");
+
+            return pick.RecordingId;
         }
 
         /// <summary>
@@ -2116,17 +3108,31 @@ namespace Parsek
                 // ---- Untransformed: raw field equals post-walk contribution. ----
 
                 case GameActionType.FundsSpending:
-                    // The KSC path uses FundsSpending only for part purchases (via
-                    // ConvertPartPurchased → source=Other); vessel build comes from the
-                    // flight path, facility/hire/strategy use their own action types.
+                    // The KSC path uses FundsSpending for part purchases (via
+                    // ConvertPartPurchased → source=Other) and for rollout deductions
+                    // (#445, OnVesselRolloutSpending → source=VesselBuild). Each pairs
+                    // with a different KSP TransactionReasons key on FundsChanged.
                     // Strategy input (source=Strategy) is not yet captured on KSC (Phase
-                    // E1.5) — skip if we ever see it.
+                    // E1.5) — skip if we ever see it. Stock bypass=true part unlocks
+                    // now record a zero charged cost in GameStateRecorder, so they stay
+                    // on the untransformed path here and short-circuit later via the
+                    // zero-expected-delta early return in ReconcileKscAction.
                     if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
                     {
                         return new KscActionExpectation
                         {
                             Class = KscReconcileClass.Transformed,
                             SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
+                        };
+                    }
+                    if (action.FundsSpendingSource == FundsSpendingSource.VesselBuild)
+                    {
+                        return new KscActionExpectation
+                        {
+                            Class = KscReconcileClass.Untransformed,
+                            EventType = GameStateEventType.FundsChanged,
+                            ExpectedReasonKey = "VesselRollout",
+                            ExpectedDelta = -action.FundsSpent
                         };
                     }
                     return new KscActionExpectation
@@ -2313,11 +3319,21 @@ namespace Parsek
                 case KscReconcileClass.Transformed:
                     // Rate-limited VERBOSE so a long session with many contract completions
                     // doesn't drown the log, but one line always lands on the first call
-                    // per type so the skip is observable during debugging.
+                    // per (action type, skip reason) pair so the skip is observable during
+                    // debugging. Multiple skip causes share this branch — Phase E1.5
+                    // strategy spending, and #448's RnDPartPurchase suppression under
+                    // BypassEntryPurchaseAfterResearch=true. Both can fire for the SAME
+                    // action.Type (FundsSpending), so a key keyed only on action.Type
+                    // would let whichever cause hits first suppress the other for the
+                    // entire rate-limit window. Include a hash of the SkipReason so each
+                    // distinct cause gets its own slot.
+                    int skipKeyHash = expectation.SkipReason != null
+                        ? expectation.SkipReason.GetHashCode()
+                        : 0;
                     ParsekLog.VerboseRateLimited(Tag,
-                        $"ksc-reconcile-skip:{action.Type}",
+                        $"ksc-reconcile-skip:{action.Type}:{skipKeyHash}",
                         $"KSC reconciliation: {action.Type} skipped " +
-                        $"(transformation not yet post-walk-aware: {expectation.SkipReason}) ut={ut:F1}");
+                        $"({expectation.SkipReason}) ut={ut:F1}");
                     return;
 
                 case KscReconcileClass.Untransformed:
@@ -2546,6 +3562,7 @@ namespace Parsek
             repSeedDone = false;
             migrateOldSaveEventsRanThisLoad = false;
             kscSequenceCounter = 0;
+            consumedRecoveryEventKeys.Clear();
             scienceModule = null;
             milestonesModule = null;
             contractsModule = null;
