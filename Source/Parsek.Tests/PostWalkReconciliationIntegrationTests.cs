@@ -127,7 +127,10 @@ namespace Parsek.Tests
             // Two contract rewards inside the 0.1 s coalesce window share one
             // FundsChanged(ContractReward) event in the store. Post-walk must sum the
             // expected side across both actions before comparing, or it false-warns on
-            // each individual action against the coalesced delta.
+            // each individual action against the coalesced delta. Both actions share
+            // RecordingId 'rec-coalesce' because GameStateStore.AddEvent requires equal
+            // recordingId tags to coalesce (see GameStateStore.cs:60, #431): a single
+            // cross-tag coalesced event is physically impossible in production.
             LedgerOrchestrator.Initialize();
 
             Ledger.AddAction(new GameAction

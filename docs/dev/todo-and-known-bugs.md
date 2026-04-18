@@ -591,6 +591,8 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 **Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. The root cause is duplicate `MilestoneAchievement` action emissions (not a double-count at the event-store side). See #477 for the general case — fixing #477 is expected to resolve #462 simultaneously; close this entry only after verifying the reconcile WARN disappears for `Kerbin/SurfaceEVA` specifically.
 
+**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `SumExpectedPostWalkWindow` (post-walk) by `recordingId`. This closes the "2 events keyed 'Progression'" shape when the two events belong to sibling recordings at the same UT, but does NOT address #477's duplicate-emission cause. Re-run the thorough-check log pass after #477 ships to confirm whether `Kerbin/SurfaceEVA` is now silent.
+
 ---
 
 ## 461. Pin the #406 reuse post-frame visibility invariant with an in-game test
