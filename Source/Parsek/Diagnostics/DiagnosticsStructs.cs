@@ -266,6 +266,13 @@ namespace Parsek
         // event represents a ~7 ms cost not paid. Surfaced in the diagnostics
         // report as `buildsAvoided`.
         public int reentryFxDeferredThisSession;
+        // #406 follow-up: incremented every time a loop-cycle boundary reuses
+        // the existing ghost GameObject instead of destroy+spawn. Complements
+        // `ghostBuildsThisSession` and `ghostDestroysThisSession` — a
+        // healthy flight recording in steady loop playback produces one
+        // `ghostReusedAcrossCycleThisSession` per period after the first
+        // spawn; the build and destroy counters stay flat.
+        public int ghostReusedAcrossCycleThisSession;
         public int gcGen0Baseline;
 
         public void Reset()
@@ -280,6 +287,7 @@ namespace Parsek
             reentryFxBuildsThisSession = 0;
             reentryFxSkippedThisSession = 0;
             reentryFxDeferredThisSession = 0;
+            ghostReusedAcrossCycleThisSession = 0;
             gcGen0Baseline = System.GC.CollectionCount(0);
         }
     }

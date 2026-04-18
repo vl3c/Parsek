@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
+- Real Spawn Control proximity gate tightened: candidate range cut from 500 m to 250 m and a new <=2 m/s relative-speed requirement (derived frame-agnostically from the change in active-vessel/ghost separation between scans), so fast-forward only offers ghosts you have actually rendezvoused with.
 - `#450 B3` Ghost spawn hitch reduced on reentry-capable recordings: the reentry-FX build is now deferred until the ghost actually enters atmosphere above Mach 1.2. Orbital-only and sub-Mach-1.2 trajectories skip the build entirely; a per-session `deferred / buildsAvoided` counter in the diagnostics health line shows how often the deferral saved real build work.
 - Map view ghost icon right-click now pins the label (stock behavior) instead of opening the Parsek menu. Left-click still opens the menu.
 - `#386` Ghost map and tracking station icons now hide their label by default and toggle it with a left click on the icon; hover no longer reveals the label, and non-left clicks pass through to stock handlers.
@@ -50,6 +51,7 @@ All notable changes to Parsek are documented here.
 - `T66` In-game runtime regression for fresh watch-entry camera orientation (canonical pitch/heading, no 180° flip).
 - `T61` Two hydration-salvage regression tests covering `RestoreHydrationFailedRecordingsFromPendingTree` and mixed subset-restorable trees.
 - `#365` Unit coverage for v2/v3 binary sidecar reader bounds and full codec round-trip matrix.
+- Added runtime in-game test for strategy lifecycle Harmony patch capture (#439 Phase A follow-up).
 
 ### Documentation
 
@@ -59,6 +61,7 @@ All notable changes to Parsek are documented here.
 
 - Fix #439B: strategy activate setup cost reconciliation now covers Funds, Science, and Reputation legs, closing the known limitation that shipped with #439.
 - `#438` Commit-time earnings reconciliation now correctly accounts for contract advances and facility upgrade/repair deltas, eliminating spurious WARNs when those actions land inside a recording's commit window.
+- `#406 follow-up` Looping ghosts now reuse the same ghost GameObject across loop-cycle boundaries instead of destroying and rebuilding, eliminating the remaining ~21 ms per-cycle hitch on flight recordings with reentry FX. Per-cycle mutable state (engine throttle, RCS power, robotic servo, char intensity, reentry intensity) resets to the fresh-spawn baseline so the new cycle does not inherit stale readings.
 - `#459` Between-run timeline ghost cleanup now rebinds stock camera targets off the watched ghost before teardown, then exits watch mode; `Sun.LateUpdate` also defensively short-circuits once on a missing/destroyed stock target instead of flooding `KSP.log` with per-frame `NullReferenceException`s.
 - `#458` Binary `.prec` flat-fallback loads now run the malformed-prefix healer against track-section data, logging `healed=true/false` with pre/post counts and marking healed recordings dirty so the corrected sidecar flushes back out on the next save.
 - `#456` Reserved crew are now placed in the tightest-fit same-name part when the snapshot's part pid can't be matched (e.g. after launching a new vessel that reuses a showcase ghost's part), preferring a 1-seat cockpit over a larger cabin.

@@ -58,6 +58,24 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## 461. Pin the #406 reuse post-frame visibility invariant with an in-game test
+
+**Source:** clean-context Opus review of PR #394 (#406 ghost GameObject reuse across loop-cycle boundaries), finding #4.
+
+**Concern:** the reuse orchestrator (`GhostPlaybackEngine.ReusePrimaryGhostAcrossCycle`) exits with `state.deferVisibilityUntilPlaybackSync == true` and `state.ghost.activeSelf == false` (set by `PrimeLoadedGhostForPlaybackUT.SetActive(false)`). Control then falls through to `UpdateLoopingPlayback:1161-1166`, where `ActivateGhostVisualsIfNeeded` clears both on the same frame before any render pass. A post-investigation trace confirmed this is invariant-equivalent to the pre-#406 destroy+spawn path, so no visual regression exists today — but NO test pins this control-flow ordering. A future refactor that adds an early `return` between `:1068` (the reuse call) and `:1166` (the activation) would silently hide the ghost for a frame on every cycle boundary.
+
+**Fix:** new in-game test `Bug406_ReuseClearsDeferVisOnSameFrame` (alongside the existing `Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity` in `Source/Parsek/InGameTests/RuntimeTests.cs`) that drives a full `UpdateLoopingPlayback` cycle-boundary pass (using a real committed recording from the test fixture, or a minimal IPlaybackTrajectory + positioner stub with engine-level seams) and asserts on the post-frame state: `state.deferVisibilityUntilPlaybackSync == false` AND `state.ghost.activeSelf == true` (in the happy-path, not-zone-hidden case). A second variant asserts the `hiddenByZone` branch keeps the ghost inactive as designed. xUnit cannot observe `GameObject.activeSelf`; must be in-game.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (new test). Possibly a test seam on `GhostPlaybackEngine` if the full `UpdateLoopingPlayback` path is too coupled to the real FrameContext plumbing — prefer driving the public entry point to avoid white-box coupling.
+
+**Scope:** Small (one in-game test + possibly a thin seam). Pure regression-test work, no production code change.
+
+**Dependencies:** #394 (#406 follow-up) merged.
+
+**Status:** TODO. Priority: low. User-visible impact today is none (invariant-equivalent to pre-#406 behaviour); the test is a guard against future refactors.
+
+---
+
 ## ~~460.~~ Playback budget exceeded on mainLoop-dominated frames with `0 ghosts` — one-shot latches miss the attribution
 
 **Source:** post-B3 playtest `logs/2026-04-18_1947_450-b3-playtest/KSP.log`. After the #414 and #450 Phase A one-shot latches consumed on the first spike (a spawn-driven 12.2 ms frame at line 14355-14499), three more budget-exceeded WARNs fired at `0 ghosts, warp=1x` with no accompanying breakdown because both latches were already burnt:
@@ -502,6 +520,8 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 **Summary of fix:** added `GameStateEventType.StrategyActivated` / `StrategyDeactivated` (enum ids 20/21, append-only). New `Source/Parsek/Patches/StrategyLifecyclePatch.cs` installs Harmony postfixes on `Strategies.Strategy.Activate` / `Deactivate`, filtering on `__result == true` and honoring `GameStateRecorder.IsReplayingActions`. Recorder emits new events with pure-static detail builders (`BuildStrategyActivateDetail` / `BuildStrategyDeactivateDetail`) formatted with InvariantCulture "R". `GameStateEventConverter` routes the new events to the existing `StrategyActivate` / `StrategyDeactivate` `GameAction`s. `StrategyActivate` now carries setup costs for Funds, Science, and Reputation, `LedgerOrchestrator.ClassifyAction` emits up to three reconciliation legs keyed `StrategySetup`, and the science/reputation modules apply the additional setup costs during the walk. `StrategiesModule.TransformContractReward` remains a documented identity no-op: KSP's `CurrencyModifierQuery` already transformed contract rewards before `onContractCompleted` fires (see decompile trace in `docs/dev/plans/fix-439-strategy-lifecycle-capture.md` section 3.5), so applying Commitment a second time would double-divert. `activeStrategies` is still populated for slot accounting and Actions-window display.
 
 **NOT included (deferred further):** a `StrategyPayout` fallback emitter for mod-compat strategies that bypass the `OnCurrencyModifierQuery` path. No current stock or major mod needs it; add when a concrete requirement arises.
+
+**Follow-up delivered:** in-game `[InGameTest]` coverage for the strategy Harmony patch added in `test/strategy-lifecycle-in-game` -- `RuntimeTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` and `RuntimeTests.FailedActivation_DoesNotEmitEvent` in the new `StrategyLifecycle` category, with Funds/Science/Reputation snapshot-restore so any `CanBeActivated`-true stock strategy works without drifting save state.
 
 ---
 
@@ -1517,6 +1537,8 @@ For stationary part showcases (lights, solar panels, antennae sitting on KSC gro
 **Expected impact:** for the 259-ghost showcase scenario in the smoking-gun logs, ~250 of those ghosts are stationary KSC showcases whose `reentryFxInfo` now stays `null` permanently. The mesh-combine + ParticleSystem + cloned-material allocation is skipped on every loop-cycle rebuild, eliminating the dominant cost in `UpdatePlayback` and taking the playback frame cost back below the 8 ms budget threshold. Only genuine flight recordings (Suborbital Arc, Orbit-1, Kerbin Ascent, etc.) still pay the build cost, and they pay it correctly.
 
 **Status:** fix landed on branch `investigate-showcase-loop-perf`. Follow-up candidates (not in this PR): reuse ghost GameObject across loop cycles instead of destroy/rebuild (would eliminate the remaining per-cycle material/audio clone cost); gate hidden-tier prewarm by reentry potential too.
+
+**Follow-up shipped (branch `fix/406-ghost-reuse-loop-cycles`):** the per-cycle destroy+rebuild cost identified above as the remaining dominant flight-recording hitch is now eliminated. Single-ghost loop-cycle boundaries call a new `GhostPlaybackEngine.ReusePrimaryGhostAcrossCycle` instead of `DestroyGhost(reason: "loop cycle boundary") + SpawnGhost`. The ghost GameObject, `reentryFxInfo`, `reentryFxPendingBuild` (#450 B3), `cameraPivot` Transform, `horizonProxy`, and every snapshot-derived dictionary (`engineInfos`, `rcsInfos`, `audioInfos`, `heatInfos`, `partTree`, `deployableInfos`, `parachuteInfos`, `jettisonInfos`, `lightInfos`, `fairingInfos`, `colorChangerInfos`, `roboticInfos`, `compoundPartInfos`) survive across the boundary. Only playback iterators, per-cycle flags (`explosionFired`, `pauseHidden`, `rcsSuppressed`, `audioMuted`, `atmosphereFactor`), transient per-cycle state (`lightPlaybackStates`, `fakeCanopies`), and part visibility are reset. Implementation lives in `GhostPlaybackLogic.ResetForLoopCycle` + `ReactivateGhostPartHierarchyForLoopRewind` + a call to `GhostVisualBuilder.RebuildReentryMeshes` so the post-reactivation emission mesh reflects the full part roster. The #414 spawn throttle is NOT consumed on reuse (`frameSpawnCount` unchanged), and the #450 B3 lazy-reentry-build counter is NOT consumed either (`frameLazyReentryBuildCount` unchanged). A new `DiagnosticsState.health.ghostReusedAcrossCycleThisSession` counter makes the reuse rate visible in the diagnostics stream. Evidence: the 2026-04-18 B3 playtest (`logs/2026-04-18_1947_450-b3-playtest/KSP.log` lines 38608, 41133, 43824, 46395) showed four budget-exceeded WARNs at an exact 40 s cadence, each with a heaviest-spawn breakdown showing the full timeline+dicts+reentry rebuild — confirming the per-cycle destroy+rebuild was the remaining dominant cost. Unit tests live in `Source/Parsek.Tests/Bug406GhostReuseLoopCycleTests.cs` and an in-game runtime test in `Source/Parsek/InGameTests/RuntimeTests.cs` (`Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity`).
 
 ---
 
