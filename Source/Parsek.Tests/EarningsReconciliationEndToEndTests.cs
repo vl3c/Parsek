@@ -53,14 +53,15 @@ namespace Parsek.Tests
         {
             // Step 1: seed the paired funds event at the same UT the CrewHired event
             // will carry. Key mirrors KSP's TransactionReasons.CrewRecruited token.
-            GameStateStore.AddEvent(new GameStateEvent
+            var fundsEvt = new GameStateEvent
             {
                 ut = 400.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = "CrewRecruited",
-                valueBefore = 50000.0,
-                valueAfter = -12113.0  // -62113
-            });
+                valueBefore = 120000.0,
+                valueAfter = 57887.0   // delta -62113, matches HireCost below
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
 
             // Step 2: emit the CrewHired event with the expected detail shape —
             // ConvertCrewHired parses `cost=<value>` into HireCost.
@@ -71,7 +72,7 @@ namespace Parsek.Tests
                 key = "Jebediah Kerman",
                 detail = "trait=Pilot;cost=62113"
             };
-            GameStateStore.AddEvent(crewHired);
+            GameStateStore.AddEvent(ref crewHired);
 
             // Step 3: drive the real KSC spending hook.
             LedgerOrchestrator.OnKscSpending(crewHired);

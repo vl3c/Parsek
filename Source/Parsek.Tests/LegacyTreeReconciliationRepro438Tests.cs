@@ -94,13 +94,13 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // Gap #8 test 1: OnKspLoad injects the synthetic, then
-        // ReconcileEarningsWindow over the tree's UT window sees zero mismatch
-        // because the store has no competing events.
+        // Gap #8 test 1: OnKspLoad injects the LegacyMigration synthetic,
+        // tagged with the tree root, at the tree's end-UT, carrying the full
+        // residual; the tree is marked applied so the lump-sum does not re-fire.
         // ================================================================
 
         [Fact]
-        public void LegacyTree_34400_OnKspLoadInjectsSynthetic_ReconcileWindowMatches()
+        public void LegacyTree_34400_OnKspLoad_InjectsSyntheticAtEndUT_MarksResourcesApplied()
         {
             var tree = MakeTree("tree-438-1", "rec-root", 100.0, 200.0,
                 deltaFunds: 34400.0);
@@ -109,8 +109,6 @@ namespace Parsek.Tests
             var valid = new HashSet<string> { "rec-root" };
             LedgerOrchestrator.OnKspLoad(valid, maxUT: 1000.0);
 
-            // The migration injected a LegacyMigration FundsEarning tagged with the
-            // tree's root, carrying the full residual, landed at the tree's end-UT.
             var synth = Ledger.Actions.SingleOrDefault(a =>
                 a.Type == GameActionType.FundsEarning
                 && a.FundsSource == FundsEarningSource.LegacyMigration);
@@ -120,21 +118,10 @@ namespace Parsek.Tests
             Assert.Equal(200.0, synth.UT);
             Assert.True(tree.ResourcesApplied);
 
-            // Run the commit-window diagnostic with BOTH sides empty. Legacy
-            // saves whose events were dropped on the way into the ledger have
-            // no FundsChanged event inside the tree's UT window; the runtime
-            // does not feed the synthetic into ReconcileEarningsWindow in this
-            // degenerate shape either. The invariant to pin is that the
-            // diagnostic is silent when neither side contributes — i.e. the
-            // synthetic's existence in the ledger does not spuriously trip the
-            // diagnostic by itself. Test 2 below pins the matched-pair shape.
-            LedgerOrchestrator.ReconcileEarningsWindow(
-                new List<GameStateEvent>(),
-                new List<GameAction>(),
-                startUT: 100.0, endUT: 200.0);
-
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("Earnings reconciliation"));
+            // The migration logs a per-tree INFO summary with the residuals.
+            // Pin that log-capture path for regression coverage.
+            Assert.Contains(logLines, l =>
+                l.Contains("MigrateLegacyTreeResources") && l.Contains("34400"));
         }
 
         // ================================================================
@@ -152,13 +139,14 @@ namespace Parsek.Tests
 
             // Pre-populate GameStateStore with the funds event the legacy save
             // originally captured at some UT inside the tree's window.
-            GameStateStore.AddEvent(new GameStateEvent
+            var fundsEvt = new GameStateEvent
             {
                 ut = 150.0,
                 eventType = GameStateEventType.FundsChanged,
                 valueBefore = 0.0,
                 valueAfter = 34400.0
-            });
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
 
             var valid = new HashSet<string> { "rec-root-2" };
             LedgerOrchestrator.OnKspLoad(valid, maxUT: 1000.0);
