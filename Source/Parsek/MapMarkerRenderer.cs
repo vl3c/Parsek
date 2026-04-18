@@ -54,8 +54,21 @@ namespace Parsek
                 { VesselType.DeployedGroundPart, 29 },
             };
 
-        private static Texture2D vesselIconAtlas;
-        private static Dictionary<VesselType, Rect> vesselIconUVs;
+        /// <summary>
+        /// Per-vessel-type atlas + UV entry. Stock KSP ships some vessel-type
+        /// icons on separate atlas textures (`DeployedScienceController` lives
+        /// on `OrbitIcons_DeployedScience`, `DeployedGroundPart` on
+        /// `ConstructionModeAppIcon`), so a single-atlas-plus-UV model silently
+        /// drops those icons. See #387 follow-up (2026-04-18).
+        /// </summary>
+        internal readonly struct VesselIconEntry
+        {
+            public readonly Texture2D Atlas;
+            public readonly Rect UV;
+            public VesselIconEntry(Texture2D atlas, Rect uv) { Atlas = atlas; UV = uv; }
+        }
+
+        private static Dictionary<VesselType, VesselIconEntry> vesselIconEntries;
         private static Texture2D fallbackDiamond;
         private static GUIStyle labelStyle;
         private static bool initAttempted;
@@ -69,11 +82,10 @@ namespace Parsek
         /// <summary>Test-only accessor for sticky state.</summary>
         internal static HashSet<string> StickyMarkersForTesting => stickyMarkers;
 
-        /// <summary>Test-only accessor for the computed UV cache.</summary>
-        internal static IReadOnlyDictionary<VesselType, Rect> VesselIconUVsForTesting => vesselIconUVs;
-
-        /// <summary>Test-only accessor for the atlas texture resolved at init.</summary>
-        internal static Texture2D VesselIconAtlasForTesting => vesselIconAtlas;
+        /// <summary>Test-only accessor for the computed per-type icon entries.
+        /// Replaces the old single-atlas/UV-dict pair since #387's follow-up
+        /// fix made icons live on multiple atlas textures.</summary>
+        internal static IReadOnlyDictionary<VesselType, VesselIconEntry> VesselIconEntriesForTesting => vesselIconEntries;
 
         /// <summary>Test-only accessor for the init latch. True after a terminal
         /// outcome (success OR permanent structural error). Transient startup
@@ -145,12 +157,13 @@ namespace Parsek
 
             // Draw the icon.
             Color prevColor = GUI.color;
-            Rect uvRect;
-            if (vesselIconAtlas != null && vesselIconUVs != null
-                && vesselIconUVs.TryGetValue(vtype, out uvRect))
+            VesselIconEntry entry;
+            if (vesselIconEntries != null
+                && vesselIconEntries.TryGetValue(vtype, out entry)
+                && entry.Atlas != null)
             {
                 GUI.color = Color.white;
-                GUI.DrawTextureWithTexCoords(iconRect, vesselIconAtlas, uvRect);
+                GUI.DrawTextureWithTexCoords(iconRect, entry.Atlas, entry.UV);
             }
             else if (fallbackDiamond != null)
             {
@@ -231,8 +244,7 @@ namespace Parsek
             int stickyCount = stickyMarkers.Count;
             stickyMarkers.Clear();
             initAttempted = false;
-            vesselIconAtlas = null;
-            vesselIconUVs = null;
+            vesselIconEntries = null;
             if (fallbackDiamond != null)
             {
                 UnityEngine.Object.Destroy(fallbackDiamond);
@@ -249,8 +261,7 @@ namespace Parsek
         {
             stickyMarkers.Clear();
             initAttempted = false;
-            vesselIconAtlas = null;
-            vesselIconUVs = null;
+            vesselIconEntries = null;
             fallbackDiamond = null;
             labelStyle = null;
         }
@@ -280,7 +291,7 @@ namespace Parsek
 
         private static void EnsureResources()
         {
-            if (vesselIconAtlas == null && MapView.fetch != null)
+            if (vesselIconEntries == null && MapView.fetch != null)
                 InitVesselTypeIcons();
 
             if (fallbackDiamond == null)
@@ -314,9 +325,9 @@ namespace Parsek
             // yet, or the prefab's iconSprites array is still being initialized).
             // Otherwise the very first draw of the scene can lock every ghost marker
             // to the fallback diamond for the rest of the scene's lifetime. The latch
-            // is instead set at (a) structural-failure returns (field not found, no
-            // sprite has a texture) which won't improve on retry and would otherwise
-            // spam logs, and (b) the successful-completion path at the end.
+            // is instead set at (a) the structural-failure return (field not found)
+            // which won't improve on retry and would otherwise spam logs, and (b) the
+            // successful-completion path at the end.
             if (initAttempted) return; // latched only after a terminal outcome
 
             var prefab = MapView.UINodePrefab;
@@ -350,79 +361,189 @@ namespace Parsek
                 return;
             }
 
-            // Pick the first non-null sprite's texture as atlas. MapView.OrbitIconsMap
-            // may point at a different Texture2D instance than the sprite atlas in
-            // the tracking station, so the sprite is authoritative.
-            Texture2D spriteAtlas = null;
+            // Lift each sprite into a plain-data record so the mapping pass can
+            // be unit-tested without needing a live Unity runtime to construct
+            // Sprite/Texture2D instances.
+            var spriteData = new SpriteAtlasRecord[sprites.Length];
             for (int i = 0; i < sprites.Length; i++)
             {
-                if (sprites[i] != null && sprites[i].texture != null)
+                Sprite s = sprites[i];
+                if (s == null) continue;
+                Texture2D tex = s.texture;
+                if (tex == null)
                 {
-                    spriteAtlas = sprites[i].texture;
-                    break;
-                }
-            }
-            if (spriteAtlas == null)
-            {
-                // Structural — no sprite carries a texture, so no atlas can be
-                // resolved. Retrying won't help. Latch.
-                ParsekLog.Warn(Tag, "InitVesselTypeIcons: no sprite has a texture — latching, no retry");
-                initAttempted = true;
-                return;
-            }
-
-            vesselIconAtlas = spriteAtlas;
-            vesselIconUVs = new Dictionary<VesselType, Rect>();
-            float atlasW = spriteAtlas.width;
-            float atlasH = spriteAtlas.height;
-
-            int loaded = 0, outOfRange = 0, mismatchedAtlas = 0, missingSprite = 0;
-            var summary = new StringBuilder();
-
-            foreach (var kv in StockIconIndexByVesselType)
-            {
-                int idx = kv.Value;
-                if (idx < 0 || idx >= sprites.Length)
-                {
-                    outOfRange++;
+                    spriteData[i] = SpriteAtlasRecord.SpriteOnly();
                     continue;
                 }
-                Sprite s = sprites[idx];
-                if (s == null)
-                {
-                    missingSprite++;
-                    continue;
-                }
-                if (s.texture != spriteAtlas)
-                {
-                    mismatchedAtlas++;
-                    ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
-                        "InitVesselTypeIcons: {0} sprite at index {1} uses texture '{2}' " +
-                        "different from resolved atlas '{3}' — skipping",
-                        kv.Key, idx,
-                        s.texture != null ? s.texture.name : "(null)",
-                        spriteAtlas.name));
-                    continue;
-                }
-
-                Rect r = s.textureRect;
-                var uv = new Rect(r.x / atlasW, r.y / atlasH, r.width / atlasW, r.height / atlasH);
-                vesselIconUVs[kv.Key] = uv;
-                loaded++;
-                summary.AppendFormat(CultureInfo.InvariantCulture,
-                    " {0}=[{1}]({2:F3},{3:F3},{4:F3},{5:F3})",
-                    kv.Key, idx, uv.x, uv.y, uv.width, uv.height);
+                spriteData[i] = new SpriteAtlasRecord(tex, s.textureRect, tex.width, tex.height, tex.name);
             }
+
+            vesselIconEntries = BuildVesselIconEntries(spriteData, out int loaded,
+                out int outOfRange, out int missingSprite, out int missingTexture,
+                out string perAtlasSummary, out string perTypeUvDetail);
 
             // Init succeeded — latch so we don't re-reflect on every frame.
             initAttempted = true;
 
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
-                "InitVesselTypeIcons: loaded={0} outOfRange={1} missingSprite={2} " +
-                "mismatchedAtlas={3} atlas={4}x{5} spriteCount={6}",
-                loaded, outOfRange, missingSprite, mismatchedAtlas,
-                atlasW, atlasH, sprites.Length));
-            ParsekLog.Verbose(Tag, "InitVesselTypeIcons UVs:" + summary);
+                "InitVesselTypeIcons: loaded={0} ({1}) outOfRange={2} missingSprite={3} " +
+                "missingTexture={4} spriteCount={5}",
+                loaded, perAtlasSummary, outOfRange, missingSprite, missingTexture,
+                sprites.Length));
+            ParsekLog.Verbose(Tag, "InitVesselTypeIcons UVs:" + perTypeUvDetail);
+        }
+
+        /// <summary>
+        /// Per-sprite data lifted out of a Unity <see cref="Sprite"/> so the
+        /// mapping pass can be unit-tested. <see cref="HasSprite"/> separates
+        /// "index points at a null slot" from "sprite exists but has no texture"
+        /// so callers can distinguish the two reject reasons in counters.
+        /// </summary>
+        internal readonly struct SpriteAtlasRecord
+        {
+            public readonly bool HasSprite;
+            public readonly Texture2D Texture;
+            public readonly Rect TextureRect;
+            public readonly float AtlasWidth;
+            public readonly float AtlasHeight;
+            public readonly string AtlasName;
+
+            public SpriteAtlasRecord(Texture2D texture, Rect textureRect,
+                float atlasWidth, float atlasHeight, string atlasName)
+            {
+                HasSprite = true;
+                Texture = texture;
+                TextureRect = textureRect;
+                AtlasWidth = atlasWidth;
+                AtlasHeight = atlasHeight;
+                AtlasName = atlasName;
+            }
+
+            private SpriteAtlasRecord(bool hasSprite)
+            {
+                HasSprite = hasSprite;
+                Texture = null;
+                TextureRect = default(Rect);
+                AtlasWidth = 0f;
+                AtlasHeight = 0f;
+                AtlasName = null;
+            }
+
+            /// <summary>Sprite slot exists but carries no Texture2D. Rare —
+            /// keeps the reject reason distinguishable in the summary.</summary>
+            public static SpriteAtlasRecord SpriteOnly() => new SpriteAtlasRecord(true);
+        }
+
+        /// <summary>
+        /// Pure mapping pass: given a lifted sprite array, build the per-type
+        /// entry dict. Each vessel type keeps its own atlas reference so icons
+        /// that live on separate KSP atlases (OrbitIcons_DeployedScience,
+        /// ConstructionModeAppIcon, …) are accepted instead of skipped.
+        /// Replaces the single-atlas-plus-UV-dict model from #387.
+        /// </summary>
+        internal static Dictionary<VesselType, VesselIconEntry> BuildVesselIconEntries(
+            SpriteAtlasRecord[] spriteData,
+            out int loaded, out int outOfRange, out int missingSprite, out int missingTexture,
+            out string perAtlasSummary, out string perTypeUvDetail)
+        {
+            var result = new Dictionary<VesselType, VesselIconEntry>();
+            loaded = 0;
+            outOfRange = 0;
+            missingSprite = 0;
+            missingTexture = 0;
+
+            // Per-atlas bucketing uses parallel lists compared by
+            // object.ReferenceEquals so Unity's overridden ==/Equals/GetHashCode
+            // on UnityEngine.Object can't merge distinct atlases with equal
+            // "fake null" native pointers (matters for unit tests that fake
+            // Texture2D via FormatterServices, and harmless in production).
+            var perAtlasTextures = new List<Texture2D>();
+            var perAtlasCounts = new List<int>();
+            var perAtlasNames = new List<string>();
+            var uvDetail = new StringBuilder();
+
+            foreach (var kv in StockIconIndexByVesselType)
+            {
+                int idx = kv.Value;
+                if (spriteData == null || idx < 0 || idx >= spriteData.Length)
+                {
+                    outOfRange++;
+                    continue;
+                }
+                var rec = spriteData[idx];
+                if (!rec.HasSprite)
+                {
+                    missingSprite++;
+                    continue;
+                }
+                // object.ReferenceEquals instead of `== null` so Unity's
+                // overloaded equality (treats destroyed/unconstructed objects
+                // as null via native-ptr check) doesn't reject test fakes.
+                // Production sprites created through Unity's own lifecycle
+                // never present a managed non-null wrapper with a zero native
+                // ptr at init time, so this is also safe at runtime.
+                if (object.ReferenceEquals(rec.Texture, null)
+                    || rec.AtlasWidth <= 0f || rec.AtlasHeight <= 0f)
+                {
+                    missingTexture++;
+                    continue;
+                }
+
+                Rect r = rec.TextureRect;
+                var uv = new Rect(
+                    r.x / rec.AtlasWidth,
+                    r.y / rec.AtlasHeight,
+                    r.width / rec.AtlasWidth,
+                    r.height / rec.AtlasHeight);
+                result[kv.Key] = new VesselIconEntry(rec.Texture, uv);
+                loaded++;
+
+                int bucket = -1;
+                for (int b = 0; b < perAtlasTextures.Count; b++)
+                {
+                    if (object.ReferenceEquals(perAtlasTextures[b], rec.Texture))
+                    {
+                        bucket = b;
+                        break;
+                    }
+                }
+                if (bucket >= 0)
+                {
+                    perAtlasCounts[bucket] = perAtlasCounts[bucket] + 1;
+                }
+                else
+                {
+                    perAtlasTextures.Add(rec.Texture);
+                    perAtlasCounts.Add(1);
+                    perAtlasNames.Add(rec.AtlasName);
+                }
+
+                uvDetail.AppendFormat(CultureInfo.InvariantCulture,
+                    " {0}=[{1}]tex={2}({3:F3},{4:F3},{5:F3},{6:F3})",
+                    kv.Key, idx,
+                    !string.IsNullOrEmpty(rec.AtlasName) ? rec.AtlasName : "(unnamed)",
+                    uv.x, uv.y, uv.width, uv.height);
+            }
+
+            perAtlasSummary = FormatPerAtlasSummary(perAtlasCounts, perAtlasNames);
+            perTypeUvDetail = uvDetail.ToString();
+            return result;
+        }
+
+        private static string FormatPerAtlasSummary(List<int> counts, List<string> names)
+        {
+            if (counts == null || counts.Count == 0) return "atlas=(none)";
+            var sb = new StringBuilder();
+            for (int i = 0; i < counts.Count; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                string name = i < names.Count && !string.IsNullOrEmpty(names[i])
+                    ? names[i]
+                    : "(unnamed)";
+                sb.AppendFormat(CultureInfo.InvariantCulture, "atlas{0}={1}:{2}",
+                    (char)('A' + i), name, counts[i]);
+            }
+            return sb.ToString();
         }
     }
 }
