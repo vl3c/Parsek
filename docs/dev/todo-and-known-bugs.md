@@ -58,6 +58,18 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~457.~~ Ghost icon right-click opens Parsek menu instead of pinning the label
+
+**Source:** maintenance request `2026-04-18`. `GhostIconClickPatch.Prefix` (`Source/Parsek/Patches/GhostVesselLoadPatch.cs`) returned `false` for every click on a ghost ProtoVessel icon in map view, suppressing KSP's own `objectNode_OnClick`. That also ate the stock right-click "pin the label" behavior, so ghosts were the only icons whose labels could not be pinned with the same gesture as real vessels.
+
+**Fix:** decompiled `OrbitRendererBase.objectNode_OnClick(MapNode mn, Mouse.Buttons btns)` to confirm the button bitmask is already on the parameter list (KSP fills it via `Mouse.GetAllMouseButtonsUp()`), then used Harmony parameter injection by name to receive `Mouse.Buttons btns` in the prefix. The pure predicate `GhostIconClickPatch.IsLeftClickFromButtons` returns `true` only when the mask contains `Left` (or is `None`, the defensive default that preserves current UX); non-left clicks now log a single VERBOSE under `GhostMap` and `return true` so the stock handler pins the caption. Left-click is unchanged — still opens the Focus / Set As Target / Watch menu and suppresses the stock context menu.
+
+**Files:** `Source/Parsek/Patches/GhostVesselLoadPatch.cs`, `Source/Parsek.Tests/GhostIconClickButtonFilterTests.cs` (8 new unit tests).
+
+**Status:** ~~Fixed~~. In-game verification deferred to the next playtest bundle — deployed DLL UTF-16 grep confirms the pass-through log string is present in the built assembly.
+
+---
+
 ## ~~454.~~ `Emit`/`AddEvent` ref refactor — eliminate value-type field-mirror bug class
 
 **Status:** ~~Fixed~~. `GameStateStore.AddEvent` and `GameStateRecorder.Emit` now take `ref GameStateEvent`, so every field stamp (`epoch` via `AddEvent`, `recordingId` via `Emit`) propagates back to the caller's local. The explicit `evt.epoch = MilestoneStore.CurrentEpoch` and `evt.recordingId = ResolveCurrentRecordingTag()` mirrors that PR #443 added as defense-in-depth inside `RegisterPendingMilestoneEvent` are removed — the language guarantees the cached pending entry now carries the same stamps as the stored slot. 18 production `Emit` call sites in `GameStateRecorder.cs` (11 already on local `evt`, 7 rvalue `new GameStateEvent { … }` hoisted to named locals) and ~145 test call sites across 12 test files were rewritten to pass `ref`. Three new regression tests in `MilestoneRewardCaptureTests.cs` pin the ref-propagation guarantee: `AddEvent_Ref_PropagatesEpochStampToCaller`, `Emit_Ref_PropagatesRecordingIdAndEpochToCaller`, and `RegisterPendingMilestoneEvent_CachesStampedEvent_WithoutExplicitMirror`. The pre-#454 bug-reproduction test `EnrichPendingMilestoneRewards_CachedEpochZeroVsStoredLive_PostFixPatchesStore` (which depended on the value-type copy producing a cached `epoch=0` vs stored `epoch=7` mismatch) was rewritten to `EnrichPendingMilestoneRewards_CachedEpochMismatch_WarnsThenRegisterPendingSeamSucceeds`: it now forces the mismatch by manually clearing `evt.epoch` after `AddEvent`, keeping the defensive `Warn` path covered as a safety net against any future caller that copies the struct out of the ref call and mutates the field. `OnContractOfferedStoreTests.cs`'s IL-walker regression guard still works because the ref signature does not change `DeclaringType` / `Name` on the `MethodInfo` token.

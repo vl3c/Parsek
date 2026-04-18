@@ -189,8 +189,10 @@ namespace Parsek.Patches
     /// Prevents ghost vessel orbit lines from being clickable in map view (#172).
     /// Ghost orbit lines are visual-only — clicking them should not open the target
     /// popup, because a real vessel might share the same orbit and the click would
-    /// be ambiguous. The ghost vessel ICON remains clickable via the objectNode_OnClick
-    /// patch below.
+    /// be ambiguous. The ghost vessel ICON remains clickable via the
+    /// objectNode_OnClick patch below, but only left-click opens the Parsek menu;
+    /// right-click (and any other non-left button) is passed through to KSP's
+    /// default handler so stock label-pinning still works.
     /// </summary>
     [HarmonyPatch(typeof(OrbitRenderer), nameof(OrbitRenderer.OrbitCast))]
     internal static class GhostOrbitCastPatch
@@ -209,10 +211,12 @@ namespace Parsek.Patches
 
 
     /// <summary>
-    /// Handles left-click on ghost vessel icon in map view. Shows a popup with
-    /// "Set As Target", "Watch", and "Focus" options. Changed from Postfix to Prefix
-    /// so we can return false for ghost vessels, preventing KSP's default context menu
-    /// from appearing alongside ours (#192).
+    /// Ghost vessel icon click handling in map view.
+    /// Left-click opens the custom ghost menu (Focus / Set Target / Watch).
+    /// Right-click (and any non-left click) is passed through to KSP's default
+    /// handler so stock label-pinning still works. Changed from Postfix to Prefix
+    /// so we can return false for ghost vessels, preventing KSP's default context
+    /// menu from appearing alongside ours on the left-click path (#192).
     /// </summary>
     [HarmonyPatch(typeof(OrbitRendererBase), "objectNode_OnClick")]
     internal static class GhostIconClickPatch
@@ -220,11 +224,35 @@ namespace Parsek.Patches
         // Track current popup so we can dismiss on re-click
         private static PopupDialog currentGhostMenu;
 
-        static bool Prefix(OrbitRendererBase __instance)
+        /// <summary>
+        /// Returns true when the click-up bitmask represents a left click (either
+        /// exactly Left, or a combination that includes Left). Returns true for
+        /// None as a defensive default — if the caller can't determine the button,
+        /// we preserve the pre-filter behavior of opening our menu. Pure/static
+        /// so it can be exercised without a live Unity EventSystem.
+        /// </summary>
+        internal static bool IsLeftClickFromButtons(Mouse.Buttons btns)
+        {
+            // Defensive default: no button reported -> preserve current UX.
+            if (btns == Mouse.Buttons.None) return true;
+            return (btns & Mouse.Buttons.Left) != 0;
+        }
+
+        static bool Prefix(OrbitRendererBase __instance, Mouse.Buttons btns)
         {
             if (__instance.vessel == null) return true;
             if (!GhostMapPresence.IsGhostMapVessel(__instance.vessel.persistentId)) return true;
             if (!HighLogic.LoadedSceneIsFlight || !MapView.MapIsEnabled) return true;
+
+            // Button filter: only left-click opens the Parsek menu. Right/middle/etc.
+            // fall through to KSP's own objectNode_OnClick so the stock pin-text
+            // behavior (toggles MapNode.pinned in the MapNode.OnPointerUp path) fires.
+            if (!IsLeftClickFromButtons(btns))
+            {
+                ParsekLog.Verbose("GhostMap",
+                    $"Ghost icon non-left click (button={btns}) — passing through to stock handler for default pin-text");
+                return true;
+            }
 
             Vessel v = __instance.vessel;
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
