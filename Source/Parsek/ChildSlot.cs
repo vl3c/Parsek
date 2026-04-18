@@ -90,57 +90,13 @@ namespace Parsek
 
         /// <summary>
         /// Walks forward through <paramref name="supersedes"/> starting at
-        /// <see cref="OriginChildRecordingId"/>. For each current id, looks for a
-        /// supersede relation with <c>OldRecordingId == current</c>; if found,
-        /// advances to <c>NewRecordingId</c>. Returns the last id reached when no
-        /// relation matches (the "orphan endpoint" in design section 5.2: if
-        /// <c>NewRecordingId</c> is not the Old of another relation, the walk
-        /// terminates there — that id IS the effective id).
-        ///
-        /// Cycle guard via visited HashSet: A -> B -> A logs Warn and returns the
-        /// last-visited id. Null/empty origin returns null.
+        /// <see cref="OriginChildRecordingId"/>. Delegates to
+        /// <see cref="EffectiveState.EffectiveRecordingId"/> so the walk logic
+        /// lives in one place (design section 5.2 / Phase 2 consolidation).
         /// </summary>
         public string EffectiveRecordingId(IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
-            if (string.IsNullOrEmpty(OriginChildRecordingId))
-                return null;
-
-            // No relations: chain length 0; origin is already effective.
-            if (supersedes == null || supersedes.Count == 0)
-                return OriginChildRecordingId;
-
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            string current = OriginChildRecordingId;
-            visited.Add(current);
-
-            while (true)
-            {
-                string next = null;
-                for (int i = 0; i < supersedes.Count; i++)
-                {
-                    var rel = supersedes[i];
-                    if (rel == null) continue;
-                    if (string.Equals(rel.OldRecordingId, current, StringComparison.Ordinal))
-                    {
-                        next = rel.NewRecordingId;
-                        break;
-                    }
-                }
-
-                if (string.IsNullOrEmpty(next))
-                    return current; // orphan endpoint / chain terminus
-
-                if (visited.Contains(next))
-                {
-                    ParsekLog.Warn("Supersede",
-                        $"EffectiveRecordingId: cycle detected starting from origin={OriginChildRecordingId} " +
-                        $"at current={current} next={next}; returning last-visited={current}");
-                    return current;
-                }
-
-                visited.Add(next);
-                current = next;
-            }
+            return EffectiveState.EffectiveRecordingId(OriginChildRecordingId, supersedes);
         }
     }
 }
