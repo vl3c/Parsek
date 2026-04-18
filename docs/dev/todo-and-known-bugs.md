@@ -31,10 +31,19 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `BranchPoint.RewindPointId`, `ParsekScenario` persistence for the new
   collections, one-shot migration Info logs, unit tests + in-game
   `Part.persistentId` stability test. No user-visible behavior change.~~
-- **Phase 2 (next)** — ERS/ELS shared utility with the tombstone-only ELS
-  filter (design §3.1, §3.2, §5.5 derived helpers). No UI hooks yet; the
-  filter needs to exist before Phase 3's grep-audit conversion phase can
-  start.
+- ~~**Phase 2** — ERS/ELS shared utility (`EffectiveState`) with the
+  tombstone-only ELS filter, `SessionSuppressedSubtree` forward-only
+  closure, `IsVisible` / `IsUnfinishedFlight` / `EffectiveRecordingId`
+  helpers (design §3.1, §3.2, §3.3, §5.5). `StateVersion` counters on
+  `RecordingStore` / `Ledger` / `ParsekScenario` drive cache invalidation.
+  `ChildSlot.EffectiveRecordingId` now delegates to the helper. No UI
+  hooks yet.~~
+- **Phase 3 (next)** — grep-audit conversion: route existing consumers
+  (ghost playback walker, `GhostMapPresence`, `WatchModeController`,
+  timeline view, reservation manager, recalc engine) through the
+  `EffectiveState` helper per design §3.4. CI grep gate to enforce no
+  raw `CommittedRecordings` / `Ledger.Actions` reads outside the
+  subsystem table.
 
 ---
 

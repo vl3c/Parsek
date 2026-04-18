@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Phase 1: data model for Rewind to Staging (no user-visible behavior yet).
+- Phase 2: ERS/ELS effective-state helper (no user-visible behavior yet).
 
 ---
 
