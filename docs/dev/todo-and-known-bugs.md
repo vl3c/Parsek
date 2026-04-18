@@ -232,9 +232,53 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `scripts/ers-els-audit-allowlist.txt` (rollback path reads raw
   committed list to remove the NotCommitted provisional that ERS
   filters out).
-- **Phase 11 (next)** — RP quicksave reap + file deletion for the
+- ~~**Phase 11** — RP quicksave reap + file deletion for the
   session-provisional RPs that Phase 10 tags, session-end cleanup,
-  load-time sweep (design §6.8 / §6.9).
+  load-time sweep (design §6.8 / §6.9).~~
+  New `RewindPointReaper.ReapOrphanedRPs` deletes the quicksave file +
+  scenario entry + `BranchPoint.RewindPointId` back-reference for any
+  RP whose `SessionProvisional` is false AND every `ChildSlot`'s
+  effective recording resolves to `MergeState.Immutable`. Slots still
+  pointing at `CommittedProvisional` / `NotCommitted` keep the RP alive
+  for a later reap pass. Reaper is invoked from
+  `MergeJournalOrchestrator.RunMerge` (inline in the `RpReap`
+  checkpoint, right after `TagRpsForReap`), from
+  `CompleteFromPostDurable` (so the load-time finisher also runs reap
+  when it drives through that phase), and as a housekeeping pass at the
+  end of `ParsekScenario.OnLoad` (both cold-start and FLIGHT→FLIGHT
+  branches). File deletion is best-effort; a lock/IO failure logs a
+  Warn but still removes the scenario entry so state is bounded.
+  New `TreeDiscardPurge.PurgeTree(treeId)` (design §3.5 invariant 7 /
+  §6.10) drops every RP whose `BranchPointId` is in the tree, every
+  `RecordingSupersedeRelation` with either endpoint in the tree, every
+  `LedgerTombstone` whose target action's `RecordingId` is in the
+  tree, and clears the active re-fly marker + in-progress merge
+  journal when scoped to the discarded tree. Crew reservations are
+  recomputed via `CrewReservationManager.RecomputeAfterTombstones` when
+  tombstones shrank. Wired at the top of
+  `RecordingStore.DiscardPendingTree` so both `MergeDialog.MergeDiscard`
+  and any future tree-discard caller go through the purge.
+  `RewindPointReaper.cs` and `TreeDiscardPurge.cs` added to
+  `scripts/ers-els-audit-allowlist.txt` (reaper reads raw
+  `CommittedRecordings` to see `NotCommitted` provisionals that ERS
+  filters out; purge walks raw `Ledger.Actions` to classify
+  tombstones). Tests: 13 `RewindPointReaperTests` (eligibility matrix +
+  supersede walk + orphan slot + file-delete failure + idempotence +
+  log contract + empty/null guards), 11 `TreeDiscardPurgeTests` (RPs +
+  supersedes + tombstones + reservations + marker/journal + sibling
+  tree isolation + empty tree + file-delete failure + unknown id +
+  state-version bumps). Two FLIGHT-scene in-game tests
+  (`TreeDiscardRemovesSupersedesAndTombstonesTest`,
+  `RPReapOnLastSlotImmutableTest`) inject synthetic fixtures + restore
+  the live scenario on teardown. Four Phase 10 orchestrator tests
+  updated to reflect the new inline-reap semantics (empty-slot RPs in
+  those fixtures are now reap-eligible the moment `SessionProvisional`
+  flips).
+- **Phase 12 (next)** — revert-during-re-fly dialog (design §6.9 step 1).
+  Handle the player pressing KSP's stock revert during an active re-fly
+  session: surface a Parsek-owned dialog offering "keep re-fly" /
+  "revert and discard session" + wire whichever branch to the existing
+  session/merge lifecycle.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so

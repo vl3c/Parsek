@@ -18,6 +18,7 @@ All notable changes to Parsek are documented here.
 - Phase 8: rewind-session merge writes supersede relations for subtree; Immutable vs CommittedProvisional based on terminal kind.
 - Phase 9: narrow v1 tombstone scope — only kerbal-death ledger actions (plus bundled rep penalties) are retired on merge; career state stays sticky.
 - Phase 10: merge runs through MergeJournalOrchestrator with 5 crash-recovery checkpoints; on-load finisher resumes from any crash window.
+- Phase 11: rewind points reaped after merge; tree discard purges related rewind points, supersede relations, and tombstones.
 
 ---
 
