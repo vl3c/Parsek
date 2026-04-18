@@ -44,10 +44,17 @@ namespace Parsek
         /// <paramref name="marker"/>, flips
         /// <paramref name="provisional"/>.<see cref="Recording.MergeState"/>,
         /// clears <see cref="Recording.SupersedeTargetId"/>, and clears
-        /// <see cref="ParsekScenario.ActiveReFlySessionMarker"/>. Callers
-        /// (currently <see cref="MergeDialog.MergeCommit"/>) invoke this
-        /// AFTER the tree has committed and BEFORE firing
-        /// <see cref="MergeDialog.OnTreeCommitted"/>.
+        /// <see cref="ParsekScenario.ActiveReFlySessionMarker"/>.
+        ///
+        /// <para>
+        /// Retained as the synchronous legacy entry point for direct callers
+        /// (Phase 8 tests, the <c>SessionMerger</c> advisory path, and the
+        /// <see cref="InGameTests.MergeCrashedReFlyCreatesCPSupersedeTest"/> /
+        /// <see cref="InGameTests.MergeLandedReFlyCreatesImmutableSupersedeTest"/>
+        /// live-scene tests). Phase 10's <see cref="MergeJournalOrchestrator.RunMerge"/>
+        /// invokes the decomposed helpers directly so it can insert journal
+        /// phase markers between them.
+        /// </para>
         /// </summary>
         internal static void CommitSupersede(ReFlySessionMarker marker, Recording provisional)
         {
@@ -74,26 +81,54 @@ namespace Parsek
             if (scenario.LedgerTombstones == null)
                 scenario.LedgerTombstones = new List<LedgerTombstone>();
 
-            // Step 1: compute the forward-only merge-guarded subtree closure
-            // rooted at the marker's origin child recording. Reuses the exact
-            // walk that SessionSuppressionState/ERS caching relies on so the
-            // visible-after-commit subtree is identical to the invisible-
-            // during-session subtree.
+            IReadOnlyCollection<string> subtree = AppendRelations(marker, provisional, scenario);
+
+            string newRecordingId = provisional.RecordingId;
+            double ut = SafeNow();
+            string nowIso = DateTime.UtcNow.ToString("o");
+
+            // Tombstones run AFTER the supersede relations land (so the
+            // relations describe "what's superseded" before the ELS recomputes)
+            // and BEFORE the MergeState flip's version bump so a single ELS
+            // rebuild covers both changes.
+            CommitTombstones(marker, subtree, newRecordingId, ut, nowIso, scenario);
+
+            FlipMergeStateAndClearTransient(marker, provisional, scenario, preserveMarker: false);
+        }
+
+        /// <summary>
+        /// Phase 10 decomposed helper (design §6.6 step 3): compute the
+        /// forward-only merge-guarded subtree closure rooted at the marker's
+        /// origin child recording and append one
+        /// <see cref="RecordingSupersedeRelation"/> per descendant pointing at
+        /// the provisional. Idempotent: pre-existing relations are skipped
+        /// with a Verbose log. Returns the closure so the downstream
+        /// tombstone scan reuses the same walk.
+        /// </summary>
+        internal static IReadOnlyCollection<string> AppendRelations(
+            ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario)
+        {
+            // Use ReferenceEquals to skip Unity's Object == null override,
+            // which would treat a destroyed ScenarioModule as null even when
+            // the test fixture installed a plain-CLR instance without a
+            // Unity lifecycle. The outer CommitSupersede / RunMerge call sites
+            // have already validated scenario before dispatching here.
+            if (marker == null || provisional == null
+                || object.ReferenceEquals(null, scenario))
+                return new List<string>();
+
             IReadOnlyCollection<string> subtree =
                 EffectiveState.ComputeSessionSuppressedSubtree(marker);
             int subtreeCount = subtree?.Count ?? 0;
-
             string newRecordingId = provisional.RecordingId;
             string originId = marker.OriginChildRecordingId;
 
-            // Step 2: for each id in the subtree, append a supersede relation
-            // if one doesn't already exist (defensive idempotence).
-            int added = 0;
-            int skippedExisting = 0;
             double ut = SafeNow();
             string nowIso = DateTime.UtcNow.ToString("o");
             var ic = CultureInfo.InvariantCulture;
 
+            int added = 0;
+            int skippedExisting = 0;
             if (subtree != null)
             {
                 foreach (string oldId in subtree)
@@ -125,46 +160,58 @@ namespace Parsek
                 $"Added {added.ToString(ic)} supersede relations for subtree rooted at {originId ?? "<none>"} " +
                 $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)})");
 
-            // Step 3: classify terminal kind and flip MergeState. Crashed outcomes
-            // stay re-flyable (CommittedProvisional); anything else is Immutable.
+            return subtree ?? new List<string>();
+        }
+
+        /// <summary>
+        /// Phase 10 decomposed helper (design §6.6 steps 2, 5, 6, 11): flip
+        /// <paramref name="provisional"/>.<see cref="Recording.MergeState"/>
+        /// to <see cref="MergeState.Immutable"/> or
+        /// <see cref="MergeState.CommittedProvisional"/> based on terminal
+        /// kind, clear the transient <see cref="Recording.SupersedeTargetId"/>,
+        /// bump supersede state version so the ERS cache invalidates, and
+        /// (unless <paramref name="preserveMarker"/> is set) clear
+        /// <see cref="ParsekScenario.ActiveReFlySessionMarker"/>.
+        ///
+        /// <para>
+        /// <paramref name="preserveMarker"/> is set by
+        /// <see cref="MergeJournalOrchestrator.RunMerge"/> so the marker
+        /// clear is deferred until AFTER Durable Save #1 (design §6.6
+        /// step 11). Legacy <see cref="CommitSupersede"/> keeps the original
+        /// synchronous behavior with <paramref name="preserveMarker"/> =
+        /// <c>false</c>.
+        /// </para>
+        /// </summary>
+        internal static void FlipMergeStateAndClearTransient(
+            ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario,
+            bool preserveMarker)
+        {
+            if (marker == null || provisional == null
+                || object.ReferenceEquals(null, scenario)) return;
+
             TerminalKind kind = TerminalKindClassifier.Classify(provisional);
             MergeState newState = (kind == TerminalKind.Crashed)
                 ? MergeState.CommittedProvisional
                 : MergeState.Immutable;
             provisional.MergeState = newState;
 
-            // Step 4: clear the transient SupersedeTargetId (§5.5).
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
 
-            // Step 5: emit v1 narrow-scope tombstones for the supersede
-            // subtree's ledger actions (design §6.6 step 4 / §7.13-§7.17 /
-            // §7.41 / §7.44). Runs AFTER the supersede relations land (so the
-            // relations describe "what's superseded" before the ELS recomputes)
-            // and BEFORE the MergeState flip's version bump so a single ELS
-            // rebuild covers both changes.
-            CommitTombstones(marker, subtree, newRecordingId, ut, nowIso, scenario);
-
-            // Step 6: bump supersede version so ERS cache invalidates and the
-            // superseded subtree disappears immediately.
             scenario.BumpSupersedeStateVersion();
 
             ParsekLog.Info(Tag,
-                $"provisional={newRecordingId ?? "<no-id>"} mergeState={newState} terminalKind={kind} " +
+                $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={newState} terminalKind={kind} " +
                 $"priorTarget={priorTarget ?? "<none>"}");
 
-            // Step 7: clear the active marker. The session is finished; Phase
-            // 7's SessionSuppressionState will emit the End transition log on
-            // the next query.
+            if (preserveMarker) return;
+
             string sessionId = marker.SessionId;
             scenario.ActiveReFlySessionMarker = null;
-            // Bumping again ensures the ERS cache that keyed on the old marker
-            // identity rebuilds; redundant with step 6 in most paths but cheap
-            // and defensive against future ordering changes.
             scenario.BumpSupersedeStateVersion();
 
             ParsekLog.Info(SessionTag,
-                $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={newRecordingId ?? "<no-id>"}");
+                $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
         }
 
         /// <summary>
@@ -208,7 +255,11 @@ namespace Parsek
             string nowIso,
             ParsekScenario scenario)
         {
-            if (scenario == null)
+            // ReferenceEquals to bypass Unity's Object == null override (test
+            // fixtures install plain-CLR ParsekScenario instances without a
+            // Unity lifecycle; scenario == null would be true there even
+            // though the reference is valid).
+            if (ReferenceEquals(null, scenario))
             {
                 ParsekLog.Warn(LedgerSwapTag, "CommitTombstones: no scenario — skipping");
                 return;

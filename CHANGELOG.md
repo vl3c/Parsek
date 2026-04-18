@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 - Phase 7: session-suppressed subtree hides superseded ancestors during re-fly; kerbal dual-residence carve-out lets live re-fly crew bypass reservation lock.
 - Phase 8: rewind-session merge writes supersede relations for subtree; Immutable vs CommittedProvisional based on terminal kind.
 - Phase 9: narrow v1 tombstone scope — only kerbal-death ledger actions (plus bundled rep penalties) are retired on merge; career state stays sticky.
+- Phase 10: merge runs through MergeJournalOrchestrator with 5 crash-recovery checkpoints; on-load finisher resumes from any crash window.
 
 ---
 

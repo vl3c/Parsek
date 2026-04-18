@@ -254,11 +254,32 @@ namespace Parsek
             }
 
             ParsekLog.Info("MergeDialog",
-                $"TryCommitReFlySupersede: invoking SupersedeCommit for " +
+                $"TryCommitReFlySupersede: invoking MergeJournalOrchestrator for " +
                 $"sess={marker.SessionId ?? "<no-id>"} provisional={provisionalId} " +
                 $"origin={marker.OriginChildRecordingId ?? "<none>"}");
 
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            bool ok;
+            try
+            {
+                ok = MergeJournalOrchestrator.RunMerge(marker, provisional);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("MergeDialog",
+                    $"TryCommitReFlySupersede: orchestrator threw {ex.GetType().Name}: {ex.Message} — " +
+                    $"journal will drive recovery on next load");
+                ParsekLog.ScreenMessage(
+                    "Merge interrupted — will finish on next load", 3f);
+                return;
+            }
+
+            if (!ok)
+            {
+                ParsekLog.Error("MergeDialog",
+                    $"TryCommitReFlySupersede: orchestrator returned false for " +
+                    $"sess={marker.SessionId ?? "<no-id>"} provisional={provisionalId}");
+                ParsekLog.ScreenMessage("Merge commit skipped (see log)", 3f);
+            }
         }
 
         // Raw committed-list scan by id. Kept local to the merge path so we

@@ -106,3 +106,12 @@ Source/Parsek/MergeDialog.cs
 # write itself bumps TombstoneStateVersion so downstream ELS consumers
 # see the retirement on their next call.
 Source/Parsek/SupersedeCommit.cs
+
+# --- Phase 10 ERS-exempt files ---
+# MergeJournalOrchestrator.RunFinisher's rollback path scans the RAW
+# committed list (by id) to remove the session-provisional recording that
+# was added during the interrupted re-fly session (design §6.9 step 2).
+# The provisional carries MergeState=NotCommitted, so ERS filters it out
+# by definition — the raw read is the only way to find it. Also routes
+# the durable-save + journal lifecycle that the finisher recovers from.
+Source/Parsek/MergeJournalOrchestrator.cs
