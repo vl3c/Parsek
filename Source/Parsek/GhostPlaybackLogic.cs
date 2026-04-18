@@ -16,7 +16,21 @@ namespace Parsek
         // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
-        internal const double DefaultLoopIntervalSeconds = 10.0;
+        // User-facing default for fresh ParsekSettings.autoLoopIntervalSeconds and the
+        // Settings "reset" path. Also used as an engine fallback when a trajectory's loop
+        // interval is NaN/infinite/unset. NOT an "untouched" sentinel for the optimizer.
+        internal const double DefaultLoopIntervalSeconds = 30.0;
+
+        // Sentinel value used by RecordingOptimizer.CanAutoMerge to detect an
+        // "uncustomized" loop interval on a Recording, and by Recording.LoopIntervalSeconds
+        // as its field initializer. The two MUST stay equal — a fresh Recording whose loop
+        // settings the user never touched must compare equal to this constant, otherwise
+        // the optimizer treats it as user-customized and refuses to auto-merge. This
+        // value is deliberately decoupled from DefaultLoopIntervalSeconds so changing the
+        // user-facing default doesn't silently break auto-merge for legacy saves or fresh
+        // untouched captures.
+        internal const double UntouchedLoopIntervalSentinel = 10.0;
+
         internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
         // #410: shared boundary tolerance for loop-phase comparisons. Used by
