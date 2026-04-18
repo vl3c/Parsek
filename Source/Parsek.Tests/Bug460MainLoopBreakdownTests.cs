@@ -401,7 +401,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResetForTesting_ReArmsAllThreeLatches()
+        public void ResetPlaybackBreakdownOneShotForTesting_ReArmsAllThreeLatches()
         {
             // Fire a bimodal spawn spike to consume #414 + #450 in one frame.
             DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
@@ -425,6 +425,93 @@ namespace Parsek.Tests
             Assert.Equal(2, logLines.Count(l => l.Contains("Playback budget breakdown")));
             Assert.Equal(2, logLines.Count(l => l.Contains("Playback spawn build breakdown")));
             Assert.Equal(2, logLines.Count(l => l.Contains("Playback mainLoop breakdown")));
+        }
+
+        [Fact]
+        public void ResetForTesting_ReArmsTheNewBug460Latch()
+        {
+            // `ResetForTesting()` is the top-level cleanup called from the test class
+            // ctor and Dispose. It must clear the #460 latch alongside #414 and #450,
+            // otherwise any later test class in the same xUnit collection would see a
+            // pre-consumed #460 latch and would fail to fire the breakdown on a real
+            // mainLoop-dominated spike. This test is separate from the
+            // ResetPlaybackBreakdownOneShotForTesting test above because the two reset
+            // helpers have different responsibilities (one clears only the latches,
+            // the other also clears ClockSource) but must both cover the new latch.
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                24_800, 0, 1.0f, MainLoopDominatedPhases());
+            Assert.Equal(1, logLines.Count(l => l.Contains("Playback mainLoop breakdown")));
+
+            DiagnosticsComputation.ResetForTesting();
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                24_800, 0, 1.0f, MainLoopDominatedPhases());
+            Assert.Equal(2, logLines.Count(l => l.Contains("Playback mainLoop breakdown")));
+        }
+
+        [Fact]
+        public void MainLoopExactlyAtFloor_FiresBreakdown()
+        {
+            // Boundary test for gate 5: exactly 10_000 us (= 10 ms) = the
+            // MainLoopBreakdownMinMainLoopMicroseconds threshold. The gate is
+            // inclusive (`>=`) so this frame qualifies — an exact 10 ms mainLoop
+            // is still worth localizing (noise + the total budget check above
+            // would tip this into "above budget" territory in practice).
+            var phases = MainLoopDominatedPhases();
+            phases.mainLoopMicroseconds = 10_000;  // exactly on the boundary
+            // Total must exceed the 8 ms budget; pad one of the non-mainLoop
+            // buckets low enough to keep mainLoop dominant.
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                14_800, 0, 1.0f, phases);
+
+            Assert.Contains(logLines, l => l.Contains("Playback mainLoop breakdown"));
+        }
+
+        [Fact]
+        public void SpawnExactlyOneMs_DoesNotFireBreakdown()
+        {
+            // Boundary test for gate 3: spawnMicroseconds is compared with `<`
+            // (strictly less than). An exact 1 ms spawn is on the wrong side of
+            // the gate and must NOT fire the breakdown. Guards against a future
+            // refactor that flips `<` to `<=`.
+            var phases = MainLoopDominatedPhases();
+            phases.spawnMicroseconds = 1_000;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                24_800, 0, 1.0f, phases);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback mainLoop breakdown"));
+        }
+
+        [Fact]
+        public void DestroyExactlyOneMs_DoesNotFireBreakdown()
+        {
+            // Symmetric boundary test for gate 4.
+            var phases = MainLoopDominatedPhases();
+            phases.destroyMicroseconds = 1_000;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                24_800, 0, 1.0f, phases);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback mainLoop breakdown"));
+        }
+
+        [Fact]
+        public void MainLoopTiedWithCompetingPhase_DoesNotFireBreakdown()
+        {
+            // Boundary test for gate 6 (dominance): mainLoop must be STRICTLY
+            // greater than every competing non-spawn/destroy phase. A tie with
+            // deferredCompletedEvents means we don't know which bucket dominates,
+            // so #460 should not consume its latch on this frame - a future spike
+            // with a clearer dominance signal is a better data point.
+            var phases = MainLoopDominatedPhases();
+            phases.mainLoopMicroseconds = 15_000;
+            phases.deferredCompletedEventsMicroseconds = 15_000;  // tied
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                32_000, 0, 1.0f, phases);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback mainLoop breakdown"));
         }
 
         [Fact]

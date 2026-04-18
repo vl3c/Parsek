@@ -116,9 +116,11 @@ Fire on the NEXT frame where all of these hold:
 4. `phases.destroyMicroseconds < MainLoopBreakdownMaxDestroyMicroseconds`
    (1 000 us = 1 ms) - symmetric to #3; a same-frame destroy on a
    ghost that never became active is also ghost-activity-adjacent.
-5. `phases.mainLoopMicroseconds > MainLoopBreakdownMinMainLoopMicroseconds`
+5. `phases.mainLoopMicroseconds >= MainLoopBreakdownMinMainLoopMicroseconds`
    (10 000 us = 10 ms) - the main loop itself accounts for enough of
-   the total to be the dominant suspect (floor check).
+   the total to be the dominant suspect (floor check). Inclusive so
+   an exact 10.00 ms mainLoop frame is still worth localizing (the
+   next sub-ms of noise tips it over the 8 ms total budget anyway).
 6. `phases.mainLoopMicroseconds > phases.deferredCreatedEventsMicroseconds`
    AND `phases.mainLoopMicroseconds > phases.deferredCompletedEventsMicroseconds`
    AND `phases.mainLoopMicroseconds > phases.observabilityCaptureMicroseconds`
@@ -471,12 +473,20 @@ author's pre-plan observation), not the plan itself.
 ## Rollout / risk
 
 - Zero behavior change on any playback path.
-- Steady-state overhead: zero (new code lives entirely inside a branch
-  that runs only when the budget has already exceeded AND the 0-ghost/
-  mainLoop-over-gate conditions hold AND the latch is armed; for
-  healthy frames none of this runs).
-- Memory: zero new fields on any struct. One new static `bool` on
-  `DiagnosticsComputation`.
+- Steady-state overhead: minimal, allocation-free. The #460 WARN
+  branch itself is truly zero-cost on healthy frames (early return
+  inside `CheckPlaybackBudgetThresholdWithBreakdown` when
+  `totalMs <= PlaybackBudgetThresholdMs` fires before the latch check),
+  but the engine adds three new ops per `UpdatePlayback` tick: (i) an
+  `int = 0` reset in the frame-counter block; (ii) one `int` copy into
+  the existing `PlaybackBudgetPhases` populate block; (iii) an `int++`
+  per overlap-ghost iteration inside `UpdateExpireAndPositionOverlaps`.
+  These are the same order of magnitude as the existing
+  `frameSpawnCount++` ops #414 already pays and do not allocate.
+- Memory: one new `int` field (`overlapGhostIterationCount`) on
+  `PlaybackBudgetPhases` (4 bytes), one new `int` field
+  (`frameOverlapGhostIterationCount`) on `GhostPlaybackEngine`
+  (4 bytes), one new static `bool` on `DiagnosticsComputation`.
 - Log output: zero new lines in steady state. One new line on the
   first qualifying spike per session.
 
