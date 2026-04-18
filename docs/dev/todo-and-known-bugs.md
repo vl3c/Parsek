@@ -558,7 +558,7 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Dependencies:** none — all targets are on main today. Item 8 specifically needed Phase A merged, which happened.
 
-**Status:** TODO. Priority: low. Each is diagnostic coverage; nothing user-visible breaks if they slip. Worth doing before #439 / #440 because those will add more transformed-type cases and a broader coverage matrix makes the larger work easier to review.
+**Status:** ~~Fixed~~ (v0.8.2, PR #376). See the top-of-entry status summary for the delivered scope. This bottom-of-entry line is retained as the original pre-fix scope notes.
 
 ---
 
@@ -728,7 +728,7 @@ Injection decisions per tree:
 **Fix (post-review v3 — key-match scoped to untransformed types, aggregation window tightened to the coalesce threshold):** `LedgerOrchestrator.ReconcileKscAction(IReadOnlyList<GameStateEvent> events, IReadOnlyList<GameAction> ledgerActions, GameAction action, double ut)` is called from `OnKscSpending` right after `Ledger.AddAction`. Matching is by KSP `TransactionReasons` key (written as `GameStateEvent.key = reason.ToString()` by `GameStateRecorder.OnFundsChanged`/`OnScienceChanged`/`OnReputationChanged`) plus a `KscReconcileEpsilonSeconds = 0.1` UT window — NOT by symmetric window aggregation, which would cross-attribute coalesced deltas. Action-type classification lives in `ClassifyAction` (pure, testable):
 
 - **Untransformed (WARN on missing or mismatched event):** `FundsSpending` (source=Other, key=`RnDPartPurchase`), `ScienceSpending` (key=`RnDTechResearch`), `FacilityUpgrade` (key=`StructureConstruction`), `FacilityRepair` (key=`StructureRepair`), `KerbalHire` (key=`CrewRecruited`), `ContractAccept` advance (key=`ContractAdvance`).
-- **Transformed (skip with VERBOSE, no WARN):** `ContractComplete` (strategy-transformed + rep curve), `ContractFail`/`Cancel` (rep curve on penalty), `MilestoneAchievement` (mod strategy risk), `ReputationEarning`/`Penalty` (curve), direct `FundsEarning`/`ScienceEarning` on KSC path. `StrategyActivate`/`FundsSpending(source=Strategy)` skipped until Phase E1.5 lifecycle capture lands.
+- **Transformed (skip with VERBOSE, no WARN):** `ContractComplete` (strategy-transformed + rep curve), `ContractFail`/`Cancel` (rep curve on penalty), `MilestoneAchievement` (mod strategy risk), `ReputationEarning`/`Penalty` (curve), direct `FundsEarning`/`ScienceEarning` on KSC path. Post-#439 and #440, these are reconciled by the post-walk hook (`ReconcilePostWalk`) that reads post-walk `Transformed*` / `Effective*` fields; the KSC per-action path remains VERBOSE-skip by design.
 - **No-op:** `KerbalAssignment`/`Rescue`/`StandIn`, `FacilityDestruction`, `StrategyDeactivate`, `*Initial` — silent.
 
 Aggregation is scoped to the `GameStateStore.AddEvent` coalesce threshold (`ResourceCoalesceEpsilon = 0.1 s`, `GameStateStore.cs:21`). Within this window the store has already merged same-key resource events into one slot, so summing both sides is safe by construction. Beyond 0.1 s same-key events stay separate — widening the aggregation window (round-2 used 0.5 s) would let opposing per-action errors cancel out silently and hide real mismatches (round-3 regression). Tolerances match `ReconcileEarningsWindow` (1.0 funds, 0.1 sci/rep).
@@ -739,7 +739,7 @@ Aggregation is scoped to the `GameStateStore.AddEvent` coalesce threshold (`Reso
 
 **Files touched:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
 
-**Status:** ~~Fixed~~ (Phase B, three review iterations). Phase A (#436, PR #338, merged) and the deeper structural work (Phases C-F) still to come per the plan doc.
+**Status:** ~~Fixed~~ (Phase B, v0.8.2, three review iterations). Full Phase A-F chain shipped in v0.8.2: Phase A (#436, PR #338), Phase B (this entry), Phase C (merge-path tree-resource marker), Phase D (rewind UT cutoff), Phase E1 (#438 PR #376), Phase E1.5 (#439 PR #378 + #439B PR #390), Phase E2 (#440 PR #385 + #440B PR #395), Phase F (#436 PR #391).
 
 ---
 
