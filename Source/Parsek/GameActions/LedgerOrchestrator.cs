@@ -2129,6 +2129,23 @@ namespace Parsek
                             SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
                         };
                     }
+                    // #448: when KSP's Difficulty.BypassEntryPurchaseAfterResearch is
+                    // true (the stock default), Funding.onPartPurchased returns early
+                    // without calling AddFunds — so KSP never fires
+                    // OnFundsChanged(RnDPartPurchase) for ANY part purchase (manual or
+                    // auto-purchase via tech research). The reconciler can never find a
+                    // matching event, so every FundsSpending action would WARN. The
+                    // ledger action itself is authoritative for the FundsModule walk
+                    // (whether the player paid is encoded in the action's FundsSpent),
+                    // so skip the per-action paired-event check in this mode.
+                    if (IsBypassEntryPurchaseAfterResearch())
+                    {
+                        return new KscActionExpectation
+                        {
+                            Class = KscReconcileClass.Transformed,
+                            SkipReason = "BypassEntryPurchaseAfterResearch=true — KSP fires no FundsChanged(RnDPartPurchase)"
+                        };
+                    }
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Untransformed,
@@ -2313,11 +2330,16 @@ namespace Parsek
                 case KscReconcileClass.Transformed:
                     // Rate-limited VERBOSE so a long session with many contract completions
                     // doesn't drown the log, but one line always lands on the first call
-                    // per type so the skip is observable during debugging.
+                    // per type so the skip is observable during debugging. Two distinct
+                    // skip causes share this branch — strategy/curve transformations not
+                    // yet post-walk-aware (Phase D/E1.5), and #448's RnDPartPurchase
+                    // suppression when KSP fires no paired FundsChanged event under
+                    // BypassEntryPurchaseAfterResearch=true. The SkipReason carries the
+                    // distinction in the log.
                     ParsekLog.VerboseRateLimited(Tag,
                         $"ksc-reconcile-skip:{action.Type}",
                         $"KSC reconciliation: {action.Type} skipped " +
-                        $"(transformation not yet post-walk-aware: {expectation.SkipReason}) ut={ut:F1}");
+                        $"({expectation.SkipReason}) ut={ut:F1}");
                     return;
 
                 case KscReconcileClass.Untransformed:
@@ -2474,6 +2496,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test-only seam for <see cref="IsBypassEntryPurchaseAfterResearch"/>. In production
+        /// this stays null and the helper reads
+        /// <c>HighLogic.CurrentGame.Parameters.Difficulty.BypassEntryPurchaseAfterResearch</c>
+        /// directly. Unit tests can install a delegate to drive both branches of the
+        /// #448 part-purchase reconciliation skip without a live KSP <c>HighLogic</c> game.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static System.Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
+
+        /// <summary>
+        /// #448: returns whether KSP's career setting bypasses the per-part entry purchase
+        /// (the stock default <c>true</c>). When true, KSP fires <c>OnPartPurchased</c>
+        /// without a paired <c>OnFundsChanged(RnDPartPurchase)</c> — every part purchase
+        /// would produce a false-positive WARN in <see cref="ReconcileKscAction"/>.
+        /// <see cref="ClassifyAction"/> uses this to downgrade RnD part purchases to
+        /// <see cref="KscReconcileClass.Transformed"/> in that mode. Defensive: returns
+        /// <c>false</c> when the test seam is unset and no live <c>HighLogic.CurrentGame</c>
+        /// exists, which preserves the historical Untransformed classification under the
+        /// xUnit harness.
+        /// </summary>
+        internal static bool IsBypassEntryPurchaseAfterResearch()
+        {
+            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
+            if (provider != null)
+                return provider();
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
+                return false;
+            return game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+        }
+
+        /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
         /// current ledger reservation. Returns true if available science >= cost.
         /// Used by TechResearchPatch to block unfunded tech unlocks.
@@ -2558,6 +2613,7 @@ namespace Parsek
             Ledger.ResetForTesting();
             OnTimelineDataChanged = null;
             NowUtProviderForTesting = null;
+            BypassEntryPurchaseAfterResearchProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

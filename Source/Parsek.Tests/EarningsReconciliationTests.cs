@@ -33,6 +33,9 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            // #448: defensive — clear the bypass seam in case a test forgot its
+            // try/finally restoration.
+            LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
         }
 
         private static GameStateEvent MakeFundsChanged(double ut, double before, double after)
@@ -938,6 +941,144 @@ namespace Parsek.Tests
             var exp = LedgerOrchestrator.ClassifyAction(a);
             Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp.Class);
             Assert.Contains("Phase E1.5", exp.SkipReason);
+        }
+
+        // ---------- #448: BypassEntryPurchaseAfterResearch suppression ----------
+
+        [Fact]
+        public void ClassifyAction_PartPurchase_BypassOn_TransformedNoWarn()
+        {
+            // #448: stock-default Difficulty.BypassEntryPurchaseAfterResearch=true makes
+            // KSP's Funding.onPartPurchased return early (no AddFunds, no
+            // OnFundsChanged(RnDPartPurchase) ever fires). Classifier must downgrade
+            // RnD part purchases to Transformed in that mode so the per-action paired-
+            // event check skips with VERBOSE rather than producing 8-per-tech-node
+            // false-positive WARNs (smoke-test bundle 2026-04-18).
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+
+                var a = new GameAction
+                {
+                    Type = GameActionType.FundsSpending,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 600f
+                };
+                var exp = LedgerOrchestrator.ClassifyAction(a);
+
+                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Transformed, exp.Class);
+                Assert.Contains("BypassEntryPurchaseAfterResearch", exp.SkipReason);
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ClassifyAction_PartPurchase_BypassOff_StaysUntransformed()
+        {
+            // Inverse of the above: when the player runs the harder difficulty
+            // (Bypass=false), KSP DOES fire OnFundsChanged(RnDPartPurchase) on every
+            // part purchase, so the reconciler should still match-and-WARN as before.
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+
+                var a = new GameAction
+                {
+                    Type = GameActionType.FundsSpending,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 600f
+                };
+                var exp = LedgerOrchestrator.ClassifyAction(a);
+
+                Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+                Assert.Equal(GameStateEventType.FundsChanged, exp.EventType);
+                Assert.Equal("RnDPartPurchase", exp.ExpectedReasonKey);
+                Assert.Equal(-600, exp.ExpectedDelta);
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ReconcileKsc_PartPurchase_BypassOn_NoMatchingEvent_VerboseSkipNoWarn()
+        {
+            // Reproduces the smoke-test shape: a FundsSpending(RnDPartPurchase) action
+            // with no matching FundsChanged event in the store — exactly the situation
+            // that produced 8 WARNs at ut=201.3 in logs/2026-04-18_0221_v0.8.2-smoke.
+            // Under Bypass=true the reconciler must log a rate-limited VERBOSE skip
+            // line and emit ZERO WARN lines.
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;
+
+                var events = new List<GameStateEvent>(); // no FundsChanged at all
+                var action = new GameAction
+                {
+                    UT = 201.3,
+                    Type = GameActionType.FundsSpending,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 150f,
+                    DedupKey = "solidBooster.v2"
+                };
+                var ledger = new List<GameAction> { action };
+
+                ReconcileKsc(events, ledger, action, 201.3);
+
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[LedgerOrchestrator]") &&
+                    l.Contains("KSC reconciliation (funds)") &&
+                    l.Contains("no matching"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[LedgerOrchestrator]") &&
+                    l.Contains("KSC reconciliation:") &&
+                    l.Contains("FundsSpending") &&
+                    l.Contains("BypassEntryPurchaseAfterResearch"));
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ReconcileKsc_PartPurchase_BypassOff_NoMatchingEvent_StillWarns()
+        {
+            // Inverse: under Bypass=false KSP would fire FundsChanged(RnDPartPurchase),
+            // so a missing event is still a real diagnostic — the reconciler should
+            // emit the existing "no matching" WARN.
+            try
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+
+                var events = new List<GameStateEvent>();
+                var action = new GameAction
+                {
+                    UT = 201.3,
+                    Type = GameActionType.FundsSpending,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 150f,
+                    DedupKey = "solidBooster.v2"
+                };
+                var ledger = new List<GameAction> { action };
+
+                ReconcileKsc(events, ledger, action, 201.3);
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[LedgerOrchestrator]") &&
+                    l.Contains("KSC reconciliation (funds)") &&
+                    l.Contains("FundsSpending") &&
+                    l.Contains("RnDPartPurchase") &&
+                    l.Contains("no matching"));
+            }
+            finally
+            {
+                LedgerOrchestrator.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
         }
     }
 }

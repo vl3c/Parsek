@@ -129,7 +129,9 @@ The smoke-test session recorded two recordings — recording 2 starts at ut ≈ 
 
 ---
 
-## 448. KSC reconciliation: `FundsSpending(RnDPartPurchase)` has no matching `FundsChanged` event
+## ~~448. KSC reconciliation: `FundsSpending(RnDPartPurchase)` has no matching `FundsChanged` event~~
+
+**Status:** ~~Fixed~~ — `LedgerOrchestrator.ClassifyAction` now downgrades RnD part purchases to `Transformed` (rate-limited VERBOSE skip in `ReconcileKscAction`) when KSP's `Difficulty.BypassEntryPurchaseAfterResearch=true`. Verified via decompilation of `Funding.onPartPurchased` (returns early without `AddFunds` in that mode) and `RDTech.PurchasePart`/`AutoPurchaseAllParts` (always fires `OnPartPurchased`). Reconciler still WARNs as before when the player runs the harder no-bypass difficulty. Tests in `EarningsReconciliationTests` cover both branches via the `BypassEntryPurchaseAfterResearchProviderForTesting` seam.
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:10191,10245,10298,10352,10407,10554,10612,10671` — 8 WARNs in the session, all at the same UT:
 
