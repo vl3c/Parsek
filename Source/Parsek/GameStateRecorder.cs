@@ -756,7 +756,14 @@ namespace Parsek
             // above so OnVesselRolloutSpending's ReconcileKscAction can pair the action
             // against the just-emitted event in GameStateStore.
             if (reason == TransactionReasons.VesselRollout && !IsReplayingActions)
-                LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
+            {
+                string recordingId = ResolveCurrentRecordingTag();
+                uint vesselPersistentId = FlightGlobals.ActiveVessel != null
+                    ? FlightGlobals.ActiveVessel.persistentId
+                    : 0;
+                LedgerOrchestrator.OnVesselRolloutSpending(
+                    ut, -delta, vesselPersistentId, recordingId);
+            }
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)
