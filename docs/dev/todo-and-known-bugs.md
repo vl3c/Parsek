@@ -58,6 +58,32 @@ are fixed in the same PR branch with additional commits:
 
 # Known Bugs
 
+## ~~453. Watch camera horizon log occasionally shows `playbackVel=(0,0,0) rawAlignment=fallback` for one frame~~
+
+**Source:** post-#361 log audit `2026-04-18` (`logs/2026-04-18_1106_ghosts-stuck-at-pad/KSP.log` lines 15020, 16853, 17507, 18080). Flagged as "possibly other bugs" during investigation of the stuck-at-pad report; root cause traced here after #361 shipped.
+
+**Symptom:** one-frame events in the "Watch horizon basis" INFO log where `playbackVel=(0.0,0.0,0.0)` and `rawAlignment=fallback`, while the ghost is clearly flying (non-zero `alt`, non-zero `bodyVel`). The frame immediately before and after shows non-zero playback velocity.
+
+**Cause:** the two sampled trajectory bracket points sometimes have near-opposite stored velocities (a sub-second direction reversal — decoupler fire, bounce landing, `rb_velocity` flip at an atmosphere boundary). Linear interpolation at `ParsekFlight.cs:9967-9970` (point path) and `:10706-10708` (relative-frame path) computes `Vector3.Lerp(before.velocity, after.velocity, t)`; near `t = 0.5` the magnitude collapses below the 0.01 fallback threshold used by `WatchModeController.DescribeHorizonAlignment` (line ~2800), so the log line tags the alignment "fallback" and the horizon basis briefly falls through to `HorizonForwardSource.LastForwardFallback`.
+
+**Impact — cosmetic only:**
+
+- Ghost positioning uses the stored `position` field, not the interpolated velocity, so the ghost's motion is continuous through the affected frame.
+- `LastForwardFallback` reuses the previous frame's forward vector, so the CAMERA does not snap visibly — the direction smoothly carries across the one-frame transient.
+- Net effect: one line of "fallback" in the log that looks like a bug during a KSP.log audit but isn't. Diagnostic noise, not a gameplay defect.
+
+**Decision — leave as-is.** Candidate code fixes (documented in `docs/dev/plan-fix-zero-playback-velocity.md` on branch `fix/zero-playback-velocity-fallback`) all carry tradeoffs that outweigh the benefit:
+
+- Snap to the nearer bracket's velocity on reversal detection: changes the semantics of interpolated velocity for every consumer, not just the camera log.
+- EMA smoothing for the log line only: hides real sub-second transients from future audits.
+- Numerical-differentiation fallback: changes the meaning of "velocity at time t" away from the Lerp'd value every other caller assumes.
+
+The severity does not justify the code churn or the regression risk. This entry exists so the next log auditor recognises the line on sight and moves on.
+
+**Status:** ~~Known, not fixed~~ (diagnostic artifact, accepted).
+
+---
+
 ## 450. Per-spawn time budgeting / coroutine split — #414 follow-up for bimodal single-spawn cost
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:11489`. One-shot #414 breakdown line (first exceeded frame in the session):
