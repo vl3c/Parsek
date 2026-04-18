@@ -982,6 +982,71 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #442: emits a fully-populated <see cref="GameStateEventType.MilestoneAchieved"/>
+        /// event for progress nodes whose subclass calls <c>AwardProgress</c> directly
+        /// without going through <c>OnProgressComplete</c> (e.g. <c>RecordsSpeed</c>,
+        /// <c>RecordsAltitude</c>, <c>RecordsDistance</c>, <c>RecordsDepth</c>). Without
+        /// this path the world-record FundsChanged(Progression) deltas are dropped wholesale
+        /// by <see cref="GameStateEventConverter"/>'s drop-rule and the rewards never reach
+        /// the ledger.
+        ///
+        /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c> only when
+        /// no entry exists in <see cref="PendingMilestoneEventByNode"/> — i.e. when the
+        /// usual two-phase emit-then-enrich path did not run. Bypasses the enrichment-map
+        /// indirection entirely: rewards arrive as method parameters and are baked into
+        /// the event detail directly.
+        ///
+        /// <paramref name="ut"/> is supplied by the caller — production passes
+        /// <see cref="Planetarium.GetUniversalTime"/> from the patch site (which has Unity
+        /// statics live), unit tests pass a literal so they don't NRE on Planetarium.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void EmitStandaloneProgressReward(
+            ProgressNode node, double funds, float rep, double sci, double ut)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: suppressed during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: null node — skipped");
+                return;
+            }
+
+            string milestoneId = QualifyMilestoneId(node);
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: empty node Id — skipped");
+                return;
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = BuildMilestoneDetail(funds, rep, sci)
+            };
+            Emit(evt, "MilestoneAchievedStandalone");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
+                $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+
+            // Mirror the OnProgressComplete KSC-forwarding path so world-record rewards
+            // earned outside flight (rare, but possible — e.g. RecordsAltitude on a sub-
+            // orbital craft already reverted) still reach the ledger immediately.
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
         /// Reflection helper: extracts the private "body" CelestialBody field from
         /// body-specific ProgressNode subclasses (CelestialBodyLanding, CelestialBodyOrbit,
         /// CelestialBodyFlyby, etc.). Returns null for top-level nodes that have no body.
