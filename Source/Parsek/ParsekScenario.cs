@@ -1498,6 +1498,15 @@ namespace Parsek
                     // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
                     // from FLIGHT/SPACECENTER/TRACKSTATION.
                     DispatchRewindPostLoadIfPending();
+
+                    // Phase 10 of Rewind-to-Staging (design §6.9 step 2):
+                    // resume any interrupted staged-commit merge on the
+                    // FLIGHT→FLIGHT branch too (quickload mid-merge, scene
+                    // preservation, etc.).
+                    if (ActiveMergeJournal != null)
+                    {
+                        MergeJournalOrchestrator.RunFinisher();
+                    }
                     return;
                 }
 
@@ -1670,6 +1679,19 @@ namespace Parsek
                 // coroutine (the old scenario's coroutine was torn down with
                 // the scene).
                 DispatchRewindPostLoadIfPending();
+
+                // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
+                // staged-commit merge crashed mid-way, the scenario's
+                // MergeJournal persisted across the load. The finisher either
+                // rolls back (pre-Durable1 crash) or drives the remaining
+                // steps to completion (post-Durable1 crash). Runs AFTER Phase 6
+                // so any re-fly invocation that was interrupted can still
+                // rehydrate its context before the journal finisher decides
+                // what to do with the session marker.
+                if (ActiveMergeJournal != null)
+                {
+                    MergeJournalOrchestrator.RunFinisher();
+                }
             }
             finally
             {
