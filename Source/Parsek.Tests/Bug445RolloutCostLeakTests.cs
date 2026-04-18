@@ -15,13 +15,18 @@ namespace Parsek.Tests
     /// is committed and the ledger total drifts above KSP's actual funds balance.
     ///
     /// Fix: route the deduction through <see cref="LedgerOrchestrator.OnVesselRolloutSpending"/>
-    /// at the moment of the transaction (tagged with <c>DedupKey="rollout:&lt;UT&gt;"</c>),
-    /// and let a subsequent recording adopt the action via
+    /// at the moment of the transaction (tagged with a <c>"rollout:"</c>-prefixed
+    /// dedup key that includes rollout context), and let a subsequent recording adopt the
+    /// action via
     /// <see cref="LedgerOrchestrator.TryAdoptRolloutAction"/> instead of double-charging.
     /// </summary>
     [Collection("Sequential")]
     public class Bug445RolloutCostLeakTests : IDisposable
     {
+        private const uint DefaultRolloutPid = 101u;
+        private const string DefaultRolloutVesselName = "Rollout Vessel";
+        private const string DefaultRolloutLaunchSite = "Launch Pad";
+
         private readonly List<string> logLines = new List<string>();
 
         public Bug445RolloutCostLeakTests()
@@ -49,6 +54,38 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        private static Recording CreateRecording(
+            string recordingId,
+            string startSituation = "Prelaunch",
+            uint vesselPersistentId = DefaultRolloutPid,
+            string vesselName = DefaultRolloutVesselName,
+            string launchSiteName = DefaultRolloutLaunchSite)
+        {
+            return new Recording
+            {
+                RecordingId = recordingId,
+                StartSituation = startSituation,
+                VesselPersistentId = vesselPersistentId,
+                VesselName = vesselName,
+                LaunchSiteName = launchSiteName
+            };
+        }
+
+        private static void RecordRollout(
+            double ut,
+            double cost,
+            uint vesselPersistentId = DefaultRolloutPid,
+            string vesselName = DefaultRolloutVesselName,
+            string launchSiteName = DefaultRolloutLaunchSite)
+        {
+            LedgerOrchestrator.OnVesselRolloutSpending(
+                ut,
+                cost,
+                vesselPersistentId,
+                vesselName,
+                launchSiteName);
+        }
+
         // ----------------------------------------------------------------
         // OnVesselRolloutSpending
         // ----------------------------------------------------------------
@@ -60,7 +97,12 @@ namespace Parsek.Tests
             // cost, then the player cancels without ever starting a recording. The
             // ledger MUST still see the deduction, otherwise its funds total drifts
             // above what KSP actually shows.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(
+                ut: 100.0,
+                cost: 5000.0,
+                vesselPersistentId: 101u,
+                vesselName: "Pad Hopper",
+                launchSiteName: "Launch Pad");
 
             var actions = Ledger.Actions;
             var rollout = actions.FirstOrDefault(a =>
@@ -72,6 +114,9 @@ namespace Parsek.Tests
             Assert.Equal(5000f, rollout.FundsSpent);
             Assert.Equal(100.0, rollout.UT);
             Assert.StartsWith("rollout:", rollout.DedupKey);
+            Assert.Contains("|pid=101", rollout.DedupKey);
+            Assert.Contains("site=Launch%20Pad", rollout.DedupKey);
+            Assert.Contains("vessel=Pad%20Hopper", rollout.DedupKey);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
@@ -163,9 +208,10 @@ namespace Parsek.Tests
             // The launch+record case: rollout was logged at UT=99, recording starts at
             // UT=110. Adoption transfers ownership to the recording so the cost is
             // associated with a trip rather than dangling null-tagged.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 99.0, cost: 5000.0);
+            RecordRollout(ut: 99.0, cost: 5000.0);
+            var rec = CreateRecording("rec-A");
 
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: 110.0);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: 110.0, rec);
 
             Assert.NotNull(adopted);
             Assert.Equal("rec-A", adopted.RecordingId);
@@ -182,10 +228,11 @@ namespace Parsek.Tests
         {
             // A stale rollout from a launch session more than RolloutAdoptionWindowSeconds
             // before the new recording must NOT be hijacked.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
             double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds + 30.0;
+            var rec = CreateRecording("rec-A");
 
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT, rec);
 
             Assert.Null(adopted);
             // Original rollout action stays as-is — null RecordingId and intact DedupKey.
@@ -201,10 +248,12 @@ namespace Parsek.Tests
         {
             // Double-adoption guard: once a rollout is owned by recording rec-A, a later
             // recording rec-B must not steal it.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
-            LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: 110.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
+            var firstRec = CreateRecording("rec-A");
+            var secondRec = CreateRecording("rec-B");
+            LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: 110.0, firstRec);
 
-            var second = LedgerOrchestrator.TryAdoptRolloutAction("rec-B", startUT: 115.0);
+            var second = LedgerOrchestrator.TryAdoptRolloutAction("rec-B", startUT: 115.0, secondRec);
 
             Assert.Null(second);
 
@@ -225,10 +274,11 @@ namespace Parsek.Tests
         {
             // Boundary pin: a gap exactly equal to RolloutAdoptionWindowSeconds is
             // INSIDE the window (strict > comparison). Adoption must succeed.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
             double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds;
+            var rec = CreateRecording("rec-A");
 
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT, rec);
 
             Assert.NotNull(adopted);
             Assert.Equal("rec-A", adopted.RecordingId);
@@ -239,25 +289,86 @@ namespace Parsek.Tests
         public void TryAdoptRolloutAction_JustOutsideWindow_DoesNotAdopt()
         {
             // Boundary pin: RolloutAdoptionWindowSeconds + epsilon is OUTSIDE the window.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
             double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds + 0.1;
+            var rec = CreateRecording("rec-A");
 
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT, rec);
 
             Assert.Null(adopted);
         }
 
         [Fact]
-        public void TryAdoptRolloutAction_MultipleUnclaimed_AdoptsMostRecent()
+        public void TryAdoptRolloutAction_SameSiteDifferentVessel_DoesNotAdopt()
+        {
+            // Targeted recheck fix: a stranded rollout from vessel A must not be claimed
+            // by an unrelated prelaunch recording B just because both happened at the
+            // launch pad inside the widened 30-minute window.
+            RecordRollout(
+                ut: 100.0,
+                cost: 5000.0,
+                vesselPersistentId: 101u,
+                vesselName: "Vessel A",
+                launchSiteName: "Launch Pad");
+
+            var unrelated = CreateRecording(
+                "rec-B",
+                startSituation: "Prelaunch",
+                vesselPersistentId: 202u,
+                vesselName: "Vessel B",
+                launchSiteName: "Launch Pad");
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-B", startUT: 110.0, unrelated);
+
+            Assert.Null(adopted);
+            var rollout = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Null(rollout.RecordingId);
+            Assert.StartsWith("rollout:", rollout.DedupKey);
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_SameVesselDifferentSite_DoesNotAdopt()
+        {
+            // Site correlation matters too: reusing the same craft name on the runway
+            // must not steal a stranded launch-pad rollout.
+            RecordRollout(
+                ut: 100.0,
+                cost: 5000.0,
+                vesselPersistentId: 0u,
+                vesselName: "Twin",
+                launchSiteName: "Launch Pad");
+
+            var unrelated = CreateRecording(
+                "rec-B",
+                startSituation: "Prelaunch",
+                vesselPersistentId: 0u,
+                vesselName: "Twin",
+                launchSiteName: "Runway");
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-B", startUT: 110.0, unrelated);
+
+            Assert.Null(adopted);
+            var rollout = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Null(rollout.RecordingId);
+            Assert.StartsWith("rollout:", rollout.DedupKey);
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_MultipleUnclaimedMatchingContext_AdoptsMostRecent()
         {
             // LIFO: player rolls out (cost1) at UT=100, cancels, rolls out again (cost2)
             // at UT=130, then launches the recording at UT=140. The rollout
             // immediately preceding the launch (cost2 at 130) is the one that should be
             // adopted; the older cancelled one (cost1 at 100) stays stranded null-tagged.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 4000.0);
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 130.0, cost: 7000.0);
+            RecordRollout(ut: 100.0, cost: 4000.0);
+            RecordRollout(ut: 130.0, cost: 7000.0);
+            var rec = CreateRecording("rec-launched");
 
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-launched", startUT: 140.0);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-launched", startUT: 140.0, rec);
 
             Assert.NotNull(adopted);
             // Most recent rollout wins.
@@ -292,15 +403,11 @@ namespace Parsek.Tests
             //      action is created.
             //   3. CreateVesselCostActions adopts the rollout instead of leaving it
             //      null-tagged AND must not emit a duplicate VesselBuild action.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 99.0, cost: 5000.0);
+            RecordRollout(ut: 99.0, cost: 5000.0);
 
-            var rec = new Recording
-            {
-                RecordingId = "rec-launched",
-                PreLaunchFunds = 45000.0,
-                StartSituation = "Prelaunch",
-                TerminalStateValue = TerminalState.Landed
-            };
+            var rec = CreateRecording("rec-launched");
+            rec.PreLaunchFunds = 45000.0;
+            rec.TerminalStateValue = TerminalState.Landed;
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 45000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 45000.0 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
@@ -331,13 +438,9 @@ namespace Parsek.Tests
             // mod was just installed and missed the launch's VesselRollout fire).
             // CreateVesselCostActions must still derive the build cost from the
             // recording's PreLaunchFunds-to-first-point delta, exactly as before.
-            var rec = new Recording
-            {
-                RecordingId = "rec-no-rollout",
-                PreLaunchFunds = 50000.0,
-                StartSituation = "Prelaunch",
-                TerminalStateValue = TerminalState.Landed
-            };
+            var rec = CreateRecording("rec-no-rollout");
+            rec.PreLaunchFunds = 50000.0;
+            rec.TerminalStateValue = TerminalState.Landed;
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 45000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 45000.0 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
@@ -358,7 +461,7 @@ namespace Parsek.Tests
             // The headline #445 case: rollout fires, player cancels without recording.
             // The ledger MUST keep the FundsSpending(VesselBuild) action so its funds
             // total stays in sync with KSP's deducted balance.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 7500.0);
+            RecordRollout(ut: 100.0, cost: 7500.0);
 
             // Player walks back to VAB without launching — no recording is ever
             // committed and CreateVesselCostActions is never called.
@@ -378,16 +481,12 @@ namespace Parsek.Tests
             // recordings if the player sat on the pad/runway before pressing Record.
             // A prelaunch recording started several minutes after rollout must still
             // claim the build cost so later delete/discard purges remove it correctly.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
 
             double startUT = 100.0 + 300.0;
-            var rec = new Recording
-            {
-                RecordingId = "rec-long-pad-wait",
-                PreLaunchFunds = 45000.0,
-                StartSituation = "Prelaunch",
-                TerminalStateValue = TerminalState.Landed
-            };
+            var rec = CreateRecording("rec-long-pad-wait");
+            rec.PreLaunchFunds = 45000.0;
+            rec.TerminalStateValue = TerminalState.Landed;
             rec.Points.Add(new TrajectoryPoint { ut = startUT, funds = 45000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 500.0, funds = 45000.0 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
@@ -414,15 +513,11 @@ namespace Parsek.Tests
             // adopt the rollout. A late Record click after liftoff must NOT steal the
             // vessel build cost onto a mid-flight recording, or deleting that recording
             // would incorrectly refund a real launch expense.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
 
-            var rec = new Recording
-            {
-                RecordingId = "rec-midflight",
-                PreLaunchFunds = 45000.0,
-                StartSituation = "Flying",
-                TerminalStateValue = TerminalState.Landed
-            };
+            var rec = CreateRecording("rec-midflight", startSituation: "Flying");
+            rec.PreLaunchFunds = 45000.0;
+            rec.TerminalStateValue = TerminalState.Landed;
             rec.Points.Add(new TrajectoryPoint { ut = 110.0, funds = 45000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 45000.0 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
@@ -447,15 +542,11 @@ namespace Parsek.Tests
             // the first frame's funds (captured post-launchpad). Both must land on the
             // ledger — the adopted rollout under its UT, and a recording-tagged residual
             // FundsSpending(VesselBuild) on top.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 99.0, cost: 5000.0);
+            RecordRollout(ut: 99.0, cost: 5000.0);
 
-            var rec = new Recording
-            {
-                RecordingId = "rec-residual",
-                PreLaunchFunds = 50000.0,
-                StartSituation = "Prelaunch",
-                TerminalStateValue = TerminalState.Landed
-            };
+            var rec = CreateRecording("rec-residual");
+            rec.PreLaunchFunds = 50000.0;
+            rec.TerminalStateValue = TerminalState.Landed;
             // Pre-launch: 50000 — first point: 49250 — implies 750 of additional
             // spending landed between PreLaunchFunds capture and first frame.
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 49250.0 });
@@ -500,11 +591,11 @@ namespace Parsek.Tests
         public void RolloutAction_RoundTripsThroughSerializeDeserialize_RemainsAdoptable()
         {
             // PR #307 follow-up made GameAction.Serialize/DeserializeFundsSpending
-            // round-trip the DedupKey. Our new "rollout:<UT>" tag must survive a .sfs
+            // round-trip the DedupKey. Our new "rollout:" context key must survive a .sfs
             // save/load and still be adoptable on the next launch — otherwise a player
             // who quits + reloads after a rollout but before launching would lose the
             // adoption hook and end up double-charged on the next launch+record.
-            LedgerOrchestrator.OnVesselRolloutSpending(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 100.0, cost: 5000.0);
             var original = Ledger.Actions.Single(a =>
                 a.Type == GameActionType.FundsSpending &&
                 a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
@@ -531,8 +622,9 @@ namespace Parsek.Tests
             // after the reload.
             LedgerOrchestrator.ResetForTesting();
             Ledger.AddAction(reloaded);
+            var rec = CreateRecording("rec-after-load");
 
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-after-load", startUT: 110.0);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-after-load", startUT: 110.0, rec);
 
             Assert.NotNull(adopted);
             Assert.Equal("rec-after-load", adopted.RecordingId);

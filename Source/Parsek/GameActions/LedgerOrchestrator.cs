@@ -79,6 +79,15 @@ namespace Parsek
         /// </summary>
         private static int kscSequenceCounter;
 
+        private const string RolloutDedupPrefix = "rollout:";
+
+        private struct RolloutAdoptionContext
+        {
+            public uint VesselPersistentId;
+            public string VesselName;
+            public string LaunchSiteName;
+        }
+
         /// <summary>
         /// Fired after RecalculateAndPatch completes — signals that timeline data
         /// (recordings, ledger actions) may have changed. Subscribed by ParsekUI
@@ -478,7 +487,7 @@ namespace Parsek
             // recording, and deleting that recording would wrongly remove the real vessel
             // build cost from the ledger.
             var adopted = CanRecordingAdoptRolloutAction(rec)
-                ? TryAdoptRolloutAction(recordingId, startUT)
+                ? TryAdoptRolloutAction(recordingId, startUT, rec)
                 : null;
 
             if (buildCost > 0)
@@ -2107,13 +2116,36 @@ namespace Parsek
         /// <see cref="GameActionType.FundsSpending"/> with
         /// <see cref="FundsSpendingSource.VesselBuild"/> at the moment of the deduction so
         /// the ledger tracks the cost even when the player cancels the rollout without ever
-        /// starting a recording. The <see cref="GameAction.DedupKey"/> is set to
-        /// <c>"rollout:&lt;UT&gt;"</c> so a subsequent recording from the same vessel can
-        /// claim the action via <see cref="TryAdoptRolloutAction"/> instead of double-charging.
+        /// starting a recording. The <see cref="GameAction.DedupKey"/> is set to a
+        /// <c>"rollout:"</c>-prefixed context key so a subsequent recording from the same
+        /// vessel/site can claim the action via <see cref="TryAdoptRolloutAction"/>
+        /// instead of double-charging.
         /// </summary>
         /// <param name="ut">Universal time of the rollout transaction.</param>
         /// <param name="cost">Positive funds amount KSP deducted (rollout cost).</param>
         internal static void OnVesselRolloutSpending(double ut, double cost)
+        {
+            OnVesselRolloutSpending(ut, cost, ResolveCurrentRolloutAdoptionContext());
+        }
+
+        /// <summary>
+        /// Test seam for rollout adoption context. Production calls the two-argument
+        /// overload, which resolves the current live vessel/site from KSP state.
+        /// </summary>
+        internal static void OnVesselRolloutSpending(
+            double ut,
+            double cost,
+            uint vesselPersistentId,
+            string vesselName,
+            string launchSiteName)
+        {
+            OnVesselRolloutSpending(
+                ut,
+                cost,
+                CreateRolloutAdoptionContext(vesselPersistentId, vesselName, launchSiteName));
+        }
+
+        private static void OnVesselRolloutSpending(double ut, double cost, RolloutAdoptionContext context)
         {
             Initialize();
 
@@ -2135,14 +2167,15 @@ namespace Parsek
                 RecordingId = null,
                 FundsSpent = (float)cost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = "rollout:" + ut.ToString("R", CultureInfo.InvariantCulture),
+                DedupKey = BuildRolloutDedupKey(ut, context),
                 Sequence = kscSequenceCounter
             };
 
             Ledger.AddAction(action);
 
             ParsekLog.Info(Tag,
-                $"VesselRollout spending recorded: cost={cost:F0}, UT={ut:F1}, dedupKey={action.DedupKey}");
+                $"VesselRollout spending recorded: cost={cost:F0}, UT={ut:F1}, dedupKey={action.DedupKey}, " +
+                $"context={FormatRolloutAdoptionContext(context)}");
 
             // Reuse the KSC reconciliation path. Classifier returns ExpectedReasonKey=
             // "VesselRollout" for FundsSpending(VesselBuild), so the matching FundsChanged
@@ -2163,15 +2196,36 @@ namespace Parsek
         /// <para>
         /// Adoption avoids double-charging when a recording starts from a vessel that has
         /// already incurred the rollout deduction at the launchpad. When multiple
-        /// unclaimed rollouts sit within the window (e.g. roll out, cancel, roll out
-        /// again), the search runs LIFO — the most recent rollout wins, matching the
-        /// "rollout immediately preceding this launch" intent and leaving older,
-        /// stranded cancellations in place.
+        /// unclaimed rollouts sit within the window, the search runs LIFO — but only
+        /// among actions whose stored rollout context matches the recording's current
+        /// vessel/site (prefer pid, else vessel name + launch site). This keeps a
+        /// stranded cancelled rollout from vessel A from being stolen by an unrelated
+        /// prelaunch recording B that happens to start nearby in the same 30-minute window.
         /// </para>
         /// </summary>
         internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT)
         {
+            return TryAdoptRolloutAction(recordingId, startUT, FindRecordingById(recordingId));
+        }
+
+        internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT, Recording rec)
+        {
             if (string.IsNullOrEmpty(recordingId)) return null;
+            if (rec == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryAdoptRolloutAction: recording '{recordingId}' not found, cannot match rollout context");
+                return null;
+            }
+
+            RolloutAdoptionContext recordingContext = CreateRolloutAdoptionContext(rec);
+            if (!CanMatchRolloutAdoptionContext(recordingContext))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryAdoptRolloutAction: recording '{recordingId}' missing rollout context " +
+                    $"({FormatRolloutAdoptionContext(recordingContext)}), skipping adoption");
+                return null;
+            }
 
             var actions = Ledger.Actions;
             // LIFO scan: walk newest-first so the rollout immediately preceding this
@@ -2185,10 +2239,12 @@ namespace Parsek
                 if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) continue;
                 if (!string.IsNullOrEmpty(a.RecordingId)) continue; // already adopted
                 if (string.IsNullOrEmpty(a.DedupKey)) continue;
-                if (!a.DedupKey.StartsWith("rollout:", StringComparison.Ordinal)) continue;
+                if (!a.DedupKey.StartsWith(RolloutDedupPrefix, StringComparison.Ordinal)) continue;
                 // 0.5 s slack absorbs UT epsilon between OnFundsChanged ut and FlightRecorder startUT.
                 if (a.UT > startUT + 0.5) continue;
                 if (startUT - a.UT > RolloutAdoptionWindowSeconds) continue;
+                if (!RolloutAdoptionContextsMatch(ParseRolloutAdoptionContext(a.DedupKey), recordingContext))
+                    continue;
 
                 string oldDedup = a.DedupKey;
                 a.RecordingId = recordingId;
@@ -2196,13 +2252,15 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
                     $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
-                    $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s)");
+                    $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s, " +
+                    $"context={FormatRolloutAdoptionContext(recordingContext)})");
                 return a;
             }
 
             ParsekLog.Verbose(Tag,
                 $"TryAdoptRolloutAction: no unclaimed rollout action within {RolloutAdoptionWindowSeconds:F0}s " +
-                $"before startUT={startUT:F1} for recording '{recordingId}'");
+                $"before startUT={startUT:F1} for recording '{recordingId}' " +
+                $"with context {FormatRolloutAdoptionContext(recordingContext)}");
             return null;
         }
 
@@ -2220,6 +2278,153 @@ namespace Parsek
 
             return rec.StartSituation.Equals("Prelaunch", StringComparison.OrdinalIgnoreCase)
                 || rec.StartSituation.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static RolloutAdoptionContext ResolveCurrentRolloutAdoptionContext()
+        {
+            try
+            {
+                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                if (activeVessel != null)
+                {
+                    string launchSiteName = FlightRecorder.ResolveLaunchSiteName(activeVessel, false);
+                    if (string.IsNullOrEmpty(launchSiteName))
+                        launchSiteName = TryResolveLaunchSiteNameFromFlightDriver();
+
+                    return CreateRolloutAdoptionContext(
+                        activeVessel.persistentId,
+                        Recording.ResolveLocalizedName(activeVessel.vesselName),
+                        launchSiteName);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ResolveCurrentRolloutAdoptionContext: ActiveVessel lookup failed: {ex.Message}");
+            }
+
+            return CreateRolloutAdoptionContext(
+                0u,
+                null,
+                TryResolveLaunchSiteNameFromFlightDriver());
+        }
+
+        private static string TryResolveLaunchSiteNameFromFlightDriver()
+        {
+            try
+            {
+                return FlightRecorder.HumanizeLaunchSiteName(FlightDriver.LaunchSiteName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag, $"TryResolveLaunchSiteNameFromFlightDriver failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static RolloutAdoptionContext CreateRolloutAdoptionContext(Recording rec)
+        {
+            if (rec == null)
+                return default(RolloutAdoptionContext);
+
+            return CreateRolloutAdoptionContext(
+                rec.VesselPersistentId,
+                rec.VesselName,
+                rec.LaunchSiteName);
+        }
+
+        private static RolloutAdoptionContext CreateRolloutAdoptionContext(
+            uint vesselPersistentId,
+            string vesselName,
+            string launchSiteName)
+        {
+            return new RolloutAdoptionContext
+            {
+                VesselPersistentId = vesselPersistentId,
+                VesselName = NormalizeRolloutContextText(vesselName),
+                LaunchSiteName = NormalizeRolloutContextText(launchSiteName)
+            };
+        }
+
+        private static string NormalizeRolloutContextText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return value.Trim();
+        }
+
+        private static bool CanMatchRolloutAdoptionContext(RolloutAdoptionContext context)
+        {
+            if (context.VesselPersistentId != 0)
+                return true;
+
+            return !string.IsNullOrEmpty(context.VesselName)
+                && !string.IsNullOrEmpty(context.LaunchSiteName);
+        }
+
+        private static bool RolloutAdoptionContextsMatch(
+            RolloutAdoptionContext actionContext,
+            RolloutAdoptionContext recordingContext)
+        {
+            if (actionContext.VesselPersistentId != 0 && recordingContext.VesselPersistentId != 0)
+                return actionContext.VesselPersistentId == recordingContext.VesselPersistentId;
+
+            return !string.IsNullOrEmpty(actionContext.VesselName)
+                && !string.IsNullOrEmpty(recordingContext.VesselName)
+                && !string.IsNullOrEmpty(actionContext.LaunchSiteName)
+                && !string.IsNullOrEmpty(recordingContext.LaunchSiteName)
+                && actionContext.VesselName.Equals(recordingContext.VesselName, StringComparison.OrdinalIgnoreCase)
+                && actionContext.LaunchSiteName.Equals(recordingContext.LaunchSiteName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string BuildRolloutDedupKey(double ut, RolloutAdoptionContext context)
+        {
+            return RolloutDedupPrefix
+                + ut.ToString("R", CultureInfo.InvariantCulture)
+                + "|pid=" + context.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                + "|site=" + Uri.EscapeDataString(context.LaunchSiteName ?? string.Empty)
+                + "|vessel=" + Uri.EscapeDataString(context.VesselName ?? string.Empty);
+        }
+
+        private static RolloutAdoptionContext ParseRolloutAdoptionContext(string dedupKey)
+        {
+            if (string.IsNullOrEmpty(dedupKey)
+                || !dedupKey.StartsWith(RolloutDedupPrefix, StringComparison.Ordinal))
+                return default(RolloutAdoptionContext);
+
+            var context = default(RolloutAdoptionContext);
+            string[] parts = dedupKey.Split('|');
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string part = parts[i];
+                if (part.StartsWith("pid=", StringComparison.Ordinal))
+                {
+                    uint.TryParse(
+                        part.Substring(4),
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out context.VesselPersistentId);
+                }
+                else if (part.StartsWith("site=", StringComparison.Ordinal))
+                {
+                    context.LaunchSiteName = NormalizeRolloutContextText(
+                        Uri.UnescapeDataString(part.Substring(5)));
+                }
+                else if (part.StartsWith("vessel=", StringComparison.Ordinal))
+                {
+                    context.VesselName = NormalizeRolloutContextText(
+                        Uri.UnescapeDataString(part.Substring(7)));
+                }
+            }
+
+            return context;
+        }
+
+        private static string FormatRolloutAdoptionContext(RolloutAdoptionContext context)
+        {
+            return $"pid={context.VesselPersistentId}, vessel='{context.VesselName ?? "(null)"}', " +
+                $"site='{context.LaunchSiteName ?? "(null)"}'";
         }
 
         /// <summary>
