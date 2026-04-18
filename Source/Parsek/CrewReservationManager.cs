@@ -433,6 +433,8 @@ namespace Parsek
                 // to fix. The tightest-fit rule keeps that guarantee even when
                 // multiple parts share the snapshot part name (the cockpit typically
                 // has fewer seats than a passenger cabin).
+                string attemptDiagnostic = FormatSeatMatchAttemptDiagnostic(
+                    seat.PartPid, seat.PartName);
                 Part target = FindTargetPartForOrphan(
                     seat.PartPid, seat.PartName, out SeatMatchKind matchKind);
                 if (target == null)
@@ -448,7 +450,8 @@ namespace Parsek
                         $"Orphan placement: no matching part with free seat in active vessel for " +
                         $"'{originalName}' → '{replacementName}' " +
                         $"(snapshot {pidDiagnostic} name='{seat.PartName}') — stand-in left in roster " +
-                        $"(attempted pidHits={pidHits} nameHitFallbacks={nameHitFallbacks})");
+                        $"({attemptDiagnostic}; cumulative pidHits={pidHits} " +
+                        $"nameHitFallbacks={nameHitFallbacks})");
                     skippedNoMatchingPart++;
                     continue;
                 }
@@ -854,6 +857,18 @@ namespace Parsek
             public uint PersistentId;
             public string PartName;
             public int FreeSeats;
+        }
+
+        /// <summary>
+        /// Formats truthful per-attempt tier telemetry for the no-match WARN.
+        /// Distinct from the cumulative pidHits/nameHitFallbacks counters, which
+        /// track prior successful placements across the whole pass.
+        /// </summary>
+        internal static string FormatSeatMatchAttemptDiagnostic(
+            uint snapshotPartPid, string snapshotPartName)
+        {
+            return $"attempted pidTier={(snapshotPartPid != 0 ? "yes" : "no")} " +
+                $"nameTier={(!string.IsNullOrEmpty(snapshotPartName) ? "yes" : "no")}";
         }
 
         /// <summary>

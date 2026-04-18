@@ -362,5 +362,19 @@ namespace Parsek.Tests
             Assert.Equal(1, idx1);
             Assert.Equal(CrewReservationManager.SeatMatchKind.NameHit, k1);
         }
+
+        [Theory]
+        [InlineData(100000u, "mk1pod.v2", "attempted pidTier=yes nameTier=yes")]
+        [InlineData(0u, "mk1pod.v2", "attempted pidTier=no nameTier=yes")]
+        [InlineData(100000u, "", "attempted pidTier=yes nameTier=no")]
+        [InlineData(0u, null, "attempted pidTier=no nameTier=no")]
+        public void FormatSeatMatchAttemptDiagnostic_ReportsAttemptedTiersTruthfully(
+            uint snapshotPartPid, string snapshotPartName, string expected)
+        {
+            string actual = CrewReservationManager.FormatSeatMatchAttemptDiagnostic(
+                snapshotPartPid, snapshotPartName);
+
+            Assert.Equal(expected, actual);
+        }
     }
 }
