@@ -287,6 +287,24 @@ namespace Parsek
         public static RecordingTree PendingTree => pendingTree;
         public static PendingTreeState PendingTreeStateValue => pendingTreeState;
 
+        // Phase 2 (Rewind-to-Staging): state-version counter consumed by
+        // <see cref="EffectiveState"/> to invalidate the ERS cache. Every code
+        // path that mutates <see cref="committedRecordings"/> MUST call
+        // <see cref="BumpStateVersion"/>; the mutating internal helpers below
+        // already do so, so callers that route through them get the bump for
+        // free.
+        internal static int StateVersion;
+
+        /// <summary>
+        /// Bumps <see cref="StateVersion"/>. Called whenever
+        /// <see cref="committedRecordings"/> is mutated so the
+        /// <see cref="EffectiveState"/> ERS cache knows to rebuild.
+        /// </summary>
+        internal static void BumpStateVersion()
+        {
+            unchecked { StateVersion++; }
+        }
+
         /// <summary>
         /// Creates a Recording from raw flight data, trimming leading stationary points
         /// and retiming events. Returns null if too short (fewer than 2 points after trim).
@@ -400,6 +418,7 @@ namespace Parsek
 
             rec.FilesDirty = true;
             committedRecordings.Add(rec);
+            BumpStateVersion();
             Log($"[Parsek] Committed recording from {rec.VesselName} " +
                 $"({rec.Points.Count} points). Total committed: {committedRecordings.Count}");
             ParsekLog.Verbose("RecordingStore", $"CommitRecordingDirect: {rec.DebugName}");
@@ -445,6 +464,7 @@ namespace Parsek
                 rec.RecordingGroups.Add(GloopsGroupName);
 
             committedRecordings.Add(rec);
+            BumpStateVersion();
             FlushDirtyFiles(committedRecordings);
 
             ParsekLog.Info("RecordingStore",
@@ -461,6 +481,7 @@ namespace Parsek
         internal static void AddCommittedInternal(Recording rec)
         {
             committedRecordings.Add(rec);
+            BumpStateVersion();
         }
 
         /// <summary>
@@ -469,7 +490,10 @@ namespace Parsek
         /// </summary>
         internal static bool RemoveCommittedInternal(Recording rec)
         {
-            return committedRecordings.Remove(rec);
+            bool removed = committedRecordings.Remove(rec);
+            if (removed)
+                BumpStateVersion();
+            return removed;
         }
 
         /// <summary>
@@ -479,6 +503,7 @@ namespace Parsek
         internal static void ClearCommittedInternal()
         {
             committedRecordings.Clear();
+            BumpStateVersion();
         }
 
         public static void ClearCommitted()
@@ -488,6 +513,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            BumpStateVersion();
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
@@ -915,12 +941,16 @@ namespace Parsek
             // Add all tree recordings to committedRecordings (enables ghost playback).
             // Skip recordings already present (chain segments committed mid-flight
             // by CommitRecordingDirect).
+            int addedFromTree = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
                 if (committedRecordings.Contains(rec)) continue;
                 committedRecordings.Add(rec);
+                addedFromTree++;
             }
+            if (addedFromTree > 0)
+                BumpStateVersion();
 
             // Flush to disk immediately to close the crash window.
             // If RunOptimizationPass runs after this, it will re-dirty modified
@@ -1222,6 +1252,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(chainId)) return;
 
+            int removed = 0;
             for (int i = committedRecordings.Count - 1; i >= 0; i--)
             {
                 if (committedRecordings[i].ChainId == chainId)
@@ -1229,8 +1260,11 @@ namespace Parsek
                     DeleteRecordingFiles(committedRecordings[i]);
                     Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
                     committedRecordings.RemoveAt(i);
+                    removed++;
                 }
             }
+            if (removed > 0)
+                BumpStateVersion();
         }
 
         /// <summary>
@@ -1374,6 +1408,7 @@ namespace Parsek
 
             DeleteRecordingFiles(rec);
             committedRecordings.RemoveAt(index);
+            BumpStateVersion();
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }
 
@@ -2172,6 +2207,7 @@ namespace Parsek
         {
             committedRecordings.Clear();
             committedTrees.Clear();
+            BumpStateVersion();
             autoAssignedStandaloneGroupsByRecordingId.Clear();
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
@@ -2218,6 +2254,7 @@ namespace Parsek
                 committedTrees.Add(tree);
             }
             committedRecordings.Add(rec);
+            BumpStateVersion();
         }
 
         internal static void MarkAutoAssignedStandaloneGroupForTesting(Recording rec, string groupName)

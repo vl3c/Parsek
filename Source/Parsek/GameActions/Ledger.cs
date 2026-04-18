@@ -23,6 +23,21 @@ namespace Parsek
         /// <summary>Read-only view of all actions in the ledger.</summary>
         internal static IReadOnlyList<GameAction> Actions => actions;
 
+        // Phase 2 (Rewind-to-Staging): state-version counter consumed by
+        // <see cref="EffectiveState"/> to invalidate the ELS cache. Bumped
+        // whenever <see cref="actions"/> mutates.
+        internal static int StateVersion;
+
+        /// <summary>
+        /// Bumps <see cref="StateVersion"/>. Called whenever <see cref="actions"/>
+        /// is mutated so the <see cref="EffectiveState"/> ELS cache knows to
+        /// rebuild.
+        /// </summary>
+        internal static void BumpStateVersion()
+        {
+            unchecked { StateVersion++; }
+        }
+
         // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
         // one-shot legacy ActionId migration log. Bumped from GameAction.DeserializeFrom
         // whenever a legacy action without `actionId` gets a deterministic rehydrated id.
@@ -63,6 +78,7 @@ namespace Parsek
             }
 
             actions.Add(action);
+            BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"Added action: type={action.Type}, ut={action.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"recordingId={action.RecordingId ?? "(none)"}, total={actions.Count}");
@@ -84,6 +100,8 @@ namespace Parsek
                     actions.Add(action);
             }
             int added = actions.Count - before;
+            if (added > 0)
+                BumpStateVersion();
             ParsekLog.Verbose("Ledger", $"AddActions batch: added={added}, total={actions.Count}");
         }
 
@@ -130,6 +148,8 @@ namespace Parsek
                 updated.AddRange(replacements);
 
             actions = updated;
+            if (removed > 0 || replacements.Count > 0)
+                BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"ReplaceActionsForRecording: type={type}, recordingId='{recordingId}', " +
                 $"removed={removed}, inserted={replacements.Count}, total={actions.Count}");
@@ -155,8 +175,11 @@ namespace Parsek
             }
 
             if (removed > 0)
+            {
+                BumpStateVersion();
                 ParsekLog.Verbose("Ledger",
                     $"RemoveActionsForRecording: recordingId='{recordingId}', removed={removed}, total={actions.Count}");
+            }
 
             return removed;
         }
@@ -198,9 +221,12 @@ namespace Parsek
             }
 
             if (remapped > 0)
+            {
+                BumpStateVersion();
                 ParsekLog.Verbose("Ledger",
                     $"RetagActionsForRecordingRewrite: oldRecordingId='{oldRecordingId}', " +
                     $"newRecordingId='{newRecordingId}', remapped={remapped}, total={actions.Count}");
+            }
 
             return remapped;
         }
@@ -210,6 +236,8 @@ namespace Parsek
         {
             int count = actions.Count;
             actions.Clear();
+            if (count > 0)
+                BumpStateVersion();
             ParsekLog.Verbose("Ledger", $"Cleared ledger: removed={count}");
         }
 
@@ -262,6 +290,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Ledger", "LoadFromFile called with null/empty path");
                 actions.Clear();
+                BumpStateVersion();
                 return false;
             }
 
@@ -269,6 +298,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Ledger", $"Ledger file not found at '{path}', starting with empty ledger");
                 actions.Clear();
+                BumpStateVersion();
                 return true;
             }
 
@@ -281,6 +311,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Ledger", $"ConfigNode.Load returned null for '{path}', corrupt file?");
                     actions.Clear();
+                    BumpStateVersion();
                     return false;
                 }
 
@@ -295,6 +326,7 @@ namespace Parsek
                     ParsekLog.Warn("Ledger",
                         $"Ledger file '{path}' has unsupported version '{versionStr ?? "(missing)"}', starting with empty ledger");
                     actions.Clear();
+                    BumpStateVersion();
                     return false;
                 }
 
@@ -319,6 +351,7 @@ namespace Parsek
                 }
 
                 actions = newActions;
+                BumpStateVersion();
                 ParsekLog.Verbose("Ledger",
                     $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, parseErrors={parseErrors}");
                 // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
@@ -330,6 +363,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Ledger", $"Failed to load ledger from '{path}': {ex.Message}");
                 actions.Clear();
+                BumpStateVersion();
                 return false;
             }
         }
@@ -470,6 +504,8 @@ namespace Parsek
             }
 
             actions = surviving;
+            if (before != actions.Count)
+                BumpStateVersion();
 
             ParsekLog.Info("Ledger",
                 $"Reconcile complete: before={before}, kept={kept}, " +
@@ -541,6 +577,7 @@ namespace Parsek
             };
 
             actions.Add(seed);
+            BumpStateVersion();
             ParsekLog.Info("Ledger",
                 $"Seeded initial funds: amount={initialFunds.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
         }
@@ -579,6 +616,7 @@ namespace Parsek
             };
 
             actions.Add(seed);
+            BumpStateVersion();
             ParsekLog.Info("Ledger",
                 $"Seeded initial science: amount={initialScience.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
         }
@@ -618,6 +656,7 @@ namespace Parsek
             };
 
             actions.Add(seed);
+            BumpStateVersion();
             ParsekLog.Info("Ledger",
                 $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
         }
@@ -630,6 +669,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             actions = new List<GameAction>();
+            BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
         }
 
