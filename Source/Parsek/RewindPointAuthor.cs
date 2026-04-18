@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using UnityEngine;
 
@@ -138,7 +139,8 @@ namespace Parsek
 
             ParsekLog.Info("Rewind",
                 $"RewindPoint begin: rp={rpId} bp={branchPoint.Id} slots={childSlots.Count} " +
-                $"controllablePids={(controllableChildPids?.Count ?? 0)} ut={ut:F2}");
+                $"controllablePids={(controllableChildPids?.Count ?? 0)} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
 
             // Finalize the context the coroutine will use. We capture the
             // flight-globals provider + the recording resolver here so unit tests
@@ -226,6 +228,11 @@ namespace Parsek
 
             try
             {
+                // NOTE: PID maps are populated BEFORE the save delegate runs, not after as in design §6.1 step 5.
+                // Functionally equivalent — both happen inside the same try/finally; vessels can't mutate
+                // between these two synchronous steps. Kept in this order for clarity and to tolerate a save
+                // failure without losing the live-vessel correlation.
+                //
                 // [ERS-exempt] RP capture matches live vessels to committed child slots
                 // by raw PID correlation. Populating PidSlotMap / RootPartPidMap is a
                 // setup-time operation that needs the untombstoned VesselPersistentId
