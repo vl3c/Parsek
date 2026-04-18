@@ -64,6 +64,18 @@ namespace Parsek
                 message += "\n\nNo flight branches produced a vessel that can continue flying. " +
                            "The recordings will play back as ghosts, but no vessel will be placed.";
 
+            // Phase 8 of Rewind-to-Staging (design §1.1): when merging during
+            // an active re-fly session, reinforce the narrow-scope advisory so
+            // the player knows the merge only swaps physical playback — it
+            // does not touch career state.
+            var reFlyScenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, reFlyScenario)
+                && reFlyScenario.ActiveReFlySessionMarker != null)
+            {
+                message += "\n\nNote: career state (contracts, milestones, facilities, strategies) " +
+                           "is unchanged by supersede.";
+            }
+
             var capturedDecisions = decisions;
             int capturedSpawnCount = spawnCount;
 
@@ -146,6 +158,15 @@ namespace Parsek
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
             CrewReservationManager.SwapReservedCrewInFlight();
 
+            // Phase 8 of Rewind-to-Staging (design §6.6 steps 2-3): if a
+            // re-fly session is active, write the supersede relations for the
+            // origin subtree and flip the provisional's MergeState AFTER the
+            // tree commits (so the provisional has moved from pending-tree
+            // storage into the committed list) and BEFORE firing
+            // OnTreeCommitted (so downstream chain evaluators see the
+            // superseded subtree hidden from ERS).
+            TryCommitReFlySupersede();
+
             ClearPendingFlag();
             OnTreeCommitted?.Invoke();
             if (spawnCount > 0)
@@ -184,6 +205,80 @@ namespace Parsek
             ParsekLog.Info("MergeDialog",
                 $"User chose: Tree Discard (tree='{tree.TreeName}', " +
                 $"recordings={tree.Recordings.Count})");
+        }
+
+        /// <summary>
+        /// Phase 8 of Rewind-to-Staging (design §6.6 steps 2-3): if a re-fly
+        /// session is active at merge time, write the supersede relations for
+        /// the origin subtree and flip the provisional's MergeState. Skipped
+        /// silently when no session is active — the regular tree-merge flow
+        /// is unchanged.
+        /// </summary>
+        internal static void TryCommitReFlySupersede()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    "TryCommitReFlySupersede: no scenario instance — skipping re-fly commit path");
+                return;
+            }
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    "TryCommitReFlySupersede: no active re-fly session marker — " +
+                    "regular tree-merge flow, no supersede relations to write");
+                return;
+            }
+
+            string provisionalId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(provisionalId))
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"TryCommitReFlySupersede: marker sess={marker.SessionId ?? "<no-id>"} " +
+                    "has no ActiveReFlyRecordingId — cannot commit supersede; " +
+                    "leaving marker in place for load-time sweep");
+                return;
+            }
+
+            Recording provisional = FindCommittedRecording(provisionalId);
+            if (provisional == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"TryCommitReFlySupersede: provisional rec={provisionalId} " +
+                    "not found in committed list after tree commit; " +
+                    "leaving marker in place for load-time sweep");
+                return;
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"TryCommitReFlySupersede: invoking SupersedeCommit for " +
+                $"sess={marker.SessionId ?? "<no-id>"} provisional={provisionalId} " +
+                $"origin={marker.OriginChildRecordingId ?? "<none>"}");
+
+            SupersedeCommit.CommitSupersede(marker, provisional);
+        }
+
+        // Raw committed-list scan by id. Kept local to the merge path so we
+        // don't need another allowlist entry; the recording we're hunting for
+        // is the provisional that was added by RewindInvoker.AddProvisional
+        // (NotCommitted, filtered out of ERS), so ERS routing is not the right
+        // lookup.
+        private static Recording FindCommittedRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, System.StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
         }
 
         #region Extracted helpers

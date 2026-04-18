@@ -214,17 +214,14 @@ namespace Parsek
         /// <summary>
         /// Classifies a recording's terminal state as a crash / destroyed
         /// outcome (design §3.1 <c>TerminalKind in {BGCrash, Crashed}</c>).
-        /// Phase 2 derivation: maps <see cref="TerminalState.Destroyed"/>
-        /// through this helper; future phases will extend to BG-crash once
-        /// the <c>TerminalKind</c> abstraction exists.
+        /// Delegates to <see cref="TerminalKindClassifier.Classify"/> so both
+        /// the Unfinished-Flight predicate here and the re-fly merge rule in
+        /// <see cref="SupersedeCommit.CommitSupersede"/> share the same
+        /// classifier (design §6.6 step 2).
         /// </summary>
-        // TODO(phase >=3): widen TerminalState.Destroyed to include BGCrash/Crashed once TerminalKind lands (design §5.11).
-        // Tracked in docs/dev/todo-and-known-bugs.md (Phase 3+ work).
         public static bool IsTerminalCrashed(Recording rec)
         {
-            if (rec == null) return false;
-            if (!rec.TerminalStateValue.HasValue) return false;
-            return rec.TerminalStateValue.Value == TerminalState.Destroyed;
+            return TerminalKindClassifier.Classify(rec) == TerminalKind.Crashed;
         }
 
         /// <summary>

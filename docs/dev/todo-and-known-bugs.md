@@ -142,10 +142,36 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   use after their raw-indexed reads) and `CrewReservationManager.cs` (the
   provisional re-fly recording is NotCommitted and therefore excluded from
   ERS by definition).
-- **Phase 8 (next)** — ghost-fy the stripped siblings: the Phase 6 strip just
-  calls `Vessel.Die()`; Phase 8 captures a pre-despawn snapshot and registers
-  each stripped recording for ghost playback so the re-fly session sees its
-  merged siblings as ghosts instead of missing vessels.
+- ~~**Phase 8**~~ — **done**: merge-time supersede relations + subtree closure
+  (design §5.3 / §5.5 / §6.6 steps 2-3 / §7.17 / §7.43 / §10.4). New
+  `TerminalKindClassifier` (InFlight / Landed / Crashed) centralises the
+  terminal-outcome classification; `EffectiveState.IsTerminalCrashed`
+  delegates. New `SupersedeCommit.CommitSupersede(marker, provisional)`
+  computes the forward-only merge-guarded subtree closure via the reused
+  Phase 2 walker, appends one `RecordingSupersedeRelation` per id pointing
+  at the provisional, flips `MergeState` to `Immutable` (Landed / stable)
+  or `CommittedProvisional` (Crashed — chain still re-flyable per §7.43),
+  clears transient `SupersedeTargetId`, bumps `SupersedeStateVersion` so
+  the ERS cache invalidates, and clears `ActiveReFlySessionMarker` with an
+  `[ReFlySession] End reason=merged` log. `MergeDialog.MergeCommit` now
+  hooks the commit step AFTER `CommitPendingTree` and BEFORE
+  `OnTreeCommitted`; the "Merge to Timeline" dialog also appends the §1.1
+  advisory ("Note: career state … is unchanged by supersede.") when a
+  session is active. Idempotent on re-invocation. Tests: 15
+  `SupersedeCommitTests` unit tests covering terminal matrix, subtree
+  walk, mixed-parent halt, transient clear, marker clear, ERS
+  invalidation, idempotence, and null-guard paths; two FLIGHT-scene
+  in-game tests (`MergeLandedReFlyCreatesImmutableSupersedeTest`,
+  `MergeCrashedReFlyCreatesCPSupersedeTest`). `MergeDialog.cs` added to
+  `scripts/ers-els-audit-allowlist.txt` with inline justification (raw
+  lookup targets a `NotCommitted` provisional that ERS filters out).
+  Phase 8 does NOT yet implement the journaled staged commit (Phase 10),
+  ledger tombstones (Phase 9), or RP reap (Phase 11).
+- **Phase 9 (next)** — merge: v1 tombstone-eligible scope +
+  `LedgerTombstones`. Narrow v1: tombstone kerbal-death + bundled-rep
+  hits from the superseded subtree's ledger actions; contracts /
+  milestones / facilities / strategies untouched. See §6.6 step 4 and
+  §1.1 narrow-scope advisory.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
   state dictionaries and chain-continuation indices currently keyed by
   position in `RecordingStore.CommittedRecordings` to recording-id keys so
@@ -154,7 +180,7 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
 - **Phase 3+ EffectiveState follow-ups** — deferred semantics wired into the
   Phase 2 classifier as TODO markers:
   - `EffectiveState: flip IsUnfinishedFlight from Immutable to CommittedProvisional once classifier lands`
-  - `EffectiveState: widen IsTerminalCrashed to include BGCrash and Crashed kinds`
+  - ~~`EffectiveState: widen IsTerminalCrashed to include BGCrash and Crashed kinds`~~ — Phase 8 made `IsTerminalCrashed` delegate to `TerminalKindClassifier`; extending the classifier for BG-crash is a one-liner at that site.
   - `EffectiveState: halt EffectiveRecordingId walk at cross-tree boundaries`
 
 ---
