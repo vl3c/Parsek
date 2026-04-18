@@ -4940,6 +4940,7 @@ namespace Parsek.Tests
             finally
             {
                 ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
                 if (Directory.Exists(tempDir))
                     Directory.Delete(tempDir, recursive: true);
             }
@@ -4980,6 +4981,7 @@ namespace Parsek.Tests
             finally
             {
                 ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
                 if (Directory.Exists(tempDir))
                     Directory.Delete(tempDir, recursive: true);
             }
