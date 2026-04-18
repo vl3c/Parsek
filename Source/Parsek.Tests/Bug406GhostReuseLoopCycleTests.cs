@@ -288,5 +288,37 @@ namespace Parsek.Tests
             DiagnosticsState.ResetForTesting();
             Assert.Equal(0, DiagnosticsState.health.ghostReusedAcrossCycleThisSession);
         }
+
+        [Fact]
+        public void ResetForLoopCycle_DoesNotBumpReuseCounter()
+        {
+            // Pure-logic contract: the reuse counter is bumped only by the
+            // engine's ReusePrimaryGhostAcrossCycle orchestrator, never by
+            // the pure-static reset helper. Fails if someone moves the
+            // DiagnosticsState.health.ghostReusedAcrossCycleThisSession++
+            // call into ResetForLoopCycle (e.g. to "simplify" the orchestrator),
+            // which would double-count every reuse and produce misleading
+            // `reusesThisSession` ratios in the diagnostics health line.
+            // ReactivateGhostPartHierarchyForLoopRewind is Unity-touching so
+            // is not invoked here; its counter-independence is covered by
+            // the in-game test Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity.
+            DiagnosticsState.health.ghostReusedAcrossCycleThisSession = 0;
+            var state = new GhostPlaybackState
+            {
+                loopCycleIndex = 4,
+                playbackIndex = 50,
+                partEventIndex = 10,
+            };
+
+            GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex: 5);
+
+            Assert.Equal(0, DiagnosticsState.health.ghostReusedAcrossCycleThisSession);
+            // Also verify the helper DID do its stated work — pins the
+            // counter assertion above to a scenario where the real pure-logic
+            // body ran.
+            Assert.Equal(5L, state.loopCycleIndex);
+            Assert.Equal(0, state.playbackIndex);
+            Assert.Equal(0, state.partEventIndex);
+        }
     }
 }

@@ -1251,6 +1251,20 @@ namespace Parsek
             // Reset fresh-spawn visibility deferral so the first positioned
             // frame activates the ghost the same way a fresh spawn would.
             state.deferVisibilityUntilPlaybackSync = true;
+
+            // Deliberately NOT reset: `fidelityReduced`, `distanceLodReduced`,
+            // `fidelityDisabledRenderers`, `simplified`. These track
+            // distance-LOD state that is re-evaluated every frame by
+            // `ApplyDistanceLodFidelity` + `ApplyZonePolicy`. If a
+            // prior-cycle-decoupled part that was on the disabled-renderers
+            // list is now reactivated by ReactivateGhostPartHierarchyForLoopRewind,
+            // the list holds a reference to a renderer that is briefly
+            // visible again — but the next ApplyDistanceLodFidelity pass
+            // re-walks active renderers and re-disables anything still out
+            // of range, so the list self-corrects within one frame. Pre-#406
+            // behaviour discarded the list with DestroyGhost; the reuse
+            // path preserves it because rebuilding would churn the LOD
+            // state machine without gameplay benefit.
         }
 
         internal static bool RefreshCompoundPartVisibility(GhostPlaybackState state)

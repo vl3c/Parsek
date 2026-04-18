@@ -3916,7 +3916,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
-            Description = "#406 follow-up: ReusePrimaryGhostAcrossCycle preserves the ghost GameObject identity, the camera pivot, and reentryFxInfo across a loop-cycle boundary instead of destroy+spawn. The session spawn counter does not bump; the reuse counter does.")]
+            Description = "#406 follow-up: ReusePrimaryGhostAcrossCycle preserves the ghost GameObject identity, the camera pivot, and reentryFxInfo across a loop-cycle boundary instead of destroy+spawn. The session spawn counter does not bump; the reuse counter does. Also asserts the happy-path VERBOSE log line (\"ghost reused across loop cycle\") fires with the expected index/vessel/cycle tokens — clean-context review finding #12 against PR #394.")]
         public void Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity()
         {
             // Build a minimal live-Unity ghost root + cameraPivot child so the
@@ -3975,9 +3975,56 @@ namespace Parsek.InGameTests
             // trying to move the test GameObject.
             var traj = new TestTrajectoryForBug406();
 
-            engine.ReusePrimaryGhostAcrossCycle(
-                index: 99, traj: traj, flags: default, state,
-                playbackUT: 0.0, newCycleIndex: 5);
+            // Capture log lines across the reuse call so the happy-path VERBOSE
+            // emitted by ReusePrimaryGhostAcrossCycle can be asserted. Without
+            // this assertion, a silent regression that re-routes the reuse path
+            // to destroy+spawn would still pass every identity/counter check
+            // here (a destroy+spawn path that happened to preserve Unity
+            // references in a pool would satisfy ReferenceEquals, and the
+            // diagnostic counters could be wired to bump the reuse counter
+            // regardless). The VERBOSE log line is the distinctive tell that
+            // the reuse branch was taken — see clean-context review finding #12
+            // against PR #394. Reset rate limits first so this test is
+            // deterministic when re-run within the 5-second rate window of a
+            // prior invocation in the same KSP session.
+            ParsekLog.ResetRateLimitsForTesting();
+            var capturedLog = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => { capturedLog.Add(line); priorSink?.Invoke(line); };
+            try
+            {
+                engine.ReusePrimaryGhostAcrossCycle(
+                    index: 99, traj: traj, flags: default, state,
+                    playbackUT: 0.0, newCycleIndex: 5);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            // Log-line assertion: the reuse path MUST emit the distinctive
+            // "ghost reused across loop cycle" VERBOSE, and it MUST carry the
+            // recording index, vessel name, and both cycle indices so a log
+            // reader can confirm which ghost reused and which cycle boundary
+            // it straddled. If the orchestrator is refactored to call the log
+            // helper with a different format string (or to skip it entirely
+            // on a fast path), this assertion is what flags the regression.
+            string reuseLine = capturedLog.FirstOrDefault(l => l.Contains("ghost reused across loop cycle"));
+            InGameAssert.IsNotNull(reuseLine,
+                "ReusePrimaryGhostAcrossCycle must emit a VERBOSE containing \"ghost reused across loop cycle\"; " +
+                "if this fails, either the log line was removed or VerboseRateLimited suppressed it (ResetRateLimitsForTesting guards against the latter)");
+            InGameAssert.Contains(reuseLine, "#99",
+                "reuse log line must carry the recording index (#99 in this test) so log readers can correlate per-ghost reuse events");
+            InGameAssert.Contains(reuseLine, "TestReuse",
+                "reuse log line must carry the vessel name (\"TestReuse\") so log readers can correlate by vessel instead of by index");
+            InGameAssert.Contains(reuseLine, "from cycle=4",
+                "reuse log line must carry the previous cycle index so cycle-boundary regressions are visible in logs");
+            InGameAssert.Contains(reuseLine, "to cycle=5",
+                "reuse log line must carry the new cycle index so cycle-boundary regressions are visible in logs");
+            InGameAssert.Contains(reuseLine, "[VERBOSE]",
+                "reuse log line must be emitted at VERBOSE level — a level drift to INFO/WARN would spam production logs");
+            InGameAssert.Contains(reuseLine, "[Engine]",
+                "reuse log line must be emitted under the Engine subsystem tag for grep-ability");
 
             // Identity invariants: the ghost GameObject and the cameraPivot
             // Transform are the SAME instances they were before. The
