@@ -326,13 +326,17 @@ namespace Parsek.Tests
             MakeScenario();
 
             // First call primes cache.
-            EffectiveState.ComputeERS();
+            var firstCall = EffectiveState.ComputeERS();
             logLines.Clear();
 
             // Second call: no mutation between, so must be a cache hit.
-            EffectiveState.ComputeERS();
+            var secondCall = EffectiveState.ComputeERS();
 
             Assert.DoesNotContain(logLines, l => l.Contains("[ERS]") && l.Contains("Rebuilt"));
+            // Reference-equality: cache-hit must return the SAME instance, not a
+            // fresh list with identical contents. If this trips, the cache is
+            // re-wrapping and the "does not rebuild" assertion above is hollow.
+            Assert.Same(firstCall, secondCall);
         }
 
         [Fact]

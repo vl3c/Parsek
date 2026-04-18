@@ -378,15 +378,24 @@ namespace Parsek
         /// <paramref name="marker"/>'s <c>OriginChildRecordingId</c>, follow
         /// each committed recording's <c>ChildBranchPointId</c> to the
         /// referenced BranchPoint's <c>ChildRecordingIds</c>. Halt at any
-        /// BranchPoint of type <c>Dock</c> / <c>Board</c> whose
-        /// <c>ParentRecordingIds</c> contains any recording NOT already in
-        /// the suppressed set (mixed-parent halt).
+        /// BranchPoint whose <c>ParentRecordingIds</c> contains any recording
+        /// NOT already in the suppressed set (mixed-parent halt; type-agnostic).
         /// Returns an empty set when <paramref name="marker"/> is null.
         /// The origin recording is always included.
+        /// <para>
+        /// The returned collection is a DEFENSIVE COPY of the cached closure; callers
+        /// may freely iterate without disturbing cross-call cache consistency. The
+        /// copy cost is one HashSet allocation per call (acceptable — call frequency
+        /// is at most once per ghost-frame, gated by marker presence).
+        /// </para>
         /// </summary>
         public static IReadOnlyCollection<string> ComputeSessionSuppressedSubtree(ReFlySessionMarker marker)
         {
-            return ComputeSessionSuppressedSubtreeInternal(marker) ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+            var cached = ComputeSessionSuppressedSubtreeInternal(marker);
+            if (cached == null) return Array.Empty<string>();
+            // Defensive copy: callers get an isolated snapshot so mutations (if they
+            // ever happened) cannot corrupt the shared cache.
+            return new HashSet<string>(cached, StringComparer.Ordinal);
         }
 
         /// <summary>
