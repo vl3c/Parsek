@@ -79,7 +79,9 @@ namespace Parsek
         /// </summary>
         private static int kscSequenceCounter;
 
-        private const string RolloutDedupPrefix = "rollout:";
+        // Shared with GameActionDisplay.IsUnclaimedRolloutAction (#452) so the
+        // label-side predicate and the adoption-side producer/scan cannot drift.
+        internal const string RolloutDedupPrefix = "rollout:";
 
         private struct RolloutAdoptionContext
         {

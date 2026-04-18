@@ -221,7 +221,7 @@ namespace Parsek
             if (action.FundsSpendingSource != FundsSpendingSource.VesselBuild) return false;
             if (!string.IsNullOrEmpty(action.RecordingId)) return false;
             if (string.IsNullOrEmpty(action.DedupKey)) return false;
-            return action.DedupKey.StartsWith("rollout:", StringComparison.Ordinal);
+            return action.DedupKey.StartsWith(LedgerOrchestrator.RolloutDedupPrefix, StringComparison.Ordinal);
         }
 
         /// <summary>

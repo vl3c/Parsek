@@ -18,6 +18,22 @@ namespace Parsek.Tests
     /// </summary>
     public class Bug452RolloutLabelTests
     {
+        // MakeUnclaimedRollout uses the legacy bare-key shape "rollout:<UT>". Current
+        // main's OnVesselRolloutSpending emits the long form "rollout:<UT>|pid=|site=|vessel="
+        // via BuildRolloutDedupKey — both shapes satisfy StartsWith("rollout:", Ordinal),
+        // so the predicate behavior is identical. A dedicated long-form fact below pins
+        // the current-production shape against silent drift.
+        //
+        // MakeAdoptedRollout and MakeOrdinaryBuildAction are intentionally shape-identical
+        // (RecordingId set, DedupKey null). Both deserve their own named helper because
+        // they represent two different real-world codepaths that land in the same state:
+        //   - Adopted: OnVesselRolloutSpending wrote an entry with a rollout: DedupKey,
+        //     then TryAdoptRolloutAction assigned RecordingId and cleared DedupKey.
+        //   - Ordinary: the recording-side delta path wrote a build cost directly with
+        //     RecordingId set and no DedupKey ever assigned.
+        // The predicate must return false for both; distinct helpers keep the tests
+        // self-documenting about which regression is being guarded against.
+
         private static GameAction MakeUnclaimedRollout(double ut = 100.0, float cost = 5000f) =>
             new GameAction
             {
@@ -113,6 +129,69 @@ namespace Parsek.Tests
                 DedupKey = "rollout"
             };
             Assert.False(GameActionDisplay.IsUnclaimedRolloutAction(noColon));
+        }
+
+        [Fact]
+        public void IsUnclaimedRolloutAction_ProductionShapeDedupKey_True()
+        {
+            // Pin the current-main DedupKey shape produced by BuildRolloutDedupKey:
+            // "rollout:<UT>|pid=<n>|site=<esc>|vessel=<esc>". The predicate must match
+            // the long form too, not just the legacy bare-key shape used by the other
+            // unclaimed-rollout fact. Guards against silent drift if a future producer
+            // changes the key shape without updating the predicate.
+            var longKey = new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 5000f,
+                RecordingId = null,
+                DedupKey = "rollout:100|pid=12345|site=LaunchPad|vessel=Kerbal%20X"
+            };
+            Assert.True(GameActionDisplay.IsUnclaimedRolloutAction(longKey));
+            Assert.Equal(
+                "Vessel build -5000" + GameActionDisplay.CancelledRolloutSuffix,
+                GameActionDisplay.GetDescription(longKey));
+        }
+
+        [Fact]
+        public void IsUnclaimedRolloutAction_RecordingIdSetAndRolloutDedupKeyNonNull_False()
+        {
+            // Defensive contract: the predicate's RecordingId short-circuit must win
+            // over a rollout: DedupKey. If a future adoption path ever forgets to clear
+            // DedupKey (TryAdoptRolloutAction currently does so at LedgerOrchestrator
+            // ~line 2787), an adopted entry would otherwise incorrectly acquire the
+            // suffix. Pin the short-circuit ordering explicitly.
+            var adoptedWithStaleDedup = new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 5000f,
+                RecordingId = "rec-A",
+                DedupKey = "rollout:100"
+            };
+            Assert.False(GameActionDisplay.IsUnclaimedRolloutAction(adoptedWithStaleDedup));
+        }
+
+        [Fact]
+        public void IsUnclaimedRolloutAction_DedupKeyIsRolloutPrefixOnly_True()
+        {
+            // Documentary: an action whose DedupKey is exactly "rollout:" (empty after
+            // the prefix) still satisfies the predicate. Current production cannot
+            // produce this shape — BuildRolloutDedupKey always appends ut.ToString("R"),
+            // so the suffix is never empty — but the predicate accepts it. Pin the
+            // behavior so a future tightening (e.g. requiring a non-empty suffix) is a
+            // conscious decision rather than a drift.
+            var prefixOnly = new GameAction
+            {
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 5000f,
+                RecordingId = null,
+                DedupKey = "rollout:"
+            };
+            Assert.True(GameActionDisplay.IsUnclaimedRolloutAction(prefixOnly));
         }
 
         [Fact]
