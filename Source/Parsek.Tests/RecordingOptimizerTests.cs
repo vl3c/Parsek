@@ -33,7 +33,7 @@ namespace Parsek.Tests
                 LoopPlayback = false,
                 PlaybackEnabled = true,
                 Hidden = false,
-                LoopIntervalSeconds = GhostPlaybackLogic.DefaultLoopIntervalSeconds,
+                LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel,
                 LoopAnchorVesselId = 0,
             };
             rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 50000 });
@@ -210,8 +210,33 @@ namespace Parsek.Tests
         {
             var a = MakeChainSegment("chain1", 0);
             var b = MakeChainSegment("chain1", 1);
-            b.LoopIntervalSeconds = GhostPlaybackLogic.DefaultLoopIntervalSeconds + 15.0;
+            b.LoopIntervalSeconds = GhostPlaybackLogic.UntouchedLoopIntervalSentinel + 15.0;
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_UntouchedRecordingFieldInit_StaysInLockstepWithSentinel()
+        {
+            // Regression guard for a prior bug: DefaultLoopIntervalSeconds was bumped
+            // 10 -> 30 and RecordingOptimizer.CanAutoMerge used it as the "untouched"
+            // sentinel, but Recording.LoopIntervalSeconds field init stayed at 10. Fresh
+            // captures and legacy saves then failed the guard (10 != 30) and stopped
+            // auto-merging. This test pins the invariant: the field init and the sentinel
+            // MUST be equal.
+            var fresh = new Recording();
+            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, fresh.LoopIntervalSeconds);
+        }
+
+        [Fact]
+        public void CanAutoMerge_TwoUntouchedRecordings_ReturnsTrue()
+        {
+            // Same regression: two recordings at the untouched sentinel must be mergeable
+            // regardless of the user-facing DefaultLoopIntervalSeconds value.
+            var a = MakeChainSegment("chain1", 0);
+            var b = MakeChainSegment("chain1", 1);
+            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
+            Assert.Equal(GhostPlaybackLogic.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
+            Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
         [Fact]
