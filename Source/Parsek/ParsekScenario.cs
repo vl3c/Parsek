@@ -38,6 +38,66 @@ namespace Parsek
         /// <summary>Singleton; non-null only during a staged-commit merge.</summary>
         public MergeJournal ActiveMergeJournal;
 
+        // Phase 2 (Rewind-to-Staging): state-version counters consumed by
+        // <see cref="EffectiveState"/> to invalidate ERS/ELS caches. Production
+        // code bumps these whenever <see cref="RecordingSupersedes"/> or
+        // <see cref="LedgerTombstones"/> mutate; the OnLoad path bumps on load
+        // (every load invalidates caches). Public field so test helpers can
+        // read the counter value for cache-invalidation assertions.
+        public int SupersedeStateVersion;
+        public int TombstoneStateVersion;
+
+        /// <summary>
+        /// Bumps <see cref="SupersedeStateVersion"/>. Called by any code path
+        /// that adds / removes / clears entries in <see cref="RecordingSupersedes"/>
+        /// so <see cref="EffectiveState.ComputeERS"/> knows to rebuild.
+        /// </summary>
+        public void BumpSupersedeStateVersion()
+        {
+            unchecked { SupersedeStateVersion++; }
+        }
+
+        /// <summary>
+        /// Bumps <see cref="TombstoneStateVersion"/>. Called by any code path
+        /// that adds / removes / clears entries in <see cref="LedgerTombstones"/>
+        /// so <see cref="EffectiveState.ComputeELS"/> knows to rebuild.
+        /// </summary>
+        public void BumpTombstoneStateVersion()
+        {
+            unchecked { TombstoneStateVersion++; }
+        }
+
+        // Phase 2 (Rewind-to-Staging): static accessor for the live scenario
+        // module. EffectiveState reads <see cref="RecordingSupersedes"/>,
+        // <see cref="LedgerTombstones"/>, and <see cref="ActiveReFlySessionMarker"/>
+        // through this field. Maintained by OnAwake / OnDestroy so the value
+        // tracks whichever ScenarioModule KSP currently owns.
+        private static ParsekScenario s_instance;
+
+        /// <summary>
+        /// Live scenario module instance (if any). Null outside FLIGHT / KSC /
+        /// tracking-station, or during early initialization before
+        /// <see cref="OnAwake"/> fires. Consumers must null-check.
+        /// </summary>
+        public static ParsekScenario Instance => s_instance;
+
+        /// <summary>Clears the <see cref="Instance"/> back-reference. Unit tests only.</summary>
+        internal static void ResetInstanceForTesting()
+        {
+            s_instance = null;
+        }
+
+        /// <summary>
+        /// Installs a test fixture as <see cref="Instance"/>. Unit tests that
+        /// exercise <see cref="EffectiveState"/> use this to inject a scenario
+        /// carrying the supersede / tombstone / marker state without needing
+        /// the full KSP ScenarioModule lifecycle.
+        /// </summary>
+        internal static void SetInstanceForTesting(ParsekScenario scenario)
+        {
+            s_instance = scenario;
+        }
+
         #endregion
 
 
@@ -307,6 +367,17 @@ namespace Parsek
                 chain: null,
                 currentUT: Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
                 loadedScene: HighLogic.LoadedScene);
+        }
+
+        public override void OnAwake()
+        {
+            base.OnAwake();
+            // Phase 2 (Rewind-to-Staging): publish the live scenario module so
+            // EffectiveState can read RecordingSupersedes / LedgerTombstones /
+            // ActiveReFlySessionMarker through <see cref="Instance"/>. OnAwake
+            // fires before OnLoad, so the Instance is available throughout the
+            // load path.
+            s_instance = this;
         }
 
         public override void OnSave(ConfigNode node)
@@ -780,6 +851,12 @@ namespace Parsek
                 $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
                 $"supersedes={RecordingSupersedes.Count} tombstones={LedgerTombstones.Count} " +
                 $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)}");
+
+            // Phase 2: a new load invalidates every derived cache. Bump both
+            // counters so <see cref="EffectiveState.ComputeERS"/> and
+            // <see cref="EffectiveState.ComputeELS"/> recompute on next access.
+            BumpSupersedeStateVersion();
+            BumpTombstoneStateVersion();
         }
 
         // Static flag: only load from save once per KSP session.
@@ -3449,6 +3526,10 @@ namespace Parsek
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.
             RevertDetector.Unsubscribe();
+            // Phase 2 (Rewind-to-Staging): drop the Instance back-reference so
+            // EffectiveState does not read stale scenario state after destruction.
+            if (ReferenceEquals(s_instance, this))
+                s_instance = null;
         }
     }
 }
