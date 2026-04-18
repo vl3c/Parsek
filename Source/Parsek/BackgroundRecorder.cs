@@ -540,6 +540,10 @@ namespace Parsek
             // produce an empty Recording (zero points) that clutters disk and logs.
             Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
             int continuationCount = 0;
+            // Phase 4 (Rewind-to-Staging, §5.1): track the parent continuation recording
+            // outside the if-branch so the post-registration RP hook can include it as a
+            // candidate controllable child if the parent is still alive and trackable.
+            Recording parentContRec = null;
 
             if (parentVessel != null)
             {
@@ -553,7 +557,7 @@ namespace Parsek
                 // is always Generation=0. Kept explicit so future cap bumps (e.g.
                 // MaxRecordingGeneration=2) just work without re-auditing this site.
                 string parentContRecId = System.Guid.NewGuid().ToString("N");
-                var parentContRec = new Recording
+                parentContRec = new Recording
                 {
                     RecordingId = parentContRecId,
                     TreeId = tree.Id,
@@ -606,6 +610,127 @@ namespace Parsek
                 $"Background split branch complete: bp={bp.Id} type={branchType} " +
                 $"parentRecId={parentRecordingId} children={bp.ChildRecordingIds.Count} " +
                 $"({continuationCount} parent continuation + {newVesselInfos.Count} new vessels)");
+
+            // Phase 4 (Rewind-to-Staging, design §5.1 + §7.1): if the background split
+            // produced >=2 controllable outputs (surviving parent continuation + each
+            // newVesselInfo with hasController=true), author a RewindPoint. Mirrors
+            // the active-vessel path in ParsekFlight.TryAuthorRewindPointForSplit.
+            TryAuthorRewindPointForBackgroundSplit(
+                bp, parentVessel, parentContRec, newVesselInfos, childRecordings);
+        }
+
+        /// <summary>
+        /// Phase 4 (Rewind-to-Staging): background-split analogue of
+        /// <c>ParsekFlight.TryAuthorRewindPointForSplit</c>. Builds controllable
+        /// child slots + a recording-resolver from the live background vessels and
+        /// delegates to <see cref="RewindPointAuthor.Begin"/>.
+        ///
+        /// <para>
+        /// Background vessels <i>are</i> in <c>FlightGlobals.Vessels</c> at split
+        /// time — the joint-break physics that caused the split only fires when the
+        /// vessel is loaded, so <c>rootPart</c> is accessible here just like on the
+        /// active-vessel path. If the parent vessel has already been destroyed
+        /// (<c>parentVessel == null</c>) the parent continuation slot is skipped;
+        /// remaining controllable children still contribute.
+        /// </para>
+        /// </summary>
+        private void TryAuthorRewindPointForBackgroundSplit(
+            BranchPoint bp,
+            Vessel parentVessel,
+            Recording parentContRec,
+            List<(uint pid, string name, bool hasController)> newVesselInfos,
+            List<Recording> childRecordings)
+        {
+            if (bp == null)
+            {
+                ParsekLog.Warn("Rewind",
+                    "Background split: RP skipped (bp is null) — this is a bug");
+                return;
+            }
+
+            // Collect candidate (vessel, recording) pairs for controllable outputs.
+            var pairs = new List<(Vessel vessel, Recording rec)>();
+            var candidatePids = new List<uint>();
+
+            if (parentVessel != null && parentContRec != null
+                && ParsekFlight.IsTrackableVessel(parentVessel))
+            {
+                pairs.Add((parentVessel, parentContRec));
+                candidatePids.Add(parentVessel.persistentId);
+            }
+
+            // Children: walk newVesselInfos in parallel with childRecordings (same
+            // order — BuildBackgroundSplitBranchData iterates newVesselInfos directly).
+            int childCount = childRecordings != null ? childRecordings.Count : 0;
+            for (int i = 0; i < childCount; i++)
+            {
+                if (i >= newVesselInfos.Count) break;
+                var info = newVesselInfos[i];
+                if (!info.hasController) continue;
+
+                Vessel childVessel = FlightRecorder.FindVesselByPid(info.pid);
+                if (childVessel == null)
+                {
+                    // Vessel vanished between split detection and RP hook. Skip — the
+                    // RP would be unusable without a live vessel to correlate against.
+                    ParsekLog.Warn("Rewind",
+                        $"Background split: controllable child pid={info.pid} not in " +
+                        $"FlightGlobals.Vessels at RP-hook time; skipping slot");
+                    continue;
+                }
+                pairs.Add((childVessel, childRecordings[i]));
+                candidatePids.Add(info.pid);
+            }
+
+            if (!SegmentBoundaryLogic.IsMultiControllableSplit(candidatePids.Count))
+            {
+                ParsekLog.Info("Rewind",
+                    $"Background split: single-controllable, no RP " +
+                    $"(bp={bp.Id} controllable={candidatePids.Count})");
+                return;
+            }
+
+            // Build ChildSlots + recId->PID resolver (same contract as
+            // ParsekFlight.AuthorRewindPointFromVesselRecordings).
+            var slots = new List<ChildSlot>();
+            var recIdToPid = new Dictionary<string, uint>(StringComparer.Ordinal);
+            int slotIndex = 0;
+            for (int i = 0; i < pairs.Count; i++)
+            {
+                var (vessel, rec) = pairs[i];
+                if (vessel == null || rec == null) continue;
+                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+
+                slots.Add(new ChildSlot
+                {
+                    SlotIndex = slotIndex++,
+                    OriginChildRecordingId = rec.RecordingId,
+                    Controllable = true,
+                    Disabled = false,
+                    DisabledReason = null
+                });
+                recIdToPid[rec.RecordingId] = vessel.persistentId;
+            }
+
+            if (slots.Count < 2)
+            {
+                ParsekLog.Info("Rewind",
+                    $"Background split: multi-controllable classifier passed " +
+                    $"({candidatePids.Count}) but slot build produced only " +
+                    $"{slots.Count} entries (bp={bp.Id}); skipping RP");
+                return;
+            }
+
+            ParsekLog.Info("Rewind",
+                $"Background split: authoring RP (bp={bp.Id} slots={slots.Count})");
+
+            var ctx = new RewindPointAuthorContext
+            {
+                RecordingResolver = recId =>
+                    recIdToPid.TryGetValue(recId ?? "", out var pid) ? (uint?)pid : null
+            };
+
+            RewindPointAuthor.Begin(bp, slots, candidatePids, ctx);
         }
 
         /// <summary>
