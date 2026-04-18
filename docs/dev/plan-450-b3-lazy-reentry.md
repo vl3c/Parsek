@@ -176,24 +176,38 @@ private void TryPerformLazyReentryBuild(
 
 ### Pure decision helper (for tests — review finding #11)
 
-The atmosphere-check logic is testable in isolation without Unity:
+The decision logic is testable in isolation without Unity. A speed gate was
+added after the post-implementation review (P1 finding) because the original
+"in atmosphere" condition alone still fired the lazy build on frame 1 of
+every KSC launch recording — those ghosts spawn already inside Kerbin's
+atmosphere (altitude ~67 m at the pad) so the ~7 ms build cost remained
+attached to the spawn hitch, just relocated from the `spawn` bucket to the
+`mainLoop` bucket. The fix gates on `speed ≥ ReentryPotentialSpeedFloor`
+(400 m/s, shared with `TrajectoryMath.HasReentryPotential`) — at that speed
+the ghost has actually reached conditions where `ComputeReentryIntensity`
+can produce non-zero output within the next few frames.
 
 ```csharp
 // In GhostPlaybackLogic (pure static).
 internal static bool ShouldBuildLazyReentryFx(
     bool pendingFlag, string bodyName, bool bodyHasAtmosphere,
-    double altitudeMeters, double atmosphereDepthMeters)
+    double altitudeMeters, double atmosphereDepthMeters,
+    float surfaceSpeedMetersPerSecond, float speedFloorMetersPerSecond)
 {
     if (!pendingFlag) return false;
     if (string.IsNullOrEmpty(bodyName)) return false;
     if (!bodyHasAtmosphere) return false;
     if (altitudeMeters >= atmosphereDepthMeters) return false;
+    if (!(surfaceSpeedMetersPerSecond >= speedFloorMetersPerSecond)) return false;
     return true;
 }
 ```
 
-Engine's `UpdateReentryFx` calls this with the already-resolved `body`
-reference so no duplicate `Find`.
+The `!(speed >= floor)` form intentionally pins the NaN-safe direction — a
+malformed velocity suppresses the build rather than burning it. Engine's
+`UpdateReentryFx` calls this with the already-resolved `body` reference
+AND the computed `surfaceVel.magnitude`, so the speed reuses the same
+`body.getRFrmVel` lookup the rest of `UpdateReentryFx` already pays.
 
 ### Invariants preserved
 
@@ -256,7 +270,8 @@ zero on a post-B3 playtest; if it doesn't, the fix didn't take.
 Session counters in `DiagnosticsStructs.HealthCounters`:
 - `reentryFxBuildsThisSession` — actual builds (moved from spawn to lazy site).
 - `reentryFxSkippedThisSession` — unchanged semantic (HasReentryPotential = false at spawn).
-- `reentryFxDeferredThisSession` — new: B3-deferred at spawn (the input to "never built = deferred − builds").
+- `reentryFxDeferredThisSession` — new: B3-deferred at spawn OR at each rehydrate. Counted per build-event, NOT per unique trajectory — a ghost that unloads and rehydrates N times before ever reaching atmosphere contributes N.
+- `buildsAvoided` = `deferred − builds` (display-only, computed in the report): number of build EVENTS that would have fired pre-B3 but didn't post-B3. Renamed from `neverBuilt` because that label implied unique-trajectory semantics, which is not what the subtraction measures.
 
 ## Files touched
 

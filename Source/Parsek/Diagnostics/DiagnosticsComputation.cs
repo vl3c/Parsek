@@ -487,16 +487,20 @@ namespace Parsek
             {
                 hitRateStr = "N/A";
             }
-            // Bug #450 B3: `deferred` + `neverBuilt` surface the B3 savings signal —
-            // `deferred` counts spawns that entered the lazy-build queue;
-            // `neverBuilt` = deferred - built is the count of trajectories that saved
-            // the full ~7 ms build cost entirely (never entered atmosphere in the
-            // session). Without these fields the post-ship validation requires
-            // log-archaeology across a session's trajectory lifecycle.
-            int reentryNeverBuilt = h.reentryFxDeferredThisSession - h.reentryFxBuildsThisSession;
-            if (reentryNeverBuilt < 0) reentryNeverBuilt = 0;
+            // Bug #450 B3: `deferred` counts every spawn-or-rehydrate that entered
+            // the lazy-build queue (one increment per visual build event, NOT per
+            // unique trajectory). `buildsAvoided` = deferred - built is the number
+            // of lazy-build EVENTS that didn't fire this session — each avoided
+            // event is a real ~7 ms saving pre-B3 would have paid. Note that a
+            // single recording that unloads and rehydrates N times contributes N to
+            // deferred; if it only ever reaches atmosphere once, buildsAvoided =
+            // N-1, which IS correct accounting (pre-B3 rebuilt the FX on every
+            // spawn+rehydrate). The label is "buildsAvoided" rather than
+            // "neverBuilt" to avoid implying unique-trajectory semantics.
+            int reentryBuildsAvoided = h.reentryFxDeferredThisSession - h.reentryFxBuildsThisSession;
+            if (reentryBuildsAvoided < 0) reentryBuildsAvoided = 0;
             sb.AppendFormat(Inv,
-                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8} deferred {9} neverBuilt {10}",
+                "Health: cache {0} hit ({1} miss of {2} lookups), spikes {3}, spawn fail {4}, builds {5} destroys {6}, reentryFx built {7} skipped {8} deferred {9} buildsAvoided {10}",
                 hitRateStr,
                 h.waypointCacheMisses,
                 totalLookups,
@@ -507,7 +511,7 @@ namespace Parsek
                 h.reentryFxBuildsThisSession,
                 h.reentryFxSkippedThisSession,
                 h.reentryFxDeferredThisSession,
-                reentryNeverBuilt);
+                reentryBuildsAvoided);
             sb.AppendLine();
 
             // GC gen0

@@ -1815,10 +1815,21 @@ namespace Parsek
                 return;
             }
 
+            // Compute surface velocity BEFORE the lazy-build decision so the speed
+            // gate can fire. `ReentryPotentialSpeedFloor` (400 m/s ≈ Mach 1.2 at
+            // sea-level Kerbin) is shared with `HasReentryPotential` and gates out
+            // pad launches where the ghost starts at 0 m/s — without this gate,
+            // ghosts whose first playback point is already in-atmosphere (every
+            // KSC launch recording) would still pay the full 7 ms build on frame 1,
+            // just attributed to mainLoop instead of spawn.
+            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
+            float speed = surfaceVel.magnitude;
+
             // Bug #450 B3: lazy-build seam. Reuses the body + atmosphere + altitude
-            // checks above. If the build is throttled or fails, return — next frame
-            // will retry (flag cleared only when the build actually fires, see
-            // TryPerformLazyReentryBuild). Below this point info is guaranteed non-null.
+            // + speed checks above. If the build is throttled or the gate fails,
+            // return (for null info) — next frame will retry while still in
+            // atmosphere. Flag cleared only when the build actually fires, see
+            // TryPerformLazyReentryBuild.
             //
             // Under warp-suppression the FX subsystem would drive-to-zero anyway
             // (see GhostPlaybackLogic.ShouldSuppressVisualFx); doing a ~7 ms build
@@ -1829,13 +1840,20 @@ namespace Parsek
             {
                 if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
                     return;
+                if (!GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                        state.reentryFxPendingBuild, bodyName, body.atmosphere,
+                        altitude, body.atmosphereDepth,
+                        speed, TrajectoryMath.ReentryPotentialSpeedFloor))
+                {
+                    // In-atmosphere but still too slow for FX to be imminent
+                    // (typical KSC launch below ~Mach 1.2). Return — info is null,
+                    // nothing to drive. Next frame will re-check.
+                    return;
+                }
                 TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);
                 info = state.reentryFxInfo;
                 if (info == null) return;
             }
-
-            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
-            float speed = surfaceVel.magnitude;
 
             double pressure = body.GetPressure(altitude);
             double temperature = body.GetTemperature(altitude);

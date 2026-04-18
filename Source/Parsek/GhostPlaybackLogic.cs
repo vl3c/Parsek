@@ -74,14 +74,24 @@ namespace Parsek
 
         /// <summary>
         /// Bug #450 B3: decides whether a deferred reentry-FX build should fire on the
-        /// current frame. Returns true when the ghost is inside a body's atmosphere
-        /// (the earliest point at which reentry visuals can render at non-zero intensity —
-        /// see <c>GhostVisualBuilder.ComputeReentryIntensity</c> density/Mach gates).
+        /// current frame. Returns true when the ghost is inside a body's atmosphere AND
+        /// moving fast enough for reentry visuals to be imminent (speed ≥ the
+        /// <c>ReentryPotentialSpeedFloor</c> = 400 m/s ≈ Mach 1.2 at sea-level Kerbin —
+        /// the floor shared with <c>TrajectoryMath.HasReentryPotential</c>).
+        ///
+        /// The speed gate prevents launch recordings (pad → ascent) from triggering the
+        /// build on the very first playback frame: those ghosts are at 0 m/s at ground
+        /// level on frame 1 and only cross the 400 m/s floor several seconds later, so
+        /// the 7 ms build shifts off the spawn hitch by design. Atmospheric-start
+        /// recordings where the ghost is already above 400 m/s (mid-reentry saves) still
+        /// fire on frame 1 — that is correct because we legitimately need FX right away.
+        ///
         /// Pure helper so the condition is unit-testable without Unity or FlightGlobals.
         /// </summary>
         internal static bool ShouldBuildLazyReentryFx(
             bool pendingFlag, string bodyName, bool bodyHasAtmosphere,
-            double altitudeMeters, double atmosphereDepthMeters)
+            double altitudeMeters, double atmosphereDepthMeters,
+            float surfaceSpeedMetersPerSecond, float speedFloorMetersPerSecond)
         {
             if (!pendingFlag) return false;
             if (string.IsNullOrEmpty(bodyName)) return false;
@@ -90,6 +100,9 @@ namespace Parsek
             // already calls DriveReentryToZero, so firing the build here would only pay
             // the cost for a frame that produces zero-intensity output anyway.
             if (altitudeMeters >= atmosphereDepthMeters) return false;
+            // Speed gate — see XML doc above. NaN/negative compares false by IEEE rules,
+            // so a malformed velocity correctly suppresses the build rather than leaking it.
+            if (!(surfaceSpeedMetersPerSecond >= speedFloorMetersPerSecond)) return false;
             return true;
         }
 

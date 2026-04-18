@@ -245,12 +245,15 @@ namespace Parsek
         public int ghostDestroysThisSession;
         public int reentryFxBuildsThisSession;
         public int reentryFxSkippedThisSession;
-        // Bug #450 B3: incremented at spawn when a reentry-capable trajectory defers
-        // its build to the first in-atmosphere frame. `reentryFxBuildsThisSession`
-        // still tracks actual builds; the difference (`deferred - builds`) is the
-        // number of trajectories that saved the build entirely by never entering
-        // atmosphere in the session. That delta is the signal B3 uses to prove it
-        // worked.
+        // Bug #450 B3: incremented at spawn + each ghost rehydrate when a reentry-
+        // capable trajectory defers its build to the first in-atmosphere frame above
+        // the reentry-speed floor. One increment per visual BUILD EVENT (spawn or
+        // rehydrate), NOT per unique trajectory — a ghost that unloads and reloads
+        // N times before ever reaching atmosphere contributes N. The difference
+        // (`deferred - reentryFxBuildsThisSession`) is the number of build events
+        // that would have fired pre-B3 but were avoided post-B3 — each avoided
+        // event represents a ~7 ms cost not paid. Surfaced in the diagnostics
+        // report as `buildsAvoided`.
         public int reentryFxDeferredThisSession;
         public int gcGen0Baseline;
 

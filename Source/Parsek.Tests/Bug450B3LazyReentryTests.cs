@@ -50,7 +50,8 @@ namespace Parsek.Tests
             // Most common path: flag never set in the first place (no-reentry trajectory).
             Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: false, bodyName: "Kerbin",
-                bodyHasAtmosphere: true, altitudeMeters: 10_000, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: 10_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         [Theory]
@@ -62,7 +63,8 @@ namespace Parsek.Tests
             // refactor forgets to guard against positioning that hasn't run yet.
             Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: bodyName,
-                bodyHasAtmosphere: true, altitudeMeters: 10_000, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: 10_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         [Fact]
@@ -73,7 +75,8 @@ namespace Parsek.Tests
             // that then permanently idle with zero intensity).
             Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: "Mun",
-                bodyHasAtmosphere: false, altitudeMeters: 0, atmosphereDepthMeters: 0));
+                bodyHasAtmosphere: false, altitudeMeters: 0, atmosphereDepthMeters: 0,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         [Fact]
@@ -83,16 +86,57 @@ namespace Parsek.Tests
             // comparison is inverted.
             Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: "Kerbin",
-                bodyHasAtmosphere: true, altitudeMeters: 100_000, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: 100_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         [Fact]
-        public void ShouldBuildLazyReentryFx_BelowAtmosphereDepth_ReturnsTrue()
+        public void ShouldBuildLazyReentryFx_BelowAtmosphereAndFastEnough_ReturnsTrue()
         {
-            // Happy path: ghost deorbited, now in atmosphere. Positive case.
+            // Happy path: ghost deorbited, now in atmosphere AND moving fast enough for
+            // reentry FX to be imminent. Positive case.
             Assert.True(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: "Kerbin",
-                bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
+        }
+
+        [Fact]
+        public void ShouldBuildLazyReentryFx_BelowAtmosphereButTooSlow_ReturnsFalse()
+        {
+            // The KSC-launch case that motivated the P1 review fix: a ghost spawning
+            // at the pad is already inside Kerbin's atmosphere (altitude 67 m) and
+            // pending=true, but at 0 m/s there is nothing to render. Without the speed
+            // gate, the lazy build would fire on frame 1 and the ~7 ms cost would stay
+            // on the launch-hitch frame, just relocated from spawn to mainLoop. Fails
+            // if the speed gate is dropped.
+            Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                pendingFlag: true, bodyName: "Kerbin",
+                bodyHasAtmosphere: true, altitudeMeters: 67, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 0, speedFloorMetersPerSecond: 400));
+        }
+
+        [Fact]
+        public void ShouldBuildLazyReentryFx_ExactlyAtSpeedFloor_ReturnsTrue()
+        {
+            // Pins the `>=` on the speed gate: at EXACTLY the floor the build fires.
+            Assert.True(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                pendingFlag: true, bodyName: "Kerbin",
+                bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 400, speedFloorMetersPerSecond: 400));
+        }
+
+        [Fact]
+        public void ShouldBuildLazyReentryFx_SpeedIsNaN_ReturnsFalse()
+        {
+            // Defensive: a malformed velocity (NaN) must NOT leak through. IEEE NaN
+            // compares false against any inequality, so the `!(speed >= floor)` form
+            // in the helper pins the safe direction — unlike `(speed < floor)` which
+            // would return true on NaN and burn a build.
+            Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                pendingFlag: true, bodyName: "Kerbin",
+                bodyHasAtmosphere: true, altitudeMeters: 50_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: float.NaN, speedFloorMetersPerSecond: 400));
         }
 
         [Fact]
@@ -101,7 +145,8 @@ namespace Parsek.Tests
             // Boundary: one meter below the cap. Fails if the comparison uses `>` by mistake.
             Assert.True(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: "Kerbin",
-                bodyHasAtmosphere: true, altitudeMeters: 69_999, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: 69_999, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         [Fact]
@@ -113,19 +158,20 @@ namespace Parsek.Tests
             // output, then drive-to-zero on the next frame. Wait one more frame.
             Assert.False(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: "Kerbin",
-                bodyHasAtmosphere: true, altitudeMeters: 70_000, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: 70_000, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         [Fact]
-        public void ShouldBuildLazyReentryFx_NegativeAltitude_ReturnsTrue()
+        public void ShouldBuildLazyReentryFx_NegativeAltitudeAndFastEnough_ReturnsTrue()
         {
             // Defensive: reload-artifact landed ghosts can read below-surface altitudes.
-            // Still inside atmosphere, so still a valid build trigger. Fails if a future
-            // refactor adds an `altitude > 0` guard (would strand landed ghosts pending
-            // forever).
+            // Still inside atmosphere AND moving fast enough, so still a valid build
+            // trigger. Fails if a future refactor adds an `altitude > 0` guard.
             Assert.True(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
                 pendingFlag: true, bodyName: "Kerbin",
-                bodyHasAtmosphere: true, altitudeMeters: -100, atmosphereDepthMeters: 70_000));
+                bodyHasAtmosphere: true, altitudeMeters: -100, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 1_000, speedFloorMetersPerSecond: 400));
         }
 
         // ----- Engine seam: throttle + idempotency + defensive paths -----
@@ -329,12 +375,18 @@ namespace Parsek.Tests
         // ----- Diagnostics report format -----
 
         [Fact]
-        public void DiagnosticsReport_IncludesDeferredAndNeverBuiltCounters()
+        public void DiagnosticsReport_IncludesDeferredAndBuildsAvoidedCounters()
         {
-            // B3's post-ship validation relies on `deferred - built = neverBuilt`
+            // B3's post-ship validation relies on `deferred - built = buildsAvoided`
             // being visible in the diagnostics snapshot. Fails if the
             // DiagnosticsComputation report format drops the new counters —
             // otherwise validating B3's savings requires log-archaeology.
+            //
+            // Semantic: buildsAvoided counts build-EVENTS avoided, not unique
+            // trajectories. A recording that unloads and rehydrates N times before
+            // first reentry contributes N to `deferred` and 1 to `built`, so
+            // buildsAvoided = N-1 — which IS correct accounting (pre-B3 would have
+            // paid the build N times, post-B3 pays it once).
             DiagnosticsState.ResetForTesting();
             DiagnosticsState.health.reentryFxBuildsThisSession = 3;
             DiagnosticsState.health.reentryFxSkippedThisSession = 5;
@@ -344,22 +396,22 @@ namespace Parsek.Tests
             // passing a default snapshot is sufficient for this assertion.
             string report = DiagnosticsComputation.FormatReport(default);
 
-            Assert.Contains("reentryFx built 3 skipped 5 deferred 10 neverBuilt 7", report);
+            Assert.Contains("reentryFx built 3 skipped 5 deferred 10 buildsAvoided 7", report);
         }
 
         [Fact]
-        public void DiagnosticsReport_NeverBuiltFloorsAtZero()
+        public void DiagnosticsReport_BuildsAvoidedFloorsAtZero()
         {
             // Defensive: if a test or a future bug makes `built > deferred`
             // (shouldn't happen — deferrals precede builds — but we survive it),
-            // the report must show neverBuilt = 0 rather than a negative number.
+            // the report must show buildsAvoided = 0 rather than a negative number.
             DiagnosticsState.ResetForTesting();
             DiagnosticsState.health.reentryFxBuildsThisSession = 10;
             DiagnosticsState.health.reentryFxDeferredThisSession = 3;
 
             string report = DiagnosticsComputation.FormatReport(default);
 
-            Assert.Contains("deferred 3 neverBuilt 0", report);
+            Assert.Contains("deferred 3 buildsAvoided 0", report);
         }
     }
 }
