@@ -49,14 +49,6 @@ namespace Parsek
         internal static System.Func<string> TagResolverForTesting;
 
         /// <summary>
-        /// #442: test hook. When non-null, code paths that need a current Universal Time
-        /// (e.g. <see cref="EmitStandaloneProgressReward"/>) call this delegate instead of
-        /// <see cref="Planetarium.GetUniversalTime"/>, which NREs under unit-test
-        /// (Unity-static-free) conditions. Production code never touches it.
-        /// </summary>
-        internal static System.Func<double> UtResolverForTesting;
-
-        /// <summary>
         /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
         /// Resolves the current recording tag, stamps it on the event, logs the emission, and warns
         /// on drift (tagged event with no live recorder / no pending vessel-switch, or in-flight event
@@ -123,7 +115,6 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;
-            UtResolverForTesting = null;
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
@@ -1004,10 +995,14 @@ namespace Parsek
         /// usual two-phase emit-then-enrich path did not run. Bypasses the enrichment-map
         /// indirection entirely: rewards arrive as method parameters and are baked into
         /// the event detail directly.
+        ///
+        /// <paramref name="ut"/> is supplied by the caller — production passes
+        /// <see cref="Planetarium.GetUniversalTime"/> from the patch site (which has Unity
+        /// statics live), unit tests pass a literal so they don't NRE on Planetarium.
         /// Internal static for testability.
         /// </summary>
         internal static void EmitStandaloneProgressReward(
-            ProgressNode node, double funds, float rep, double sci)
+            ProgressNode node, double funds, float rep, double sci, double ut)
         {
             if (IsReplayingActions)
             {
@@ -1030,9 +1025,6 @@ namespace Parsek
                 return;
             }
 
-            double ut = UtResolverForTesting != null
-                ? UtResolverForTesting()
-                : Planetarium.GetUniversalTime();
             var evt = new GameStateEvent
             {
                 ut = ut,

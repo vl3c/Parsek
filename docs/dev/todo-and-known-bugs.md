@@ -323,7 +323,7 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 **Scope:** Small. Single-patch change with clear regression target. Phase B's `ReconcileEarningsWindow` already exists as the test vehicle — add a case that asserts zero mismatch after the fix.
 
-**Status:** TODO. **Priority: highest.** Release-blocking for v0.8.2 — this is the bug that drove the whole ledger reconciliation work to be visible in-game, and it's still firing on a fresh career. Per smoke-test verdict: do not ship v0.8.2 without this fix.
+**Status:** ~~Fixed~~ in this PR.
 
 ---
 

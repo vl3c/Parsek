@@ -38,6 +38,24 @@ namespace Parsek.Patches
             ProgressNode __instance,
             float funds, float science, float reputation)
         {
+            // Route to the testable helper with a live UT from Planetarium. Production
+            // is the only call site that touches Unity statics; tests call RoutePostfix
+            // directly with a literal UT.
+            RoutePostfix(__instance, funds, science, reputation,
+                __instance != null ? Planetarium.GetUniversalTime() : 0.0);
+        }
+
+        /// <summary>
+        /// #442: branch-routing helper, extracted from <see cref="Postfix"/> so unit tests
+        /// can exercise the enrich vs emit-standalone decision without needing live
+        /// <see cref="Planetarium"/> statics. Production passes
+        /// <see cref="Planetarium.GetUniversalTime"/> from the postfix; tests pass a literal.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void RoutePostfix(
+            ProgressNode node,
+            float funds, float science, float reputation, double ut)
+        {
             try
             {
                 if (GameStateRecorder.IsReplayingActions)
@@ -46,22 +64,22 @@ namespace Parsek.Patches
                         "Suppressed milestone enrichment during action replay");
                     return;
                 }
-                if (__instance == null) return;
+                if (node == null) return;
 
                 // #442: branch on whether OnProgressComplete already emitted a pending
                 // event for this node. The two cases are mutually exclusive — never enrich
-                // and emit-standalone for the same AwardProgress call.
-                if (GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(__instance))
+                // and emit-standalone for the same AwardProgress call. The standalone
+                // helper logs its own Info line with node ID + reward values, so no extra
+                // patch-side log is needed on the else branch.
+                if (GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(node))
                 {
                     GameStateRecorder.EnrichPendingMilestoneRewards(
-                        __instance, (double)funds, reputation, (double)science);
+                        node, (double)funds, reputation, (double)science);
                 }
                 else
                 {
-                    ParsekLog.Verbose(Tag,
-                        $"No pending event for node '{__instance.Id ?? "<null>"}' — emitting standalone MilestoneAchieved");
                     GameStateRecorder.EmitStandaloneProgressReward(
-                        __instance, (double)funds, reputation, (double)science);
+                        node, (double)funds, reputation, (double)science, ut);
                 }
             }
             catch (Exception ex)
