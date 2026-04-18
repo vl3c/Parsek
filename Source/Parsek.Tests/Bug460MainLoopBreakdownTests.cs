@@ -515,6 +515,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MainLoopLessThanSummedDeferredEvents_DoesNotFireBreakdown()
+        {
+            // Reviewer-flagged regression: gate 6 compares mainLoop against the
+            // SUM of deferredCreated + deferredCompleted, not against each
+            // separately. A spike with `mainLoop=11ms, deferredCreated=7ms,
+            // deferredCompleted=7ms` has mainLoop > each individual deferred
+            // bucket, but the combined deferred-events cost (14ms) actually
+            // dominates. Firing the #460 latch would mis-attribute this to
+            // top-level dispatch when a Phase B fix targeting deferred-event
+            // processing is the correct next step. Guards against a refactor
+            // that loses the summed comparison.
+            var phases = MainLoopDominatedPhases();
+            phases.mainLoopMicroseconds = 11_000;
+            phases.deferredCreatedEventsMicroseconds = 7_000;
+            phases.deferredCompletedEventsMicroseconds = 7_000;  // sum=14ms > 11ms
+            phases.observabilityCaptureMicroseconds = 0;
+            phases.explosionCleanupMicroseconds = 0;
+
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                32_000, 0, 1.0f, phases);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback mainLoop breakdown"));
+        }
+
+        [Fact]
+        public void MainLoop450And460_MutuallyExclusive_CannotBothFireOnSameFrame()
+        {
+            // The #450 build-breakdown latch fires on `spawnMaxMicroseconds >= 15ms`;
+            // the #460 mainLoop latch fires on `spawnMicroseconds < 1ms`. Since
+            // spawnMax <= spawn, satisfying #450 forces spawn >= 15ms which fails
+            // #460's gate, and vice versa. This test pins the mutual-exclusion
+            // invariant on both directions — a future refactor that relaxes either
+            // threshold toward the other would cause both latches to fire on the
+            // same spike and confuse the Phase B triage.
+
+            // Direction A: #450 fires, #460 does not. High spawn, zero ghosts.
+            var spawnDominated = MainLoopDominatedPhases();
+            spawnDominated.spawnMicroseconds = 16_000;       // > 15ms → #450 fires
+            spawnDominated.spawnMaxMicroseconds = 16_000;
+            spawnDominated.mainLoopMicroseconds = 5_000;     // mainLoop doesn't dominate
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                25_000, 0, 1.0f, spawnDominated);
+            Assert.Contains(logLines, l => l.Contains("Playback spawn build breakdown"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback mainLoop breakdown"));
+
+            // Direction B: #460 fires, #450 does not. Zero spawn, big mainLoop.
+            DiagnosticsComputation.ResetPlaybackBreakdownOneShotForTesting();
+            logLines.Clear();
+            var mainLoopDominated = MainLoopDominatedPhases();  // spawn already 0 in the fixture
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                24_800, 0, 1.0f, mainLoopDominated);
+            Assert.DoesNotContain(logLines, l => l.Contains("Playback spawn build breakdown"));
+            Assert.Contains(logLines, l => l.Contains("Playback mainLoop breakdown"));
+        }
+
+        [Fact]
         public void BelowThreshold_DoesNotFireAnyBreakdown()
         {
             // Healthy frame — no WARN of any kind, all latches preserved.

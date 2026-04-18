@@ -224,10 +224,13 @@ iterations:
 the WARN is the Phase B target. The two means disambiguate "top-level
 loop" from "overlap fan-out" within the mainLoop bucket.
 
-Emitted only when all four gating conditions hold. Zero steady-state log
-output, zero allocations on healthy frames (the struct populate already
-happens for #414/#450; reading the same fields is a handful of integer
-divides).
+Emitted only when all seven gating conditions hold (latch-not-fired,
+ghosts==0, spawn<1ms, destroy<1ms, mainLoop>=10ms, mainLoop exceeds
+summed deferred events, mainLoop exceeds observability+explosionCleanup
+buckets individually). Zero steady-state log output, allocation-free on
+healthy frames (the struct populate already happens for #414/#450;
+reading the same fields is a handful of integer comparisons plus one
+long sum for the deferred-events-total short-circuit).
 
 ### Reset / test seams
 

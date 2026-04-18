@@ -879,13 +879,22 @@ namespace Parsek
             // whose mainLoop phase is strictly the largest non-spawn/destroy contributor.
             // See plan-460-mainloop-breakdown.md for the gating rationale (7 conditions,
             // each of which would otherwise let the latch burn on the wrong kind of spike).
+            // Dominance check: mainLoop must exceed every OTHER non-spawn/destroy
+            // bucket. Deferred events are summed as a single "deferred" phase
+            // because a Phase B fix that targets deferred-event processing would
+            // attack both halves together — a spike where mainLoop=11ms but
+            // deferredCreated+deferredCompleted=14ms is really a deferred-events
+            // spike, not a mainLoop one, even though no single deferred bucket
+            // exceeds mainLoop. Observability capture and explosion cleanup stay
+            // per-bucket because they are independent code paths.
+            long deferredEventsTotalMicroseconds =
+                phases.deferredCreatedEventsMicroseconds + phases.deferredCompletedEventsMicroseconds;
             if (!s_mainLoopBreakdownOneShotFired
                 && ghostsProcessed == 0
                 && phases.spawnMicroseconds < MainLoopBreakdownMaxSpawnMicroseconds
                 && phases.destroyMicroseconds < MainLoopBreakdownMaxDestroyMicroseconds
                 && phases.mainLoopMicroseconds >= MainLoopBreakdownMinMainLoopMicroseconds
-                && phases.mainLoopMicroseconds > phases.deferredCreatedEventsMicroseconds
-                && phases.mainLoopMicroseconds > phases.deferredCompletedEventsMicroseconds
+                && phases.mainLoopMicroseconds > deferredEventsTotalMicroseconds
                 && phases.mainLoopMicroseconds > phases.observabilityCaptureMicroseconds
                 && phases.mainLoopMicroseconds > phases.explosionCleanupMicroseconds)
             {
@@ -961,10 +970,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bug #460 test seam: flip the #450 breakdown latch without touching #414's or
-        /// #460's latch, so a three-way independence test can verify the #460 branch does
-        /// not share state with the #450 latch either. Companion to
-        /// <see cref="SetBug414BreakdownLatchFiredForTesting"/>.
+        /// Added by #460: test seam that pre-fires the #450 spawn-build-breakdown
+        /// latch without touching the #414 or #460 latches, so a three-way independence
+        /// test can verify the #460 branch does not share state with #450 either.
+        /// Companion to <see cref="SetBug414BreakdownLatchFiredForTesting"/>.
         /// </summary>
         internal static void SetBug450BreakdownLatchFiredForTesting()
         {
