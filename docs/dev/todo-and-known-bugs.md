@@ -120,8 +120,30 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   markers on crash/quit recovery (not scope here). Phase 14 will add a full
   end-to-end automated orchestration test for the RunInvoke flow (manual
   playtest checklist exists today).
-- **Phase 7 (next)** — ghost-fy the stripped siblings: the Phase 6 strip just
-  calls `Vessel.Die()`; Phase 7 captures a pre-despawn snapshot and registers
+- ~~**Phase 7**~~ — **done**: `SessionSuppressedSubtree` wiring (design §3.3 +
+  §3.3.1). New `SessionSuppressionState` static helper fronts
+  `EffectiveState.ComputeSessionSuppressedSubtree` with a marker-identity
+  transition observer that emits the §10.3 start/end log lines exactly once
+  per transition. Consumers wired: `GhostPlaybackEngine.UpdatePlayback`
+  (per-frame filter + `sessionSuppressed=<n>` counter in the frame-summary
+  log; destroys leftover ghost visuals on entry), `GhostChainWalker`
+  (suppressed recordings no longer claim chain tips; aggregated skip log),
+  `GhostMapPresence` (Create entry-points gate + per-tick prune of suppressed
+  presence + bootstrap counter), `WatchModeController` (refuses entry +
+  exits on anchor suppression with `[ReFlySession]` log).
+  §3.3.1 dual-residence carve-out added as
+  `CrewReservationManager.IsLiveReFlyCrew(pcm, marker)` + a short-circuit in
+  `KerbalsModule.ShouldFilterFromCrewDialog`. Tests: new
+  `SessionSuppressionWiringTests` unit suite (11 tests covering predicate,
+  transition logging, chain-walker skip, map-presence gate, crew carve-out
+  null guards) plus two in-game tests (`GhostSuppressionDuringReFlyTest`,
+  `KerbalDualResidenceCarveOutTest`). Allowlist additions:
+  `SessionSuppressionState.cs` (raw index/id lookup is the gate consumers
+  use after their raw-indexed reads) and `CrewReservationManager.cs` (the
+  provisional re-fly recording is NotCommitted and therefore excluded from
+  ERS by definition).
+- **Phase 8 (next)** — ghost-fy the stripped siblings: the Phase 6 strip just
+  calls `Vessel.Die()`; Phase 8 captures a pre-despawn snapshot and registers
   each stripped recording for ghost playback so the re-fly session sees its
   merged siblings as ghosts instead of missing vessels.
 - **Phase 6+ follow-up: recording-id keying refactor** — migrate the ghost
