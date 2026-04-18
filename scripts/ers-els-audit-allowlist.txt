@@ -115,3 +115,11 @@ Source/Parsek/SupersedeCommit.cs
 # by definition — the raw read is the only way to find it. Also routes
 # the durable-save + journal lifecycle that the finisher recovers from.
 Source/Parsek/MergeJournalOrchestrator.cs
+
+# --- Phase 11 ERS-exempt files ---
+# RewindPointReaper.ReapOrphanedRPs resolves each ChildSlot's origin
+# recording id through the raw committed list to inspect MergeState
+# (design §6.6 step 9 / §6.8 / §6.10). The slot may still point at a
+# NotCommitted provisional, which ERS filters out; the reaper MUST see
+# that state to decide "retain" vs "reap." No ELS reads.
+Source/Parsek/RewindPointReaper.cs
