@@ -6,8 +6,8 @@ namespace Parsek
     /// <summary>
     /// Phase 6 of Rewind-to-Staging (design §6.4 step 4): post-load strip of
     /// non-selected sibling vessels at re-fly invocation. Pure static; all
-    /// state comes from <c>FlightGlobals.Vessels</c> and the supplied
-    /// <see cref="RewindPoint"/>.
+    /// state comes from an injectable vessel enumerator so unit tests can
+    /// drive the algorithm without a live KSP scene.
     ///
     /// <para>
     /// Algorithm:
@@ -18,15 +18,15 @@ namespace Parsek
     ///   <item><description>Fallback match via <see cref="RewindPoint.RootPartPidMap"/> by <c>rootPart.persistentId</c>.</description></item>
     ///   <item><description>Non-matches are left alone (§7.39).</description></item>
     /// </list>
-    /// A vessel that matches <paramref name="selectedSlotIndex"/> is returned as
-    /// <see cref="PostLoadStripResult.SelectedVessel"/>; all other matches are
-    /// stripped via <c>Vessel.Die()</c>. Phase 6 performs no pre-despawn snapshot
-    /// capture — that is deferred to Phase 7's ghost-fy path.
+    /// A vessel that matches the <c>selectedSlotIndex</c> parameter is left
+    /// in place and returned via <see cref="PostLoadStripResult.SelectedVessel"/>;
+    /// all other matches are stripped via <c>Vessel.Die()</c>. Phase 6 performs
+    /// no pre-despawn snapshot capture — that is deferred to Phase 7's ghost-fy path.
     /// </para>
     ///
     /// <para>
-    /// [ERS-exempt — Phase 6] The stripper correlates live vessels to
-    /// slot indices via raw <c>Vessel.persistentId</c>, not through the
+    /// [ERS-exempt — Phase 6] The stripper correlates live vessels to slot
+    /// indices via raw <c>Vessel.persistentId</c>, not through the
     /// supersede-aware ERS view. The file is allowlisted in
     /// <c>scripts/ers-els-audit-allowlist.txt</c>.
     /// </para>
@@ -36,11 +36,20 @@ namespace Parsek
         private const string Tag = "Rewind";
 
         /// <summary>
-        /// Runs the post-load strip. Returns a <see cref="PostLoadStripResult"/>
-        /// with the selected vessel (may be null on total failure) and
-        /// diagnostics counters.
+        /// Runs the post-load strip using the default <see cref="DefaultVesselEnumeration"/>
+        /// that reads live <c>FlightGlobals.Vessels</c>.
         /// </summary>
         internal static PostLoadStripResult Strip(RewindPoint rp, int selectedSlotIndex)
+        {
+            return Strip(rp, selectedSlotIndex, DefaultVesselEnumeration.Instance);
+        }
+
+        /// <summary>
+        /// Testable overload: callers inject an <see cref="IVesselEnumeration"/>
+        /// so the algorithm operates on mock candidates.
+        /// </summary>
+        internal static PostLoadStripResult Strip(
+            RewindPoint rp, int selectedSlotIndex, IVesselEnumeration source)
         {
             var result = new PostLoadStripResult
             {
@@ -56,32 +65,35 @@ namespace Parsek
                 ParsekLog.Warn(Tag, "Strip called with null rp");
                 return result;
             }
-
-            var allVessels = SafeGetAllVessels();
-            if (allVessels == null || allVessels.Count == 0)
+            if (source == null)
             {
-                ParsekLog.Info(Tag,
-                    $"Strip stripped=[] selected=none ghostsGuarded=0 leftAlone=0 fallbackMatches=0 " +
-                    $"(FlightGlobals empty rp={rp.RewindPointId})");
+                ParsekLog.Warn(Tag, "Strip called with null source");
                 return result;
             }
 
-            // Two passes so stripping does not mutate the iterator.
-            var matches = new List<(Vessel v, int slotIdx, bool viaFallback)>();
-
-            for (int i = 0; i < allVessels.Count; i++)
+            var candidates = source.EnumerateVessels();
+            if (candidates == null)
             {
-                var v = allVessels[i];
+                ParsekLog.Info(Tag,
+                    $"Strip stripped=[] selected=none ghostsGuarded=0 leftAlone=0 fallbackMatches=0 " +
+                    $"(enumerator returned null rp={rp.RewindPointId})");
+                return result;
+            }
+
+            var matches = new List<(IStrippableVessel v, int slotIdx, bool viaFallback)>();
+
+            foreach (var v in candidates)
+            {
                 if (v == null) continue;
 
-                uint pid = v.persistentId;
+                uint pid = v.PersistentId;
 
                 // Ghost ProtoVessel guard (§7.38).
                 if (GhostMapPresence.IsGhostMapVessel(pid))
                 {
                     result.GhostsGuarded++;
                     ParsekLog.Verbose(Tag,
-                        $"Strip guard: ghost-ProtoVessel v={pid} name='{v.vesselName}'");
+                        $"Strip guard: ghost-ProtoVessel v={pid} name='{v.VesselName}'");
                     continue;
                 }
 
@@ -94,16 +106,7 @@ namespace Parsek
                 }
 
                 // Fallback match via root-part persistentId.
-                uint rootPid = 0u;
-                try
-                {
-                    if (v.rootPart != null)
-                        rootPid = v.rootPart.persistentId;
-                }
-                catch
-                {
-                    rootPid = 0u;
-                }
+                uint rootPid = v.RootPartPersistentId;
                 if (rootPid != 0u && rp.RootPartPidMap != null
                     && rp.RootPartPidMap.TryGetValue(rootPid, out slotIdx))
                 {
@@ -117,27 +120,24 @@ namespace Parsek
                 // Unrelated vessel.
                 result.LeftAlone++;
                 ParsekLog.Verbose(Tag,
-                    $"Strip leaveAlone: unrelated v={pid} name='{v.vesselName}'");
+                    $"Strip leaveAlone: unrelated v={pid} name='{v.VesselName}'");
             }
 
-            // Apply decisions.
+            IStrippableVessel selected = null;
             for (int i = 0; i < matches.Count; i++)
             {
                 var m = matches[i];
                 if (m.slotIdx == selectedSlotIndex)
                 {
-                    if (result.SelectedVessel == null)
+                    if (selected == null)
                     {
-                        result.SelectedVessel = m.v;
+                        selected = m.v;
                     }
                     else
                     {
-                        // Two vessels claim the same selected slot. Keep the
-                        // first and strip subsequent duplicates so the active
-                        // vessel is deterministic.
                         ParsekLog.Warn(Tag,
                             $"Multiple vessels match selectedSlot={selectedSlotIndex}; " +
-                            $"keeping pid={result.SelectedVessel.persistentId}, stripping pid={m.v.persistentId}");
+                            $"keeping pid={selected.PersistentId}, stripping pid={m.v.PersistentId}");
                         StripVessel(m.v, result);
                     }
                 }
@@ -147,10 +147,11 @@ namespace Parsek
                 }
             }
 
+            result.SelectedVessel = selected?.LiveVessel;
+            result.SelectedPid = selected != null ? selected.PersistentId : 0u;
+
             string strippedIds = string.Join(",", result.StrippedPids.ConvertAll(p => p.ToString()).ToArray());
-            string selectedStr = result.SelectedVessel != null
-                ? result.SelectedVessel.persistentId.ToString()
-                : "none";
+            string selectedStr = selected != null ? selected.PersistentId.ToString() : "none";
             ParsekLog.Info(Tag,
                 $"Strip stripped=[{strippedIds}] selected={selectedStr} " +
                 $"ghostsGuarded={result.GhostsGuarded} leftAlone={result.LeftAlone} " +
@@ -159,10 +160,10 @@ namespace Parsek
             return result;
         }
 
-        private static void StripVessel(Vessel v, PostLoadStripResult result)
+        private static void StripVessel(IStrippableVessel v, PostLoadStripResult result)
         {
             if (v == null) return;
-            uint pid = v.persistentId;
+            uint pid = v.PersistentId;
             try
             {
                 v.Die();
@@ -171,36 +172,101 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    $"Strip Die() threw for v={pid} name='{v.vesselName}': {ex.Message}");
-            }
-        }
-
-        // Test seam: production reads FlightGlobals.Vessels; tests assign this to
-        // drive the enumeration without a live KSP scene.
-        internal static Func<IList<Vessel>> AllVesselsOverrideForTesting;
-
-        private static IList<Vessel> SafeGetAllVessels()
-        {
-            if (AllVesselsOverrideForTesting != null)
-                return AllVesselsOverrideForTesting();
-            try
-            {
-                return FlightGlobals.Vessels;
-            }
-            catch
-            {
-                return null;
+                    $"Strip Die() threw for v={pid} name='{v.VesselName}': {ex.Message}");
             }
         }
     }
 
     /// <summary>
-    /// Diagnostics output from <see cref="PostLoadStripper.Strip"/>.
+    /// Abstraction over a single live vessel for the post-load strip. Production
+    /// wraps a <see cref="Vessel"/>; tests wrap a POCO with pre-set identifiers.
+    /// </summary>
+    internal interface IStrippableVessel
+    {
+        uint PersistentId { get; }
+        uint RootPartPersistentId { get; }
+        string VesselName { get; }
+
+        /// <summary>
+        /// The underlying <see cref="Vessel"/>, or null in test harnesses.
+        /// The activate step (SetActiveVessel) needs a live Vessel; test
+        /// harnesses observe that the selected stub was returned and skip
+        /// the activate call.
+        /// </summary>
+        Vessel LiveVessel { get; }
+
+        /// <summary>Despawns the vessel (production: <c>Vessel.Die()</c>).</summary>
+        void Die();
+    }
+
+    /// <summary>
+    /// Injectable source of <see cref="IStrippableVessel"/> candidates. The
+    /// default implementation reads <c>FlightGlobals.Vessels</c>.
+    /// </summary>
+    internal interface IVesselEnumeration
+    {
+        IEnumerable<IStrippableVessel> EnumerateVessels();
+    }
+
+    internal sealed class DefaultVesselEnumeration : IVesselEnumeration
+    {
+        internal static readonly IVesselEnumeration Instance = new DefaultVesselEnumeration();
+        private DefaultVesselEnumeration() { }
+
+        public IEnumerable<IStrippableVessel> EnumerateVessels()
+        {
+            IList<Vessel> vessels;
+            try { vessels = FlightGlobals.Vessels; }
+            catch { vessels = null; }
+            if (vessels == null) yield break;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                var v = vessels[i];
+                if (v == null) continue;
+                yield return new LiveVesselAdapter(v);
+            }
+        }
+
+        private sealed class LiveVesselAdapter : IStrippableVessel
+        {
+            private readonly Vessel vessel;
+            public LiveVesselAdapter(Vessel v) { vessel = v; }
+            public uint PersistentId => vessel != null ? vessel.persistentId : 0u;
+            public uint RootPartPersistentId
+            {
+                get
+                {
+                    try
+                    {
+                        return vessel != null && vessel.rootPart != null
+                            ? vessel.rootPart.persistentId
+                            : 0u;
+                    }
+                    catch { return 0u; }
+                }
+            }
+            public string VesselName => vessel != null ? vessel.vesselName : null;
+            public Vessel LiveVessel => vessel;
+            public void Die()
+            {
+                if (vessel != null) vessel.Die();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Diagnostics output from <see cref="PostLoadStripper.Strip(RewindPoint, int)"/>.
     /// </summary>
     internal struct PostLoadStripResult
     {
-        /// <summary>Vessel that matched the selected slot (may be null on failure).</summary>
+        /// <summary>Live vessel that matched the selected slot (may be null on failure or in tests).</summary>
         public Vessel SelectedVessel;
+
+        /// <summary>
+        /// PID of the vessel that matched the selected slot, even when
+        /// <see cref="SelectedVessel"/> is null (test harnesses use stubs).
+        /// </summary>
+        public uint SelectedPid;
 
         /// <summary>PIDs of vessels that were despawned via <c>Vessel.Die()</c>.</summary>
         public List<uint> StrippedPids;

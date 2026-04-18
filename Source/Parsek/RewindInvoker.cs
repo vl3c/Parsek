@@ -285,7 +285,7 @@ namespace Parsek
                 yield break;
             }
 
-            if (stripResult.SelectedVessel == null)
+            if (stripResult.SelectedPid == 0u || stripResult.SelectedVessel == null)
             {
                 ParsekLog.Error(InvokeTag,
                     $"Activate failed: selected vessel not present on reload " +
@@ -321,7 +321,7 @@ namespace Parsek
 
             ParsekLog.Info(InvokeTag,
                 $"Invocation complete: sess={sessionId} rp={rp.RewindPointId} " +
-                $"slot={selected?.SlotIndex ?? -1} activePid={stripResult.SelectedVessel.persistentId}");
+                $"slot={selected?.SlotIndex ?? -1} activePid={stripResult.SelectedPid}");
         }
 
         /// <summary>
@@ -335,7 +335,7 @@ namespace Parsek
         {
             if (rp == null) throw new ArgumentNullException(nameof(rp));
             if (selected == null) throw new ArgumentNullException(nameof(selected));
-            if (stripResult.SelectedVessel == null)
+            if (stripResult.SelectedPid == 0u)
                 throw new InvalidOperationException("AtomicMarkerWrite: no selected vessel");
 
             var scenario = ParsekScenario.Instance;
@@ -397,9 +397,7 @@ namespace Parsek
                 ProvisionalForRpId = rp.RewindPointId,
                 ParentBranchPointId = originChild?.ParentBranchPointId ?? rp.BranchPointId,
                 TreeId = originChild?.TreeId,
-                VesselPersistentId = stripResult.SelectedVessel != null
-                    ? stripResult.SelectedVessel.persistentId
-                    : 0u,
+                VesselPersistentId = stripResult.SelectedPid,
                 VesselName = stripResult.SelectedVessel != null
                     ? stripResult.SelectedVessel.vesselName
                     : (originChild?.VesselName ?? "Re-fly"),
