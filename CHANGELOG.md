@@ -52,6 +52,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Ghost playback with short loop periods no longer stacks multiple ghosts near the launch pad. Minimum loop period is now 5 s (was 1 s). When the requested period would produce more simultaneously-live ghosts than the per-recording cap, the engine automatically halves the launch cadence (doubles the period) until the cycles fit — so ghosts spread visibly across the whole trajectory instead of being silently culled. A one-line log explains the adjustment per recording.
+
 - `#441` Legacy flights whose net science or reputation was negative now reconcile cleanly on load instead of being skipped — the load-time migration injects a spending-side synthetic and the ledger purges it with the tree on discard. Long missions that overlap unrelated KSC activity (contract accept, part purchase) no longer silently drop their persisted residuals, and optimizer merges that absorb a tree's root recording retag any ledger synthetics to the new root so they survive subsequent reconcile passes.
 - Every non-revert tree-commit path (post-revert merge dialog, scene-exit auto-merge, Esc > Abort Mission auto-commit, and the OnSave safety-net auto-commit) now disarms the legacy lump-sum replay path on the just-committed tree, matching the in-flight Commit Flight behavior so the next FLIGHT scene cannot re-credit those resources on top of the ledger.
 - Pre-existing committed flights now reconcile their funds/science/reputation against the ledger on load, so saves that persisted a tree's lump-sum delta no longer cause a silent drawdown after revert/rewind cycles.

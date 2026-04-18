@@ -156,41 +156,39 @@ namespace Parsek.Tests
         [Fact]
         public void NegativeInterval_ClampsToMinCycleDuration()
         {
-            // #381: negative intervals no longer mean "zero-pause" (old behavior). They
-            // clamp to MinCycleDuration = 1s (extreme overlap semantics). The phase is
-            // computed as if period=1; overlap dispatch is someone else's problem.
-            // duration=100, period=-5 → cycleDuration=1. elapsed=150 → cycle=150, phase=0.
+            // #443: negative intervals clamp to MinCycleDuration = 5s. duration=100, period=-5
+            // → cycleDuration=5. elapsed=150 → cycle=floor(150/5)=30, phase=0.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 250.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: -5.0);
 
             Assert.Equal(100.0, loopUT);
-            Assert.Equal(150, cycleIndex);
+            Assert.Equal(30, cycleIndex);
             Assert.False(isInPause);
         }
 
         [Fact]
         public void ZeroInterval_ClampsToMinCycleDuration()
         {
-            // #381: period=0 is below MinCycleDuration=1, so cycleDuration=1.
-            // duration=100, elapsed=150 → cycle=150, phase=0.
+            // #443: period=0 is below MinCycleDuration=5, so cycleDuration=5.
+            // duration=100, elapsed=150 → cycle=floor(150/5)=30, phase=0.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 250.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 0.0);
 
             Assert.Equal(100.0, loopUT);
-            Assert.Equal(150, cycleIndex);
+            Assert.Equal(30, cycleIndex);
             Assert.False(isInPause);
         }
 
         [Fact]
         public void ZeroInterval_NeverInPause_AtRecordingEnd()
         {
-            // #381: period clamps to 1, period <= duration so no pause window.
-            // At UT 200, elapsed=100, cycleDuration=1 → cycle=100, phase=0.
+            // #443: period clamps to 5, period <= duration so no pause window.
+            // At UT 200, elapsed=100, cycleDuration=5 → cycle=floor(100/5)=20, phase=0.
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
                 currentUT: 200.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 0.0);
 
             Assert.Equal(100.0, loopUT);
-            Assert.Equal(100, cycleIndex);
+            Assert.Equal(20, cycleIndex);
             Assert.False(isInPause);
         }
 
@@ -290,12 +288,12 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeOverlapCycleLoopUT_NegativeInterval_DefensivelyClamped()
         {
-            // #409 × #381: defensive negative-interval clamp. Period clamps to MinCycleDuration=1.
-            // cycle 3: cycleStartUT = 100 + 3*1 = 103. currentUT=120 → phase=17, clamp to 50 no, phase=17 < 50.
+            // #443: defensive negative-interval clamp. Period clamps to MinCycleDuration=5.
+            // cycle 3: cycleStartUT = 100 + 3*5 = 115. currentUT=120 → phase=5 < 50 (duration).
             double loopUT = GhostPlaybackLogic.ComputeOverlapCycleLoopUT(
                 currentUT: 120.0, loopStartUT: 100.0, duration: 50.0,
                 intervalSeconds: -5.0, loopCycleIndex: 3);
-            Assert.Equal(117.0, loopUT); // 100 + 17
+            Assert.Equal(105.0, loopUT); // 100 + 5
         }
 
         [Fact]
@@ -621,6 +619,93 @@ namespace Parsek.Tests
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Null(target.LoopAnchorBodyName);
+        }
+    }
+
+    #endregion
+
+    #region ComputeEffectiveLaunchCadence Tests (#443)
+
+    public class ComputeEffectiveLaunchCadence_Tests
+    {
+        [Fact]
+        public void WithinCap_ReturnsUserPeriod()
+        {
+            // period=30, duration=60, cap=20 -> ceil(60/30)=2 <= 20 -> no adjustment.
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 30.0, duration: 60.0, maxCycles: 20);
+            Assert.Equal(30.0, effective);
+        }
+
+        [Fact]
+        public void PeriodBelowMin_ClampedToMinThenPossiblyDoubled()
+        {
+            // period=1 below MinCycleDuration=5 -> clamped to 5.
+            // duration=164, cap=10 -> ceil(164/5)=33 > 10 -> double to 10:
+            // ceil(164/10)=17 > 10 -> double to 20: ceil(164/20)=9 <= 10 -> stop.
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 1.0, duration: 164.0, maxCycles: 10);
+            Assert.Equal(20.0, effective);
+        }
+
+        [Fact]
+        public void ExceedsCap_DoubledUntilFits()
+        {
+            // period=5, duration=1000, cap=10.
+            // 5 -> 10 -> 20 -> 40 -> 80: ceil(1000/80)=13 > 10. -> 160: ceil(1000/160)=7 <= 10.
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 1000.0, maxCycles: 10);
+            Assert.Equal(160.0, effective);
+        }
+
+        [Fact]
+        public void CapOneDegenerate_DoublesUntilWholeTrajectoryFits()
+        {
+            // cap=1 means only a single cycle allowed. Must double until ceil(100/cadence)=1,
+            // i.e. cadence >= 100. 5 -> 10 -> 20 -> 40 -> 80 -> 160 (160 >= 100, ceil=1).
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 100.0, maxCycles: 1);
+            Assert.Equal(160.0, effective);
+        }
+
+        [Fact]
+        public void ZeroDuration_ReturnsClampedMinPeriod()
+        {
+            // Non-positive duration short-circuits; return the clamped period.
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 0.0, maxCycles: 10);
+            Assert.Equal(5.0, effective);
+        }
+
+        [Fact]
+        public void ZeroCap_ReturnsClampedMinPeriod()
+        {
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 100.0, maxCycles: 0);
+            Assert.Equal(5.0, effective);
+        }
+
+        [Fact]
+        public void HugeDuration_TerminatesInBoundedIterations()
+        {
+            // Pathological large duration must not loop forever. Must fit in the
+            // 64-iteration safety cap and return a finite cadence.
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: 5.0, duration: 1e12, maxCycles: 10);
+            Assert.True(effective >= 5.0);
+            Assert.False(double.IsNaN(effective));
+            Assert.False(double.IsInfinity(effective));
+            // ceil(1e12 / effective) must be <= 10 if we got here.
+            Assert.True(System.Math.Ceiling(1e12 / effective) <= 10);
+        }
+
+        [Fact]
+        public void NaNPeriod_FallsBackToMin()
+        {
+            double effective = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriod: double.NaN, duration: 60.0, maxCycles: 10);
+            // NaN -> clamped to MinCycleDuration=5. 5 -> ceil(60/5)=12 > 10 -> 10: ceil(60/10)=6 <= 10.
+            Assert.Equal(10.0, effective);
         }
     }
 
