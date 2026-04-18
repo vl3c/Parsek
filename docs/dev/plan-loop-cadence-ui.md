@@ -99,9 +99,9 @@ EffectiveLoopDuration(rec), MaxOverlapGhostsPerRecording)`.
   Auto mode keep their existing display rules.
 - Display `effective` converted into `rec.LoopTimeUnit`. Reuse the existing
   conversion helper, but do not blindly reuse the old formatter:
-  `Sec` keeps integer display, clamped `Min` values use up to 2 decimals, and
-  clamped `Hour` values use up to 4 decimals so the effective cadence is not
-  rounded away.
+  clamped display uses enough decimal places to keep the runtime cadence
+  visible in every unit, including near-integer `Sec` floors such as
+  `10.00001s`.
 - Stored value on `Recording.LoopIntervalSeconds` is unchanged.
 
 ### Auto-update trigger
@@ -286,6 +286,8 @@ effective seconds. Tests:
   Expect (30, false).
 - `FormatLoopPeriodDisplayText_ClampedSeconds_ShowsFractionalCadence`:
   26.778s in `Sec` renders as `26.778`, not `26`.
+- `FormatLoopPeriodDisplayText_ClampedSeconds_NearIntegerPreservesPrecision`:
+  10.00001s in `Sec` renders as `10.00001`, not `10`.
 - `FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision`: 26.778s in
   `Min` renders as `0.4463`, not `0.4` / `0.45`.
 - `FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision`: 26.778s in
@@ -294,6 +296,9 @@ effective seconds. Tests:
   display still seeds the edit buffer with the raw stored request.
 - `FormatLoopPeriodEditStartText_Minutes_RoundTripsStoredRawValue` and
   `_Hours_...`: no-op focus/commit in `Min` / `Hour` does not mutate raw.
+- `FormatLoopPeriodEditStartText_InvalidMinutes_FallsBackToExactMinCycle`:
+  invalid stored values in `Min` seed the edit box with an exact 5s fallback,
+  not a rounded `0.1m` / 6s mutation.
 - `BuildLoopPeriodClampTooltip_ContainsKeyNumbers`: tooltip text includes
   effective / requested / duration / cap for cap-driven clamps.
 - `BuildLoopPeriodClampTooltip_MinCycleOnly_DoesNotMentionCap`: minimum-period

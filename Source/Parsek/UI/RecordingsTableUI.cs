@@ -3620,9 +3620,6 @@ namespace Parsek
             if (!preserveSecondResolution)
                 return ParsekUI.FormatLoopValue(displayValue, unit);
 
-            if (unit == LoopTimeUnit.Sec)
-                return displayValue.ToString("0.###", CultureInfo.InvariantCulture);
-
             return displayValue.ToString("0.######", CultureInfo.InvariantCulture);
         }
 
@@ -3631,8 +3628,7 @@ namespace Parsek
         {
             double displayValue = ParsekUI.ConvertFromSeconds(storedSeconds, unit);
             if (double.IsNaN(displayValue) || double.IsInfinity(displayValue))
-                return ParsekUI.FormatLoopValue(
-                    ParsekUI.ConvertFromSeconds(GhostPlaybackLogic.MinCycleDuration, unit), unit);
+                displayValue = ParsekUI.ConvertFromSeconds(GhostPlaybackLogic.MinCycleDuration, unit);
             if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
                 return displayValue.ToString("G17", CultureInfo.InvariantCulture);
 

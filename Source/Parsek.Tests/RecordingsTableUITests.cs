@@ -831,6 +831,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatLoopPeriodDisplayText_ClampedSeconds_NearIntegerPreservesPrecision()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
+                displayedSeconds: 10.00001, unit: LoopTimeUnit.Sec, preserveSecondResolution: true);
+
+            Assert.Equal("10.00001", text);
+        }
+
+        [Fact]
         public void FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision()
         {
             string text = RecordingsTableUI.FormatLoopPeriodDisplayText(
@@ -875,6 +884,16 @@ namespace Parsek.Tests
 
             Assert.True(ParsekUI.TryParseLoopInput(text, LoopTimeUnit.Hour, out double parsed));
             Assert.Equal(26.778, ParsekUI.ConvertToSeconds(parsed, LoopTimeUnit.Hour), 9);
+        }
+
+        [Fact]
+        public void FormatLoopPeriodEditStartText_InvalidMinutes_FallsBackToExactMinCycle()
+        {
+            string text = RecordingsTableUI.FormatLoopPeriodEditStartText(
+                storedSeconds: double.NaN, unit: LoopTimeUnit.Min);
+
+            Assert.True(ParsekUI.TryParseLoopInput(text, LoopTimeUnit.Min, out double parsed));
+            Assert.Equal(5.0, ParsekUI.ConvertToSeconds(parsed, LoopTimeUnit.Min), 9);
         }
 
         [Fact]
