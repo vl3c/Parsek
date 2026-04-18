@@ -282,7 +282,7 @@ namespace Parsek
                 (double)lastPrev.velocity.x * lastPrev.velocity.x +
                 (double)lastPrev.velocity.y * lastPrev.velocity.y +
                 (double)lastPrev.velocity.z * lastPrev.velocity.z);
-            double dtAbs = dtSeconds < 0 ? -dtSeconds : dtSeconds;
+            double dtAbs = Math.Abs(dtSeconds);
             expectedMeters = vMag * dtAbs;
 
             // 5m floor + 2x margin: the velocity sample is one tick stale, the next

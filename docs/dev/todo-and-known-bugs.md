@@ -122,7 +122,7 @@ Both halves are correctly tagged `Active` because they came from the same source
 - `sample-skip` — discontinuity exceeds the velocity-implied gap; points at a real dropped-sample / drift / src-tag bug.
 - `frame-mismatch` — `dt < 0.05 s` but a position jump; points at an interpolation/source-frame bug at the same boundary UT.
 
-**Files:** `Source/Parsek/SessionMerger.cs` (classifier + WARN format), `Source/Parsek.Tests/SessionMergerTests.cs` (5 classifier unit tests + WARN format assertion).
+**Files:** `Source/Parsek/SessionMerger.cs` (classifier + WARN format), `Source/Parsek.Tests/SessionMergerTests.cs` (7 classifier unit tests covering no-prev / zero-dt / velocity-matched / sample-skip / floor / NaN / Infinity, plus a parameterised WARN-format assertion that checks the exact `cause=` value across all three buckets).
 
 ---
 

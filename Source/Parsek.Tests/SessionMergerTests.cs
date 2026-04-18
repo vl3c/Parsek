@@ -1034,31 +1034,88 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeTree_DiscontinuityWarning_IncludesClassification()
+        public void ClassifyBoundaryDiscontinuity_NaNVelocity_DefaultsToSampleSkip()
         {
-            // Two adjacent Active sections with a velocity-explained gap — the WARN
-            // should now carry dt=, expectedFromVel=, and cause= fields so future
-            // occurrences are immediately classifiable from the log alone.
-            var prev = MakeSectionWithFrame(0, 0, 0, 70000, new Vector3(100, 0, 0));
-            var next = MakeSectionWithFrame(1.0, 0, 0, 70110, Vector3.zero,
-                source: TrackSectionSource.Active);
-            // Force them not to overlap so ResolveOverlaps doesn't merge/trim them.
-            // MakeSectionWithFrame leaves startUT==endUT; widen the second so it
-            // is sorted strictly after the first.
-            var prevTail = prev; prevTail.endUT = 0.5;
-            var nextHead = next; nextHead.startUT = 1.0; nextHead.endUT = 2.0;
+            // NaN-component velocity: vMag becomes NaN, so expectedMeters is NaN and
+            // tolerance is NaN. Both branch comparisons against NaN are false, so the
+            // classifier falls through to "sample-skip". This pins the silent-default
+            // so a future "fix" that drops NaN-velocity boundaries can't slip past
+            // review without updating this test.
+            var prev = MakeSectionWithFrame(100, 0, 0, 70000,
+                new Vector3(float.NaN, 0, 0));
+            var next = MakeSectionWithFrame(101, 0, 0, 70050, Vector3.zero);
+            SessionMerger.ClassifyBoundaryDiscontinuity(
+                prev, next, hasPrev: true, discMeters: 50f,
+                out double dt, out double expected, out string cause);
+            Assert.InRange(dt, 0.99, 1.01);
+            Assert.True(double.IsNaN(expected),
+                $"Expected NaN expectedMeters with NaN velocity, got {expected}");
+            Assert.Equal("sample-skip", cause);
+        }
+
+        [Fact]
+        public void ClassifyBoundaryDiscontinuity_InfinityVelocity_DefaultsToSampleSkip()
+        {
+            // Infinity-component velocity: same NaN-comparison pattern as the NaN
+            // case above. expectedMeters is Infinity, tolerance is Infinity, the
+            // discMeters <= Infinity branch is true → unrecorded-gap. Pin this so a
+            // future infinity-guard refactor doesn't silently flip the bucket.
+            var prev = MakeSectionWithFrame(100, 0, 0, 70000,
+                new Vector3(float.PositiveInfinity, 0, 0));
+            var next = MakeSectionWithFrame(101, 0, 0, 70050, Vector3.zero);
+            SessionMerger.ClassifyBoundaryDiscontinuity(
+                prev, next, hasPrev: true, discMeters: 50f,
+                out double dt, out double expected, out string cause);
+            Assert.InRange(dt, 0.99, 1.01);
+            Assert.True(double.IsPositiveInfinity(expected),
+                $"Expected +Infinity expectedMeters with +Infinity velocity, got {expected}");
+            Assert.Equal("unrecorded-gap", cause);
+        }
+
+        // Parameterised so a regression that hard-codes a single cause (e.g. always
+        // emits "cause=no-prev") fails for the other rows instead of slipping past
+        // a substring-only assertion.
+        [Theory]
+        [InlineData("unrecorded-gap", 100f, 1.0, 110f)]
+        [InlineData("sample-skip",     10f, 0.5, 500f)]
+        [InlineData("frame-mismatch", 130f, 0.0,  50f)]
+        public void MergeTree_DiscontinuityWarning_IncludesClassification(
+            string expectedCause, float prevVelX, double dtSeconds, float altGapMeters)
+        {
+            // Two adjacent Active sections — the WARN should carry dt=,
+            // expectedFromVel=, and the exact cause= value matching the scenario.
+            // Boundary UT is where prev ends and next starts; prev's last frame is
+            // at boundaryUT, next's first frame is at boundaryUT + dtSeconds, so the
+            // computed dt between frames equals dtSeconds.
+            const double boundaryUT = 1.0;
+            var prev = MakeSectionWithFrame(boundaryUT, 0, 0, 70000,
+                new Vector3(prevVelX, 0, 0));
+            var next = MakeSectionWithFrame(boundaryUT + dtSeconds, 0, 0,
+                70000 + altGapMeters, Vector3.zero, source: TrackSectionSource.Active);
+            // MakeSectionWithFrame leaves startUT==endUT (zero duration). Widen each
+            // so ResolveOverlaps doesn't drop them as zero-duration sections. The
+            // sections must be non-overlapping and ordered (prev before next).
+            var prevTail = prev;
+            prevTail.startUT = 0.0;
+            prevTail.endUT = boundaryUT;
+            var nextHead = next;
+            nextHead.startUT = boundaryUT + dtSeconds;
+            nextHead.endUT = boundaryUT + dtSeconds + 1.0;
+            // For dt=0 the two sections share the same boundary UT (prev.endUT ==
+            // next.startUT == boundaryUT) — adjacent, not overlapping.
             var rec = MakeRecording("rec-449", "Diag Vessel",
                 new List<TrackSection> { prevTail, nextHead });
             var tree = MakeTree("449 Test", rec);
 
             SessionMerger.MergeTree(tree);
 
+            // Strict: substring match for the exact cause= value (not just "cause=").
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Merger]") &&
                 l.Contains("boundary discontinuity=") &&
                 l.Contains("dt=") &&
                 l.Contains("expectedFromVel=") &&
-                l.Contains("cause="));
+                l.Contains("cause=" + expectedCause));
         }
 
         #endregion
