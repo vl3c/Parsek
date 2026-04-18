@@ -465,8 +465,27 @@ namespace Parsek
             double firstFunds = rec.Points[0].funds;
             double buildCost = rec.PreLaunchFunds - firstFunds;
 
+            // #445: KSP fires TransactionReasons.VesselRollout BEFORE PreLaunchFunds is
+            // captured (rollout deducts at editor->launchpad transition; CapturePreLaunchResources
+            // runs at launchpad->flying). So in the normal launch+record flow the rollout
+            // cost has already been written to the ledger by OnVesselRolloutSpending and
+            // buildCost above is ~0. Adopt that rollout action onto this recording so the
+            // ledger associates the cost with the trip instead of leaving it null-tagged.
+            var adopted = TryAdoptRolloutAction(recordingId, startUT);
+
             if (buildCost > 0)
             {
+                if (adopted != null)
+                {
+                    // Rare case: rollout cost was written and there's still a positive
+                    // delta between PreLaunchFunds and the first frame (e.g. another
+                    // KSP-side deduction landed during launch). Emit the residual on top
+                    // of the adopted rollout action so neither cost goes missing.
+                    ParsekLog.Verbose(Tag,
+                        $"CreateVesselCostActions: residual buildCost={buildCost:F0} on top of " +
+                        $"adopted rollout (rolloutCost={adopted.FundsSpent:F0}) for '{recordingId}'");
+                }
+
                 result.Add(new GameAction
                 {
                     UT = startUT,
@@ -478,6 +497,12 @@ namespace Parsek
 
                 ParsekLog.Verbose(Tag,
                     $"CreateVesselCostActions: vessel build cost={buildCost:F0} " +
+                    $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
+            }
+            else if (adopted == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: zero build cost and no rollout adoption " +
                     $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
             }
 
@@ -2067,6 +2092,113 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #445: Called from <see cref="GameStateRecorder.OnFundsChanged"/> when KSP fires a
+        /// <c>TransactionReasons.VesselRollout</c> deduction (player launches a vessel from
+        /// VAB/SPH onto the launchpad/runway). Synthesizes a
+        /// <see cref="GameActionType.FundsSpending"/> with
+        /// <see cref="FundsSpendingSource.VesselBuild"/> at the moment of the deduction so
+        /// the ledger tracks the cost even when the player cancels the rollout without ever
+        /// starting a recording. The <see cref="GameAction.DedupKey"/> is set to
+        /// <c>"rollout:&lt;UT&gt;"</c> so a subsequent recording from the same vessel can
+        /// claim the action via <see cref="TryAdoptRolloutAction"/> instead of double-charging.
+        /// </summary>
+        /// <param name="ut">Universal time of the rollout transaction.</param>
+        /// <param name="cost">Positive funds amount KSP deducted (rollout cost).</param>
+        internal static void OnVesselRolloutSpending(double ut, double cost)
+        {
+            Initialize();
+
+            if (cost <= 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRolloutSpending: non-positive cost={cost:F1} at UT={ut:F1}, skipping");
+                return;
+            }
+
+            kscSequenceCounter++;
+            var action = new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.FundsSpending,
+                RecordingId = null,
+                FundsSpent = (float)cost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                DedupKey = "rollout:" + ut.ToString("R", CultureInfo.InvariantCulture),
+                Sequence = kscSequenceCounter
+            };
+
+            Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"VesselRollout spending recorded: cost={cost:F0}, UT={ut:F1}, dedupKey={action.DedupKey}");
+
+            // Reuse the KSC reconciliation path. Classifier returns ExpectedReasonKey=
+            // "VesselRollout" for FundsSpending(VesselBuild), so the matching FundsChanged
+            // event emitted by OnFundsChanged is paired and any drift logs WARN.
+            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, ut);
+
+            RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// #445: Searches the ledger for an unclaimed rollout-tagged
+        /// <see cref="FundsSpendingSource.VesselBuild"/> action within
+        /// <see cref="RolloutAdoptionWindowSeconds"/> game seconds before
+        /// <paramref name="startUT"/>. If found, transfers ownership to
+        /// <paramref name="recordingId"/> by setting
+        /// <see cref="GameAction.RecordingId"/> and clearing
+        /// <see cref="GameAction.DedupKey"/>. Returns the adopted action or <c>null</c>.
+        /// <para>
+        /// Adoption avoids double-charging when a recording starts from a vessel that has
+        /// already incurred the rollout deduction at the launchpad.
+        /// </para>
+        /// </summary>
+        internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null) continue;
+                if (a.Type != GameActionType.FundsSpending) continue;
+                if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) continue;
+                if (!string.IsNullOrEmpty(a.RecordingId)) continue; // already adopted
+                if (string.IsNullOrEmpty(a.DedupKey)) continue;
+                if (!a.DedupKey.StartsWith("rollout:", StringComparison.Ordinal)) continue;
+                // Window: rollout fires immediately before launch; recording start UT is
+                // typically a few seconds later. Allow a minute of slack to cover scene
+                // load + auto-record startup latency, but no more — we don't want to claim
+                // a rollout from a different launch session.
+                if (a.UT > startUT + 0.5) continue;
+                if (startUT - a.UT > RolloutAdoptionWindowSeconds) continue;
+
+                string oldDedup = a.DedupKey;
+                a.RecordingId = recordingId;
+                a.DedupKey = null;
+                ParsekLog.Info(Tag,
+                    $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
+                    $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
+                    $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s)");
+                return a;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"TryAdoptRolloutAction: no unclaimed rollout action within {RolloutAdoptionWindowSeconds:F0}s " +
+                $"before startUT={startUT:F1} for recording '{recordingId}'");
+            return null;
+        }
+
+        /// <summary>
+        /// #445: maximum game-seconds gap between a <c>TransactionReasons.VesselRollout</c>
+        /// deduction and the start of the recording that should claim it. Sized to cover
+        /// scene transition + auto-record startup latency without spanning unrelated
+        /// launches.
+        /// </summary>
+        internal const double RolloutAdoptionWindowSeconds = 60.0;
+
+        /// <summary>
         /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
         /// KSC-write path: <see cref="Untransformed"/> types have raw action fields that
         /// equal the post-walk contribution (WARN on missing/mismatched event);
@@ -2116,9 +2248,10 @@ namespace Parsek
                 // ---- Untransformed: raw field equals post-walk contribution. ----
 
                 case GameActionType.FundsSpending:
-                    // The KSC path uses FundsSpending only for part purchases (via
-                    // ConvertPartPurchased → source=Other); vessel build comes from the
-                    // flight path, facility/hire/strategy use their own action types.
+                    // The KSC path uses FundsSpending for part purchases (via
+                    // ConvertPartPurchased → source=Other) and for rollout deductions
+                    // (#445, OnVesselRolloutSpending → source=VesselBuild). Each pairs
+                    // with a different KSP TransactionReasons key on FundsChanged.
                     // Strategy input (source=Strategy) is not yet captured on KSC (Phase
                     // E1.5) — skip if we ever see it.
                     if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
@@ -2127,6 +2260,16 @@ namespace Parsek
                         {
                             Class = KscReconcileClass.Transformed,
                             SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
+                        };
+                    }
+                    if (action.FundsSpendingSource == FundsSpendingSource.VesselBuild)
+                    {
+                        return new KscActionExpectation
+                        {
+                            Class = KscReconcileClass.Untransformed,
+                            EventType = GameStateEventType.FundsChanged,
+                            ExpectedReasonKey = "VesselRollout",
+                            ExpectedDelta = -action.FundsSpent
                         };
                     }
                     return new KscActionExpectation

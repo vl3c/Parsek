@@ -260,17 +260,17 @@ Prefer the full re-evaluation — it also defends against the same stale-local p
 
 ---
 
-## 445. `VesselRollout` without a subsequent recording leaks the build cost
+## ~~445. `VesselRollout` without a subsequent recording leaks the build cost~~
 
 **Source:** investigation around todo #442 / #444. `LedgerOrchestrator.CreateVesselCostActions:466` derives the vessel build cost from `rec.PreLaunchFunds - rec.Points[0].funds`, which only runs at recording commit. If the player rolls out a vessel, incurs the `FundsChanged(VesselRollout)` deduction, then cancels (never starts recording), no `FundsSpending(VesselBuild)` action is created — and the KSC path has no reconciliation for rollouts that happen without a subsequent recording. The `FundsChanged` event is dropped by `GameStateEventConverter:138-146`'s blanket rule.
 
-**Fix:** Same shape as #444 — route `TransactionReasons.VesselRollout` through `OnKscSpending` / a rename to `OnKscFundsEvent` so a `FundsSpending(VesselBuild)` action is committed at the real transaction moment, not deferred to recording commit. When a recording later starts from the same vessel, `CreateVesselCostActions` must dedupe against the already-committed action (use `DedupKey = vesselId + startUT` or similar).
+**Fix:** `GameStateRecorder.OnFundsChanged` now forwards `TransactionReasons.VesselRollout` deductions to `LedgerOrchestrator.OnVesselRolloutSpending`, which commits a `FundsSpending(VesselBuild)` action immediately (tagged `RecordingId=null`, `DedupKey="rollout:<UT>"`) and runs the existing KSC reconciliation. `LedgerOrchestrator.ClassifyAction` pairs the new action against `FundsChanged(VesselRollout)` events. `CreateVesselCostActions` calls `TryAdoptRolloutAction` before deriving its own build cost — when an unclaimed rollout sits within `RolloutAdoptionWindowSeconds` (60 s) before `startUT`, the action is re-tagged onto the recording instead of double-charging. Cancelled rollouts simply leave the null-tagged action in the ledger so the funds total stays in sync with KSP.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-510` (CreateVesselCostActions), `Source/Parsek/GameStateRecorder.cs:706-797` (OnFundsChanged).
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs:436-540, 2068-2200` (CreateVesselCostActions, TryAdoptRolloutAction, OnVesselRolloutSpending, ClassifyAction), `Source/Parsek/GameStateRecorder.cs:706-749` (OnFundsChanged), `Source/Parsek.Tests/Bug445RolloutCostLeakTests.cs` (10 tests).
 
 **Scope:** Medium. Crosses two files. Low priority — rare-edge (cancelled rollouts); not a user-visible drain in the default flow. Ship-blockers are #442 first.
 
-**Status:** TODO. Priority: low.
+**Status:** ~~Fixed~~. Priority: low.
 
 ---
 

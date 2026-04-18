@@ -723,15 +723,29 @@ namespace Parsek
                 return;
             }
 
+            double ut = Planetarium.GetUniversalTime();
             Emit(new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
                 valueBefore = oldFunds,
                 valueAfter = newFunds
             }, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+
+            // #445: VesselRollout deducts the vessel cost when the player launches from
+            // VAB/SPH onto the launchpad/runway. KSP captures this BEFORE
+            // FlightRecorder.CapturePreLaunchResources runs, so the recording-side
+            // CreateVesselCostActions sees a near-zero PreLaunchFunds-to-first-point delta
+            // and the cost was previously dropped on the floor (especially when the player
+            // cancels the rollout without ever starting a recording). Route the deduction
+            // through the ledger immediately as a FundsSpending(VesselBuild). A subsequent
+            // recording from the same vessel will adopt this action via TryAdoptRolloutAction.
+            // IsReplayingActions guard mirrors other career-event handlers — KspStatePatcher
+            // replays AddFunds during ledger walks and we must not synthesize new actions.
+            if (reason == TransactionReasons.VesselRollout && delta < 0 && !IsReplayingActions)
+                LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)
