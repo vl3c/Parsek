@@ -44,6 +44,11 @@ Phased rollout of the Rewind-to-Staging feature. Design doc lives at
   `EffectiveState` helper per design §3.4. CI grep gate to enforce no
   raw `CommittedRecordings` / `Ledger.Actions` reads outside the
   subsystem table.
+- **Phase 3+ EffectiveState follow-ups** — deferred semantics wired into the
+  Phase 2 classifier as TODO markers:
+  - `EffectiveState: flip IsUnfinishedFlight from Immutable to CommittedProvisional once classifier lands`
+  - `EffectiveState: widen IsTerminalCrashed to include BGCrash and Crashed kinds`
+  - `EffectiveState: halt EffectiveRecordingId walk at cross-tree boundaries`
 
 ---
 
