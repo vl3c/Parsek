@@ -49,6 +49,14 @@ namespace Parsek
         internal static System.Func<string> TagResolverForTesting;
 
         /// <summary>
+        /// #442: test hook. When non-null, code paths that need a current Universal Time
+        /// (e.g. <see cref="EmitStandaloneProgressReward"/>) call this delegate instead of
+        /// <see cref="Planetarium.GetUniversalTime"/>, which NREs under unit-test
+        /// (Unity-static-free) conditions. Production code never touches it.
+        /// </summary>
+        internal static System.Func<double> UtResolverForTesting;
+
+        /// <summary>
         /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
         /// Resolves the current recording tag, stamps it on the event, logs the emission, and warns
         /// on drift (tagged event with no live recorder / no pending vessel-switch, or in-flight event
@@ -115,6 +123,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;
+            UtResolverForTesting = null;
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
@@ -979,6 +988,70 @@ namespace Parsek
 
             ParsekLog.Info("GameStateRecorder",
                 $"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+        }
+
+        /// <summary>
+        /// #442: emits a fully-populated <see cref="GameStateEventType.MilestoneAchieved"/>
+        /// event for progress nodes whose subclass calls <c>AwardProgress</c> directly
+        /// without going through <c>OnProgressComplete</c> (e.g. <c>RecordsSpeed</c>,
+        /// <c>RecordsAltitude</c>, <c>RecordsDistance</c>, <c>RecordsDepth</c>). Without
+        /// this path the world-record FundsChanged(Progression) deltas are dropped wholesale
+        /// by <see cref="GameStateEventConverter"/>'s drop-rule and the rewards never reach
+        /// the ledger.
+        ///
+        /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c> only when
+        /// no entry exists in <see cref="PendingMilestoneEventByNode"/> — i.e. when the
+        /// usual two-phase emit-then-enrich path did not run. Bypasses the enrichment-map
+        /// indirection entirely: rewards arrive as method parameters and are baked into
+        /// the event detail directly.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void EmitStandaloneProgressReward(
+            ProgressNode node, double funds, float rep, double sci)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: suppressed during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: null node — skipped");
+                return;
+            }
+
+            string milestoneId = QualifyMilestoneId(node);
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "EmitStandaloneProgressReward: empty node Id — skipped");
+                return;
+            }
+
+            double ut = UtResolverForTesting != null
+                ? UtResolverForTesting()
+                : Planetarium.GetUniversalTime();
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = BuildMilestoneDetail(funds, rep, sci)
+            };
+            Emit(evt, "MilestoneAchievedStandalone");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
+                $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+
+            // Mirror the OnProgressComplete KSC-forwarding path so world-record rewards
+            // earned outside flight (rare, but possible — e.g. RecordsAltitude on a sub-
+            // orbital craft already reverted) still reach the ledger immediately.
+            // #431 gate: see OnContractAccepted.
+            if (!IsFlightScene() && string.IsNullOrEmpty(ResolveCurrentRecordingTag()))
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         /// <summary>

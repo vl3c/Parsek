@@ -19,6 +19,14 @@ namespace Parsek.Patches
     /// <c>GameVariables.GetProgressFunds/Rep/Science</c>, but those methods do not exist
     /// in stock KSP's GameVariables (verified via decompile) — the review's fallback
     /// plan of patching AwardProgress directly is the only stable approach.
+    ///
+    /// #442: certain ProgressNode subclasses (RecordsSpeed, RecordsAltitude,
+    /// RecordsDistance, RecordsDepth) call AwardProgress directly without first going
+    /// through Complete()/OnProgressComplete, so no pending event ever lands in
+    /// PendingMilestoneEventByNode. When the postfix sees no pending event for the
+    /// node, it emits a standalone fully-populated MilestoneAchieved event instead of
+    /// silently no-oping. This also mechanically protects against future KSP additions
+    /// that bypass the OnProgressComplete pipeline.
     /// </summary>
     [HarmonyPatch(typeof(ProgressNode), "AwardProgress",
         typeof(string), typeof(float), typeof(float), typeof(float), typeof(CelestialBody))]
@@ -40,8 +48,21 @@ namespace Parsek.Patches
                 }
                 if (__instance == null) return;
 
-                GameStateRecorder.EnrichPendingMilestoneRewards(
-                    __instance, (double)funds, reputation, (double)science);
+                // #442: branch on whether OnProgressComplete already emitted a pending
+                // event for this node. The two cases are mutually exclusive — never enrich
+                // and emit-standalone for the same AwardProgress call.
+                if (GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(__instance))
+                {
+                    GameStateRecorder.EnrichPendingMilestoneRewards(
+                        __instance, (double)funds, reputation, (double)science);
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"No pending event for node '{__instance.Id ?? "<null>"}' — emitting standalone MilestoneAchieved");
+                    GameStateRecorder.EmitStandaloneProgressReward(
+                        __instance, (double)funds, reputation, (double)science);
+                }
             }
             catch (Exception ex)
             {

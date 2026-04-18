@@ -34,6 +34,9 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateRecorder.PendingMilestoneEventByNode.Clear();
+            // #442: Planetarium.GetUniversalTime() NREs under unit tests, so the
+            // standalone-emit path needs the test seam to supply a deterministic UT.
+            GameStateRecorder.UtResolverForTesting = () => 1234.0;
         }
 
         public void Dispose()
@@ -249,6 +252,129 @@ namespace Parsek.Tests
         {
             GameStateRecorder.EnrichPendingMilestoneRewards(null, 1000, 5f, 0);
             // Nothing to assert except no throw.
+        }
+
+        // #442: World-record progress nodes (RecordsSpeed/Altitude/Distance/Depth) call
+        // ProgressNode.AwardProgress directly without firing OnProgressComplete first, so
+        // the two-phase emit-then-enrich path never runs and their funds/rep/sci rewards
+        // are silently dropped by the converter. EmitStandaloneProgressReward closes the
+        // gap by emitting a fully-populated MilestoneAchieved event when the postfix sees
+        // no pending entry for the node.
+
+        [Fact]
+        public void EmitStandaloneProgressReward_AppendsMilestoneEventWithRewards()
+        {
+            var node = new FakeProgressNode("RecordsDistance");
+
+            int before = CountEvents(GameStateEventType.MilestoneAchieved);
+            GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0);
+
+            Assert.Equal(before + 1, CountEvents(GameStateEventType.MilestoneAchieved));
+            var stored = FindLastMilestoneEvent("RecordsDistance");
+            Assert.True(stored.HasValue, "standalone MilestoneAchieved should be in the store");
+            Assert.Contains("funds=4800", stored.Value.detail);
+            Assert.Contains("rep=2", stored.Value.detail);
+            Assert.Contains("sci=0", stored.Value.detail);
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_DoesNotPopulatePendingMap()
+        {
+            // The standalone path bypasses the enrichment-map indirection — the node
+            // must NOT be left in PendingMilestoneEventByNode (otherwise a subsequent
+            // AwardProgress on the same node would erroneously enrich an old event).
+            var node = new FakeProgressNode("RecordsAltitude");
+
+            GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0);
+
+            Assert.False(GameStateRecorder.PendingMilestoneEventByNode.ContainsKey(node));
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_ConvertsToMilestoneActionWithRewards()
+        {
+            // End-to-end: the standalone-emitted event must round-trip through the
+            // converter into a MilestoneAchievement GameAction with non-zero rewards.
+            var node = new FakeProgressNode("RecordsSpeed");
+            GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0);
+
+            var stored = FindLastMilestoneEvent("RecordsSpeed");
+            Assert.True(stored.HasValue);
+
+            var action = GameStateEventConverter.ConvertMilestoneAchieved(stored.Value, null);
+            Assert.Equal("RecordsSpeed", action.MilestoneId);
+            Assert.Equal(4800f, action.MilestoneFundsAwarded);
+            Assert.Equal(2f, action.MilestoneRepAwarded);
+            Assert.Equal(0f, action.MilestoneScienceAwarded);
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_LogsEmissionWithFundsAmount()
+        {
+            var node = new FakeProgressNode("RecordsDepth");
+
+            GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateRecorder]") &&
+                l.Contains("standalone") &&
+                l.Contains("RecordsDepth") &&
+                l.Contains("funds=4800"));
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_NullNode_NoThrowAndNoEvent()
+        {
+            int before = CountEvents(GameStateEventType.MilestoneAchieved);
+
+            GameStateRecorder.EmitStandaloneProgressReward(null, 4800.0, 2.0f, 0.0);
+
+            Assert.Equal(before, CountEvents(GameStateEventType.MilestoneAchieved));
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateRecorder]") && l.Contains("null node"));
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_DuringActionReplay_Suppressed()
+        {
+            // The same suppression guard the OnProgressComplete subscriber uses: while
+            // KspStatePatcher is replaying ledger actions, the synthetic AwardProgress
+            // calls must not emit fresh MilestoneAchieved events back into the store.
+            var node = new FakeProgressNode("RecordsDistance");
+            int before = CountEvents(GameStateEventType.MilestoneAchieved);
+
+            GameStateRecorder.IsReplayingActions = true;
+            try
+            {
+                GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0);
+            }
+            finally
+            {
+                GameStateRecorder.IsReplayingActions = false;
+            }
+
+            Assert.Equal(before, CountEvents(GameStateEventType.MilestoneAchieved));
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateRecorder]") && l.Contains("suppressed during action replay"));
+        }
+
+        private static int CountEvents(GameStateEventType type)
+        {
+            int n = 0;
+            foreach (var e in GameStateStore.Events)
+                if (e.eventType == type) n++;
+            return n;
+        }
+
+        private static GameStateEvent? FindLastMilestoneEvent(string key)
+        {
+            GameStateEvent? hit = null;
+            foreach (var e in GameStateStore.Events)
+            {
+                if (e.eventType == GameStateEventType.MilestoneAchieved && e.key == key)
+                    hit = e;
+            }
+            return hit;
         }
 
         /// <summary>
