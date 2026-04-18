@@ -66,6 +66,9 @@ namespace Parsek
         /// <summary>Session GUID that created the RP (null when not session-provisional).</summary>
         public string CreatingSessionId;
 
+        /// <summary>Wall-clock timestamp at RP creation (ISO 8601 UTC string; design §5.1).</summary>
+        public string CreatedRealTime;
+
         private const string NodeName = "POINT";
 
         /// <summary>Appends a <c>POINT</c> child node to the given parent.</summary>
@@ -83,6 +86,8 @@ namespace Parsek
                 node.AddValue("corrupted", Corrupted.ToString());
             if (!string.IsNullOrEmpty(CreatingSessionId))
                 node.AddValue("creatingSessionId", CreatingSessionId);
+            if (!string.IsNullOrEmpty(CreatedRealTime))
+                node.AddValue("createdRealTime", CreatedRealTime);
 
             if (ChildSlots != null)
             {
@@ -143,6 +148,7 @@ namespace Parsek
                 rp.Corrupted = corrupted;
 
             rp.CreatingSessionId = node.GetValue("creatingSessionId");
+            rp.CreatedRealTime = node.GetValue("createdRealTime");
 
             ConfigNode[] slotNodes = node.GetNodes("CHILD_SLOT");
             rp.ChildSlots = new List<ChildSlot>(slotNodes.Length);

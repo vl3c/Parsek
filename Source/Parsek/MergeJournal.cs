@@ -17,7 +17,13 @@ namespace Parsek
     /// </summary>
     public class MergeJournal
     {
+        /// <summary>
+        /// Per-run marker id; addition to design §5.8. Useful for the orchestrator
+        /// to distinguish repeated staged-commit attempts in logs even when the
+        /// SessionId is reused. ADDITION to design, not a rename.
+        /// </summary>
         public string JournalId;
+
         public string SessionId;
 
         /// <summary>
@@ -27,6 +33,12 @@ namespace Parsek
         /// and §6.9 finishers reference the same strings.
         /// </summary>
         public string Phase = Phases.Begin;
+
+        /// <summary>Planetarium UT at which the staged-commit began (design §5.8).</summary>
+        public double StartedUT;
+
+        /// <summary>Wall-clock timestamp at which the staged-commit began (ISO 8601 UTC; design §5.8).</summary>
+        public string StartedRealTime;
 
         /// <summary>Phase vocabulary (design doc sections 5.8 + 6.6).</summary>
         public static class Phases
@@ -45,15 +57,15 @@ namespace Parsek
             node.AddValue("journalId", JournalId ?? "");
             node.AddValue("sessionId", SessionId ?? "");
             node.AddValue("phase", string.IsNullOrEmpty(Phase) ? Phases.Begin : Phase);
-            // UT and wall-clock could be added in later phases; Phase 1 only requires
-            // the fields the design doc enumerates here (JournalId, SessionId, Phase).
-            // Culture shim retained for future float fields.
-            GC.KeepAlive(ic);
+            node.AddValue("startedUT", StartedUT.ToString("R", ic));
+            if (!string.IsNullOrEmpty(StartedRealTime))
+                node.AddValue("startedRealTime", StartedRealTime);
         }
 
         public static MergeJournal LoadFrom(ConfigNode node)
         {
             if (node == null) throw new ArgumentNullException(nameof(node));
+            var ic = CultureInfo.InvariantCulture;
             var j = new MergeJournal();
 
             string jid = node.GetValue("journalId");
@@ -64,6 +76,13 @@ namespace Parsek
 
             string phase = node.GetValue("phase");
             j.Phase = string.IsNullOrEmpty(phase) ? Phases.Begin : phase;
+
+            string utStr = node.GetValue("startedUT");
+            double ut;
+            if (!string.IsNullOrEmpty(utStr) && double.TryParse(utStr, NumberStyles.Float, ic, out ut))
+                j.StartedUT = ut;
+
+            j.StartedRealTime = node.GetValue("startedRealTime");
 
             return j;
         }

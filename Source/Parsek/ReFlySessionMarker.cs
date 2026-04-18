@@ -16,16 +16,28 @@ namespace Parsek
     /// </summary>
     public class ReFlySessionMarker
     {
+        /// <summary>Unique GUID per invocation/retry (design §5.7).</summary>
         public string SessionId;
-        public string OriginRpId;
-        public int OriginSlotIndex;
-        public string ProvisionalRecordingId;
 
-        /// <summary>Wall-clock timestamp (ISO 8601 UTC string).</summary>
-        public string StartRealTime;
+        /// <summary>RecordingTree this re-fly belongs to (design §5.7).</summary>
+        public string TreeId;
 
-        /// <summary>Planetarium UT at which the session was invoked.</summary>
-        public double StartUT;
+        /// <summary>
+        /// The NotCommitted provisional re-fly recording created at §6.3 step 1 (design §5.7).
+        /// </summary>
+        public string ActiveReFlyRecordingId;
+
+        /// <summary>Supersede target — the child recording being re-flown (design §5.7).</summary>
+        public string OriginChildRecordingId;
+
+        /// <summary>Invoked RewindPoint (design §5.7).</summary>
+        public string RewindPointId;
+
+        /// <summary>Planetarium UT at which the session was invoked (design §5.7).</summary>
+        public double InvokedUT;
+
+        /// <summary>Wall-clock timestamp at invocation (ISO 8601 UTC; design §5.7).</summary>
+        public string InvokedRealTime;
 
         internal const string NodeName = "REFLY_SESSION_MARKER";
 
@@ -36,12 +48,13 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             ConfigNode node = parent.AddNode(NodeName);
             node.AddValue("sessionId", SessionId ?? "");
-            node.AddValue("originRpId", OriginRpId ?? "");
-            node.AddValue("originSlotIndex", OriginSlotIndex.ToString(ic));
-            node.AddValue("provisionalRecordingId", ProvisionalRecordingId ?? "");
-            if (!string.IsNullOrEmpty(StartRealTime))
-                node.AddValue("startRealTime", StartRealTime);
-            node.AddValue("startUT", StartUT.ToString("R", ic));
+            node.AddValue("treeId", TreeId ?? "");
+            node.AddValue("activeReFlyRecordingId", ActiveReFlyRecordingId ?? "");
+            node.AddValue("originChildRecordingId", OriginChildRecordingId ?? "");
+            node.AddValue("rewindPointId", RewindPointId ?? "");
+            node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
+            if (!string.IsNullOrEmpty(InvokedRealTime))
+                node.AddValue("invokedRealTime", InvokedRealTime);
         }
 
         /// <summary>Loads from a single <see cref="NodeName"/> node (caller supplies the node directly).</summary>
@@ -54,23 +67,24 @@ namespace Parsek
             string sid = node.GetValue("sessionId");
             m.SessionId = string.IsNullOrEmpty(sid) ? null : sid;
 
-            string rp = node.GetValue("originRpId");
-            m.OriginRpId = string.IsNullOrEmpty(rp) ? null : rp;
+            string tid = node.GetValue("treeId");
+            m.TreeId = string.IsNullOrEmpty(tid) ? null : tid;
 
-            string slotStr = node.GetValue("originSlotIndex");
-            int slot;
-            if (!string.IsNullOrEmpty(slotStr) && int.TryParse(slotStr, NumberStyles.Integer, ic, out slot))
-                m.OriginSlotIndex = slot;
+            string active = node.GetValue("activeReFlyRecordingId");
+            m.ActiveReFlyRecordingId = string.IsNullOrEmpty(active) ? null : active;
 
-            string prov = node.GetValue("provisionalRecordingId");
-            m.ProvisionalRecordingId = string.IsNullOrEmpty(prov) ? null : prov;
+            string origin = node.GetValue("originChildRecordingId");
+            m.OriginChildRecordingId = string.IsNullOrEmpty(origin) ? null : origin;
 
-            m.StartRealTime = node.GetValue("startRealTime");
+            string rp = node.GetValue("rewindPointId");
+            m.RewindPointId = string.IsNullOrEmpty(rp) ? null : rp;
 
-            string utStr = node.GetValue("startUT");
+            string utStr = node.GetValue("invokedUT");
             double ut;
             if (!string.IsNullOrEmpty(utStr) && double.TryParse(utStr, NumberStyles.Float, ic, out ut))
-                m.StartUT = ut;
+                m.InvokedUT = ut;
+
+            m.InvokedRealTime = node.GetValue("invokedRealTime");
 
             return m;
         }

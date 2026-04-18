@@ -14,8 +14,8 @@ namespace Parsek.Tests
             {
                 TombstoneId = "tomb_bcd1",
                 ActionId = "act_09876",
+                RetiringRecordingId = "rec_03333",
                 UT = 1742800.5,
-                Reason = "supersede",
                 CreatedRealTime = "2026-04-18T12:00:00Z"
             };
 
@@ -27,16 +27,16 @@ namespace Parsek.Tests
             var restored = LedgerTombstone.LoadFrom(entry);
             Assert.Equal("tomb_bcd1", restored.TombstoneId);
             Assert.Equal("act_09876", restored.ActionId);
+            Assert.Equal("rec_03333", restored.RetiringRecordingId);
             Assert.Equal(1742800.5, restored.UT);
-            Assert.Equal("supersede", restored.Reason);
             Assert.Equal("2026-04-18T12:00:00Z", restored.CreatedRealTime);
         }
 
         [Fact]
-        public void LedgerTombstone_DefaultReason_PersistsAsSupersede()
+        public void LedgerTombstone_NoRetiringRecordingId_RoundTripsAsNull()
         {
-            // Guards against silent Reason regressions: the default value must survive
-            // save/load even when set via the field initializer.
+            // A tombstone written without a retiring recording id (e.g. a partial
+            // save) must round-trip — loader returns null for missing values.
             var tomb = new LedgerTombstone
             {
                 TombstoneId = "tomb_1",
@@ -47,24 +47,24 @@ namespace Parsek.Tests
             var parent = new ConfigNode("LEDGER_TOMBSTONES");
             tomb.SaveInto(parent);
             var restored = LedgerTombstone.LoadFrom(parent.GetNode("ENTRY"));
-            Assert.Equal("supersede", restored.Reason);
+            Assert.Null(restored.RetiringRecordingId);
         }
 
         [Fact]
-        public void LedgerTombstone_ExplicitReason_OverridesDefault()
+        public void LedgerTombstone_RetiringRecordingId_RoundTripsExactly()
         {
             var tomb = new LedgerTombstone
             {
                 TombstoneId = "tomb_2",
                 ActionId = "act_2",
-                UT = 0.0,
-                Reason = "rebundle"
+                RetiringRecordingId = "rec_new",
+                UT = 0.0
             };
 
             var parent = new ConfigNode("LEDGER_TOMBSTONES");
             tomb.SaveInto(parent);
             var restored = LedgerTombstone.LoadFrom(parent.GetNode("ENTRY"));
-            Assert.Equal("rebundle", restored.Reason);
+            Assert.Equal("rec_new", restored.RetiringRecordingId);
         }
     }
 }

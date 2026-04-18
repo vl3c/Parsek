@@ -23,6 +23,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 Corrupted = false,
                 CreatingSessionId = null,
+                CreatedRealTime = "2026-04-17T21:35:12Z",
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot
@@ -76,6 +77,7 @@ namespace Parsek.Tests
             Assert.Equal(rp.SessionProvisional, restored.SessionProvisional);
             Assert.Equal(rp.Corrupted, restored.Corrupted);
             Assert.Equal(rp.CreatingSessionId, restored.CreatingSessionId);
+            Assert.Equal(rp.CreatedRealTime, restored.CreatedRealTime);
 
             Assert.Equal(3, restored.ChildSlots.Count);
             Assert.Equal(0, restored.ChildSlots[0].SlotIndex);
