@@ -233,12 +233,18 @@ namespace Parsek.Tests
         // --- Engine-level reuse ---
 
         [Fact]
-        public void ReusePrimaryGhostAcrossCycle_NullGhost_WarnsAndSkips()
+        public void ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleAndLogsRateLimited()
         {
-            // Defensive guard: if the ghost GameObject was somehow destroyed
-            // between the caller's `state != null` check and this call, we
-            // must not NRE. Warn so the condition is visible in playtest
-            // logs and return without mutating state.
+            // Defensive guard: if the ghost GameObject was never built (no
+            // vessel snapshot) or was externally destroyed, this helper must
+            // not NRE and must not spam the log. The playtest-reproducer had
+            // a single stuck state fire this WARN ~85×/sec for >80s because
+            // the early-return did not advance loopCycleIndex, so every frame
+            // HasLoopCycleChanged returned true and re-entered this path.
+            // The fix advances loopCycleIndex even on the skip branch so the
+            // infinite re-entry loop breaks, and downgrades the log to
+            // VerboseRateLimited so a genuine regression still leaves a
+            // breadcrumb without 10k lines per session.
             var engine = new GhostPlaybackEngine(positioner: null);
             var state = new GhostPlaybackState
             {
@@ -253,12 +259,56 @@ namespace Parsek.Tests
 
             Assert.Equal(0, engine.FrameSpawnCountForTesting);
             Assert.Equal(0, engine.FrameLazyReentryBuildCountForTesting);
-            // State unchanged: the helper bailed before any reset.
+            // playbackIndex NOT reset — the helper bailed before ResetForLoopCycle.
             Assert.Equal(99, state.playbackIndex);
-            Assert.Equal(4L, state.loopCycleIndex);
+            // loopCycleIndex DOES advance so cycleChanged is false next frame.
+            // Without this, the caller at GhostPlaybackEngine.UpdateLoopingPlayback
+            // re-enters the cycle-boundary block every frame and spams the log.
+            Assert.Equal(5L, state.loopCycleIndex);
+            // Log fires at VERBOSE (rate-limited), not WARN.
             Assert.Contains(logLines, l =>
-                l.Contains("[Engine]") && l.Contains("ReusePrimaryGhostAcrossCycle")
-                && l.Contains("#7"));
+                l.Contains("[VERBOSE]") && l.Contains("[Engine]")
+                && l.Contains("ReusePrimaryGhostAcrossCycle") && l.Contains("#7")
+                && l.Contains("advanced cycle=5"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("ReusePrimaryGhostAcrossCycle"));
+        }
+
+        [Fact]
+        public void ReusePrimaryGhostAcrossCycle_NullGhost_RapidRepeatEmitsAtMostOneLogLine()
+        {
+            // The whole point of the rate-limit downgrade is to prevent the
+            // playtest scenario where a single stuck state fires this log
+            // every frame. Freeze the clock and fire 500 rapid calls — all
+            // fall inside the same 1.0s rate-limit window so exactly ONE
+            // VERBOSE line must hit the sink. If a future refactor drops the
+            // rate-limit key or accidentally routes through `Verbose()` or
+            // `Warn()` directly, this test surfaces the regression.
+            ParsekLog.ClockOverrideForTesting = () => 1000.0;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var state = new GhostPlaybackState { ghost = null, loopCycleIndex = 0 };
+
+            for (int i = 0; i < 500; i++)
+            {
+                engine.ReusePrimaryGhostAcrossCycle(
+                    index: 255, traj: null, flags: default, state,
+                    playbackUT: 0, newCycleIndex: i + 1);
+            }
+
+            int emitted = 0;
+            foreach (var l in logLines)
+            {
+                if (l.Contains("[Engine]") && l.Contains("ReusePrimaryGhostAcrossCycle")
+                    && l.Contains("#255"))
+                    emitted++;
+            }
+            Assert.Equal(1, emitted);
+            // Final loopCycleIndex reflects the LAST call — confirms the
+            // advance-on-skip fix is active every iteration, not just the
+            // first (which is all the log would prove on its own).
+            Assert.Equal(500L, state.loopCycleIndex);
         }
 
         [Fact]

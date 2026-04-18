@@ -2373,8 +2373,17 @@ namespace Parsek
         {
             if (state == null || state.ghost == null)
             {
-                ParsekLog.Warn("Engine",
-                    $"ReusePrimaryGhostAcrossCycle: #{index} called with null ghost — skipping");
+                // Advance loopCycleIndex so HasLoopCycleChanged returns false next
+                // frame — otherwise a state with a null/Unity-destroyed ghost
+                // re-enters this path every frame and spams the log. The ghost
+                // either never built (no snapshot) or was externally destroyed;
+                // the spawn path below is responsible for re-creating it if and
+                // when a snapshot becomes available. Rate-limited so a genuine
+                // regression still leaves a breadcrumb without 85/sec spam.
+                if (state != null)
+                    state.loopCycleIndex = newCycleIndex;
+                ParsekLog.VerboseRateLimited("Engine", $"reuse-skip-null-{index}",
+                    $"ReusePrimaryGhostAcrossCycle: #{index} skipped — state.ghost is null (advanced cycle={newCycleIndex})", 1.0);
                 return;
             }
 
