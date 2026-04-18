@@ -19,6 +19,7 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private readonly HashSet<string> creditedMilestones = new HashSet<string>();
+        private readonly Dictionary<string, int> effectiveMilestoneCounts = new Dictionary<string, int>();
 
         /// <summary>
         /// Resets all credited milestones before a recalculation walk.
@@ -27,6 +28,7 @@ namespace Parsek
         {
             int previousCount = creditedMilestones.Count;
             creditedMilestones.Clear();
+            effectiveMilestoneCounts.Clear();
             ParsekLog.Verbose("Milestones", $"Reset: cleared {previousCount} credited milestones");
         }
 
@@ -62,6 +64,7 @@ namespace Parsek
             {
                 action.Effective = true;
                 creditedMilestones.Add(milestoneId);
+                effectiveMilestoneCounts[milestoneId] = 1;
                 ParsekLog.Verbose("Milestones",
                     $"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
@@ -73,6 +76,10 @@ namespace Parsek
             else if (isRepeatableRecordMilestone)
             {
                 action.Effective = true;
+                if (effectiveMilestoneCounts.TryGetValue(milestoneId, out int currentCount))
+                    effectiveMilestoneCounts[milestoneId] = currentCount + 1;
+                else
+                    effectiveMilestoneCounts[milestoneId] = 1;
                 ParsekLog.Verbose("Milestones",
                     $"Repeatable record milestone '{milestoneId}' stays effective at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
@@ -104,6 +111,17 @@ namespace Parsek
         internal int GetCreditedCount()
         {
             return creditedMilestones.Count;
+        }
+
+        /// <summary>
+        /// Returns how many effective MilestoneAchievement actions survived the current walk
+        /// for the given milestoneId. Repeatable Records* nodes can exceed 1; once-ever
+        /// milestones are either 0 or 1.
+        /// </summary>
+        internal int GetEffectiveMilestoneCount(string milestoneId)
+        {
+            if (milestoneId == null) milestoneId = "";
+            return effectiveMilestoneCounts.TryGetValue(milestoneId, out int count) ? count : 0;
         }
 
         /// <summary>

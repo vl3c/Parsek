@@ -191,6 +191,7 @@ namespace Parsek.Tests
             Assert.True(first.Effective);
             Assert.False(second.Effective);
             Assert.Equal(1, module.GetCreditedCount());
+            Assert.Equal(1, module.GetEffectiveMilestoneCount("FirstOrbit"));
         }
 
         [Fact]
@@ -208,6 +209,7 @@ namespace Parsek.Tests
             Assert.True(second.Effective);
             Assert.True(module.IsMilestoneCredited("RecordsDistance"));
             Assert.Equal(1, module.GetCreditedCount());
+            Assert.Equal(2, module.GetEffectiveMilestoneCount("RecordsDistance"));
         }
 
         // ================================================================

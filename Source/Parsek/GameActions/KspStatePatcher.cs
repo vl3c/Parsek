@@ -18,6 +18,7 @@ namespace Parsek
     internal static class KspStatePatcher
     {
         private const string Tag = "KspStatePatcher";
+        private const double RecordStateEpsilon = 0.000001;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>
@@ -438,7 +439,8 @@ namespace Parsek
         /// <summary>
         /// Patches KSP's ProgressNode achievement tree to match the module's credited milestones.
         /// Iterates the tree recursively, setting reached/complete flags via reflection for
-        /// nodes that should be achieved, and clearing them for nodes that should not be.
+        /// normal once-ever nodes and rebuilding full stock interval state for repeatable
+        /// Records* nodes.
         ///
         /// Body-specific nodes (under CelestialBodySubtree) are matched using path-qualified
         /// IDs ("Mun/Landing"), while top-level nodes use bare IDs ("FirstLaunch").
@@ -514,6 +516,8 @@ namespace Parsek
         /// Recursively patches a ProgressTree's nodes to match credited milestone state.
         /// For each node, computes a qualified ID (body nodes get "BodyName/NodeId"),
         /// checks whether it should be achieved, and sets/clears flags via reflection.
+        /// Repeatable Records* nodes are handled specially: their effective hit count drives
+        /// reached/complete plus the stock numeric record interval state.
         ///
         /// Matching logic: tries qualified path first ("Mun/Landing"), then falls back to
         /// bare node.Id ("Landing") for backward compat with old recordings. The bare-Id
@@ -539,53 +543,73 @@ namespace Parsek
                     ? nodeId
                     : pathPrefix + "/" + nodeId;
 
-                // Check if this milestone should be achieved.
-                // Try qualified path first, then bare Id for backward compat on top-level nodes.
-                bool shouldBeAchieved = milestones.IsMilestoneCredited(qualifiedId);
-                if (!shouldBeAchieved && string.IsNullOrEmpty(pathPrefix))
+                int effectiveCount = milestones.GetEffectiveMilestoneCount(qualifiedId);
+                if (PatchRepeatableRecordNode(
+                    node, effectiveCount, qualifiedId, reachedField, completeField,
+                    out bool repeatableChanged))
                 {
-                    // Top-level node — bare Id is already the qualified path, no fallback needed
-                }
-                else if (!shouldBeAchieved && !string.IsNullOrEmpty(pathPrefix))
-                {
-                    // Body subtree child — try bare Id for backward compat with old recordings
-                    // that stored "Landing" instead of "Mun/Landing"
-                    if (milestones.IsMilestoneCredited(nodeId))
+                    if (repeatableChanged)
                     {
-                        shouldBeAchieved = true;
-                        ParsekLog.Verbose(Tag,
-                            $"PatchMilestones: bare-Id fallback match for '{nodeId}' " +
-                            $"(qualified='{qualifiedId}' not found — old recording?)");
+                        if (effectiveCount > 0)
+                            credited++;
+                        else
+                            unreached++;
                     }
-                }
-
-                bool isCurrentlyAchieved = node.IsComplete;
-
-                if (shouldBeAchieved && !isCurrentlyAchieved)
-                {
-                    // Set achieved via reflection (avoid Complete() which fires GameEvents)
-                    reachedField.SetValue(node, true);
-                    completeField.SetValue(node, true);
-                    credited++;
-
-                    ParsekLog.Verbose(Tag,
-                        $"PatchMilestones: set achieved '{qualifiedId}'");
-                }
-                else if (!shouldBeAchieved && isCurrentlyAchieved)
-                {
-                    // Un-achieve via reflection (no public setters available)
-                    reachedField.SetValue(node, false);
-                    completeField.SetValue(node, false);
-                    if (mannedProp != null) mannedProp.SetValue(node, false, null);
-                    if (unmannedProp != null) unmannedProp.SetValue(node, false, null);
-                    unreached++;
-
-                    ParsekLog.Verbose(Tag,
-                        $"PatchMilestones: cleared achieved '{qualifiedId}'");
+                    else
+                    {
+                        skipped++;
+                    }
                 }
                 else
                 {
-                    skipped++;
+                    // Check if this milestone should be achieved.
+                    // Try qualified path first, then bare Id for backward compat on top-level nodes.
+                    bool shouldBeAchieved = milestones.IsMilestoneCredited(qualifiedId);
+                    if (!shouldBeAchieved && string.IsNullOrEmpty(pathPrefix))
+                    {
+                        // Top-level node — bare Id is already the qualified path, no fallback needed
+                    }
+                    else if (!shouldBeAchieved && !string.IsNullOrEmpty(pathPrefix))
+                    {
+                        // Body subtree child — try bare Id for backward compat with old recordings
+                        // that stored "Landing" instead of "Mun/Landing"
+                        if (milestones.IsMilestoneCredited(nodeId))
+                        {
+                            shouldBeAchieved = true;
+                            ParsekLog.Verbose(Tag,
+                                $"PatchMilestones: bare-Id fallback match for '{nodeId}' " +
+                                $"(qualified='{qualifiedId}' not found — old recording?)");
+                        }
+                    }
+
+                    bool isCurrentlyAchieved = node.IsComplete;
+
+                    if (shouldBeAchieved && !isCurrentlyAchieved)
+                    {
+                        // Set achieved via reflection (avoid Complete() which fires GameEvents)
+                        reachedField.SetValue(node, true);
+                        completeField.SetValue(node, true);
+                        credited++;
+
+                        ParsekLog.Verbose(Tag,
+                            $"PatchMilestones: set achieved '{qualifiedId}'");
+                    }
+                    else if (!shouldBeAchieved && isCurrentlyAchieved)
+                    {
+                        // Un-achieve via reflection (no public setters available)
+                        reachedField.SetValue(node, false);
+                        completeField.SetValue(node, false);
+                        if (mannedProp != null) mannedProp.SetValue(node, false, null);
+                        if (unmannedProp != null) unmannedProp.SetValue(node, false, null);
+                        unreached++;
+
+                        ParsekLog.Verbose(Tag,
+                            $"PatchMilestones: cleared achieved '{qualifiedId}'");
+                    }
+                    else
+                    {
+                        skipped++;
+                    }
                 }
 
                 // Recurse into subtree children
@@ -596,6 +620,284 @@ namespace Parsek
                         qualifiedId, ref credited, ref unreached, ref skipped);
                 }
             }
+        }
+
+        internal struct RepeatableRecordState
+        {
+            public bool Reached;
+            public bool Complete;
+            public double Record;
+            public double RewardThreshold;
+            public int RewardInterval;
+        }
+
+        /// <summary>
+        /// Computes the stock save-state shape for KSP's repeatable record nodes from the
+        /// number of effective ledger hits that survived recalculation.
+        /// </summary>
+        internal static bool TryComputeRepeatableRecordState(
+            ProgressNode node, int effectiveCount, out RepeatableRecordState state)
+        {
+            state = default;
+            if (!TryGetRepeatableRecordDefinition(node, out double maxRecord, out double roundValue))
+                return false;
+
+            if (effectiveCount <= 0)
+            {
+                state.Reached = false;
+                state.Complete = false;
+                state.Record = 0.0;
+                state.RewardThreshold = 0.0;
+                state.RewardInterval = 1;
+                return true;
+            }
+
+            double record = 0.0;
+            for (int i = 0; i < effectiveCount; i++)
+            {
+                int interval = 1;
+                double nextRecord = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
+                    record, maxRecord, roundValue, ref interval);
+                if (double.IsInfinity(nextRecord) || double.IsNaN(nextRecord) ||
+                    nextRecord == double.MaxValue)
+                {
+                    record = maxRecord;
+                    state.Reached = true;
+                    state.Complete = true;
+                    state.Record = record;
+                    state.RewardThreshold = 0.0;
+                    state.RewardInterval = 1;
+                    return true;
+                }
+
+                record = nextRecord;
+            }
+
+            int nextInterval = 1;
+            double nextThreshold = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
+                record, maxRecord, roundValue, ref nextInterval);
+            bool isComplete = nextThreshold == double.MaxValue ||
+                record >= maxRecord - RecordStateEpsilon;
+
+            state.Reached = true;
+            state.Complete = isComplete;
+            state.Record = record;
+            state.RewardThreshold = isComplete ? 0.0 : nextThreshold;
+            state.RewardInterval = isComplete ? 1 : nextInterval;
+            return true;
+        }
+
+        /// <summary>
+        /// Rebuilds live state for KSP's repeatable record nodes
+        /// (RecordsAltitude/Depth/Speed/Distance) from the effective count that survived the
+        /// ledger walk. Returns true when the node was recognized and patched.
+        /// </summary>
+        internal static bool PatchRepeatableRecordNode(
+            ProgressNode node, int effectiveCount, string qualifiedId)
+        {
+            FieldInfo reachedField = typeof(ProgressNode).GetField("reached",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            FieldInfo completeField = typeof(ProgressNode).GetField("complete",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (reachedField == null || completeField == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchMilestones: could not find reached/complete fields for repeatable record patching");
+                return false;
+            }
+
+            return PatchRepeatableRecordNode(node, effectiveCount, qualifiedId,
+                reachedField, completeField, out _);
+        }
+
+        /// <summary>
+        /// Rebuilds live state for KSP's repeatable record nodes
+        /// (RecordsAltitude/Depth/Speed/Distance) from the effective count that survived the
+        /// ledger walk. Returns true when the node was recognized; <paramref name="changed"/>
+        /// indicates whether any live state actually changed.
+        /// </summary>
+        internal static bool PatchRepeatableRecordNode(
+            ProgressNode node, int effectiveCount, string qualifiedId,
+            FieldInfo reachedField, FieldInfo completeField, out bool changed)
+        {
+            changed = false;
+            if (!TryComputeRepeatableRecordState(node, effectiveCount, out var targetState))
+                return false;
+
+            Type nodeType = node.GetType();
+            FieldInfo recordField = nodeType.GetField("record",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            FieldInfo rewardThresholdField = nodeType.GetField("rewardThreshold",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            FieldInfo rewardIntervalField = nodeType.GetField("rewardInterval",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            FieldInfo recordHolderField = nodeType.GetField("recordHolder",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (recordField == null || rewardThresholdField == null || rewardIntervalField == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchMilestones: repeatable node '{qualifiedId}' is missing stock record fields " +
+                    $"(record={recordField != null}, rewardThreshold={rewardThresholdField != null}, " +
+                    $"rewardInterval={rewardIntervalField != null}) — skipping");
+                return true;
+            }
+
+            bool currentReached = node.IsReached;
+            if (currentReached != targetState.Reached)
+            {
+                reachedField.SetValue(node, targetState.Reached);
+                changed = true;
+            }
+
+            bool currentComplete = node.IsComplete;
+            if (currentComplete != targetState.Complete)
+            {
+                completeField.SetValue(node, targetState.Complete);
+                changed = true;
+            }
+
+            double currentRecord = (double)recordField.GetValue(node);
+            if (Math.Abs(currentRecord - targetState.Record) > RecordStateEpsilon)
+            {
+                recordField.SetValue(node, targetState.Record);
+                changed = true;
+            }
+
+            double currentRewardThreshold = (double)rewardThresholdField.GetValue(node);
+            if (Math.Abs(currentRewardThreshold - targetState.RewardThreshold) > RecordStateEpsilon)
+            {
+                rewardThresholdField.SetValue(node, targetState.RewardThreshold);
+                changed = true;
+            }
+
+            int currentRewardInterval = (int)rewardIntervalField.GetValue(node);
+            if (currentRewardInterval != targetState.RewardInterval)
+            {
+                rewardIntervalField.SetValue(node, targetState.RewardInterval);
+                changed = true;
+            }
+
+            if (recordHolderField != null && recordHolderField.GetValue(node) != null)
+            {
+                recordHolderField.SetValue(node, null);
+                changed = true;
+            }
+
+            Action<Vessel> targetIterator = targetState.Complete
+                ? null
+                : CreateRepeatableRecordIterator(node);
+            if (!targetState.Complete && targetIterator == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchMilestones: repeatable node '{qualifiedId}' has no iterateVessels method — future record tracking may stall");
+                targetIterator = node.OnIterateVessels;
+            }
+            if (!object.Equals(node.OnIterateVessels, targetIterator))
+            {
+                node.OnIterateVessels = targetIterator;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchMilestones: synced repeatable record '{qualifiedId}' " +
+                    $"hits={effectiveCount.ToString(IC)} reached={targetState.Reached.ToString(IC)} " +
+                    $"complete={targetState.Complete.ToString(IC)} " +
+                    $"record={targetState.Record.ToString("F1", IC)} " +
+                    $"nextThreshold={targetState.RewardThreshold.ToString("F1", IC)} " +
+                    $"nextInterval={targetState.RewardInterval.ToString(IC)}");
+            }
+
+            return true;
+        }
+
+        private static bool TryGetRepeatableRecordDefinition(
+            ProgressNode node, out double maxRecord, out double roundValue)
+        {
+            maxRecord = 0.0;
+            roundValue = 0.0;
+            if (node == null) return false;
+
+            string maxPropertyName;
+            double fallbackMaxRecord;
+            switch (node.GetType().FullName)
+            {
+                case "KSPAchievements.RecordsAltitude":
+                    maxPropertyName = "maxAltitude";
+                    fallbackMaxRecord = 70000.0;
+                    roundValue = 500.0;
+                    break;
+                case "KSPAchievements.RecordsDepth":
+                    maxPropertyName = "maxDepth";
+                    fallbackMaxRecord = 750.0;
+                    roundValue = 10.0;
+                    break;
+                case "KSPAchievements.RecordsSpeed":
+                    maxPropertyName = "maxSpeed";
+                    fallbackMaxRecord = 2500.0;
+                    roundValue = 5.0;
+                    break;
+                case "KSPAchievements.RecordsDistance":
+                    maxPropertyName = "maxDistance";
+                    fallbackMaxRecord = 100000.0;
+                    roundValue = 1000.0;
+                    break;
+                default:
+                    return false;
+            }
+
+            if (SuppressUnityCallsForTesting)
+            {
+                maxRecord = fallbackMaxRecord;
+                return true;
+            }
+
+            PropertyInfo maxProperty = node.GetType().GetProperty(maxPropertyName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (maxProperty == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchMilestones: repeatable node '{node.Id ?? "<null>"}' missing '{maxPropertyName}' property");
+                return false;
+            }
+
+            object maxValue;
+            try
+            {
+                maxValue = maxProperty.GetValue(node, null);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchMilestones: repeatable node '{node.Id ?? "<null>"}' max lookup via '{maxPropertyName}' threw '{ex.Message}' — using fallback {fallbackMaxRecord.ToString("F1", IC)}");
+                maxRecord = fallbackMaxRecord;
+                return true;
+            }
+
+            if (!(maxValue is double))
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchMilestones: repeatable node '{node.Id ?? "<null>"}' returned non-double max record");
+                return false;
+            }
+
+            maxRecord = (double)maxValue;
+            return true;
+        }
+
+        private static Action<Vessel> CreateRepeatableRecordIterator(ProgressNode node)
+        {
+            if (node == null) return null;
+
+            MethodInfo iterateMethod = node.GetType().GetMethod("iterateVessels",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (iterateMethod == null)
+                return null;
+
+            return Delegate.CreateDelegate(typeof(Action<Vessel>), node, iterateMethod,
+                throwOnBindFailure: false) as Action<Vessel>;
         }
 
         /// <summary>
