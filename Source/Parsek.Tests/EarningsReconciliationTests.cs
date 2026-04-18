@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -301,6 +303,39 @@ namespace Parsek.Tests
             };
         }
 
+        private static object CreateKscExpectationLeg(
+            GameStateEventType eventType,
+            string expectedReasonKey,
+            double expectedDelta,
+            string modeName)
+        {
+            Type legType = typeof(LedgerOrchestrator).GetNestedType(
+                "KscExpectationLeg",
+                BindingFlags.NonPublic);
+            Type modeType = typeof(LedgerOrchestrator).GetNestedType(
+                "KscExpectationLegMode",
+                BindingFlags.NonPublic);
+
+            object leg = Activator.CreateInstance(legType);
+            legType.GetField("IsPresent").SetValue(leg, true);
+            legType.GetField("EventType").SetValue(leg, eventType);
+            legType.GetField("ExpectedReasonKey").SetValue(leg, expectedReasonKey);
+            legType.GetField("ExpectedDelta").SetValue(leg, expectedDelta);
+            legType.GetField("Mode").SetValue(leg, Enum.Parse(modeType, modeName));
+            return leg;
+        }
+
+        private static object CreateKscExpectedLegMatch(GameAction action, object leg)
+        {
+            Type matchType = typeof(LedgerOrchestrator).GetNestedType(
+                "KscExpectedLegMatch",
+                BindingFlags.NonPublic);
+            object match = Activator.CreateInstance(matchType);
+            matchType.GetField("Action").SetValue(match, action);
+            matchType.GetField("Leg").SetValue(match, leg);
+            return match;
+        }
+
         // ---------- Key-match positive (no WARN on correct pair) ----------
 
         [Fact]
@@ -517,6 +552,87 @@ namespace Parsek.Tests
                 l.Contains("no matching"));
             Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
             Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (rep)"));
+        }
+
+        [Fact]
+        public void ReconcileKsc_StrategyActivate_CoalescedRepEvent_ReplaysCurveAcrossAllMatchingLegs()
+        {
+            float repBefore = 500f;
+            var firstAction = new GameAction
+            {
+                UT = 1500.0,
+                Sequence = 1,
+                Type = GameActionType.StrategyActivate,
+                SetupReputationCost = 10f
+            };
+            var secondAction = new GameAction
+            {
+                UT = 1500.0,
+                Sequence = 2,
+                Type = GameActionType.StrategyActivate,
+                SetupReputationCost = 20f
+            };
+            var firstResult = ReputationModule.ApplyReputationCurve(-firstAction.SetupReputationCost, repBefore);
+            var secondResult = ReputationModule.ApplyReputationCurve(-secondAction.SetupReputationCost, firstResult.newRep);
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedRepChanged(1500.0, repBefore, secondResult.newRep, "StrategySetup")
+            };
+            var ledger = new List<GameAction> { secondAction, firstAction };
+
+            ReconcileKsc(events, ledger, firstAction, firstAction.UT);
+            ReconcileKsc(events, ledger, secondAction, secondAction.UT);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+
+        [Fact]
+        public void ComputeExpectedDeltaForLeg_ReputationCurve_SameUtMatchesUseSequenceTiebreaker()
+        {
+            Type matchType = typeof(LedgerOrchestrator).GetNestedType(
+                "KscExpectedLegMatch",
+                BindingFlags.NonPublic);
+            Type matchListType = typeof(List<>).MakeGenericType(matchType);
+            MethodInfo computeMethod = typeof(LedgerOrchestrator).GetMethod(
+                "ComputeExpectedDeltaForLeg",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            var firstAction = new GameAction { UT = 1500.0, Sequence = 1 };
+            var secondAction = new GameAction { UT = 1500.0, Sequence = 2 };
+            object firstLeg = CreateKscExpectationLeg(
+                GameStateEventType.ReputationChanged,
+                "StrategySetup",
+                15.5,
+                "ReputationCurve");
+            object secondLeg = CreateKscExpectationLeg(
+                GameStateEventType.ReputationChanged,
+                "StrategySetup",
+                -5.25,
+                "ReputationCurve");
+            var matches = (IList)Activator.CreateInstance(matchListType);
+            matches.Add(CreateKscExpectedLegMatch(secondAction, secondLeg));
+            matches.Add(CreateKscExpectedLegMatch(firstAction, firstLeg));
+
+            double startingRep = 100.0;
+            double actual = (double)computeMethod.Invoke(
+                null,
+                new object[] { firstLeg, matches, startingRep, 0.001 });
+
+            var forwardFirst = ReputationModule.ApplyReputationCurve(15.5f, (float)startingRep);
+            var forwardSecond = ReputationModule.ApplyReputationCurve(-5.25f, forwardFirst.newRep);
+            double forwardExpected = forwardFirst.actualDelta + forwardSecond.actualDelta;
+            var reverseFirst = ReputationModule.ApplyReputationCurve(-5.25f, (float)startingRep);
+            var reverseSecond = ReputationModule.ApplyReputationCurve(15.5f, reverseFirst.newRep);
+            double reverseExpected = reverseFirst.actualDelta + reverseSecond.actualDelta;
+
+            var sortedFirst = (GameAction)matchType.GetField("Action").GetValue(matches[0]);
+            var sortedSecond = (GameAction)matchType.GetField("Action").GetValue(matches[1]);
+
+            Assert.True(Math.Abs(forwardExpected - reverseExpected) > 0.1);
+            Assert.Equal(1, sortedFirst.Sequence);
+            Assert.Equal(2, sortedSecond.Sequence);
+            Assert.Equal(forwardExpected, actual, 3);
+            Assert.Empty(logLines);
         }
 
         // ---------- Key-match negative (type-correct, key-mismatch → WARN) ----------

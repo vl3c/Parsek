@@ -598,6 +598,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecalculateAndPatch_StrategyActivateSetupCostsAffectScienceAndRepBalances()
+        {
+            LedgerOrchestrator.Initialize();
+            logLines.Clear();
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 20f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 100f
+            });
+
+            var action = new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.StrategyActivate,
+                StrategyId = "AggressiveNegotiations",
+                SetupScienceCost = 4f,
+                SetupReputationCost = 3f
+            };
+            Ledger.AddAction(action);
+
+            var repResult = ReputationModule.ApplyReputationCurve(-3f, 100f);
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(16.0, LedgerOrchestrator.Science.GetRunningScience(), 3);
+            Assert.Equal(16.0, LedgerOrchestrator.Science.GetAvailableScience(), 3);
+            Assert.Equal(4.0, LedgerOrchestrator.Science.GetTotalCommittedSpendings(), 3);
+            Assert.Equal(repResult.actualDelta, action.EffectiveRep, 0.001f);
+            Assert.Equal(repResult.newRep, LedgerOrchestrator.Reputation.GetRunningRep(), 0.001f);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("StrategyActivate science") &&
+                l.Contains("AggressiveNegotiations"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reputation]") &&
+                l.Contains("StrategyActivate rep") &&
+                l.Contains("AggressiveNegotiations"));
+        }
+
+        [Fact]
         public void EndToEnd_OnKscSpending_StrategyDeactivated_WritesNoResourceAction()
         {
             LedgerOrchestrator.Initialize();
