@@ -504,28 +504,22 @@ namespace Parsek
             var trees = RecordingStore.CommittedTrees;
             if (trees == null) return null;
 
+            // Single pass: prefer the tree whose Id matches treeId; otherwise remember
+            // the first match in any other tree as a fallback for legacy recordings
+            // (treeId == null) or mismatched/stale treeId values.
+            BranchPoint fallback = null;
             for (int i = 0; i < trees.Count; i++)
             {
                 var tree = trees[i];
                 if (tree == null) continue;
-                if (!string.IsNullOrEmpty(treeId) && tree.Id != treeId) continue;
                 var bp = FindBranchPointInTree(tree, branchPointId);
-                if (bp != null) return bp;
+                if (bp == null) continue;
+                if (!string.IsNullOrEmpty(treeId) && string.Equals(tree.Id, treeId, StringComparison.Ordinal))
+                    return bp; // short-circuit: preferred tree match
+                if (fallback == null) fallback = bp;
             }
 
-            // Fallback: treeId may be null/mismatched (legacy recordings) — scan all trees.
-            if (!string.IsNullOrEmpty(treeId))
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    var tree = trees[i];
-                    if (tree == null) continue;
-                    var bp = FindBranchPointInTree(tree, branchPointId);
-                    if (bp != null) return bp;
-                }
-            }
-
-            return null;
+            return fallback;
         }
 
         private static BranchPoint FindBranchPointInTree(RecordingTree tree, string branchPointId)
