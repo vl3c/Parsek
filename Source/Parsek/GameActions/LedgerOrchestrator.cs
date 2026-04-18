@@ -2214,7 +2214,9 @@ namespace Parsek
                 if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) continue;
                 if (a.RecordingId != recordingId) continue;
                 if (!IsRolloutDedupKey(a.DedupKey)) continue;
-                if (!RolloutActionMatchesVessel(a.DedupKey, vesselPersistentId)) continue;
+                // Safe legacy compat: older saves may still carry the rollout:<ut> key
+                // with no PID. RecordingId is the authoritative owner here, so once
+                // ownership already matches we do not re-apply vessel matching.
                 return a;
             }
 
@@ -2334,7 +2336,7 @@ namespace Parsek
         {
             uint actionPid = GetRolloutVesselPid(dedupKey);
             if (actionPid == 0 || vesselPersistentId == 0)
-                return true;
+                return false;
             return actionPid == vesselPersistentId;
         }
 

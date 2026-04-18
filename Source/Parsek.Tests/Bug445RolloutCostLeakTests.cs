@@ -317,6 +317,55 @@ namespace Parsek.Tests
             Assert.Equal("rollout:20:130", foreign.DedupKey);
         }
 
+        [Fact]
+        public void TryAdoptRolloutAction_LegacyUnclaimedKey_DoesNotBypassPidGate()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 4000f,
+                RecordingId = null,
+                DedupKey = "rollout:100"
+            });
+
+            Assert.Equal(0u, LedgerOrchestrator.GetRolloutVesselPid("rollout:100"));
+            Assert.False(LedgerOrchestrator.RolloutActionMatchesVessel("rollout:100", 10));
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction(
+                "rec-after-upgrade", startUT: 110.0, vesselPersistentId: 10);
+
+            Assert.Null(adopted);
+
+            var legacy = Ledger.Actions.Single();
+            Assert.Null(legacy.RecordingId);
+            Assert.Equal("rollout:100", legacy.DedupKey);
+        }
+
+        [Fact]
+        public void FindOrAdoptRolloutAction_LegacyOwnedKey_UsesRecordingOwnership()
+        {
+            var legacyOwned = new GameAction
+            {
+                UT = 99.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 5000f,
+                RecordingId = "rec-live",
+                DedupKey = "rollout:99"
+            };
+            Ledger.AddAction(legacyOwned);
+
+            bool ownedDuringRecording;
+            var rollout = LedgerOrchestrator.FindOrAdoptRolloutAction(
+                "rec-live", startUT: 100.0, vesselPersistentId: 10, out ownedDuringRecording);
+
+            Assert.Same(legacyOwned, rollout);
+            Assert.True(ownedDuringRecording);
+            Assert.Equal("rollout:99", rollout.DedupKey);
+        }
+
         // ----------------------------------------------------------------
         // CreateVesselCostActions integration
         // ----------------------------------------------------------------
@@ -546,7 +595,7 @@ namespace Parsek.Tests
         public void RolloutAction_RoundTripsThroughSerializeDeserialize_RemainsAdoptable()
         {
             // PR #307 follow-up made GameAction.Serialize/DeserializeFundsSpending
-            // round-trip the DedupKey. Our new "rollout:<UT>" tag must survive a .sfs
+            // round-trip the DedupKey. Our new "rollout:<pid>:<UT>" tag must survive a .sfs
             // save/load and still be adoptable on the next launch — otherwise a player
             // who quits + reloads after a rollout but before launching would lose the
             // adoption hook and end up double-charged on the next launch+record.
