@@ -22,8 +22,8 @@ namespace Parsek
     /// <para>
     /// Pure static + internal so unit tests can poke a test clock + reset
     /// state between fixtures. Not added to the ERS/ELS allowlist — this
-    /// helper never touches <see cref="RecordingStore.CommittedRecordings"/>
-    /// or <see cref="GameActions.Ledger.Actions"/>.
+    /// helper only reads the filesystem; it touches no recording or ledger
+    /// state.
     /// </para>
     /// </summary>
     internal static class RewindPointDiskUsage
