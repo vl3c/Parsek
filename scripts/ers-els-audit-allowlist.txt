@@ -70,3 +70,20 @@ Source/Parsek/ReconciliationBundle.cs
 # PidSlotMap / RootPartPidMap. This is a physical identity correlation at load
 # time, not a supersede-aware recording lookup.
 Source/Parsek/PostLoadStripper.cs
+
+# --- Phase 7 ERS-exempt files ---
+# SessionSuppressionState (design §3.3 / §10.3) exposes two index-based helpers
+# — IsSuppressedRecordingIndex / the internal id->Recording lookup — that
+# physical-visibility consumers (GhostPlaybackEngine, GhostMapPresence, watch
+# mode) call with raw committed-list indices/ids. Routing through ERS would
+# shift the index space (ERS excludes NotCommitted / superseded / suppressed
+# entries) and break every caller. The suppression predicate is itself the
+# gate that consumers use AFTER the raw lookup, so it must read the raw list.
+Source/Parsek/SessionSuppressionState.cs
+
+# CrewReservationManager.ActiveVesselMatchesReFlyRecording (§3.3.1 dual-
+# residence carve-out) looks up the provisional re-fly recording by id to
+# correlate its VesselPersistentId with the active vessel. The provisional
+# recording is intentionally NotCommitted (§3.1), so ERS filters it out by
+# definition — the raw read is the only way to find it.
+Source/Parsek/CrewReservationManager.cs

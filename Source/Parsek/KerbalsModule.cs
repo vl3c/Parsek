@@ -683,12 +683,40 @@ namespace Parsek
         ///
         /// This is narrower than IsManaged, which also returns true for active stand-ins.
         /// Used by CrewDialogFilterPatch.
+        ///
+        /// <para>Phase 7 of Rewind-to-Staging (design §3.3.1 kerbal dual-residence
+        /// carve-out): when a re-fly session is active and the kerbal is
+        /// currently embodied on the provisional re-fly vessel, the filter is
+        /// bypassed so the player can interact with them (EVA, transfer, etc.)
+        /// despite their reserved / retired state still being in effect.</para>
         /// </summary>
         internal bool ShouldFilterFromCrewDialog(string kerbalName)
         {
             if (string.IsNullOrEmpty(kerbalName)) return false;
-            return reservations.ContainsKey(kerbalName)
+            bool filtered = reservations.ContainsKey(kerbalName)
                 || retiredKerbals.Contains(kerbalName);
+            if (!filtered) return false;
+
+            // §3.3.1 carve-out: a live re-fly crewmember is exempt from
+            // reservation / retirement lock for the session duration.
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster != null)
+            {
+                foreach (ProtoCrewMember pcm in roster.Crew)
+                {
+                    if (pcm == null) continue;
+                    if (!string.Equals(pcm.name, kerbalName, System.StringComparison.Ordinal))
+                        continue;
+                    if (CrewReservationManager.IsLiveReFlyCrew(pcm))
+                    {
+                        ParsekLog.Verbose("ReFlySession",
+                            $"Crew dialog carve-out: '{kerbalName}' is live re-fly crew — bypassing filter");
+                        return false;
+                    }
+                    break;
+                }
+            }
+            return true;
         }
 
         /// <summary>

@@ -84,6 +84,16 @@ namespace Parsek
             return ghostsWithSuppressedIcon.Contains(persistentId);
         }
 
+        /// <summary>
+        /// Phase 7 of Rewind-to-Staging (design §3.3): shared helper — is the
+        /// recording at this index in the active session's SessionSuppressedSubtree?
+        /// Returns false when no session is active or the index is out of range.
+        /// </summary>
+        internal static bool IsSuppressedByActiveSession(int recordingIndex)
+        {
+            return SessionSuppressionState.IsSuppressedRecordingIndex(recordingIndex);
+        }
+
         // ------------------------------------------------------------------
         // Pure data layer (unchanged from original)
         // ------------------------------------------------------------------
@@ -360,6 +370,15 @@ namespace Parsek
             if (traj == null || !HasOrbitData(traj))
                 return null;
 
+            // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
+            // session, suppressed recordings must NOT own map presence. Destroy
+            // any leftover entry from before the session started and skip.
+            if (IsSuppressedByActiveSession(recordingIndex))
+            {
+                RemoveGhostVesselForRecording(recordingIndex, "session-suppressed subtree");
+                return null;
+            }
+
             // Already exists?
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
@@ -385,6 +404,13 @@ namespace Parsek
             int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
         {
             if (traj == null) return null;
+
+            // Phase 7 session-suppression gate (design §3.3).
+            if (IsSuppressedByActiveSession(recordingIndex))
+            {
+                RemoveGhostVesselForRecording(recordingIndex, "session-suppressed subtree");
+                return null;
+            }
 
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
@@ -491,6 +517,7 @@ namespace Parsek
             if (vesselsByRecordingIndex.Count > 0)
             {
                 List<int> toRemove = null;
+                List<int> sessionSuppressedRemove = null;
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
                     int idx = kvp.Key;
@@ -498,6 +525,17 @@ namespace Parsek
                     {
                         if (toRemove == null) toRemove = new List<int>();
                         toRemove.Add(idx);
+                        continue;
+                    }
+
+                    // Phase 7 of Rewind-to-Staging (design §3.3): once a re-fly
+                    // session starts, presence for suppressed recordings is
+                    // pruned here so orbit lines / tracking-station entries
+                    // disappear while the session is live.
+                    if (IsSuppressedByActiveSession(idx))
+                    {
+                        if (sessionSuppressedRemove == null) sessionSuppressedRemove = new List<int>();
+                        sessionSuppressedRemove.Add(idx);
                         continue;
                     }
 
@@ -535,6 +573,16 @@ namespace Parsek
                                 "Removed expired ghost #{0} — UT {1:F1} past visible orbit range",
                                 idx, currentUT));
                     }
+                }
+
+                if (sessionSuppressedRemove != null)
+                {
+                    for (int i = 0; i < sessionSuppressedRemove.Count; i++)
+                        RemoveGhostVesselForRecording(sessionSuppressedRemove[i], "session-suppressed subtree");
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Removed {0} ghost presence(s) for session-suppressed recording(s)",
+                            sessionSuppressedRemove.Count));
                 }
             }
 
@@ -603,6 +651,13 @@ namespace Parsek
             TrajectoryPoint point, double ut)
         {
             if (traj == null) return null;
+
+            // Phase 7 session-suppression gate (design §3.3).
+            if (IsSuppressedByActiveSession(recordingIndex))
+            {
+                RemoveGhostVesselForRecording(recordingIndex, "session-suppressed subtree");
+                return null;
+            }
 
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
@@ -883,13 +938,21 @@ namespace Parsek
             var superseded = FindSupersededRecordingIds(committed);
 
             int created = 0, skippedDebris = 0, skippedSuperseded = 0;
-            int skippedTerminal = 0, skippedNoOrbit = 0;
+            int skippedTerminal = 0, skippedNoOrbit = 0, skippedSessionSuppressed = 0;
             double currentUT = Planetarium.GetUniversalTime();
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 bool isSuperseded = superseded.Contains(rec.RecordingId);
+
+                // Phase 7 of Rewind-to-Staging (design §3.3): don't create
+                // presence for recordings inside the active session's closure.
+                if (IsSuppressedByActiveSession(i))
+                {
+                    skippedSessionSuppressed++;
+                    continue;
+                }
 
                 var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
                 if (!shouldCreate)
@@ -920,9 +983,10 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "(skipped: debris={2} superseded={3} terminal={4} noOrbit={5})",
+                    "(skipped: debris={2} superseded={3} terminal={4} noOrbit={5} sessionSuppressed={6})",
                     created, committed.Count,
-                    skippedDebris, skippedSuperseded, skippedTerminal, skippedNoOrbit));
+                    skippedDebris, skippedSuperseded, skippedTerminal, skippedNoOrbit,
+                    skippedSessionSuppressed));
 
             return created;
         }

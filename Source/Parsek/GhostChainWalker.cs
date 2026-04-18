@@ -33,6 +33,7 @@ namespace Parsek
 
             // Step 2: Scan BranchPoints for claiming events
             int skippedTerminated = 0;
+            int skippedSessionSuppressed = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
@@ -45,14 +46,26 @@ namespace Parsek
                     continue;
                 }
 
-                ScanBranchPointClaims(tree, claimsByPid);
-                ScanBackgroundEventClaims(tree, claimsByPid);
+                ScanBranchPointClaims(tree, claimsByPid, ref skippedSessionSuppressed);
+                ScanBackgroundEventClaims(tree, claimsByPid, ref skippedSessionSuppressed);
             }
 
             if (skippedTerminated > 0)
             {
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "Skipped {0} fully-terminated tree(s)", skippedTerminated));
+            }
+
+            // Phase 7 of Rewind-to-Staging (design §3.3): during an active re-fly
+            // session, recordings in the SessionSuppressedSubtree must not claim
+            // chain tips — the stripped siblings from the RP are no longer in
+            // ERS from the walker's perspective.
+            if (skippedSessionSuppressed > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Skipped {0} claim(s) from session-suppressed recording(s)",
+                        skippedSessionSuppressed));
             }
 
             if (claimsByPid.Count == 0)
@@ -169,7 +182,8 @@ namespace Parsek
         /// with a non-zero TargetVesselPersistentId.
         /// </summary>
         private static void ScanBranchPointClaims(
-            RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid)
+            RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid,
+            ref int skippedSessionSuppressed)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -211,6 +225,16 @@ namespace Parsek
                     continue;
                 }
 
+                // Phase 7 of Rewind-to-Staging (design §3.3): the claiming
+                // recording sits in the stripped sibling subtree during an
+                // active re-fly. Skip the claim so the walker doesn't pin a
+                // chain tip on a recording that's not playing.
+                if (SessionSuppressionState.IsSuppressed(claimingRecordingId))
+                {
+                    skippedSessionSuppressed++;
+                    continue;
+                }
+
                 var link = new ChainLink
                 {
                     recordingId = claimingRecordingId,
@@ -242,7 +266,8 @@ namespace Parsek
         /// if its VesselPersistentId differs from the tree's root lineage vessel PID.
         /// </summary>
         private static void ScanBackgroundEventClaims(
-            RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid)
+            RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid,
+            ref int skippedSessionSuppressed)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -261,6 +286,15 @@ namespace Parsek
 
                 if (!GhostingTriggerClassifier.HasGhostingTriggerEvents(rec))
                     continue;
+
+                // Phase 7 of Rewind-to-Staging (design §3.3): suppress claims
+                // from recordings inside the active session's closure so the
+                // stripped siblings cannot reclaim a chain tip.
+                if (SessionSuppressionState.IsSuppressed(rec.RecordingId))
+                {
+                    skippedSessionSuppressed++;
+                    continue;
+                }
 
                 var link = new ChainLink
                 {
