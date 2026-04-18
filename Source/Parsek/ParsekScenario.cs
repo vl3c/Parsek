@@ -1508,6 +1508,16 @@ namespace Parsek
                         MergeJournalOrchestrator.RunFinisher();
                     }
 
+                    // Phase 13 load-time sweep (design §6.9): validate the
+                    // re-fly session marker, gather + delete zombie
+                    // provisionals, log orphan supersedes / tombstones,
+                    // clear stray transient fields. Runs AFTER the Phase 6
+                    // re-fly dispatch (which may have populated the marker)
+                    // and the Phase 10 finisher (which may have cleared it),
+                    // and BEFORE the Phase 11 reaper (whose input is the
+                    // sweep's post-zombie-removal state).
+                    LoadTimeSweep.Run();
+
                     // Phase 11 housekeeping pass — same rationale as the
                     // cold-start branch below; runs after the finisher so
                     // live-session RPs stay put.
@@ -1697,6 +1707,14 @@ namespace Parsek
                 {
                     MergeJournalOrchestrator.RunFinisher();
                 }
+
+                // Phase 13 of Rewind-to-Staging (design §6.9 full load-time
+                // sweep): marker validation + zombie provisional cleanup +
+                // orphan supersede/tombstone log + stray-field clearing.
+                // Must run after the finisher (which may have cleared the
+                // marker) and before the Phase 11 reaper (whose input is the
+                // sweep's zombie-removed state).
+                LoadTimeSweep.Run();
 
                 // Phase 11 of Rewind-to-Staging (design §6.8 load-time sweep):
                 // housekeeping pass for RPs orphaned by merges that crashed
