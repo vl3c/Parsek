@@ -53,6 +53,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#423` Ghost playback for the stock IX-6315 "Dawn" ion engine no longer plays silent or spam an "AudioClip not found" warning — the missing stock `sound_IonEngine` lookup is substituted with `sound_rocket_mini`, and ion / ElectricCharge ghost engines keep the existing quiet loop-volume curve so the fallback stays subtle instead of sounding rocket-loud.
 - Ghost playback with short loop periods no longer stacks multiple ghosts near the launch pad. Minimum loop period is now 5 s (was 1 s). When the requested period would produce more simultaneously-live ghosts than the per-recording cap, the engine automatically halves the launch cadence (doubles the period) until the cycles fit — so ghosts spread visibly across the whole trajectory instead of being silently culled. A one-line log explains the adjustment per recording.
 - Watch camera no longer jumps to the newest iteration when an unrelated overlap cycle of the watched Gloops recording expires; camera stays with the ghost you're watching until that ghost's own cycle ends, then hands off to the most-recently-launched iteration.
 - Default "Auto-launch every" setting is now 30 s (was 10 s). Existing saves keep the value the user had; only fresh installs and the Settings reset path pick up the new default.
