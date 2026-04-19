@@ -289,6 +289,9 @@ namespace Parsek
 
             if (affordable)
             {
+                if (cost == 0.0)
+                    return;
+
                 ParsekLog.Verbose(Tag,
                     $"FundsSpending: -{cost.ToString("R", IC)}, " +
                     $"source={action.FundsSpendingSource}, " +

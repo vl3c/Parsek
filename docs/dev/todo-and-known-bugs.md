@@ -336,7 +336,7 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 ---
 
-## 470. `Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)
+## 470. ~~`Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)~~ CLOSED 2026-04-19
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. Top-of-list pattern in the deduplicated WARN/VERBOSE counts:
 
@@ -346,15 +346,15 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 **Concern:** every `RecalculateAndPatch` sweep (33 of them in this session) fans out to the per-module replay, and each module emits a `FundsSpending: -0` line for zero-delta entries inside the "Other" source bucket. Zero-delta spendings convey nothing a reader would ever act on, and at 4 per recalc × 33 recalcs = 132 lines, they bury the real entries. Adjacent modules already early-return on zero-delta (see the verbose threshold filters in `GameStateRecorder.cs`), so this one is the odd one out.
 
-**Fix:** in the `Funds` subsystem's spending emit path, skip the log entirely when `Math.Abs(delta) < 0.5` (or exact zero — the threshold just needs to exclude `-0` / `+0`). Keep the event itself if any downstream consumer cares about zero-delta entries; only suppress the VERBOSE log. Grep for the `FundsSpending: ` format string in `Source/Parsek/GameActions/` to locate the emit site (most likely `FundsModule.cs` or similar).
+**Fix shipped (2026-04-19):** `Source/Parsek/GameActions/FundsModule.cs` now suppresses the success VERBOSE log when `FundsSpent == 0`, which is enough to eliminate the `FundsSpending: -0` replay spam without hiding any real low-value spendings. The action still flows through affordability and running-balance updates unchanged.
 
-**Files:** likely `Source/Parsek/GameActions/FundsModule.cs` (or whichever `.cs` owns the `[Funds]` subsystem tag). Test: log-assertion xUnit that submits a zero-delta spending, asserts no VERBOSE line hits the sink.
+**Files:** `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek.Tests/FundsModuleTests.cs`. Added `FundsSpending_ZeroCost_DoesNotLogVerboseSpend`, which submits a zero-cost `FundsSpending(Other)` action, asserts the action remains affordable with no balance change, and confirms the log sink stays silent.
 
 **Scope:** Trivial. One-line guard + one test.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure log-hygiene. Bundle with any touch of the Funds module.
+**Status:** CLOSED 2026-04-19. Priority: low — pure log-hygiene. Ready to ship with the targeted regression coverage above.
 
 ---
 
