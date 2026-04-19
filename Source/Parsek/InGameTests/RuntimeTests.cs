@@ -841,6 +841,8 @@ namespace Parsek.InGameTests
         #region MergeDialog
 
         [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test fabricates a pending tree and drives the live merge popup in the current FLIGHT session.",
             Description = "Tree merge popup shows both actions and the discard button clears the pending tree")]
         public IEnumerator TreeMergeDialog_DiscardButton_ClearsPendingTree()
         {
