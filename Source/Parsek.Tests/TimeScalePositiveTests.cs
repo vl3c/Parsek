@@ -101,6 +101,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyTimeScalePositiveSamples_SkipsWhenPauseStateIsUnavailable()
+        {
+            var outcome = RuntimeTests.ClassifyTimeScalePositiveSamples(
+                new List<RuntimeTests.TimeScalePositiveProbeSample>
+                {
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
+                        FlightDriverPause = null,
+                    },
+                });
+
+            Assert.Equal(RuntimeTests.TimeScalePositiveProbeOutcome.SkipStockPause, outcome);
+        }
+
+        [Fact]
         public void FormatTimeScalePositiveProbeSummary_ContainsKeyDiagnosticFields()
         {
             string summary = RuntimeTests.FormatTimeScalePositiveProbeSummary(
@@ -127,6 +143,22 @@ namespace Parsek.Tests
             Assert.Contains("KSPLoader.lastUpdate=1234", summary);
             Assert.Contains("runner=isRunning=True batch=active inner=active", summary);
             Assert.Contains("scene=SPACECENTER", summary);
+        }
+
+        [Fact]
+        public void FormatTimeScalePositiveProbeSummary_ReportsUnavailablePauseState()
+        {
+            string summary = RuntimeTests.FormatTimeScalePositiveProbeSummary(
+                new[]
+                {
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
+                        FlightDriverPause = null,
+                    }
+                });
+
+            Assert.Contains("FlightDriver.Pause=unavailable", summary);
         }
     }
 }

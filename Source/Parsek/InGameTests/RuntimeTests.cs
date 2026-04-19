@@ -30,7 +30,7 @@ namespace Parsek.InGameTests
             public int FrameCount;
             public float RealtimeSinceStartup;
             public float TimeScale;
-            public bool FlightDriverPause;
+            public bool? FlightDriverPause;
             public string KspLoaderLastUpdate;
             public string RunnerCoroutineState;
             public string SceneName;
@@ -399,7 +399,7 @@ namespace Parsek.InGameTests
                     continue;
                 }
 
-                if (!samples[i].FlightDriverPause)
+                if (samples[i].FlightDriverPause == false)
                     return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
             }
 
@@ -414,7 +414,9 @@ namespace Parsek.InGameTests
                    " frame=" + sample.FrameCount.ToString(CultureInfo.InvariantCulture) +
                    " realtime=" + sample.RealtimeSinceStartup.ToString("F2", CultureInfo.InvariantCulture) +
                    " timeScale=" + sample.TimeScale.ToString("F3", CultureInfo.InvariantCulture) +
-                   " FlightDriver.Pause=" + sample.FlightDriverPause +
+                   " FlightDriver.Pause=" + (sample.FlightDriverPause.HasValue
+                       ? sample.FlightDriverPause.Value.ToString()
+                       : "unavailable") +
                    " KSPLoader.lastUpdate=" + (sample.KspLoaderLastUpdate ?? "null") +
                    " runner=" + (sample.RunnerCoroutineState ?? "null") +
                    " scene=" + (sample.SceneName ?? "null");
@@ -446,7 +448,7 @@ namespace Parsek.InGameTests
             };
         }
 
-        private static bool SafeReadFlightDriverPause()
+        private static bool? SafeReadFlightDriverPause()
         {
             try
             {
@@ -456,7 +458,7 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.Verbose("TestRunner",
                     "TimeScalePositive: FlightDriver.Pause unavailable: " + ex.GetType().Name);
-                return false;
+                return null;
             }
         }
 
