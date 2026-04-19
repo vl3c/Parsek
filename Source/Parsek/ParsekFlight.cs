@@ -7416,8 +7416,25 @@ namespace Parsek
                         double spawnLat, spawnLon, spawnAlt;
                         VesselSpawner.ResolveSpawnPosition(leaf, -1, lastPt,
                             out spawnLat, out spawnLon, out spawnAlt);
-                        VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                            -1, leaf.VesselName, lastPt.rotation);
+                        if (VesselSpawner.TryResolvePreferredSpawnRotation(
+                            leaf, lastPt,
+                            out string rotationBodyName,
+                            out Quaternion rotationBodyRotation,
+                            out Quaternion surfaceRelativeRotation,
+                            out string rotationSource))
+                        {
+                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                                -1, leaf.VesselName,
+                                rotationBodyName,
+                                rotationBodyRotation,
+                                surfaceRelativeRotation,
+                                rotationSource);
+                        }
+                        else
+                        {
+                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                                -1, leaf.VesselName);
+                        }
                     }
 
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);

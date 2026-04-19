@@ -207,6 +207,12 @@ namespace Parsek
                 ApplyTerrainCorrection(tipRecording, vesselSnapshot);
             }
 
+            TrajectoryPoint? tipPoint = tipRecording != null && tipRecording.Points != null && tipRecording.Points.Count > 0
+                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
+                : null;
+            VesselSpawner.TryApplyPreferredSpawnRotation(
+                vesselSnapshot, tipRecording, tipPoint, "Chain tip spawn");
+
             // Spawn with PID preservation for chain continuity
             uint spawnedPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
 
@@ -311,6 +317,12 @@ namespace Parsek
             {
                 ApplyTerrainCorrection(tipRecording, vesselSnapshot);
             }
+
+            TrajectoryPoint? tipPoint = tipRecording.Points != null && tipRecording.Points.Count > 0
+                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
+                : null;
+            VesselSpawner.TryApplyPreferredSpawnRotation(
+                vesselSnapshot, tipRecording, tipPoint, "Blocked chain tip spawn");
 
             // Spawn with PID preservation
             uint spawnedPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
@@ -426,6 +438,9 @@ namespace Parsek
                 if (TerrainCorrector.ShouldCorrectTerrain(
                         tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
                     ApplyTerrainCorrection(tipRecording, vesselSnapshot);
+
+                VesselSpawner.TryApplyPreferredSpawnRotation(
+                    vesselSnapshot, tipRecording, walkPt, "Chain tip walkback spawn");
 
                 uint walkbackPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
                 if (walkbackPid != 0)

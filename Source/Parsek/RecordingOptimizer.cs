@@ -1268,7 +1268,7 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = HasMeaningfulRotation(pos.rotation);
+                hasRotation = pos.HasRecordedRotation;
                 return true;
             }
 
@@ -1280,7 +1280,7 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = HasMeaningfulRotation(pos.rotation);
+                hasRotation = pos.HasRecordedRotation;
                 return true;
             }
 
