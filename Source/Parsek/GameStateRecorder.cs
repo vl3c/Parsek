@@ -47,6 +47,8 @@ namespace Parsek
         /// Production code never touches it.
         /// </summary>
         internal static System.Func<string> TagResolverForTesting;
+        internal static System.Func<bool> HasLiveRecorderProviderForTesting;
+        internal static System.Func<bool> HasActiveUncommittedTreeProviderForTesting;
 
         /// <summary>
         /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
@@ -114,11 +116,29 @@ namespace Parsek
         /// #431: true when a flight recorder is currently live on the active tree. Used by
         /// <see cref="Emit"/>'s drift-warn branch to flag "in-flight, should have a tag, doesn't."
         /// </summary>
-        internal static bool HasLiveRecorder() => ParsekFlight.HasLiveRecorderForTagging();
+        internal static bool HasLiveRecorder()
+        {
+            var provider = HasLiveRecorderProviderForTesting;
+            if (provider != null)
+                return provider();
+
+            return ParsekFlight.HasLiveRecorderForTagging();
+        }
+
+        internal static bool HasActiveUncommittedTree()
+        {
+            var provider = HasActiveUncommittedTreeProviderForTesting;
+            if (provider != null)
+                return provider();
+
+            return ParsekFlight.HasUncommittedTreeForKspPatchDeferral();
+        }
 
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;
+            HasLiveRecorderProviderForTesting = null;
+            HasActiveUncommittedTreeProviderForTesting = null;
             ClearPendingMilestoneEvents("ResetForTesting");
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;

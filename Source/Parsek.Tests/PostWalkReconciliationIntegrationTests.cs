@@ -36,6 +36,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
         }
 
         public void Dispose()
@@ -49,7 +50,8 @@ namespace Parsek.Tests
         }
 
         private static void AddKeyedEvent(
-            double ut, GameStateEventType type, string key, double before, double after)
+            double ut, GameStateEventType type, string key, double before, double after,
+            string recordingId = "")
         {
             var e = new GameStateEvent
             {
@@ -57,7 +59,8 @@ namespace Parsek.Tests
                 eventType = type,
                 key = key,
                 valueBefore = before,
-                valueAfter = after
+                valueAfter = after,
+                recordingId = recordingId
             };
             GameStateStore.AddEvent(ref e);
         }
@@ -103,9 +106,9 @@ namespace Parsek.Tests
 
             // KSP-side store events observed at the same UT (paired with the
             // ContractComplete by key "ContractReward").
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 29700);
-            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7);
-            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 29700, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3, "rec-contract");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 
@@ -125,7 +128,10 @@ namespace Parsek.Tests
             // Two contract rewards inside the 0.1 s coalesce window share one
             // FundsChanged(ContractReward) event in the store. Post-walk must sum the
             // expected side across both actions before comparing, or it false-warns on
-            // each individual action against the coalesced delta.
+            // each individual action against the coalesced delta. Both actions share
+            // RecordingId 'rec-coalesce' because GameStateStore.AddEvent requires equal
+            // recordingId tags to coalesce (see GameStateStore.cs:60, #431): a single
+            // cross-tag coalesced event is physically impossible in production.
             LedgerOrchestrator.Initialize();
 
             Ledger.AddAction(new GameAction
@@ -144,7 +150,7 @@ namespace Parsek.Tests
             {
                 UT = 500.0,
                 Type = GameActionType.ContractComplete,
-                RecordingId = "rec-a",
+                RecordingId = "rec-coalesce",
                 ContractId = "c-coalesce-a",
                 FundsReward = 3000f
             });
@@ -152,12 +158,12 @@ namespace Parsek.Tests
             {
                 UT = 500.05,
                 Type = GameActionType.ContractComplete,
-                RecordingId = "rec-b",
+                RecordingId = "rec-coalesce",
                 ContractId = "c-coalesce-b",
                 FundsReward = 4000f
             });
 
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 32000);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 32000, "rec-coalesce");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 
@@ -200,9 +206,9 @@ namespace Parsek.Tests
             });
 
             // Store observed +9200 funds, +7 rep, +3 sci -> funds diverges by 4500.
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 34200);
-            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7);
-            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 34200, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3, "rec-contract");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 
@@ -252,12 +258,102 @@ namespace Parsek.Tests
                 ScienceReward = 3f
             });
 
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 29700);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 29700, "rec-future");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: 200.0);
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void Integration_AllTrackersUnavailable_PostWalkSkippedOnce_NoWarn()
+        {
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, false, false);
+            LedgerOrchestrator.Initialize();
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec-contract",
+                ContractId = "c-sandbox-1",
+                FundsReward = 4700f,
+                RepReward = 7f,
+                ScienceReward = 3f
+            });
+
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 29700);
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward", 0, 7);
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged, "ContractReward", 0, 3);
+
+            LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
+            LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
+
+            int skipLogs = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("Post-walk reconcile skipped: sandbox / tracker unavailable"))
+                    skipLogs++;
+            }
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Post-walk reconcile: actions="));
+            Assert.Equal(1, skipLogs);
+        }
+
+        [Fact]
+        public void Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs()
+        {
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, true, true);
+            LedgerOrchestrator.Initialize();
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 0f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec-partial",
+                ContractId = "c-partial-1",
+                FundsReward = 4700f,
+                RepReward = 7f,
+                ScienceReward = 3f
+            });
+
+            // Funds tracking is intentionally disabled for this test, so the post-walk
+            // hook must ignore the funds leg but still reconcile the tracked rep/sci legs.
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 99999);
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward", 0, 7);
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged, "ContractReward", 0, 8.5);
+
+            LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)")
+                && l.Contains("ContractComplete"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk reconcile: actions=1, matches=0, mismatches(funds/rep/sci)=0/0/1"));
         }
     }
 }

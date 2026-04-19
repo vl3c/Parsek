@@ -56,6 +56,8 @@ namespace Parsek
         // with fallback to VesselName for transient fixtures lacking an id. Reset between
         // tests via ResetForTesting.
         private static readonly HashSet<string> loopIntervalClampWarned = new HashSet<string>(StringComparer.Ordinal);
+        private static Func<FlagEvent, bool> flagExistsOverrideForTesting;
+        private static Func<FlagEvent, bool> spawnFlagOverrideForTesting;
 
         #region Warp / Loop Policy
 
@@ -428,6 +430,33 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             loopIntervalClampWarned.Clear();
+            ResetFlagReplayOverridesForTesting();
+        }
+
+        /// <summary>
+        /// Test-only override for flag dedup checks. Pass null to restore the live KSP path.
+        /// </summary>
+        internal static void SetFlagExistsOverrideForTesting(Func<FlagEvent, bool> checker)
+        {
+            flagExistsOverrideForTesting = checker;
+        }
+
+        /// <summary>
+        /// Test-only override for flag spawns. Return true to simulate a successful spawn.
+        /// Pass null to restore the live KSP path.
+        /// </summary>
+        internal static void SetSpawnFlagOverrideForTesting(Func<FlagEvent, bool> spawner)
+        {
+            spawnFlagOverrideForTesting = spawner;
+        }
+
+        /// <summary>
+        /// Clears all test-only flag replay overrides.
+        /// </summary>
+        internal static void ResetFlagReplayOverridesForTesting()
+        {
+            flagExistsOverrideForTesting = null;
+            spawnFlagOverrideForTesting = null;
         }
 
         /// <summary>
@@ -1104,6 +1133,7 @@ namespace Parsek
         internal static void HideAllGhostParts(GhostPlaybackState state)
         {
             if (state.ghost == null) return;
+            MuteAllAudio(state);
             var t = state.ghost.transform;
             int hidden = 0;
             // Keep cameraPivot active — FlightCamera targets it during watch-mode hold.
@@ -1768,7 +1798,7 @@ namespace Parsek
                         ApplyRoboticEvent(state, evt, currentUT);
                         break;
                     case PartEventType.InventoryPartPlaced:
-                        SetGhostPartActive(ghost, evt.partPersistentId, true);
+                        SetGhostPartActive(state, evt.partPersistentId, true);
                         if (logicalPartIds != null)
                             logicalPartIds.Add(evt.partPersistentId);
                         if (placedTargetPartIds == null)
@@ -1777,7 +1807,7 @@ namespace Parsek
                         visibilityChanged = true;
                         break;
                     case PartEventType.InventoryPartRemoved:
-                        SetGhostPartActive(ghost, evt.partPersistentId, false);
+                        SetGhostPartActive(state, evt.partPersistentId, false);
                         RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
                         visibilityChanged = true;
                         break;
@@ -1845,6 +1875,44 @@ namespace Parsek
             if (t != null) t.gameObject.SetActive(active);
         }
 
+        internal static void SetGhostPartActive(GhostPlaybackState state, uint persistentId, bool active)
+        {
+            if (state == null)
+                return;
+
+            SetGhostPartActive(state.ghost, persistentId, active);
+
+            if (state.audioInfos == null)
+                return;
+
+            var restores = active ? new List<(int moduleIndex, float power)>() : null;
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info == null || info.partPersistentId != persistentId || info.audioSource == null)
+                    continue;
+
+                if (!active && info.audioSource.isPlaying)
+                    info.audioSource.Stop();
+
+                info.audioSource.gameObject.SetActive(active);
+
+                if (active && info.currentPower > 0f)
+                    restores.Add((info.moduleIndex, info.currentPower));
+            }
+
+            if (restores == null)
+                return;
+
+            for (int i = 0; i < restores.Count; i++)
+            {
+                SetEngineAudio(state, new PartEvent
+                {
+                    partPersistentId = persistentId,
+                    moduleIndex = restores[i].moduleIndex
+                }, restores[i].power);
+            }
+        }
+
         internal static void InitializeInventoryPlacementVisibility(
             IPlaybackTrajectory rec, GhostPlaybackState state)
         {
@@ -1862,13 +1930,13 @@ namespace Parsek
 
                 if (evt.eventType == PartEventType.InventoryPartPlaced)
                 {
-                    SetGhostPartActive(state.ghost, evt.partPersistentId, false);
+                    SetGhostPartActive(state, evt.partPersistentId, false);
                     initialized.Add(evt.partPersistentId);
                     hidden++;
                 }
                 else if (evt.eventType == PartEventType.InventoryPartRemoved)
                 {
-                    SetGhostPartActive(state.ghost, evt.partPersistentId, true);
+                    SetGhostPartActive(state, evt.partPersistentId, true);
                     initialized.Add(evt.partPersistentId);
                 }
             }
@@ -1901,10 +1969,7 @@ namespace Parsek
                     var evt = rec.FlagEvents[state.flagEventIndex];
                     if (evt.ut > currentUT) break;
 
-                    // Spawn a real, permanent flag vessel — skip if one already exists at this position
-                    if (!FlagExistsAtPosition(evt))
-                        GhostVisualBuilder.SpawnFlagVessel(evt);
-
+                    TrySpawnFlagVessel(evt);
                     state.flagEventIndex++;
                 }
                 return;
@@ -1915,13 +1980,70 @@ namespace Parsek
             // we still want flag vessels — which are independent permanent world objects — to
             // be placed on schedule. `FlagExistsAtPosition` dedups, so a follow-up state-aware
             // walk starting from `flagEventIndex = 0` on the next frame is cheap and correct.
+            SpawnFlagVesselsUpToUT(rec, currentUT);
+        }
+
+        /// <summary>
+        /// Replays all flag events whose UT is in the past for callers that do not carry
+        /// a per-recording flag cursor (for example deferred spawn flushes at warp end).
+        /// Returns how many flag events were eligible at the requested UT, and how many
+        /// actually spawned new flag vessels after dedup, were already present, or failed.
+        /// </summary>
+        internal static (int eligibleCount, int spawnedCount, int alreadyPresentCount, int failedCount)
+            SpawnFlagVesselsUpToUT(
+            IPlaybackTrajectory rec, double currentUT)
+        {
+            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0)
+                return (0, 0, 0, 0);
+
+            int eligibleCount = 0;
+            int spawnedCount = 0;
+            int alreadyPresentCount = 0;
+            int failedCount = 0;
             for (int i = 0; i < rec.FlagEvents.Count; i++)
             {
                 var evt = rec.FlagEvents[i];
-                if (evt.ut > currentUT) break;
-                if (!FlagExistsAtPosition(evt))
-                    GhostVisualBuilder.SpawnFlagVessel(evt);
+                if (evt.ut > currentUT)
+                    break;
+
+                eligibleCount++;
+                switch (TrySpawnFlagVessel(evt))
+                {
+                    case FlagReplayOutcome.Spawned:
+                        spawnedCount++;
+                        break;
+                    case FlagReplayOutcome.AlreadyPresent:
+                        alreadyPresentCount++;
+                        break;
+                    default:
+                        failedCount++;
+                        break;
+                }
             }
+
+            return (eligibleCount, spawnedCount, alreadyPresentCount, failedCount);
+        }
+
+        private enum FlagReplayOutcome
+        {
+            Spawned,
+            AlreadyPresent,
+            Failed
+        }
+
+        private static FlagReplayOutcome TrySpawnFlagVessel(FlagEvent evt)
+        {
+            if (FlagExistsAtPosition(evt))
+                return FlagReplayOutcome.AlreadyPresent;
+
+            if (spawnFlagOverrideForTesting != null)
+                return spawnFlagOverrideForTesting(evt)
+                    ? FlagReplayOutcome.Spawned
+                    : FlagReplayOutcome.Failed;
+
+            return GhostVisualBuilder.SpawnFlagVessel(evt) != null
+                ? FlagReplayOutcome.Spawned
+                : FlagReplayOutcome.Failed;
         }
 
         /// <summary>
@@ -1930,6 +2052,9 @@ namespace Parsek
         /// </summary>
         private static bool FlagExistsAtPosition(FlagEvent evt)
         {
+            if (flagExistsOverrideForTesting != null)
+                return flagExistsOverrideForTesting(evt);
+
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
             if (body == null || FlightGlobals.Vessels == null) return false;
 
