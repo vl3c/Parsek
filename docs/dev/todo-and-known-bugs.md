@@ -452,21 +452,21 @@ Add a cross-reference: `#439`, `#440`, `#448` and the already-archived post-#307
 
 ---
 
-## 465. Ghost engine/RCS audio keeps playing while the KSP pause menu is open outside the flight scene
+## 465. ~~Ghost engine/RCS audio keeps playing while the KSP pause menu is open outside the flight scene~~
 
 **Source:** user playtest report. "When paused (game menu open) in KSC view and probably other views, the sound from the rocket ghost is still audible."
 
-**Concern:** ghost `AudioSource` components (engine loops, RCS, ambient clips) don't respond to KSP's global pause like stock vessels' audio does. In the flight scene this is already handled: `ParsekFlight.cs:657` subscribes to `GameEvents.onGamePause`/`onGameUnpause` and the handlers at `ParsekFlight.cs:4302-4315` delegate to `engine.PauseAllGhostAudio()` / `engine.UnpauseAllGhostAudio()`, which loop over active ghost states and call `AudioSource.Pause()`/`UnPause()` (see `GhostPlaybackLogic.cs:2358` for the helpers). No equivalent subscription exists in `ParsekKSC.cs` — nothing in that file touches `onGamePause` or `PauseAllGhostAudio`. Same likely true for tracking station / other non-flight scenes that run ghost playback via the KSC code path. Result: ESC menu in KSC silences stock audio but ghost engine loops keep roaring until the menu closes.
+**Concern:** ghost `AudioSource` components (engine loops, RCS, ambient clips) don't respond to KSP's global pause like stock vessels' audio does. In the flight scene this is already handled: `ParsekFlight.cs:657` subscribes to `GameEvents.onGamePause`/`onGameUnpause` and the handlers at `ParsekFlight.cs:4302-4315` delegate to `engine.PauseAllGhostAudio()` / `engine.UnpauseAllGhostAudio()`, which loop over active ghost states and call `AudioSource.Pause()`/`UnPause()` (see `GhostPlaybackLogic.cs:2358` for the helpers). KSC playback had no equivalent pause subscription, so ESC at KSC muted stock audio while ghost engine loops kept playing.
 
-**Fix:** mirror the flight handler in `ParsekKSC.cs` — subscribe to `GameEvents.onGamePause` / `onGameUnpause` in `Awake`/`Start` (matching the `ParsekFlight.cs:657/1124` add/remove pair), unsubscribe in `OnDestroy`, and forward to the same `engine.PauseAllGhostAudio()` / `engine.UnpauseAllGhostAudio()` helpers the flight scene uses. The helpers already iterate `engine.ghostStates` so they work regardless of which scene is active. Verify the same fires from the tracking station scene if Parsek runs ghost audio there (grep for any `AudioSource` activation outside the flight/KSC paths). Add a log-assertion unit test that drives the pause handler and asserts `AudioSource.Pause` was called on the engine's state set (covered via the existing `GhostPlaybackEngine` test seams used in the pause/unpause flight tests).
+**Fix / Resolution (2026-04-19):** `ParsekKSC.cs` now subscribes to `GameEvents.onGamePause` / `onGameUnpause` in `Start`, unsubscribes in `OnDestroy`, and applies pause/unpause across its own `kscGhosts` + `kscOverlapGhosts` dictionaries via a shared helper that reuses `GhostPlaybackLogic.PauseAllAudio()` / `UnpauseAllAudio()`. The earlier "forward to the flight engine" idea was incorrect because KSC playback does not own a `GhostPlaybackEngine`. Tracking Station was checked separately: it publishes map/ProtoVessel ghosts only and does not instantiate `AudioSource`s, so no extra scene-side fix was needed there. Added xUnit coverage for the KSC audio-action helper and its logging/counting seam.
 
-**Files:** `Source/Parsek/ParsekKSC.cs` (new subscription + handlers); possibly `Source/Parsek/Patches/GhostTrackingStation.cs` (tracking-station ghosts, if they carry `AudioSource`s at all); test in `Source/Parsek.Tests/`.
+**Files:** `Source/Parsek/ParsekKSC.cs` (pause subscriptions + KSC-local audio-action helper), `Source/Parsek.Tests/KscGhostPlaybackTests.cs` (helper coverage). No Tracking Station code change required after verification.
 
-**Scope:** Small. ~10 lines in ParsekKSC mirroring the flight code, one test.
+**Scope:** Small. KSC-only fix plus unit coverage.
 
-**Dependencies:** none — `PauseAllGhostAudio` / `UnpauseAllGhostAudio` already exist and are scene-agnostic.
+**Dependencies:** none.
 
-**Status:** TODO. Priority: medium — audible UX bug, trivial to reproduce (ESC at KSC while any loop ghost is playing).
+**Status:** DONE/CLOSED (2026-04-19). Priority: medium — fixed in `fix-465-pause-menu-audio`.
 
 ---
 
