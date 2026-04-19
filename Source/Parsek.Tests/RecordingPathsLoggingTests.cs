@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Xunit;
 
 namespace Parsek.Tests
@@ -41,6 +43,37 @@ namespace Parsek.Tests
             Assert.Equal(
                 "[Parsek][VERBOSE][Paths] Recording id validation failed: id is null or empty",
                 lines[0]);
+        }
+
+        [Fact]
+        public void ValidateRecordingId_TestContextLogsVerboseForInvalidFileNameChar()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            char invalidChar = GetInvalidFileNameCharForTesting();
+            string invalidId = $"abc{invalidChar}def";
+
+            Assert.False(RecordingPaths.ValidateRecordingId(
+                invalidId,
+                RecordingIdValidationLogContext.Test));
+
+            Assert.Single(lines);
+            Assert.Equal(
+                $"[Parsek][VERBOSE][Paths] Recording id validation failed for '{invalidId}': contains invalid file-name char",
+                lines[0]);
+        }
+
+        private static char GetInvalidFileNameCharForTesting()
+        {
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            char[] preferredChars = { '<', '>', ':', '"', '|', '?', '*' };
+            for (int i = 0; i < preferredChars.Length; i++)
+            {
+                if (Array.IndexOf(invalidChars, preferredChars[i]) >= 0)
+                    return preferredChars[i];
+            }
+
+            return invalidChars[0];
         }
     }
 }

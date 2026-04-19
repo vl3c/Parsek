@@ -153,7 +153,7 @@ Also: the repeat-log behaviour is itself a bug — if reconcile cannot converge,
 
 ## ~~482. `Paths` security negative tests (`../etc/passwd`) log at WARN — 27+ lines per session from a tested-expected error path~~ CLOSED 2026-04-19
 
-**Status:** CLOSED 2026-04-19. `RecordingPaths.ValidateRecordingId` now takes an explicit `RecordingIdValidationLogContext`; runtime/xUnit negative tests pass `Test`, which demotes the expected rejection log to `VERBOSE`, while production save/load/delete callers keep the default `WARN` behavior. xUnit coverage now pins both log levels.
+**Status:** CLOSED 2026-04-19. `RecordingPaths.ValidateRecordingId` now takes an explicit `RecordingIdValidationLogContext`; the runtime negative test and the existing acceptance-style xUnit invalid-id test pass `Test`, which demotes their expected rejection logs to `VERBOSE`, while production save/load/delete callers keep the default `WARN` behavior. Dedicated xUnit coverage intentionally keeps one production-context invalid-id path on `WARN` so the loud branch stays pinned too.
 
 **Source:** `logs/2026-04-19_2126/KSP.log` — recurring:
 
@@ -167,7 +167,7 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 
 **Concern:** `RecordingPaths.ValidateRecordingId` is correctly rejecting a path-traversal id fed by the security test, but the rejection is logged at WARN. Production code never calls `ValidateRecordingId` with a bad id (callers filter upstream), so any real-world hit to this WARN is either (a) a test poking the rejection path, or (b) a real security incident worth a loud log. Conflating the two makes the test-path noise drown out the real-incident signal and clutters every test-run KSP.log.
 
-**Fix:** implemented with an explicit `RecordingIdValidationLogContext` parameter on `ValidateRecordingId`. Tests now opt into `Test`, which emits the existing rejection message at `VERBOSE`; production callers use the default `Production` context and keep the `WARN` signal for genuinely bad recording ids outside test code.
+**Fix:** implemented with an explicit `RecordingIdValidationLogContext` parameter on `ValidateRecordingId`. Expected negative-path runtime/acceptance tests opt into `Test`, which emits the existing rejection message at `VERBOSE`; production callers use the default `Production` context and keep the `WARN` signal for genuinely bad recording ids outside test code. Dedicated xUnit log assertions cover both the production `WARN` branch and the test-context `VERBOSE` branch, including the invalid-file-name-char rejection path.
 
 **Files:** `Source/Parsek/RecordingPaths.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/RecordingPathsLoggingTests.cs`.
 
