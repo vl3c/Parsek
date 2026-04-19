@@ -6,9 +6,16 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.3
 
+### Tests
+
+- `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
+- `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
+
 ### Bug Fixes
 
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
+
+---
 
 ## 0.8.2
 
@@ -79,6 +86,7 @@ All notable changes to Parsek are documented here.
 - Overlap cadence clamping now snaps directly to the minimum cap-safe cadence instead of overshooting in powers of two.
 - Fix #440: post-walk reconciliation now covers strategy-transformed and curve-applied reward types (contract complete/fail/cancel, milestone, reputation earning/penalty, KSC-path funds/science earning), emitting a warning when post-walk derived values diverge from observed KSP deltas.
 - Fix #440B: commit-time earnings reconciliation (`ReconcileEarningsWindow`) now reads post-walk `Transformed*` / `EffectiveRep` / `EffectiveScience` reward fields, matching the rewind-path post-walk hook and closing a latent double-WARN on future non-identity reward transforms. Also silences a false-positive subject-cap WARN that fired on capped science subjects.
+- `#462 partial` Earnings reconciliation now scopes `FundsChanged` / `ReputationChanged` / `ScienceChanged` events by `recordingId`, so sibling recordings at the same UT no longer fold each other's `Progression` deltas into a WARN. Null-tagged legacy/recovered actions still match tagged store events.
 - Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers and eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates.
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.

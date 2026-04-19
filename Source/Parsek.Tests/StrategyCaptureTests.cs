@@ -252,6 +252,7 @@ namespace Parsek.Tests
                     ut = 100.0,
                     eventType = GameStateEventType.StrategyActivated,
                     key = "StratA",
+                    recordingId = "rec-e2e",
                     detail = GameStateRecorder.BuildStrategyActivateDetail(
                         "A", "Science", 0.1f, 5000f, 0f, 0f,
                         sourceResource: StrategyResource.Reputation,
@@ -262,6 +263,7 @@ namespace Parsek.Tests
                     ut = 200.0,
                     eventType = GameStateEventType.StrategyDeactivated,
                     key = "StratA",
+                    recordingId = "rec-e2e",
                     detail = GameStateRecorder.BuildStrategyDeactivateDetail(
                         "A", "Science", 0.1f, 100.0)
                 }

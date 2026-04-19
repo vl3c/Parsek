@@ -265,14 +265,16 @@ namespace Parsek
             // milestone channels (review section 5.1 regression guard).
             // #440B: now runs AFTER RecalculateAndPatch so it can read post-walk derived
             // fields; mirrors ReconcilePostWalk semantics and closes the double-WARN risk.
-            ReconcileEarningsWindow(events, actions, startUT, endUT);
+            ReconcileEarningsWindow(events, actions, startUT, endUT, recordingId);
         }
 
         /// <summary>
         /// Pure reconciliation: sums dropped FundsChanged/ReputationChanged/ScienceChanged
         /// deltas against effective emitted FundsEarning/FundsSpending/ReputationEarning/
         /// ReputationPenalty/ScienceEarning/ScienceSpending actions in the same UT window
-        /// and logs WARN on mismatch beyond tolerance. Internal static for testability.
+        /// and logs WARN on mismatch beyond tolerance. When <paramref name="recordingId"/>
+        /// is supplied, only events tagged to that recording contribute to the store-side
+        /// delta. Internal static for testability.
         /// <para>
         /// Note: vesselCost and science actions are already merged into <paramref name="newActions"/>
         /// by <see cref="OnRecordingCommitted"/> before this runs, so they are summed implicitly
@@ -291,11 +293,13 @@ namespace Parsek
         internal static void ReconcileEarningsWindow(
             IReadOnlyList<GameStateEvent> events,
             List<GameAction> newActions,
-            double startUT, double endUT)
+            double startUT, double endUT,
+            string recordingId = null)
         {
             double droppedFundsDelta = 0;
             double droppedRepDelta = 0;
             double droppedSciDelta = 0;
+            int scopeSkipped = 0;
 
             if (events != null)
             {
@@ -303,6 +307,11 @@ namespace Parsek
                 {
                     var e = events[i];
                     if (e.ut < startUT || e.ut > endUT) continue;
+                    if (!EventMatchesRecordingScope(e, recordingId))
+                    {
+                        scopeSkipped++;
+                        continue;
+                    }
                     switch (e.eventType)
                     {
                         case GameStateEventType.FundsChanged:
@@ -316,6 +325,13 @@ namespace Parsek
                             break;
                     }
                 }
+            }
+
+            if (scopeSkipped > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReconcileEarningsWindow: skipped {scopeSkipped} event(s) tagged to other recordings " +
+                    $"(scope='{recordingId}', window=[{startUT:F1},{endUT:F1}])");
             }
 
             double emittedFundsDelta = 0;
@@ -4266,6 +4282,7 @@ namespace Parsek
                     var e = events[i];
                     if (e.eventType != leg.EventType) continue;
                     if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                    if (!PostWalkEventMatchesAction(e, action)) continue;
                     string eventKey = e.key ?? "";
                     if (!string.Equals(eventKey, leg.ReasonKey, StringComparison.Ordinal))
                         continue;
@@ -4330,6 +4347,7 @@ namespace Parsek
                 {
                     var other = actions[i];
                     if (other == null) continue;
+                    if (!PostWalkActionsShareScope(anchorAction, other)) continue;
                     if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
                         continue;
                     if (utCutoff.HasValue &&
@@ -4358,6 +4376,34 @@ namespace Parsek
                 return anchorLeg.Expected;
 
             return summedExpected;
+        }
+
+        // Mirrored in GameStateEventConverter.EventMatchesRecordingScope; keep the two in sync.
+        private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return true;
+
+            string eventRecordingId = evt.recordingId ?? "";
+            return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
+        }
+
+        private static bool PostWalkEventMatchesAction(GameStateEvent evt, GameAction action)
+        {
+            string eventRecordingId = evt.recordingId ?? "";
+            string actionRecordingId = action?.RecordingId ?? "";
+            if (string.IsNullOrEmpty(actionRecordingId))
+                return true;
+            return string.Equals(eventRecordingId, actionRecordingId, StringComparison.Ordinal);
+        }
+
+        private static bool PostWalkActionsShareScope(GameAction anchorAction, GameAction other)
+        {
+            string anchorRecordingId = anchorAction?.RecordingId ?? "";
+            string otherRecordingId = other?.RecordingId ?? "";
+            if (string.IsNullOrEmpty(anchorRecordingId))
+                return true;
+            return string.Equals(anchorRecordingId, otherRecordingId, StringComparison.Ordinal);
         }
 
         private static void AccumulateMatchingPostWalkLeg(
