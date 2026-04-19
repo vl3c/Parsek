@@ -38,6 +38,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
         }
 
         public void Dispose()

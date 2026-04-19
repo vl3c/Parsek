@@ -414,6 +414,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NormalizeStableTerminalSnapshotForPersistence_UnsafeSit_CorrectsAtCompositionPoint()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+
+            var normalized = ParsekFlight.NormalizeStableTerminalSnapshotForPersistence(
+                snapshot, TerminalState.Landed);
+
+            Assert.Same(snapshot, normalized);
+            Assert.Equal("LANDED", normalized.GetValue("sit"));
+            Assert.Equal("True", normalized.GetValue("landed"));
+            Assert.Equal("False", normalized.GetValue("splashed"));
+        }
+
+        [Fact]
+        public void NormalizeStableTerminalSnapshotForPersistence_SafeSit_LeavesSnapshotUntouched()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+
+            var normalized = ParsekFlight.NormalizeStableTerminalSnapshotForPersistence(
+                snapshot, TerminalState.Orbiting);
+
+            Assert.Same(snapshot, normalized);
+            Assert.Equal("ORBITING", normalized.GetValue("sit"));
+            Assert.Equal("False", normalized.GetValue("landed"));
+            Assert.Equal("False", normalized.GetValue("splashed"));
+        }
+
+        [Fact]
         public void PruneZeroPointLeaves_RemovesEmptyDestroyedLeaves()
         {
             // The limbo finalize now also runs PruneZeroPointLeaves, so any
