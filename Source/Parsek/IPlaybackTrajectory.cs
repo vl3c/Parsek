@@ -17,6 +17,11 @@ namespace Parsek
         List<OrbitSegment> OrbitSegments { get; }
         bool HasOrbitSegments { get; }
         List<TrackSection> TrackSections { get; }
+        // Outer semantic time bounds for the trajectory.
+        // Implementations may widen these beyond the first/last playable payload sample
+        // (Recording does this via ExplicitStartUT / ExplicitEndUT), but they must not
+        // shrink inside the playable payload window because playable-payload helpers probe
+        // payload bounds separately and rely on StartUT / EndUT remaining an outer envelope.
         double StartUT { get; }
         double EndUT { get; }
         int RecordingFormatVersion { get; }
