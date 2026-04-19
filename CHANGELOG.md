@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#475` Ghost recordings that end in Mun orbit now resolve their spawn body from the actual recording endpoint and only reuse terminal-orbit seeds that match that endpoint, so post-rewind map-view watches no longer materialize the spawned vessel onto a Kerbin-frame eject trajectory when the cached terminal SOI body is stale.
+
+### Tests
+
+- `#475` Added regressions for endpoint-aligned terminal-orbit backfill and orbital spawn-seed selection across Kerbin → Mun end states.
+
+---
+
 ## 0.8.2
 
 ### Features

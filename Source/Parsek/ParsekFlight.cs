@@ -6891,55 +6891,48 @@ namespace Parsek
                     TryRefreshStableTerminalSnapshot(rec, finalizeVessel, isSceneExit, "FinalizeIndividualRecording");
             }
 
-            // Backfill terminal orbit for recordings that had TerminalStateValue set early
-            // (ChainSegmentManager, BackgroundRecorder) without
-            // a corresponding CaptureTerminalOrbit call. (#203/#219 regression)
-            if (isLeaf && string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                && rec.TerminalStateValue.HasValue
+            // Refresh terminal orbit for orbital leaf recordings even if a body was
+            // captured earlier. A mid-transition capture can stamp the wrong SOI body,
+            // so we re-read the live vessel here when available and only fall back to the
+            // last orbit segment when it matches the endpoint body. (#475)
+            if (isLeaf && rec.TerminalStateValue.HasValue
                 && (rec.TerminalStateValue.Value == TerminalState.Orbiting
                     || rec.TerminalStateValue.Value == TerminalState.SubOrbital
                     || rec.TerminalStateValue.Value == TerminalState.Docked))
             {
-                Vessel v = rec.VesselPersistentId != 0
-                    ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
-                    : null;
-                // Try live vessel first — CaptureTerminalOrbit silently no-ops if the
-                // vessel's orbit is null or its situation doesn't match the accepted set
-                // (ORBITING/SUB_ORBITAL/FLYING/ESCAPING). In that case we still need a
-                // fallback, so we check TerminalOrbitBody AFTER the live capture attempt.
-                if (v != null)
-                    CaptureTerminalOrbit(rec, v);
+                string bodyBeforeRefresh = rec.TerminalOrbitBody;
+                if (finalizeVessel != null)
+                    CaptureTerminalOrbit(rec, finalizeVessel);
 
-                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                    && !string.Equals(rec.TerminalOrbitBody, bodyBeforeRefresh, StringComparison.Ordinal))
                 {
-                    // Live capture succeeded
                     ParsekLog.Info("Flight",
-                        $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
-                        $"for '{rec.RecordingId}' from live vessel (terminal={rec.TerminalStateValue})");
+                        $"FinalizeIndividualRecording: refreshed TerminalOrbitBody {bodyBeforeRefresh ?? "(empty)"} " +
+                        $"-> {rec.TerminalOrbitBody} for '{rec.RecordingId}' from live vessel " +
+                        $"(terminal={rec.TerminalStateValue})");
                 }
-                else
+
+                if (ShouldPopulateTerminalOrbitFromLastSegment(rec))
                 {
-                    // Live capture either didn't happen (v == null) or silently declined.
-                    // Try the last orbit segment from BackgroundRecorder sampling.
+                    string bodyBeforeFallback = rec.TerminalOrbitBody;
                     PopulateTerminalOrbitFromLastSegment(rec);
-                    if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                    if (!string.Equals(rec.TerminalOrbitBody, bodyBeforeFallback, StringComparison.Ordinal))
                     {
                         ParsekLog.Info("Flight",
                             $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
                             $"for '{rec.RecordingId}' via orbit-segment fallback " +
-                            $"(terminal={rec.TerminalStateValue}, vesselFound={v != null})");
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVessel != null}, " +
+                            $"previousBody={bodyBeforeFallback ?? "(empty)"})");
                     }
-                    else
-                    {
-                        // Both sources declined. Recording commits with terminal state set
-                        // but no orbital metadata — ghost map presence will be degraded.
-                        // Loud warn so we notice in the playtest logs.
-                        ParsekLog.Warn("Flight",
-                            $"FinalizeIndividualRecording: backfill declined for '{rec.RecordingId}' " +
-                            $"(terminal={rec.TerminalStateValue}, vesselFound={v != null}, " +
-                            $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — " +
-                            "TerminalOrbitBody remains empty");
-                    }
+                }
+
+                if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                {
+                    ParsekLog.Warn("Flight",
+                        $"FinalizeIndividualRecording: terminal orbit refresh declined for '{rec.RecordingId}' " +
+                        $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVessel != null}, " +
+                        $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — TerminalOrbitBody remains empty");
                 }
             }
 
@@ -7537,6 +7530,15 @@ namespace Parsek
                 || sit == Vessel.Situations.FLYING || sit == Vessel.Situations.ESCAPING)
             {
                 var orb = vessel.orbit;
+                string bodyName = orb.referenceBody?.name;
+                if (string.IsNullOrEmpty(bodyName))
+                {
+                    ParsekLog.Warn("Flight",
+                        $"CaptureTerminalOrbit: skipped '{rec?.RecordingId ?? "(null)"}' " +
+                        $"because orbit reference body was null (vessel='{vessel.vesselName}')");
+                    return;
+                }
+
                 rec.TerminalOrbitInclination = orb.inclination;
                 rec.TerminalOrbitEccentricity = orb.eccentricity;
                 rec.TerminalOrbitSemiMajorAxis = orb.semiMajorAxis;
@@ -7544,7 +7546,7 @@ namespace Parsek
                 rec.TerminalOrbitArgumentOfPeriapsis = orb.argumentOfPeriapsis;
                 rec.TerminalOrbitMeanAnomalyAtEpoch = orb.meanAnomalyAtEpoch;
                 rec.TerminalOrbitEpoch = orb.epoch;
-                rec.TerminalOrbitBody = orb.referenceBody?.name ?? "Kerbin";
+                rec.TerminalOrbitBody = bodyName;
             }
         }
 
@@ -7553,12 +7555,39 @@ namespace Parsek
         /// is already destroyed at finalization time. Enables ghost map presence for
         /// orbital debris whose vessel expired before CaptureTerminalOrbit could run. (#219)
         /// </summary>
+        internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
+        {
+            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return false;
+
+            OrbitSegment seg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+            if (string.IsNullOrEmpty(seg.bodyName))
+                return false;
+
+            bool hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody);
+            if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
+            {
+                return !hasEndpointBody
+                    || string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
+            }
+
+            if (string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal))
+                return false;
+
+            if (!hasEndpointBody)
+                return false;
+
+            return string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
+                && !string.Equals(rec.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+        }
+
         internal static void PopulateTerminalOrbitFromLastSegment(Recording rec)
         {
-            if (!rec.HasOrbitSegments) return;
-            if (!string.IsNullOrEmpty(rec.TerminalOrbitBody)) return; // already populated
+            if (!ShouldPopulateTerminalOrbitFromLastSegment(rec)) return;
 
             var seg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+            bool overwritingMismatchedBody = !string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && !string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal);
             rec.TerminalOrbitInclination = seg.inclination;
             rec.TerminalOrbitEccentricity = seg.eccentricity;
             rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
@@ -7567,6 +7596,14 @@ namespace Parsek
             rec.TerminalOrbitMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
             rec.TerminalOrbitEpoch = seg.epoch;
             rec.TerminalOrbitBody = seg.bodyName;
+
+            if (overwritingMismatchedBody)
+            {
+                ParsekLog.Warn("Flight",
+                    $"PopulateTerminalOrbitFromLastSegment: overwrote mismatched body for '{rec.RecordingId}' " +
+                    $"with endpoint-aligned segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
+                return;
+            }
 
             ParsekLog.Info("Flight",
                 $"PopulateTerminalOrbitFromLastSegment: recovered orbit for '{rec.RecordingId}' " +

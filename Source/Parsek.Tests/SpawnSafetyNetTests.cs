@@ -965,6 +965,198 @@ namespace Parsek.Tests
             Assert.Equal("Kerbin", bodyName);
         }
 
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersTerminalOrbitMatchingEndpointBody()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 300.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(250000.0, semiMajorAxis, 10);
+            Assert.Equal(3.0, inclination, 10);
+            Assert.Equal(0.5, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersLastMatchingSegmentWhenEndpointUsesOrbitSegments()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 250.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 250.0,
+                endUT = 450.0,
+                inclination = 4.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 260000.0,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0,
+                bodyName = "Mun"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(260000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_UsesLastSegmentMatchingEndpointBody()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 1200000.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 300.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 300.0,
+                endUT = 450.0,
+                inclination = 4.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 260000.0,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0,
+                bodyName = "Mun"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(260000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_ReturnsFalseWhenNoOrbitSeedMatchesEndpointBody()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 1200000.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 450.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+
+            Assert.False(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
+        }
+
         #endregion
 
         #region NormalizeOrbitalSpawnMetadata (#353)
