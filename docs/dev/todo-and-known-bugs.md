@@ -18,6 +18,30 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 489. Manual-only runtime coverage for deferred merge commit and `Keep Vessel` playback exists locally, but still needs live KSP validation and one later stock revert-flow pass
+
+**Source:** local audit work on `audit-test-coverage-2026-04-19` after `#488` closed. New tests now exist in `Source/Parsek/InGameTests/RuntimeTests.cs`:
+
+- `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+- `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+
+**What landed already:** the first test drives `ParsekScenario.ShowDeferredMergeDialog()` in `FLIGHT`, presses the real `Merge to Timeline` button, and asserts the synthetic pending tree moves into `RecordingStore.CommittedTrees` / `CommittedRecordings`. The second test commits a synthetic one-recording tree, calls `ParsekFlight.FastForwardToRecording(...)`, waits for a live ghost, and asserts the end-of-recording vessel spawn happens exactly once before cleanup/recovery.
+
+**Concern:** both tests build and are intentionally `AllowBatchExecution = false`, but they are still only compile-validated in this worktree. They mutate the live FLIGHT session and therefore need explicit row-play evidence in KSP (`parsek-test-results.txt`, `KSP.log`, `Player.log`) before they should be treated as closed coverage gaps. After that, the remaining player-flow gap is still the fully stock `record -> revert -> pending tree survives scene transition -> merge` path; the new deferred-dialog test covers the button branch, not the whole revert transition.
+
+**Next validation run:**
+
+1. Build from `Parsek-audit-test-coverage`: `dotnet build Source/Parsek/Parsek.csproj --nologo --no-restore -v minimal`
+2. Run `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree` individually in `FLIGHT`
+3. Run `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce` individually in `FLIGHT`
+4. Save the exported `parsek-test-results.txt`, `KSP.log`, and `Player.log`
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`.
+
+**Status:** OPEN. This is now the immediate runtime-validation follow-up on the audit branch, ahead of the later full revert-flow scenario.
+
+---
+
 ## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
