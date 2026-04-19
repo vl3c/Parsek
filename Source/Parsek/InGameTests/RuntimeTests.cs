@@ -4989,14 +4989,14 @@ namespace Parsek.InGameTests
                 autoLoopIntervalSeconds = 10.0,
             };
 
-            capturedLog = new List<string>();
+            var localLog = new List<string>();
             var priorSink = ParsekLog.TestSinkForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
             ParsekLog.ResetRateLimitsForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line =>
             {
-                capturedLog.Add(line);
+                localLog.Add(line);
                 priorSink?.Invoke(line);
             };
 
@@ -5013,6 +5013,7 @@ namespace Parsek.InGameTests
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
             }
 
+            capturedLog = localLog;
             return state;
         }
 
