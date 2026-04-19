@@ -81,6 +81,27 @@ Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and clo
 
 ---
 
+## 492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence
+
+**Source:** audit follow-up after implementing the first `PartEventTiming` tests in the audit worktree.
+
+**Current state:** the branch now contains `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`. These are deterministic `FLIGHT` runtime tests that build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. They build cleanly, but they have not been run in a live KSP session yet.
+
+**Why this matters:** the audit's remaining part-event gap was no longer "can ghost FX build at all?" Existing `PartEventFX` checks already cover that. The narrower missing confidence was timing: do visible state changes happen at the right moment? These two tests are the first concrete attempt to pin that down.
+
+**Proposed next step:** from a normal `FLIGHT` session in the audit build, run:
+
+- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`
+- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`
+
+Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pass cleanly.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
 ## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.

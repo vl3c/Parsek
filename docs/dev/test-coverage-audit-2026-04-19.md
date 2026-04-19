@@ -497,16 +497,24 @@ The branch now also contains the next two manual-only scene-exit canaries for th
 - both new tests are `AllowBatchExecution = false` because they mutate the live session, cross from `FLIGHT` into `SPACECENTER`, and use the real deferred merge dialog rather than a synthetic popup invocation
 - the supporting helper now mirrors stock `PauseMenu.saveAndExit(...)` more closely by firing `onSceneConfirmExit`, invoking `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saving `persistent`, and only then loading `SPACECENTER`
 
+The branch also now contains the first deterministic timing-sensitive part-event canaries, likewise still awaiting live evidence:
+
+- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`, which builds a synthetic ghost light and asserts `GhostPlaybackLogic.ApplyPartEvents(...)` turns it on/off exactly at the authored `LightOn` / `LightOff` UT boundaries
+- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
+- unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
 1. **Live-validate the two new non-revert scene-exit canaries**
    Build the audit worktree, then run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually from a disposable prelaunch flight and capture the resulting `KSP.log` / `parsek-test-results.txt`.
-2. **Finish validating the local coverage path**
+2. **Live-validate the first timing-sensitive part-event canaries**
+   In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
+3. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-3. **After that, add part-event timing scenarios**
-   These are still valuable, but the repo already has stronger structural coverage here than it does for auto-record and merge/revert.
+4. **After that, broaden the part-event timing slice if needed**
+   Lights/deployables would close the first showcase-sized gap. If those hold up live, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
 
 ### Scenario promotion shortlist
 
@@ -515,7 +523,7 @@ The first scripted runtime scenarios I would validate/add next are:
 1. **Non-revert scene-exit deferred merge flow**
    The commit/discard canaries are now implemented locally; the next task is live validation in KSP so the remaining merge-dialog gap is backed by real logs instead of compile-only evidence.
 2. **Part-event timing showcase**
-   Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
+   The first light/deployable timing canaries are now implemented locally; the next task is live validation, then deciding whether fairing/RCS timing needs the same treatment.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
 
