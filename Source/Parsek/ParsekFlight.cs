@@ -7095,17 +7095,28 @@ namespace Parsek
                 return false;
             }
 
-            // Stock BackupVessel can lag one frame behind the live terminal transition and
-            // still emit sit=FLYING/SUB_ORBITAL for a vessel that has already settled.
-            VesselSpawner.CorrectUnsafeSnapshotSituation(freshSnapshot, ts);
+            freshSnapshot = NormalizeStableTerminalSnapshotForPersistence(freshSnapshot, ts);
             rec.VesselSnapshot = freshSnapshot;
             if (rec.GhostVisualSnapshot == null)
                 rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
             rec.MarkFilesDirty();
             ParsekLog.Info("Flight",
                 $"{logPrefix} '{rec.RecordingId}' with stable terminal state {ts} " +
-                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289/#354]");
+                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289/#354/#479]");
             return true;
+        }
+
+        internal static ConfigNode NormalizeStableTerminalSnapshotForPersistence(
+            ConfigNode freshSnapshot,
+            TerminalState terminalState)
+        {
+            if (freshSnapshot == null)
+                return null;
+
+            // Stock BackupVessel can lag one frame behind the live terminal transition and
+            // still emit sit=FLYING/SUB_ORBITAL for a vessel that has already settled.
+            VesselSpawner.CorrectUnsafeSnapshotSituation(freshSnapshot, terminalState);
+            return freshSnapshot;
         }
 
         /// <summary>
