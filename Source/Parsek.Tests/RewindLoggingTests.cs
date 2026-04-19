@@ -467,52 +467,6 @@ namespace Parsek.Tests
 
         #region Rewind Field Serialization Round-Trip
 
-        /// <summary>
-        /// Serialize rewind fields to ConfigNode using the same format as ParsekScenario.OnSave.
-        /// </summary>
-        private static void SerializeRewindFields(ConfigNode node, Recording rec)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-            {
-                node.AddValue("rewindSave", rec.RewindSaveFileName);
-                node.AddValue("rewindResFunds", rec.RewindReservedFunds.ToString("R", ic));
-                node.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", ic));
-                node.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", ic));
-            }
-        }
-
-        /// <summary>
-        /// Deserialize rewind fields from ConfigNode using the same format as ParsekScenario.OnLoad.
-        /// </summary>
-        private static void DeserializeRewindFields(ConfigNode node, Recording rec)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            rec.RewindSaveFileName = node.GetValue("rewindSave");
-
-            string fundsStr = node.GetValue("rewindResFunds");
-            if (fundsStr != null)
-            {
-                double v;
-                if (double.TryParse(fundsStr, NumberStyles.Float, ic, out v))
-                    rec.RewindReservedFunds = v;
-            }
-            string sciStr = node.GetValue("rewindResSci");
-            if (sciStr != null)
-            {
-                double v;
-                if (double.TryParse(sciStr, NumberStyles.Float, ic, out v))
-                    rec.RewindReservedScience = v;
-            }
-            string repStr = node.GetValue("rewindResRep");
-            if (repStr != null)
-            {
-                float v;
-                if (float.TryParse(repStr, NumberStyles.Float, ic, out v))
-                    rec.RewindReservedRep = v;
-            }
-        }
-
         [Fact]
         public void RewindFields_SurviveSerializationRoundTrip()
         {
@@ -525,10 +479,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            SerializeRewindFields(node, rec);
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
 
             var loaded = new Recording();
-            DeserializeRewindFields(node, loaded);
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
 
             Assert.Equal("parsek_rw_roundtrip", loaded.RewindSaveFileName);
             Assert.Equal(9999.9, loaded.RewindReservedFunds);
@@ -544,7 +498,7 @@ namespace Parsek.Tests
             node.AddValue("vesselName", "OldRocket");
 
             var loaded = new Recording();
-            DeserializeRewindFields(node, loaded);
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
 
             Assert.Null(loaded.RewindSaveFileName);
             Assert.Equal(0.0, loaded.RewindReservedFunds);
@@ -563,7 +517,7 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            SerializeRewindFields(node, rec);
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
 
             Assert.Null(node.GetValue("rewindSave"));
             Assert.Null(node.GetValue("rewindResFunds"));
@@ -581,7 +535,7 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            SerializeRewindFields(node, rec);
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
 
             // All numeric values must use dots, never commas
             Assert.DoesNotContain(",", node.GetValue("rewindResFunds"));
@@ -590,7 +544,7 @@ namespace Parsek.Tests
 
             // Verify round-trip
             var loaded = new Recording();
-            DeserializeRewindFields(node, loaded);
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
             Assert.Equal(12345.678, loaded.RewindReservedFunds);
         }
 

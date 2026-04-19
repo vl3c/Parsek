@@ -982,7 +982,7 @@ namespace Parsek.Tests
     #region Watch mode — FindNextWatchTarget
 
     [Collection("Sequential")]
-    public class FindNextWatchTargetTests
+    public class FindNextWatchTargetTests : IDisposable
     {
         public FindNextWatchTargetTests()
         {
@@ -991,6 +991,15 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            ParsekLog.ResetTestOverrides();
         }
 
         private Recording MakeRec(string id, string vesselName = "Ship", uint vesselPid = 100,
