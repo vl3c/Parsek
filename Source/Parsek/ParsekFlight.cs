@@ -7551,9 +7551,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Populates terminal orbit fields from the last OrbitSegment when the vessel
-        /// is already destroyed at finalization time. Enables ghost map presence for
-        /// orbital debris whose vessel expired before CaptureTerminalOrbit could run. (#219)
+        /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
+        /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
+        /// a stale cached TerminalOrbitBody on finalize/load. (#219/#475)
         /// </summary>
         internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
         {

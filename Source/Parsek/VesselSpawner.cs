@@ -2633,7 +2633,8 @@ namespace Parsek
                 out double epoch,
                 out string orbitBodyName))
             {
-                string endpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string resolvedEndpointBody)
+                string resolvedEndpointBody;
+                string endpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out resolvedEndpointBody)
                     ? resolvedEndpointBody
                     : "(none)";
                 ParsekLog.Warn("Spawner",

@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- `#475` Ghost recordings that end in Mun orbit now resolve their spawn body from the actual recording endpoint and only reuse terminal-orbit seeds that match that endpoint, so post-rewind map-view watches no longer materialize the spawned vessel onto a Kerbin-frame eject trajectory when the cached terminal SOI body is stale.
+- `#475` Mun-end ghost spawns now use endpoint-aligned body/orbit data after rewind, and load heals stale cached terminal orbit bodies from older saves.
 
 ### Tests
 
