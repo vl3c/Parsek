@@ -93,7 +93,7 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 
 ## ~~484. `FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` fails in FLIGHT — `PopulateTerminalOrbitFromLastSegment` overwrites an already-populated `TerminalOrbitBody` when the last segment's body disagrees~~
 
-**Resolution (2026-04-19):** Closed on `bug/484-terminal-orbit-preserve`. Investigation confirmed the current code contract comes from `#475`, not `#289`: `TerminalOrbitBody` is a healable cache, not immutable finalized metadata. `PopulateTerminalOrbitFromLastSegment` may replace a stale cached body only when the last `OrbitSegment` is endpoint-aligned; already-populated values that already agree with that endpoint-aligned segment remain preserved. The failing FLIGHT test was asserting the old pre-`#475` preserve-everything contract, so it was updated to split the two cases explicitly (preserve-on-match, heal-on-stale-mismatch), and xUnit coverage now pins the orbit-endpoint variant directly.
+**Resolution (2026-04-19):** Closed on `bug/484-terminal-orbit-preserve`. Investigation confirmed the current code contract comes from `#475`, not `#289`: `TerminalOrbit*` is a healable cache, not immutable finalized metadata. `PopulateTerminalOrbitFromLastSegment` now preserves existing data only when the full cached terminal-orbit tuple already matches the endpoint-aligned last `OrbitSegment`; stale same-body tuples and stale different-body tuples both heal from that segment. The FLIGHT and xUnit regressions were tightened to pin all three cases explicitly: preserve-on-full-match, heal-on-stale-same-body, and heal-on-stale-different-body.
 
 **Status:** CLOSED. Fixed for v0.8.3.
 

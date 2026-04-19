@@ -6900,8 +6900,8 @@ namespace Parsek
             // Refresh terminal orbit for orbital leaf recordings even if a body was
             // captured earlier. A mid-transition capture can stamp the wrong SOI body,
             // so we treat TerminalOrbit* as a healable cache: re-read the live vessel
-            // when available and only fall back to the last orbit segment when it matches
-            // the recording endpoint body. (#475/#484)
+            // when available and only preserve cached orbit data when the full cached
+            // tuple already matches the endpoint-aligned last orbit segment. (#475/#484)
             if (isLeaf && rec.TerminalStateValue.HasValue
                 && (rec.TerminalStateValue.Value == TerminalState.Orbiting
                     || rec.TerminalStateValue.Value == TerminalState.SubOrbital
@@ -7574,8 +7574,9 @@ namespace Parsek
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
-        /// a stale cached TerminalOrbitBody on finalize/load. Already-populated values
-        /// are preserved when they already agree with the endpoint-aligned segment.
+        /// a stale cached terminal-orbit tuple on finalize/load. Already-populated
+        /// values are preserved only when the full cached tuple already matches the
+        /// endpoint-aligned segment.
         /// (#219/#475/#484)
         /// </summary>
         internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
@@ -7594,14 +7595,22 @@ namespace Parsek
                     || string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
             }
 
-            if (string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal))
+            bool cachedTupleMatchesLastSegment =
+                string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal)
+                && rec.TerminalOrbitInclination == seg.inclination
+                && rec.TerminalOrbitEccentricity == seg.eccentricity
+                && rec.TerminalOrbitSemiMajorAxis == seg.semiMajorAxis
+                && rec.TerminalOrbitLAN == seg.longitudeOfAscendingNode
+                && rec.TerminalOrbitArgumentOfPeriapsis == seg.argumentOfPeriapsis
+                && rec.TerminalOrbitMeanAnomalyAtEpoch == seg.meanAnomalyAtEpoch
+                && rec.TerminalOrbitEpoch == seg.epoch;
+            if (cachedTupleMatchesLastSegment)
                 return false;
 
             if (!hasEndpointBody)
                 return false;
 
-            return string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
-                && !string.Equals(rec.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+            return string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
         }
 
         internal static void PopulateTerminalOrbitFromLastSegment(Recording rec)
@@ -7609,8 +7618,17 @@ namespace Parsek
             if (!ShouldPopulateTerminalOrbitFromLastSegment(rec)) return;
 
             var seg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-            bool healingStaleCachedBody = !string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                && !string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal);
+            string previousBody = rec.TerminalOrbitBody;
+            double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
+            bool healingStaleCachedTuple = !string.IsNullOrEmpty(previousBody)
+                && !(string.Equals(previousBody, seg.bodyName, StringComparison.Ordinal)
+                    && rec.TerminalOrbitInclination == seg.inclination
+                    && rec.TerminalOrbitEccentricity == seg.eccentricity
+                    && rec.TerminalOrbitSemiMajorAxis == seg.semiMajorAxis
+                    && rec.TerminalOrbitLAN == seg.longitudeOfAscendingNode
+                    && rec.TerminalOrbitArgumentOfPeriapsis == seg.argumentOfPeriapsis
+                    && rec.TerminalOrbitMeanAnomalyAtEpoch == seg.meanAnomalyAtEpoch
+                    && rec.TerminalOrbitEpoch == seg.epoch);
             rec.TerminalOrbitInclination = seg.inclination;
             rec.TerminalOrbitEccentricity = seg.eccentricity;
             rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
@@ -7620,11 +7638,12 @@ namespace Parsek
             rec.TerminalOrbitEpoch = seg.epoch;
             rec.TerminalOrbitBody = seg.bodyName;
 
-            if (healingStaleCachedBody)
+            if (healingStaleCachedTuple)
             {
                 ParsekLog.Warn("Flight",
-                    $"PopulateTerminalOrbitFromLastSegment: healed stale cached body for '{rec.RecordingId}' " +
-                    $"with endpoint-aligned segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
+                    $"PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit for '{rec.RecordingId}' " +
+                    $"previousBody={previousBody ?? "(empty)"} previousSma={previousSemiMajorAxis:F1} " +
+                    $"newBody={seg.bodyName} newSma={seg.semiMajorAxis:F1}");
                 return;
             }
 

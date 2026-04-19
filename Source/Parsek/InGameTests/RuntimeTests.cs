@@ -3882,12 +3882,44 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
-            Description = "#265/#484: endpoint-aligned backfill preserves an already-populated terminal orbit when the cached body already matches")]
-        public void TerminalOrbitBackfill_AlreadyPopulatedSameBody_NoOverwrite()
+            Description = "#265/#484: endpoint-aligned backfill preserves an already-populated terminal orbit only when the cached tuple already matches")]
+        public void TerminalOrbitBackfill_AlreadyPopulatedMatchingTuple_NoOverwrite()
         {
             var rec = new Recording
             {
                 VesselName = "TestNoOverwrite",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Existing TerminalOrbitBody should not be overwritten");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody no-overwrite verified: body still Kerbin");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#484 review follow-up: endpoint-aligned backfill heals a stale same-body terminal-orbit tuple instead of preserving by body match alone")]
+        public void TerminalOrbitBackfill_StaleCachedSameBodyTuple_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleSameBodyTuple",
                 VesselPersistentId = 0,
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Kerbin",
@@ -3906,11 +3938,11 @@ namespace Parsek.InGameTests
             ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
 
             InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
-                "Existing TerminalOrbitBody should not be overwritten");
-            InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+                "Endpoint-aligned orbit segment should keep the same body while healing stale tuple fields");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
 
             ParsekLog.Verbose("TestRunner",
-                "TerminalOrbitBody no-overwrite verified: body still Kerbin");
+                "TerminalOrbitBody stale same-body tuple heal verified: sma 250000 -> 700000");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
