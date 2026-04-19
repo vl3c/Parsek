@@ -178,13 +178,18 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of PendingScienceSubjects into ScienceEarning GameActions.
-        /// Each subject becomes a ScienceEarning action with subjectId, scienceAwarded, and subjectMaxValue.
+        /// Each subject becomes a ScienceEarning action anchored at commit/end UT while
+        /// also carrying the owning recording span for post-walk reconciliation.
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
-        /// <param name="ut">Universal time to assign to all generated actions.</param>
+        /// <param name="startUT">Owning recording start UT.</param>
+        /// <param name="endUT">Owning recording end/commit UT.</param>
         internal static List<GameAction> ConvertScienceSubjects(
-            IReadOnlyList<PendingScienceSubject> subjects, string recordingId, double ut)
+            IReadOnlyList<PendingScienceSubject> subjects,
+            string recordingId,
+            double startUT,
+            double endUT)
         {
             var result = new List<GameAction>();
 
@@ -218,12 +223,14 @@ namespace Parsek
 
                 result.Add(new GameAction
                 {
-                    UT = ut,
+                    UT = endUT,
                     Type = GameActionType.ScienceEarning,
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
                     ScienceAwarded = subj.science,
                     SubjectMaxValue = subj.subjectMaxValue,
+                    StartUT = (float)startUT,
+                    EndUT = (float)endUT,
                     Sequence = sequence++
                 });
             }
