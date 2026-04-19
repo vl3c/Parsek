@@ -490,23 +490,30 @@ The later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` reru
 - `KSP.log` shows the expected #434 sequence in one live run: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then the final `Revert flow runtime: ... committedBefore=2 committedAfter=2` assertion log and `PASSED:` line
 - there is no `ParsekMerge` popup line in the validated revert window, and the test confirms the reverted mission did not increase either `CommittedRecordings` or `CommittedTrees`
 
+The branch now also contains the next two manual-only scene-exit canaries for the remaining merge-dialog gap, but these are not live-validated yet:
+
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`, which starts a real recording in `FLIGHT`, stages the vessel off the pad, drives stock `Space Center` save-and-exit semantics, waits for the deferred `ParsekMerge` popup in `SPACECENTER`, presses `Merge to Timeline`, and asserts the pending tree commits into `CommittedTrees` / `CommittedRecordings`
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`, which drives the same stock exit path but presses `Discard` and asserts the pending tree clears without changing either committed collection
+- both new tests are `AllowBatchExecution = false` because they mutate the live session, cross from `FLIGHT` into `SPACECENTER`, and use the real deferred merge dialog rather than a synthetic popup invocation
+- the supporting helper now mirrors stock `PauseMenu.saveAndExit(...)` more closely by firing `onSceneConfirmExit`, invoking `FlightGlobals.ClearpersistentIdDictionaries` by reflection, saving `persistent`, and only then loading `SPACECENTER`
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
-1. **Finish validating the local coverage path**
+1. **Live-validate the two new non-revert scene-exit canaries**
+   Build the audit worktree, then run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually from a disposable prelaunch flight and capture the resulting `KSP.log` / `parsek-test-results.txt`.
+2. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Add the non-revert scene-exit merge flow**
-   The remaining merge-dialog gap is now the real non-revert exit path: `record -> leave flight without revert -> deferred merge dialog -> commit/discard`. That is the user-facing route that still owns merge UI after #434.
 3. **After that, add part-event timing scenarios**
    These are still valuable, but the repo already has stronger structural coverage here than it does for auto-record and merge/revert.
 
 ### Scenario promotion shortlist
 
-The first scripted runtime scenarios I would add are:
+The first scripted runtime scenarios I would validate/add next are:
 
 1. **Non-revert scene-exit deferred merge flow**
-   Add one runtime scenario that starts from a real recording, exits flight without revert, waits for the deferred merge dialog in the destination scene, and then commits or discards through the real UI.
+   The commit/discard canaries are now implemented locally; the next task is live validation in KSP so the remaining merge-dialog gap is backed by real logs instead of compile-only evidence.
 2. **Part-event timing showcase**
    Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
 

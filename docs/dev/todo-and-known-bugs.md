@@ -64,15 +64,20 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
 
-**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). What it still does not have is one true end-to-end scenario for the user-facing merge route after #434: start a real recording, leave flight without revert, wait for the deferred merge dialog in the destination scene, and then commit or discard through the real UI.
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). The next step is partially landed: `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` now exist locally, build cleanly, and drive the real `record -> launch -> stock save-and-exit to Space Center -> deferred merge dialog -> merge/discard` flow end-to-end. What is still missing is live KSP evidence for those two manual-only tests.
 
 **Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
 
-**Proposed next step:** add one manual-only runtime canary that starts from a real flight recording, exits via a non-revert path such as `Space Center`, waits for the deferred merge dialog outside FLIGHT, and asserts either the commit or discard branch end-to-end with real `KSP.log` / `parsek-test-results.txt` evidence.
+**Proposed next step:** from `Parsek-audit-test-coverage`, build `Source/Parsek/Parsek.csproj`, then run both `SceneExitMerge` tests individually from a disposable prelaunch flight:
 
-**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
 
-**Status:** OPEN.
+Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and close this item once both branches have clean live evidence.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
 
 ---
 
