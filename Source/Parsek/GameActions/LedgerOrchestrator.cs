@@ -37,7 +37,9 @@ namespace Parsek
         private static bool? scienceTrackedOverrideForTesting;
         [ThreadStatic]
         private static bool? repTrackedOverrideForTesting;
-        private const double OneShotReconcileSkipLogIntervalSeconds = 1e12;
+        // Effectively "once per play session" for the rate-limited skip diagnostics.
+        private static readonly double OneShotReconcileSkipLogIntervalSeconds =
+            TimeSpan.FromDays(365).TotalSeconds;
 
         /// <summary>
         /// Set to <c>true</c> by <see cref="MigrateOldSaveEvents"/> when — and only when —
@@ -4300,13 +4302,6 @@ namespace Parsek
             IReadOnlyList<GameAction> actions,
             double? utCutoff)
         {
-            GetResourceTrackingAvailability(
-                out bool fundsTracked,
-                out bool scienceTracked,
-                out bool repTracked);
-            if (!IsTrackedEventType(leg.EventType, fundsTracked, scienceTracked, repTracked))
-                return true;
-
             double summedExpected = SumExpectedPostWalkWindow(
                 action, leg, tolerance, actions, utCutoff);
 
@@ -4444,25 +4439,6 @@ namespace Parsek
             return (fundsTracked && exp.Funds.Applies)
                 || (scienceTracked && exp.Sci.Applies)
                 || (repTracked && exp.Rep.Applies);
-        }
-
-        private static bool IsTrackedEventType(
-            GameStateEventType eventType,
-            bool fundsTracked,
-            bool scienceTracked,
-            bool repTracked)
-        {
-            switch (eventType)
-            {
-                case GameStateEventType.FundsChanged:
-                    return fundsTracked;
-                case GameStateEventType.ScienceChanged:
-                    return scienceTracked;
-                case GameStateEventType.ReputationChanged:
-                    return repTracked;
-                default:
-                    return true;
-            }
         }
 
         private static void GetResourceTrackingAvailability(
