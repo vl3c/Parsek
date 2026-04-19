@@ -1743,6 +1743,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PostWalk_MilestoneAchievement_NullTaggedSiblingDefersToTaggedScope_NoWarn()
+        {
+            // Mixed-scope edge for the #462 partial fix: a null-tagged legacy action
+            // should still be allowed to match tagged store events when it is alone,
+            // but it must not become the primary owner of a coalesced window that also
+            // contains a tagged sibling. Otherwise list order decides whether the
+            // aggregate re-folds sibling recordings back into the expected sum.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 20960, "Progression", recordingId: "rec-parent"),
+                MakeKeyedFundsChanged(600, 20960, 21440, "Progression", recordingId: "rec-child")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 600,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = null,
+                    MilestoneId = "Kerbin/SurfaceEVA (legacy)",
+                    Effective = true,
+                    MilestoneFundsAwarded = 960f
+                },
+                new GameAction
+                {
+                    UT = 600,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = "rec-parent",
+                    MilestoneId = "Kerbin/SurfaceEVA",
+                    Effective = true,
+                    MilestoneFundsAwarded = 960f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk match: MilestoneAchievement funds") &&
+                l.Contains("id=Kerbin/SurfaceEVA"));
+        }
+
+        [Fact]
         public void PostWalk_ContractComplete_NullTaggedAction_MatchesTaggedEvent_NoWarn()
         {
             var events = new List<GameStateEvent>

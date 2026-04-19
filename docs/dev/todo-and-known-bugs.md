@@ -542,13 +542,13 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 **Dependencies:** none.
 
-**Status:** CLOSED by #477. The apparent `MilestoneAchievement` "double-count" shape was the same coalesced-window attribution bug in post-walk reconciliation, not duplicate milestone credit landing in the ledger.
+**Status:** CLOSED. The apparent `MilestoneAchievement` "double-count" shape was the same post-walk attribution bug family as #477, not duplicate milestone credit landing in the ledger. The main fix shipped in #477; a follow-up hardening pass now also pins the mixed null-tagged/tagged ordering edge so legacy siblings cannot reclaim ownership of a tagged `Progression` burst just by appearing earlier in the ledger.
 
 **Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. Final fix: not duplicate `MilestoneAchievement` action emission, but per-action attribution of a coalesced post-walk reward window. `ReconcilePostWalk` now compares/logs once per window and reports grouped ids, which closes the `Kerbin/SurfaceEVA` / `Records*` false-positive shape as well.
 
-**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `AggregatePostWalkWindow` (post-walk) by `recordingId`. The #477 fix completed the remaining same-window attribution issue.
+**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `AggregatePostWalkWindow` (post-walk) by `recordingId`. That closed the original "2 events keyed 'Progression'" sibling-recording shape, but not the broader same-window attribution bug that #477 later fixed.
 
-**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `SumExpectedPostWalkWindow` (post-walk) by `recordingId`. This closes the "2 events keyed 'Progression'" shape when the two events belong to sibling recordings at the same UT, but does NOT address #477's duplicate-emission cause. Re-run the thorough-check log pass after #477 ships to confirm whether `Kerbin/SurfaceEVA` is now silent.
+**Update (2026-04-19 follow-up):** `AggregatePostWalkWindow` now prefers tagged recording-scoped actions over null-tagged legacy siblings when choosing the primary owner of a mixed-scope window. That makes the `#405` partial fix order-independent: a null-tagged legacy row can still match tagged store events when it is alone, but it can no longer re-aggregate a tagged sibling's `Progression` delta if the ledger happens to enumerate the legacy row first. Added xUnit coverage for the `Kerbin/SurfaceEVA`-style mixed-scope repro.
 
 ---
 
