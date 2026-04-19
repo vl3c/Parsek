@@ -4924,17 +4924,33 @@ namespace Parsek.InGameTests
             ConfigNode vesselSnapshot = sourceSnapshot.CreateCopy();
             ConfigNode ghostSnapshot = sourceSnapshot.CreateCopy();
             double now = Planetarium.GetUniversalTime();
-            double metersPerDegree = 180.0 / (System.Math.PI * body.Radius);
-            double startOffsetMeters = 120.0;
             double stepMeters = 10.0;
-            double startLat = activeVessel.latitude + startOffsetMeters * metersPerDegree;
-            double middleLat = activeVessel.latitude + (startOffsetMeters + stepMeters) * metersPerDegree;
-            double endLat = activeVessel.latitude + (startOffsetMeters + stepMeters * 2.0) * metersPerDegree;
-            double lon = activeVessel.longitude;
+            if (!TryResolveSyntheticKeepVesselPath(body, activeVessel.latitude, activeVessel.longitude,
+                stepMeters, out double startOffsetMeters, out double startLat, out double middleLat,
+                out double endLat, out double lon, out skipReason))
+            {
+                return false;
+            }
+
+            Quaternion landedRotation = activeVessel.transform != null
+                ? activeVessel.transform.rotation
+                : Quaternion.identity;
 
             double startAlt = ResolvePlaybackSurfaceAltitude(body, startLat, lon);
             double middleAlt = ResolvePlaybackSurfaceAltitude(body, middleLat, lon);
             double endAlt = ResolvePlaybackSurfaceAltitude(body, endLat, lon);
+            double terminalTerrainAlt = body.TerrainAltitude(endLat, lon);
+            if (double.IsNaN(terminalTerrainAlt) || double.IsInfinity(terminalTerrainAlt))
+                terminalTerrainAlt = endAlt - 2.0;
+
+            VesselSpawner.OverrideSnapshotPosition(vesselSnapshot, endLat, lon, endAlt,
+                -1, activeVessel.vesselName ?? "Runtime Test Vessel", landedRotation);
+            vesselSnapshot.SetValue("sit", "LANDED", true);
+            vesselSnapshot.SetValue("landed", "True", true);
+            vesselSnapshot.SetValue("splashed", "False", true);
+
+            double endDistanceMeters = SpawnCollisionDetector.SurfaceDistance(
+                activeVessel.latitude, activeVessel.longitude, endLat, lon, body.Radius);
 
             string recordingId = "runtime-keep-vessel-" + System.DateTime.UtcNow.Ticks;
             string treeId = "runtime-tree-keep-vessel-" + recordingId;
@@ -4949,9 +4965,29 @@ namespace Parsek.InGameTests
                 VesselName = (activeVessel.vesselName ?? "Runtime Test Vessel") + " timeline",
                 VesselPersistentId = syntheticPid,
                 TerminalStateValue = TerminalState.Landed,
-                MaxDistanceFromLaunch = startOffsetMeters + stepMeters * 2.0,
+                DistanceFromLaunch = endDistanceMeters,
+                MaxDistanceFromLaunch = endDistanceMeters,
+                TerrainHeightAtEnd = terminalTerrainAlt,
                 VesselSnapshot = vesselSnapshot,
                 GhostVisualSnapshot = ghostSnapshot,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = body.name,
+                    latitude = endLat,
+                    longitude = lon,
+                    altitude = endAlt,
+                    rotation = landedRotation,
+                    situation = SurfaceSituation.Landed
+                },
+                SurfacePos = new SurfacePosition
+                {
+                    body = body.name,
+                    latitude = endLat,
+                    longitude = lon,
+                    altitude = endAlt,
+                    rotation = landedRotation,
+                    situation = SurfaceSituation.Landed
+                },
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
@@ -4961,7 +4997,7 @@ namespace Parsek.InGameTests
                         longitude = lon,
                         altitude = startAlt,
                         bodyName = body.name,
-                        rotation = Quaternion.identity,
+                        rotation = landedRotation,
                         velocity = Vector3.zero
                     },
                     new TrajectoryPoint
@@ -4971,7 +5007,7 @@ namespace Parsek.InGameTests
                         longitude = lon,
                         altitude = middleAlt,
                         bodyName = body.name,
-                        rotation = Quaternion.identity,
+                        rotation = landedRotation,
                         velocity = Vector3.zero
                     },
                     new TrajectoryPoint
@@ -4981,7 +5017,7 @@ namespace Parsek.InGameTests
                         longitude = lon,
                         altitude = endAlt,
                         bodyName = body.name,
-                        rotation = Quaternion.identity,
+                        rotation = landedRotation,
                         velocity = Vector3.zero
                     }
                 }
@@ -5007,6 +5043,87 @@ namespace Parsek.InGameTests
             if (double.IsNaN(terrainAlt) || double.IsInfinity(terrainAlt))
                 terrainAlt = 0.0;
             return terrainAlt + 2.0;
+        }
+
+        private static bool TryResolveSyntheticKeepVesselPath(
+            CelestialBody body,
+            double originLatitude,
+            double originLongitude,
+            double stepMeters,
+            out double startOffsetMeters,
+            out double startLatitude,
+            out double middleLatitude,
+            out double endLatitude,
+            out double longitude,
+            out string skipReason)
+        {
+            startOffsetMeters = 0.0;
+            startLatitude = 0.0;
+            middleLatitude = 0.0;
+            endLatitude = 0.0;
+            longitude = 0.0;
+            skipReason = null;
+
+            if (body == null || body.Radius <= 0.0)
+            {
+                skipReason = "active vessel body is unavailable";
+                return false;
+            }
+
+            double latitudeDegreesPerMeter = 180.0 / (System.Math.PI * body.Radius);
+            double cosLatitude = System.Math.Cos(originLatitude * System.Math.PI / 180.0);
+            double longitudeDegreesPerMeter = System.Math.Abs(cosLatitude) > 1e-6
+                ? latitudeDegreesPerMeter / cosLatitude
+                : latitudeDegreesPerMeter;
+
+            double[] northCandidates = body.isHomeWorld
+                ? new[] { 220.0, 320.0, 420.0, 520.0 }
+                : new[] { 120.0 };
+            double[] eastCandidates = body.isHomeWorld
+                ? new[] { 0.0, 160.0, -160.0, 320.0, -320.0 }
+                : new[] { 0.0 };
+
+            for (int northIndex = 0; northIndex < northCandidates.Length; northIndex++)
+            {
+                double northMeters = northCandidates[northIndex];
+                for (int eastIndex = 0; eastIndex < eastCandidates.Length; eastIndex++)
+                {
+                    double eastMeters = eastCandidates[eastIndex];
+                    double candidateLongitude = originLongitude + eastMeters * longitudeDegreesPerMeter;
+                    double candidateStartLatitude = originLatitude + northMeters * latitudeDegreesPerMeter;
+                    double candidateMiddleLatitude = originLatitude
+                        + (northMeters + stepMeters) * latitudeDegreesPerMeter;
+                    double candidateEndLatitude = originLatitude
+                        + (northMeters + stepMeters * 2.0) * latitudeDegreesPerMeter;
+
+                    if (body.isHomeWorld)
+                    {
+                        bool startBlocked = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                            candidateStartLatitude, candidateLongitude, body.Radius,
+                            SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+                        bool middleBlocked = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                            candidateMiddleLatitude, candidateLongitude, body.Radius,
+                            SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+                        bool endBlocked = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                            candidateEndLatitude, candidateLongitude, body.Radius,
+                            SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+                        if (startBlocked || middleBlocked || endBlocked)
+                            continue;
+                    }
+
+                    startOffsetMeters = northMeters;
+                    startLatitude = candidateStartLatitude;
+                    middleLatitude = candidateMiddleLatitude;
+                    endLatitude = candidateEndLatitude;
+                    longitude = candidateLongitude;
+                    return true;
+                }
+            }
+
+            skipReason = body.isHomeWorld
+                ? "failed to find synthetic keep-vessel path outside the KSC exclusion zone"
+                : "failed to resolve synthetic keep-vessel path";
+            return false;
         }
 
         private static IEnumerator WaitForActiveTimelineGhost(
