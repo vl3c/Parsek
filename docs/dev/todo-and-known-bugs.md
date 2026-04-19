@@ -235,7 +235,7 @@ Third possibility (orbit-frame coupling): the terminal orbit fields themselves c
 
 **Status:** DONE / closed 2026-04-19.
 
-**Fix shipped:** fresh ghost builds now recalculate `cameraPivot` immediately instead of leaving the initial watch target at the raw root origin; ghost loop + one-shot `AudioSource`s are then re-anchored to that watch pivot, forced back to `panStereo = 0`, and run with `spatialBlend = 0.75f` instead of fully-3D `1.0f`. That keeps Watch-mode framing and the dominant ghost audio source aligned, so engine/explosion playback no longer hard-pans into one ear when the camera snaps to the ghost.
+**Fix shipped:** fresh ghost builds now recalculate `cameraPivot` immediately instead of leaving the initial watch target at the raw root origin; ghost loop + one-shot `AudioSource`s are then re-anchored to that watch pivot, forced back to `panStereo = 0`, and run with `spatialBlend = 0.75f` instead of fully-3D `1.0f`. `HideAllGhostParts()` also mutes those detached ghost audio sources when the ghost is hidden. That keeps Watch-mode framing and the dominant ghost audio source aligned, so engine/explosion playback no longer hard-pans into one ear when the camera snaps to the ghost.
 
 **Verification added:** runtime coverage now checks both invariants directly: `cameraPivot` recenters to the active-part midpoint on a fresh ghost, and re-anchored ghost audio sources land on `cameraPivot` with centered stereo defaults.
 

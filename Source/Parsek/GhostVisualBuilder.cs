@@ -2422,13 +2422,32 @@ namespace Parsek
             if (result == null || cameraPivot == null)
                 return;
 
+            int loopSourceCount = 0;
             if (result.audioInfos != null)
             {
                 for (int i = 0; i < result.audioInfos.Count; i++)
-                    ReanchorGhostAudioSource(result.audioInfos[i]?.audioSource, cameraPivot);
+                {
+                    AudioSource source = result.audioInfos[i]?.audioSource;
+                    if (source == null)
+                        continue;
+
+                    ReanchorGhostAudioSource(source, cameraPivot);
+                    loopSourceCount++;
+                }
             }
 
-            ReanchorGhostAudioSource(result.oneShotAudio?.audioSource, cameraPivot);
+            AudioSource oneShotSource = result.oneShotAudio?.audioSource;
+            bool hasOneShotSource = oneShotSource != null;
+            ReanchorGhostAudioSource(oneShotSource, cameraPivot);
+
+            if (loopSourceCount > 0 || hasOneShotSource)
+            {
+                string ghostName = result.root != null ? result.root.name : "<null-root>";
+                ParsekLog.Verbose("GhostAudio",
+                    $"Attached watch-pivot ghost audio on '{ghostName}' to '{cameraPivot.name}' " +
+                    $"(loop={loopSourceCount}, oneShot={(hasOneShotSource ? 1 : 0)}, " +
+                    $"spatialBlend={GhostAudioSpatialBlend:0.##}, panStereo=0)");
+            }
         }
 
         private static AudioSource CreateGhostAudioSource(GameObject go, AudioClip clip, bool loop)
