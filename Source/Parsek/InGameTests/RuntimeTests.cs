@@ -4936,12 +4936,14 @@ namespace Parsek.InGameTests
                 ? activeVessel.transform.rotation
                 : Quaternion.identity;
 
-            double startAlt = ResolvePlaybackSurfaceAltitude(body, startLat, lon);
-            double middleAlt = ResolvePlaybackSurfaceAltitude(body, middleLat, lon);
-            double endAlt = ResolvePlaybackSurfaceAltitude(body, endLat, lon);
+            double surfaceClearance = ResolveSyntheticKeepVesselClearance(
+                body, activeVessel, vesselSnapshot);
+            double startAlt = ResolvePlaybackSurfaceAltitude(body, startLat, lon, surfaceClearance);
+            double middleAlt = ResolvePlaybackSurfaceAltitude(body, middleLat, lon, surfaceClearance);
+            double endAlt = ResolvePlaybackSurfaceAltitude(body, endLat, lon, surfaceClearance);
             double terminalTerrainAlt = body.TerrainAltitude(endLat, lon);
             if (double.IsNaN(terminalTerrainAlt) || double.IsInfinity(terminalTerrainAlt))
-                terminalTerrainAlt = endAlt - 2.0;
+                terminalTerrainAlt = endAlt - surfaceClearance;
 
             VesselSpawner.OverrideSnapshotPosition(vesselSnapshot, endLat, lon, endAlt,
                 -1, activeVessel.vesselName ?? "Runtime Test Vessel", landedRotation);
@@ -5037,12 +5039,37 @@ namespace Parsek.InGameTests
         private static double ResolvePlaybackSurfaceAltitude(
             CelestialBody body,
             double latitude,
-            double longitude)
+            double longitude,
+            double surfaceClearance)
         {
             double terrainAlt = body.TerrainAltitude(latitude, longitude);
             if (double.IsNaN(terrainAlt) || double.IsInfinity(terrainAlt))
                 terrainAlt = 0.0;
-            return terrainAlt + 2.0;
+            return terrainAlt + surfaceClearance;
+        }
+
+        private static double ResolveSyntheticKeepVesselClearance(
+            CelestialBody body,
+            Vessel activeVessel,
+            ConfigNode vesselSnapshot)
+        {
+            const double minimumClearanceMeters = 6.0;
+
+            if (body == null || activeVessel == null)
+                return minimumClearanceMeters;
+
+            double terrainAlt = body.TerrainAltitude(activeVessel.latitude, activeVessel.longitude);
+            if (double.IsNaN(terrainAlt) || double.IsInfinity(terrainAlt))
+                return minimumClearanceMeters;
+
+            double clearance = minimumClearanceMeters;
+            if (VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out double snapshotAlt))
+                clearance = System.Math.Max(clearance, snapshotAlt - terrainAlt);
+
+            if (!double.IsNaN(activeVessel.altitude) && !double.IsInfinity(activeVessel.altitude))
+                clearance = System.Math.Max(clearance, activeVessel.altitude - terrainAlt);
+
+            return clearance;
         }
 
         private static bool TryResolveSyntheticKeepVesselPath(
