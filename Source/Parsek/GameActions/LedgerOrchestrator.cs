@@ -4287,6 +4287,7 @@ namespace Parsek
             const double fundsTol = 1.0;
             const double repTol = 0.1;
             const double sciTol = 0.1;
+            double livePruneThreshold = MilestoneStore.GetLatestCommittedEndUT();
 
             int walked = 0;
             int compared = 0;
@@ -4313,13 +4314,24 @@ namespace Parsek
                 if (!exp.Reconcile) continue;
                 if (!HasTrackedPostWalkLeg(exp, fundsTracked, scienceTracked, repTracked))
                     continue;
+                if (IsOutsidePostWalkLiveCoverage(
+                        action,
+                        exp,
+                        livePruneThreshold,
+                        events,
+                        actions,
+                        utCutoff))
+                {
+                    continue;
+                }
                 walked++;
 
                 bool anyCompared = false;
                 bool anyMismatch = false;
                 if (fundsTracked && exp.Funds.Applies)
                 {
-                    var result = CompareLeg(action, "funds", exp.Funds, fundsTol, events, actions, utCutoff);
+                    var result = CompareLeg(
+                        action, "funds", exp.Funds, fundsTol, events, actions, utCutoff, livePruneThreshold);
                     if (result != PostWalkCompareResult.Skipped)
                     {
                         anyCompared = true;
@@ -4332,7 +4344,8 @@ namespace Parsek
                 }
                 if (repTracked && exp.Rep.Applies)
                 {
-                    var result = CompareLeg(action, "rep", exp.Rep, repTol, events, actions, utCutoff);
+                    var result = CompareLeg(
+                        action, "rep", exp.Rep, repTol, events, actions, utCutoff, livePruneThreshold);
                     if (result != PostWalkCompareResult.Skipped)
                     {
                         anyCompared = true;
@@ -4345,7 +4358,8 @@ namespace Parsek
                 }
                 if (scienceTracked && exp.Sci.Applies)
                 {
-                    var result = CompareLeg(action, "sci", exp.Sci, sciTol, events, actions, utCutoff);
+                    var result = CompareLeg(
+                        action, "sci", exp.Sci, sciTol, events, actions, utCutoff, livePruneThreshold);
                     if (result != PostWalkCompareResult.Skipped)
                     {
                         anyCompared = true;
@@ -4371,6 +4385,288 @@ namespace Parsek
                 $"Post-walk reconcile: actions={walked}, compared={compared}, matches={matched}, " +
                 $"mismatches(funds/rep/sci)={mismatchFunds}/{mismatchRep}/{mismatchSci}, " +
                 $"cutoffUT={cutoffLabel}");
+        }
+
+        /// <summary>
+        /// Returns true when the action's UT falls outside the live <see cref="GameStateStore"/>
+        /// coverage available to post-walk reconciliation. The live store prunes resource
+        /// events at or below the latest committed milestone EndUT, and after a rewind/load the
+        /// current epoch may have no coverage for older-epoch action history even though the
+        /// ledger still retains those actions.
+        /// </summary>
+        private static bool IsOutsidePostWalkLiveCoverage(
+            GameAction action,
+            PostWalkExpectation expectation,
+            double livePruneThreshold,
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
+        {
+            if (action == null)
+                return false;
+
+            if (action.UT <= livePruneThreshold)
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "ut is at/below live prune threshold=" +
+                    livePruneThreshold.ToString("F1", CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (MilestoneStore.CurrentEpoch == 0)
+                return false;
+
+            GameStateEventType anchorType;
+            string anchorKey;
+            if (!TryGetPostWalkSourceAnchor(action, out anchorType, out anchorKey))
+                return false;
+
+            if (HasLivePostWalkSourceAnchor(action, anchorType, anchorKey, events))
+                return false;
+
+            if (!HasLivePostWalkObservedEvent(action, expectation, events, livePruneThreshold))
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "no live source anchor or observed reward leg remains in epoch=" +
+                    MilestoneStore.CurrentEpoch.ToString(CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (HasAmbiguousLiveCoverageOverlap(
+                    action,
+                    expectation,
+                    actions,
+                    utCutoff,
+                    events,
+                    livePruneThreshold))
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "same-UT live overlap is ambiguous without a live source anchor");
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void LogPostWalkLiveCoverageSkip(
+            GameAction action,
+            string reason)
+        {
+            string actionType = action != null ? action.Type.ToString() : "(null)";
+            string actionId = action != null ? ActionIdForPostWalk(action) : "(null)";
+            string utLabel = action != null
+                ? action.UT.ToString("F1", CultureInfo.InvariantCulture)
+                : "null";
+            string rateKey = string.Format(
+                CultureInfo.InvariantCulture,
+                "post-walk-live-coverage-skip:{0}:{1}:{2}",
+                actionType,
+                actionId,
+                action != null ? action.UT.ToString("R", CultureInfo.InvariantCulture) : "null");
+
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                rateKey,
+                $"Post-walk live-coverage skip: {actionType} id={actionId} ut={utLabel} -- {reason}");
+        }
+
+        private static bool TryGetPostWalkSourceAnchor(
+            GameAction action,
+            out GameStateEventType anchorType,
+            out string anchorKey)
+        {
+            anchorType = default(GameStateEventType);
+            anchorKey = null;
+
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ContractComplete:
+                    anchorType = GameStateEventType.ContractCompleted;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.ContractFail:
+                    anchorType = GameStateEventType.ContractFailed;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.ContractCancel:
+                    anchorType = GameStateEventType.ContractCancelled;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.MilestoneAchievement:
+                    anchorType = GameStateEventType.MilestoneAchieved;
+                    anchorKey = action.MilestoneId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                default:
+                    return false;
+            }
+        }
+
+        private static bool HasLivePostWalkSourceAnchor(
+            GameAction action,
+            GameStateEventType anchorType,
+            string anchorKey,
+            IReadOnlyList<GameStateEvent> events)
+        {
+            if (action == null || events == null || events.Count == 0)
+                return false;
+
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            string expectedKey = anchorKey ?? "";
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.epoch != currentEpoch) continue;
+                if (e.eventType != anchorType) continue;
+                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (!PostWalkEventMatchesAction(e, action)) continue;
+                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasLivePostWalkObservedEvent(
+            GameAction action,
+            PostWalkExpectation expectation,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (action == null || events == null || events.Count == 0)
+                return false;
+
+            return HasLivePostWalkObservedEventForLeg(
+                       action, expectation.Funds, events, livePruneThreshold) ||
+                   HasLivePostWalkObservedEventForLeg(
+                       action, expectation.Rep, events, livePruneThreshold) ||
+                   HasLivePostWalkObservedEventForLeg(
+                       action, expectation.Sci, events, livePruneThreshold);
+        }
+
+        private static bool HasLivePostWalkObservedEventForLeg(
+            GameAction action,
+            PostWalkLeg leg,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (action == null || !leg.Applies || events == null || events.Count == 0)
+                return false;
+
+            string expectedKey = leg.ReasonKey ?? "";
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
+                if (e.eventType != leg.EventType) continue;
+                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (!PostWalkEventMatchesAction(e, action)) continue;
+                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsLivePostWalkObservedEvent(
+            GameStateEvent e,
+            double livePruneThreshold)
+        {
+            if (e.ut <= livePruneThreshold)
+                return false;
+
+            if (MilestoneStore.CurrentEpoch > 0 && e.epoch != MilestoneStore.CurrentEpoch)
+                return false;
+
+            return true;
+        }
+
+        private static bool HasAmbiguousLiveCoverageOverlap(
+            GameAction anchorAction,
+            PostWalkExpectation anchorExpectation,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (anchorAction == null || actions == null || actions.Count == 0)
+                return false;
+
+            var anchorLegs = new[] { anchorExpectation.Funds, anchorExpectation.Rep, anchorExpectation.Sci };
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var other = actions[i];
+                if (other == null || object.ReferenceEquals(other, anchorAction))
+                    continue;
+                if (!PostWalkActionsShareScope(anchorAction, other))
+                    continue;
+                if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
+                    continue;
+                if (utCutoff.HasValue &&
+                    !RecalculationEngine.IsSeedType(other.Type) &&
+                    other.UT > utCutoff.Value)
+                {
+                    continue;
+                }
+
+                var otherExp = ClassifyPostWalk(other);
+                if (!otherExp.Reconcile)
+                    continue;
+                if (other.UT <= livePruneThreshold)
+                    continue;
+
+                GameStateEventType otherAnchorType;
+                string otherAnchorKey;
+                bool hasLiveSourceAnchor =
+                    TryGetPostWalkSourceAnchor(other, out otherAnchorType, out otherAnchorKey) &&
+                    HasLivePostWalkSourceAnchor(other, otherAnchorType, otherAnchorKey, events);
+
+                var otherLegs = new[] { otherExp.Funds, otherExp.Rep, otherExp.Sci };
+                for (int anchorIndex = 0; anchorIndex < anchorLegs.Length; anchorIndex++)
+                {
+                    var anchorLeg = anchorLegs[anchorIndex];
+                    if (!anchorLeg.Applies)
+                        continue;
+
+                    for (int otherIndex = 0; otherIndex < otherLegs.Length; otherIndex++)
+                    {
+                        var otherLeg = otherLegs[otherIndex];
+                        if (!otherLeg.Applies)
+                            continue;
+                        if (anchorLeg.EventType != otherLeg.EventType)
+                            continue;
+                        if (!string.Equals(
+                                anchorLeg.ReasonKey ?? "",
+                                otherLeg.ReasonKey ?? "",
+                                StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        if (hasLiveSourceAnchor ||
+                            HasLivePostWalkObservedEventForLeg(
+                                other, otherLeg, events, livePruneThreshold))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -4406,10 +4702,11 @@ namespace Parsek
             double tolerance,
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> actions,
-            double? utCutoff)
+            double? utCutoff,
+            double livePruneThreshold)
         {
             var aggregate = AggregatePostWalkWindow(
-                action, leg, tolerance, actions, utCutoff);
+                action, leg, tolerance, actions, utCutoff, events, livePruneThreshold);
             if (!aggregate.IsPrimary)
                 return PostWalkCompareResult.Skipped;
 
@@ -4426,6 +4723,7 @@ namespace Parsek
                 for (int i = 0; i < events.Count; i++)
                 {
                     var e = events[i];
+                    if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
                     if (e.eventType != leg.EventType) continue;
                     if (e.ut < observedWindowStartUt || e.ut > observedWindowEndUt) continue;
                     if (!PostWalkEventMatchesAction(e, action)) continue;
@@ -4443,11 +4741,14 @@ namespace Parsek
             if (Math.Abs(aggregate.Expected) <= tolerance && observedCount == 0)
                 return PostWalkCompareResult.Match;
 
+            string expectedLabel = aggregate.Expected.ToString("F1", CultureInfo.InvariantCulture);
+            string observedLabel = observed.ToString("F1", CultureInfo.InvariantCulture);
+
             if (observedCount == 0)
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"{aggregate.ContributorLabel} expected={aggregate.Expected:F1} but no matching {leg.EventType} event " +
+                    $"{aggregate.ContributorLabel} expected={expectedLabel} but no matching {leg.EventType} event " +
                     $"keyed '{leg.ReasonKey}' {observedWindowLabel} -- missing earning channel or stale event?");
                 return PostWalkCompareResult.Mismatch;
             }
@@ -4456,7 +4757,7 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"{aggregate.ContributorLabel} expected={aggregate.Expected:F1}, observed={observed:F1} across " +
+                    $"{aggregate.ContributorLabel} expected={expectedLabel}, observed={observedLabel} across " +
                     $"{observedCount} event(s) keyed '{leg.ReasonKey}' {observedWindowLabel} " +
                     $"-- post-walk delta mismatch");
                 return PostWalkCompareResult.Mismatch;
@@ -4465,7 +4766,7 @@ namespace Parsek
             ParsekLog.VerboseRateLimited(Tag,
                 $"post-walk-match:{action.Type}:{legTag}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
                 $"Post-walk match: {action.Type} {legTag} {aggregate.ContributorLabel} " +
-                $"expected={aggregate.Expected:F1}, observed={observed:F1}, {observedWindowLabel}");
+                $"expected={expectedLabel}, observed={observedLabel}, {observedWindowLabel}");
             return PostWalkCompareResult.Match;
         }
 
@@ -4575,7 +4876,9 @@ namespace Parsek
             PostWalkLeg anchorLeg,
             double tolerance,
             IReadOnlyList<GameAction> actions,
-            double? utCutoff)
+            double? utCutoff,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
         {
             double summedExpected = 0.0;
             int expectedCount = 0;
@@ -4600,6 +4903,16 @@ namespace Parsek
 
                     var otherExp = ClassifyPostWalk(other);
                     if (!otherExp.Reconcile) continue;
+                    if (IsOutsidePostWalkLiveCoverage(
+                            other,
+                            otherExp,
+                            livePruneThreshold,
+                            events,
+                            actions,
+                            utCutoff))
+                    {
+                        continue;
+                    }
 
                     bool matched = false;
                     matched |= AccumulateMatchingPostWalkLeg(
