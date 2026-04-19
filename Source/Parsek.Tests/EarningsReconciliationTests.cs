@@ -2875,6 +2875,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reconcile_ScienceWindow_CollapsedLargeUtPersistedSpan_UsesReconstructedWindowForCommitMatch()
+        {
+            const double actionUt = 10000000.4;
+
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(10000000.35, 0.0, 2.5, "ScienceTransmission"),
+                MakeKeyedScienceChanged(10000000.38, 2.5, 5.5, "ScienceTransmission", recordingId: "rec_commit_collapsed")
+            };
+            var action = new GameAction
+            {
+                UT = actionUt,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_commit_collapsed",
+                SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                Effective = true,
+                ScienceAwarded = 5.5f,
+                EffectiveScience = 5.5f,
+                Method = ScienceMethod.Transmitted,
+                StartUT = (float)10000000.35,
+                EndUT = (float)actionUt
+            };
+            Assert.Equal(action.StartUT, action.EndUT);
+
+            LedgerOrchestrator.ReconcileEarningsWindow(
+                events,
+                new List<GameAction> { action },
+                startUT: 10000000.36,
+                endUT: actionUt,
+                recordingId: "rec_commit_collapsed");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (sci)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("extended science delta with 1") &&
+                l.Contains("including 1 untagged pre-recording event(s)") &&
+                l.Contains("rec_commit_collapsed"));
+        }
+
+        [Fact]
         public void Reconcile_ScienceWindow_StillWarnsForUnmatchedTaggedInWindowScience()
         {
             var events = new List<GameStateEvent>

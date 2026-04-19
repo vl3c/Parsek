@@ -632,7 +632,12 @@ namespace Parsek
                 {
                     continue;
                 }
-                if (!DoesScienceEventMatchActionScope(evt, action, out bool viaUntaggedWindow))
+                if (!DoesScienceEventMatchActionScope(
+                        evt,
+                        action,
+                        actionStartUt,
+                        actionEndUt,
+                        out bool viaUntaggedWindow))
                     continue;
 
                 matchedViaUntaggedWindow = viaUntaggedWindow;
@@ -5381,6 +5386,21 @@ namespace Parsek
             GameAction action,
             out bool matchedViaUntaggedWindow)
         {
+            return DoesScienceEventMatchActionScope(
+                evt,
+                action,
+                action != null ? action.StartUT : 0.0,
+                action != null ? action.EndUT : 0.0,
+                out matchedViaUntaggedWindow);
+        }
+
+        private static bool DoesScienceEventMatchActionScope(
+            GameStateEvent evt,
+            GameAction action,
+            double actionStartUt,
+            double actionEndUt,
+            out bool matchedViaUntaggedWindow)
+        {
             matchedViaUntaggedWindow = false;
 
             string actionRecordingId = action?.RecordingId ?? "";
@@ -5394,7 +5414,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(eventRecordingId))
                 return false;
 
-            if (evt.ut < action.StartUT || evt.ut > action.EndUT)
+            if (evt.ut < actionStartUt || evt.ut > actionEndUt)
                 return false;
 
             matchedViaUntaggedWindow = true;
