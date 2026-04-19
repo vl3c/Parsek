@@ -490,7 +490,7 @@ Keep the gray rows emitted at the data layer — they're still useful for the ra
 
 ---
 
-## 463. Deferred-spawn flush skips FlagEvents — flags planted mid-recording never materialise when warp carries the active vessel past a non-watched recording's end
+## ~~463. Deferred-spawn flush skips FlagEvents — flags planted mid-recording never materialise when warp carries the active vessel past a non-watched recording's end~~
 
 **Source:** user playtest `logs/2026-04-19_0014_investigate/KSP.log`. Reproducer:
 
@@ -513,13 +513,15 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 **Also verify during fix:** earlier in the same session, `00:09:08.031 [Scenario] Stripping future vessel 'a' (pid=1009931614, sit=LANDED) — not in quicksave whitelist` fires from `ParsekScenario.StripFuturePrelaunchVessels`. This is the rewind/quickload strip path (`Source/Parsek/ParsekScenario.cs:1490`). Confirm that flags planted during a committed recording are NOT treated as future-prelaunch vessels on quicksave round-trip — the whitelist-based strip predates flag support, so a fresh look at whether the planted-flag PID should be added to the whitelist (or filtered by type) would close a related observation. If a quickload can strip the flag before the deferred-spawn replay even runs, the main fix above does not cover that path.
 
-**Files:** `Source/Parsek/ParsekPlaybackPolicy.cs` (spawn + flag-flush); likely `Source/Parsek/GhostPlaybackLogic.cs` (new shared helper); possibly `Source/Parsek/ParsekScenario.cs` (strip-whitelist check). Test: xUnit that drives `ExecuteDeferredSpawns` with a `Recording` carrying one `FlagEvent` at `ut=currentUT-1`, asserts `SpawnFlagVessel` is invoked exactly once and the log line fires.
+**Files:** `Source/Parsek/ParsekPlaybackPolicy.cs` (deferred spawn flush + policy log), `Source/Parsek/GhostPlaybackLogic.cs` (shared flag replay helper), `Source/Parsek.Tests/DeferredSpawnTests.cs` (helper + policy-path regressions). Verification in this environment used `dotnet test --no-restore` for compile/build plus a direct reflection harness over the compiled `DeferredSpawnTests` methods because the standard `dotnet test` runner aborts here on local socket initialization (`SocketException 10106` before test execution starts).
 
 **Scope:** Small-to-medium. Core fix is a 5-10 line loop in one method + one helper + one unit test. Strip-path verification is separate and may be a no-op if flags are already on the whitelist.
 
 **Dependencies:** none (flag event capture + `SpawnFlagVessel` both already work).
 
-**Status:** TODO. Priority: medium-high — functional correctness bug, reproducible every session, no workaround except manually watching every recording end-to-end.
+**Resolution:** fixed in branch `fix-463-flagevents-deferred-spawn` on 2026-04-19. Deferred warp-end spawn flushes now call a shared `GhostPlaybackLogic.SpawnFlagVesselsUpToUT(...)` helper immediately after the real vessel/chain-tip spawn, reusing the existing dedup check and emitting a `[Verbose][Policy] Deferred flag flush ... spawned K/N flag(s)` line. The quickload-strip observation was reviewed separately: `StripFuturePrelaunchVessels` already strips any vessel PID that was not present in the rewind quicksave, so this patch intentionally leaves `ParsekScenario` unchanged; the main missing behaviour was the post-spawn replay of already-due flag events.
+
+**Status:** CLOSED 2026-04-19. Priority was medium-high — fixed for v0.8.3.
 
 ---
 
