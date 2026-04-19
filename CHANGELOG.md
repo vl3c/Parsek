@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#468` Post-walk science reconciliation now matches `ScienceTransmission` deltas across the owning recording window when a committed `ScienceEarning` is still end-anchored to commit/recovery UT, eliminating the false WARN spam from flights that transmit science before recovery.
+
 ## 0.8.2
 
 ### Features
