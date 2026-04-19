@@ -18,7 +18,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
-## 480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy
+## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
 
@@ -47,7 +47,9 @@ Separately: the same save-state shape may make #439 Phase A behaviour unreliable
 
 **Dependencies:** none (the other StrategyLifecycle work is on main already).
 
-**Status:** TODO. Priority: medium — test regression on main, user-visible if the underlying NRE also fires during normal career play.
+**Resolution:** fixed in PR #409 (`issue-480-stock-strategy-lifecycle`). Root cause landed in the test harness: probing stock strategies on the first SPACECENTER frames could catch the strategy system mid-hydration, and the tests also lacked targeted diagnostics around stock `Activate()` itself. The fix adds a bounded readiness/stability probe, rejects nameless configs, and fails loudly if readiness never settles or activation still throws after stabilization.
+
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
@@ -80,7 +82,9 @@ Test should keep passing once the path writes a consistent `sit`; no other asser
 
 ---
 
-## 478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only
+## ~~478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only~~
+
+**Closed:** 2026-04-19 in PR #406.
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:15, 21, 24, 434-438`.
 
@@ -103,7 +107,7 @@ The `InGameTestAttribute` only supports a single `GameScenes` value; it can't ex
 
 Option 2 is the cheapest and matches what several other tests already do internally (see `StrategyLifecycle` tests at `:3915-3932` for the skip pattern). Option 1 is worth doing only if a batch of other tests would benefit.
 
-**Fix:** option 2 — add the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Optionally also audit other `Category = "MapView"` / `Category = "TrackingStation"` tests for the same scoping issue; grep `InGameTest\(Category = "\(MapView\|TrackingStation\)"` and verify each either sets `Scene = GameScenes.FLIGHT` / `TRACKSTATION` or skips internally.
+**Fix:** implemented option 2 — added the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Audited other `Category = "MapView"` / `Category = "TrackingStation"` tests; no other exposed `AnyScene` cases found.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs:513` (add skip), optionally `Source/Parsek/InGameTests/InGameTestAttribute.cs` if option 1 is chosen.
 
@@ -111,7 +115,7 @@ Option 2 is the cheapest and matches what several other tests already do interna
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure test hygiene, no user-visible impact. But 3 false FAILs per test run drowns the signal in the report and should be closed.
+**Status:** CLOSED. Priority: low — fixed in PR #406. Unsupported scenes now skip instead of failing, so the per-scene report no longer shows three false FAILs for this test.
 
 ---
 
@@ -329,7 +333,7 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 ---
 
-## 470. `Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)
+## 470. ~~`Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)~~ CLOSED 2026-04-19
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. Top-of-list pattern in the deduplicated WARN/VERBOSE counts:
 
@@ -339,15 +343,15 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 **Concern:** every `RecalculateAndPatch` sweep (33 of them in this session) fans out to the per-module replay, and each module emits a `FundsSpending: -0` line for zero-delta entries inside the "Other" source bucket. Zero-delta spendings convey nothing a reader would ever act on, and at 4 per recalc × 33 recalcs = 132 lines, they bury the real entries. Adjacent modules already early-return on zero-delta (see the verbose threshold filters in `GameStateRecorder.cs`), so this one is the odd one out.
 
-**Fix:** in the `Funds` subsystem's spending emit path, skip the log entirely when `Math.Abs(delta) < 0.5` (or exact zero — the threshold just needs to exclude `-0` / `+0`). Keep the event itself if any downstream consumer cares about zero-delta entries; only suppress the VERBOSE log. Grep for the `FundsSpending: ` format string in `Source/Parsek/GameActions/` to locate the emit site (most likely `FundsModule.cs` or similar).
+**Fix shipped (2026-04-19):** `Source/Parsek/GameActions/FundsModule.cs` now suppresses the success VERBOSE log when `FundsSpent == 0`, which is enough to eliminate the `FundsSpending: -0` replay spam without hiding any real low-value spendings. The action still flows through affordability and running-balance updates unchanged.
 
-**Files:** likely `Source/Parsek/GameActions/FundsModule.cs` (or whichever `.cs` owns the `[Funds]` subsystem tag). Test: log-assertion xUnit that submits a zero-delta spending, asserts no VERBOSE line hits the sink.
+**Files:** `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek.Tests/FundsModuleTests.cs`. Added `FundsSpending_ZeroCost_DoesNotLogVerboseSpend`, which submits a zero-cost `FundsSpending(Other)` action, asserts the action remains affordable with no balance change, and confirms the log sink stays silent.
 
 **Scope:** Trivial. One-line guard + one test.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure log-hygiene. Bundle with any touch of the Funds module.
+**Status:** CLOSED 2026-04-19. Priority: low — pure log-hygiene. Ready to ship with the targeted regression coverage above.
 
 ---
 
@@ -587,6 +591,8 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 **Status:** TODO. Priority: medium-to-high — real data correctness bug with no user-facing symptom today except the WARNs, but compounds over long saves.
 
 **Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. The root cause is duplicate `MilestoneAchievement` action emissions (not a double-count at the event-store side). See #477 for the general case — fixing #477 is expected to resolve #462 simultaneously; close this entry only after verifying the reconcile WARN disappears for `Kerbin/SurfaceEVA` specifically.
+
+**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `SumExpectedPostWalkWindow` (post-walk) by `recordingId`. This closes the "2 events keyed 'Progression'" shape when the two events belong to sibling recordings at the same UT, but does NOT address #477's duplicate-emission cause. Re-run the thorough-check log pass after #477 ships to confirm whether `Kerbin/SurfaceEVA` is now silent.
 
 ---
 
