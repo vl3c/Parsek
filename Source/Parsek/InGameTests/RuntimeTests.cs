@@ -512,6 +512,13 @@ namespace Parsek.InGameTests
             Description = "MapMarkerRenderer per-type atlas+UV entries match live MapNode.iconSprites (#387 + multi-atlas follow-up)")]
         public void MapMarkerIconsMatchStockAtlas()
         {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT
+                && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
+            {
+                InGameAssert.Skip("test requires flight or tracking station scene");
+                return;
+            }
+
             InGameAssert.IsNotNull(MapView.fetch,
                 "MapView.fetch should exist — test requires flight or tracking station scene");
 
@@ -3568,6 +3575,194 @@ namespace Parsek.InGameTests
                 "Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio completed without crash");
         }
 
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Ghost audio re-anchors to watch pivot and keeps centered stereo defaults")]
+        public void GhostAudioSources_AnchorToWatchPivot()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostAudioPivot");
+            runner.TrackForCleanup(ghostRoot);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+            cameraPivot.transform.localPosition = new Vector3(4f, 2f, -3f);
+
+            var partRoot = new GameObject("ghost_part_100");
+            partRoot.transform.SetParent(ghostRoot.transform, false);
+            partRoot.transform.localPosition = new Vector3(-8f, 1f, 6f);
+
+            var engineAudioRoot = new GameObject("ghost_audio_loop");
+            engineAudioRoot.transform.SetParent(partRoot.transform, false);
+            var engineSource = engineAudioRoot.AddComponent<AudioSource>();
+            engineSource.spatialBlend = 1f;
+            engineSource.panStereo = 0.35f;
+
+            var oneShotAudioRoot = new GameObject("ghost_audio_oneshot");
+            oneShotAudioRoot.transform.SetParent(ghostRoot.transform, false);
+            var oneShotSource = oneShotAudioRoot.AddComponent<AudioSource>();
+            oneShotSource.spatialBlend = 1f;
+            oneShotSource.panStereo = -0.4f;
+
+            var result = new GhostBuildResult
+            {
+                audioInfos = new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo
+                    {
+                        partPersistentId = 100u,
+                        moduleIndex = 0,
+                        audioSource = engineSource
+                    }
+                },
+                oneShotAudio = new OneShotAudioInfo
+                {
+                    audioSource = oneShotSource
+                }
+            };
+
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(result, cameraPivot.transform);
+
+            InGameAssert.IsTrue(ghostRoot.transform.parent == null,
+                "Ghost root should not be reparented by audio centering");
+            InGameAssert.IsTrue(partRoot.transform.parent == ghostRoot.transform,
+                "Part visuals should stay under the ghost root when audio is re-anchored");
+            InGameAssert.IsTrue(engineSource.transform.parent == cameraPivot.transform,
+                "Engine ghost audio should be parented to cameraPivot");
+            InGameAssert.IsTrue(oneShotSource.transform.parent == cameraPivot.transform,
+                "One-shot ghost audio should be parented to cameraPivot");
+            InGameAssert.IsTrue(engineSource.transform.localPosition == Vector3.zero,
+                "Engine ghost audio should sit at the watch pivot local origin");
+            InGameAssert.IsTrue(oneShotSource.transform.localPosition == Vector3.zero,
+                "One-shot ghost audio should sit at the watch pivot local origin");
+            InGameAssert.ApproxEqual(0f, engineSource.panStereo, 0.0001f,
+                "Engine ghost audio panStereo should stay centered");
+            InGameAssert.ApproxEqual(0f, oneShotSource.panStereo, 0.0001f,
+                "One-shot ghost audio panStereo should stay centered");
+            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, engineSource.spatialBlend, 0.0001f,
+                "Engine ghost audio spatialBlend should use the damped watch-safe blend");
+            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, oneShotSource.spatialBlend, 0.0001f,
+                "One-shot ghost audio spatialBlend should use the damped watch-safe blend");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Part visibility toggles keep re-anchored ghost audio in sync")]
+        public IEnumerator GhostAudioSources_FollowPartVisibilityAfterReanchor()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostAudioVisibility");
+            runner.TrackForCleanup(ghostRoot);
+
+            Transform visualsRoot = GhostVisualBuilder.EnsureGhostVisualsRoot(ghostRoot.transform);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+
+            var partRoot = new GameObject("ghost_part_100");
+            partRoot.transform.SetParent(visualsRoot, false);
+
+            var engineAudioRoot = new GameObject("ghost_audio_loop");
+            engineAudioRoot.transform.SetParent(partRoot.transform, false);
+            var engineSource = engineAudioRoot.AddComponent<AudioSource>();
+            engineSource.clip = AudioClip.Create("test_loop", 44100, 1, 44100, false);
+
+            var result = new GhostBuildResult
+            {
+                audioInfos = new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo
+                    {
+                        partPersistentId = 100u,
+                        moduleIndex = 0,
+                        audioSource = engineSource,
+                        clip = engineSource.clip,
+                        volumeCurve = GhostAudioPresets.BuildDefaultVolumeCurve(),
+                        pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
+                        currentPower = 1f
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                cameraPivot = cameraPivot.transform,
+                atmosphereFactor = 1f,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    [FlightRecorder.EncodeEngineKey(100u, 0)] = result.audioInfos[0]
+                }
+            };
+
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(result, cameraPivot.transform);
+            GhostPlaybackLogic.SetEngineAudio(state, new PartEvent
+            {
+                partPersistentId = 100u,
+                moduleIndex = 0
+            }, 1f);
+            yield return null;
+
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Engine audio should be playing before the part is hidden");
+
+            GhostPlaybackLogic.SetGhostPartActive(state, 100u, false);
+            yield return null;
+            InGameAssert.IsFalse(partRoot.activeSelf,
+                "Part visual should disable when part visibility turns off");
+            InGameAssert.IsFalse(engineSource.gameObject.activeSelf,
+                "Re-anchored engine audio host should disable with the part");
+            InGameAssert.IsFalse(engineSource.isPlaying,
+                "Re-anchored engine audio should stop when the part hides");
+
+            GhostPlaybackLogic.SetGhostPartActive(state, 100u, true);
+            yield return null;
+            InGameAssert.IsTrue(partRoot.activeSelf,
+                "Part visual should re-enable when part visibility turns on");
+            InGameAssert.IsTrue(engineSource.gameObject.activeSelf,
+                "Re-anchored engine audio host should re-enable with the part");
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Re-anchored engine audio should resume when the part becomes visible again");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Fresh ghost cameraPivot recenters on the active-part midpoint before watch/audio uses it")]
+        public void CameraPivot_RecalculatesToActivePartMidpoint()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostPivot");
+            runner.TrackForCleanup(ghostRoot);
+
+            Transform visualsRoot = GhostVisualBuilder.EnsureGhostVisualsRoot(ghostRoot.transform);
+
+            var left = new GameObject("ghost_part_100");
+            left.transform.SetParent(visualsRoot, false);
+            left.transform.localPosition = new Vector3(-6f, 1f, 0f);
+
+            var right = new GameObject("ghost_part_200");
+            right.transform.SetParent(visualsRoot, false);
+            right.transform.localPosition = new Vector3(2f, 5f, 4f);
+
+            var hidden = new GameObject("ghost_part_300");
+            hidden.transform.SetParent(visualsRoot, false);
+            hidden.transform.localPosition = new Vector3(50f, 50f, 50f);
+            hidden.SetActive(false);
+
+            var ignored = new GameObject("not_a_ghost_part");
+            ignored.transform.SetParent(visualsRoot, false);
+            ignored.transform.localPosition = new Vector3(99f, 99f, 99f);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                cameraPivot = cameraPivot.transform
+            };
+
+            GhostPlaybackLogic.RecalculateCameraPivot(state);
+
+            Vector3 expectedMidpoint = new Vector3(-2f, 3f, 2f);
+            InGameAssert.IsTrue((state.cameraPivot.localPosition - expectedMidpoint).sqrMagnitude < 0.0001f,
+                $"cameraPivot should recenter to {expectedMidpoint}, got {state.cameraPivot.localPosition}");
+        }
+
         // ======================= FinalizeBackfill (#265 / #259) =======================
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
@@ -3888,23 +4083,177 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static Strategies.Strategy FindActivatableStockStrategy()
+        private const int StrategyLifecycleProbeWarmupFrames = 3;
+        private const int StrategyLifecycleProbeRetryFrames = 30;
+        private const int StrategyLifecycleProbeStableFrames = 2;
+        private const int StrategyLifecycleActivateSettleFrames = 2;
+
+        private struct StrategyProbeResult
         {
+            public Strategies.Strategy Strategy;
+            public string ConfigName;
+            public string Diagnostic;
+            public bool ShouldRetry;
+            public bool HadProbeException;
+        }
+
+        private sealed class StrategySelectionResult
+        {
+            public Strategies.Strategy Strategy;
+            public string ConfigName;
+            public string Diagnostic;
+            public bool SawProbeException;
+        }
+
+        private static StrategyProbeResult ProbeActivatableStockStrategy()
+        {
+            var result = new StrategyProbeResult
+            {
+                Diagnostic = "no activatable stock strategy available",
+                ShouldRetry = false,
+                HadProbeException = false
+            };
+
             var system = Strategies.StrategySystem.Instance;
-            if (system == null) return null;
+            if (system == null)
+            {
+                result.Diagnostic = "StrategySystem.Instance is null";
+                result.ShouldRetry = true;
+                return result;
+            }
             var list = system.Strategies;
-            if (list == null) return null;
+            if (list == null)
+            {
+                result.Diagnostic = "StrategySystem.Strategies is null";
+                result.ShouldRetry = true;
+                return result;
+            }
+
+            int nullEntries = 0;
+            int activeEntries = 0;
+            int configlessEntries = 0;
+            int namelessEntries = 0;
+            int blockedEntries = 0;
+            int probeThrows = 0;
+            string lastProbeFailure = null;
             for (int i = 0; i < list.Count; i++)
             {
                 var s = list[i];
-                if (s == null) continue;
-                if (s.IsActive) continue;
-                if (s.Config == null) continue;
-                string reason;
-                if (!s.CanBeActivated(out reason)) continue;
-                return s;
+                if (s == null)
+                {
+                    nullEntries++;
+                    continue;
+                }
+
+                try
+                {
+                    if (s.IsActive)
+                    {
+                        activeEntries++;
+                        continue;
+                    }
+
+                    var config = s.Config;
+                    if (config == null)
+                    {
+                        configlessEntries++;
+                        continue;
+                    }
+
+                    string configName = config.Name;
+                    if (string.IsNullOrEmpty(configName))
+                    {
+                        namelessEntries++;
+                        continue;
+                    }
+
+                    string reason;
+                    if (!s.CanBeActivated(out reason))
+                    {
+                        blockedEntries++;
+                        continue;
+                    }
+
+                    result.Strategy = s;
+                    result.ConfigName = configName;
+                    result.Diagnostic = $"selected activatable strategy '{configName}'";
+                    return result;
+                }
+                catch (System.Exception ex)
+                {
+                    probeThrows++;
+                    result.HadProbeException = true;
+                    lastProbeFailure = $"{ex.GetType().Name}: {ex.Message}";
+                    ParsekLog.Warn("TestRunner",
+                        $"StrategyLifecycle probe skipped strategy index {i} because readiness access threw: {lastProbeFailure}");
+                }
             }
-            return null;
+
+            result.Diagnostic =
+                $"no CanBeActivated-true stock strategy available (count={list.Count}, null={nullEntries}, " +
+                $"active={activeEntries}, configless={configlessEntries}, nameless={namelessEntries}, " +
+                $"blocked={blockedEntries}, " +
+                $"probeThrows={probeThrows}" +
+                (string.IsNullOrEmpty(lastProbeFailure)
+                    ? ")"
+                    : $", lastProbe='{lastProbeFailure}')");
+            result.ShouldRetry =
+                system == null
+                || list == null
+                || configlessEntries > 0
+                || namelessEntries > 0
+                || probeThrows > 0;
+            return result;
+        }
+
+        private static IEnumerator WaitForStableActivatableStockStrategy(StrategySelectionResult result)
+        {
+            if (result == null)
+                throw new System.ArgumentNullException(nameof(result));
+
+            result.Strategy = null;
+            result.ConfigName = null;
+            result.Diagnostic = "no activatable stock strategy available";
+            result.SawProbeException = false;
+
+            for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
+                yield return null;
+
+            string stableConfigName = null;
+            int stableFrames = 0;
+            for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
+            {
+                var probe = ProbeActivatableStockStrategy();
+                result.Diagnostic = probe.Diagnostic;
+                result.SawProbeException |= probe.HadProbeException;
+                if (probe.Strategy != null)
+                {
+                    if (probe.ConfigName == stableConfigName)
+                        stableFrames++;
+                    else
+                    {
+                        stableConfigName = probe.ConfigName;
+                        stableFrames = 1;
+                    }
+
+                    result.Strategy = probe.Strategy;
+                    result.ConfigName = probe.ConfigName;
+                    if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                        yield break;
+
+                    yield return null;
+                    continue;
+                }
+
+                result.Strategy = null;
+                result.ConfigName = null;
+                stableConfigName = null;
+                stableFrames = 0;
+                if (!probe.ShouldRetry)
+                    yield break;
+
+                yield return null;
+            }
         }
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
@@ -3923,24 +4272,29 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            // Gate 2: StrategySystem singleton available.
-            var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            // Gate 2/3: wait briefly for StrategySystem hydration to stabilize, but
+            // DO NOT silently convert persistent probe exceptions into a skip. If
+            // readiness never settles after the retry window, fail with diagnostics.
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
+
+            if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                InGameAssert.Skip("StrategySystem.Instance is null — Admin facility may be missing or scene not ready");
+                if (selection.SawProbeException)
+                {
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
+                    yield break;
+                }
+                InGameAssert.Skip(selection.Diagnostic);
                 yield break;
             }
 
-            // Gate 3: at least one activatable strategy. No cost gate — teardown
-            // restores Funds/Science/Reputation via snapshot-diff.
-            var strategy = FindActivatableStockStrategy();
-            if (strategy == null)
-            {
-                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
-                yield break;
-            }
-
-            string configName = strategy.Config.Name ?? "";
+            var strategyConfig = strategy.Config;
+            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
+            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
+                "Selected strategy must have a non-empty Config.Name");
             ParsekLog.Info("TestRunner",
                 $"StrategyLifecycle test target: configName={configName} title={strategy.Title} " +
                 $"setupF={strategy.InitialCostFunds.ToString("R", CultureInfo.InvariantCulture)} " +
@@ -3972,7 +4326,20 @@ namespace Parsek.InGameTests
             // starts a recalculation walk mid-test, this assumption breaks and the
             // test's event-find step will fail with a clear message.
 
-            bool activateOk = strategy.Activate();
+            for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                yield return null;
+
+            bool activateOk;
+            try
+            {
+                activateOk = strategy.Activate();
+            }
+            catch (System.Exception ex)
+            {
+                InGameAssert.Fail(
+                    $"Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                yield break;
+            }
             yield return null;
 
             // deactSnapshot is set inside the first try and read in the second;
@@ -4117,34 +4484,39 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
             Description = "#439 Phase A: Activate()=false path (already-active) does NOT emit StrategyActivated (pins the __result==true filter in StrategyLifecyclePatch).")]
-        public void FailedActivation_DoesNotEmitEvent()
+        public IEnumerator FailedActivation_DoesNotEmitEvent()
         {
             if (HighLogic.CurrentGame == null)
             {
                 InGameAssert.Skip("HighLogic.CurrentGame is null");
-                return;
+                yield break;
             }
             if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
             {
                 InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
-                return;
+                yield break;
             }
 
-            var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
+
+            if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                InGameAssert.Skip("StrategySystem.Instance is null");
-                return;
+                if (selection.SawProbeException)
+                {
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
+                    yield break;
+                }
+                InGameAssert.Skip(selection.Diagnostic);
+                yield break;
             }
 
-            var strategy = FindActivatableStockStrategy();
-            if (strategy == null)
-            {
-                InGameAssert.Skip("no CanBeActivated-true stock strategy available for testing");
-                return;
-            }
-
-            string configName = strategy.Config.Name ?? "";
+            var strategyConfig = strategy.Config;
+            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
+            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
+                "Selected strategy must have a non-empty Config.Name");
 
             // Snapshot financials — the first (successful) Activate below will
             // spend setup costs that we must restore in teardown.
@@ -4161,18 +4533,41 @@ namespace Parsek.InGameTests
             {
                 // Activate the strategy FIRST so the second Activate hits the
                 // already-active short-circuit and returns false.
-                bool firstActivate = strategy.Activate();
+                for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                    yield return null;
+
+                bool firstActivate;
+                try
+                {
+                    firstActivate = strategy.Activate();
+                }
+                catch (System.Exception ex)
+                {
+                    InGameAssert.Fail(
+                        $"Initial Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                    yield break;
+                }
                 if (!firstActivate)
                 {
                     InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
-                    return;
+                    yield break;
                 }
 
                 int eventCountBefore = GameStateStore.EventCount;
 
                 // Second Activate — KSP short-circuits when IsActive is true and
                 // returns false. The postfix should detect __result=false and skip.
-                bool ok = strategy.Activate();
+                bool ok;
+                try
+                {
+                    ok = strategy.Activate();
+                }
+                catch (System.Exception ex)
+                {
+                    InGameAssert.Fail(
+                        $"Second Strategy.Activate threw {ex.GetType().Name} for already-active key='{configName}': {ex.Message}");
+                    yield break;
+                }
                 InGameAssert.IsFalse(ok,
                     "Strategy.Activate should return false when already active");
 

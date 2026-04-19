@@ -18,7 +18,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
-## 480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy
+## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
 
@@ -47,11 +47,13 @@ Separately: the same save-state shape may make #439 Phase A behaviour unreliable
 
 **Dependencies:** none (the other StrategyLifecycle work is on main already).
 
-**Status:** TODO. Priority: medium — test regression on main, user-visible if the underlying NRE also fires during normal career play.
+**Resolution:** fixed in PR #409 (`issue-480-stock-strategy-lifecycle`). Root cause landed in the test harness: probing stock strategies on the first SPACECENTER frames could catch the strategy system mid-hydration, and the tests also lacked targeted diagnostics around stock `Activate()` itself. The fix adds a bounded readiness/stability probe, rejects nameless configs, and fails loudly if readiness never settles or activation still throws after stabilization.
+
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
-## 479. `FlightIntegrationTests.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` fails in FLIGHT — `sit` field not refreshed from the live vessel after stable-terminal re-snapshot
+## ~~479. `FlightIntegrationTests.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` fails in FLIGHT — `sit` field not refreshed from the live vessel after stable-terminal re-snapshot~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:18, 41`.
 
@@ -76,11 +78,13 @@ Test should keep passing once the path writes a consistent `sit`; no other asser
 
 **Dependencies:** #289 original fix (shipped). This is the regression test catching a hole the original fix left.
 
-**Status:** TODO. Priority: medium-high — silent sidecar drift on every stable-terminal finalize with a mismatched-sit live vessel, reloads see stale FLYING, affects spawn decisions downstream.
+**Status:** CLOSED 2026-04-19. Fixed in PR #407 — stable-terminal re-snapshots now normalize unsafe `BackupVessel()` `sit` values before persisting the fresh snapshot, so the FLIGHT regression and stale-sidecar drift are resolved.
 
 ---
 
-## 478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only
+## ~~478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only~~
+
+**Closed:** 2026-04-19 in PR #406.
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:15, 21, 24, 434-438`.
 
@@ -103,7 +107,7 @@ The `InGameTestAttribute` only supports a single `GameScenes` value; it can't ex
 
 Option 2 is the cheapest and matches what several other tests already do internally (see `StrategyLifecycle` tests at `:3915-3932` for the skip pattern). Option 1 is worth doing only if a batch of other tests would benefit.
 
-**Fix:** option 2 — add the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Optionally also audit other `Category = "MapView"` / `Category = "TrackingStation"` tests for the same scoping issue; grep `InGameTest\(Category = "\(MapView\|TrackingStation\)"` and verify each either sets `Scene = GameScenes.FLIGHT` / `TRACKSTATION` or skips internally.
+**Fix:** implemented option 2 — added the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Audited other `Category = "MapView"` / `Category = "TrackingStation"` tests; no other exposed `AnyScene` cases found.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs:513` (add skip), optionally `Source/Parsek/InGameTests/InGameTestAttribute.cs` if option 1 is chosen.
 
@@ -111,7 +115,7 @@ Option 2 is the cheapest and matches what several other tests already do interna
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure test hygiene, no user-visible impact. But 3 false FAILs per test run drowns the signal in the report and should be closed.
+**Status:** CLOSED. Priority: low — fixed in PR #406. Unsupported scenes now skip instead of failing, so the per-scene report no longer shows three false FAILs for this test.
 
 ---
 
@@ -233,37 +237,17 @@ Third possibility (orbit-frame coupling): the terminal orbit fields themselves c
 
 ---
 
-## 474. Ghost audio sometimes plays in a single stereo channel instead of centered when the Watch button snaps the camera to the ghost
+## ~~474. Ghost audio sometimes plays in a single stereo channel instead of centered when the Watch button snaps the camera to the ghost~~
 
-**Source:** user playtest report — "when hitting watch button and the camera goes to the ghost, sometimes the sound is only audible in a single speaker instead of stereo."
+**Status:** DONE / closed 2026-04-19.
 
-**Concern:** ghost `AudioSource`s are built with `spatialBlend = 1f` (fully 3D) at `Source/Parsek/GhostVisualBuilder.cs:2410` (one-shot) and `:2426` (engine/RCS loops). In Unity, 3D-spatialised audio pans based on the source position relative to the active `AudioListener` and the listener's orientation. When the watch target is `horizonProxy` (or `cameraPivot`) — resolved in `WatchModeController.GetWatchTarget` (`:1936-1944`) — the camera frames the ghost, but the ghost's `AudioSource` components are attached to individual part GameObjects (engines on stages, one-shot on the root) that sit at whatever world offset the snapshot geometry implies. If the camera orbit resolves to an angle where the ghost root sits roughly in front of the listener but the engine part sits clearly left or right of the listener's forward axis, the engine loop pans almost entirely to one stereo channel.
+**Fix shipped:** fresh ghost builds now recalculate `cameraPivot` immediately instead of leaving the initial watch target at the raw root origin; ghost loop + one-shot `AudioSource`s are then re-anchored to that watch pivot, forced back to `panStereo = 0`, and run with `spatialBlend = 0.75f` instead of fully-3D `1.0f`. `HideAllGhostParts()` also mutes those detached ghost audio sources when the ghost is hidden. That keeps Watch-mode framing and the dominant ghost audio source aligned, so engine/explosion playback no longer hard-pans into one ear when the camera snaps to the ghost.
 
-Stock KSP vessels do not exhibit this because the `AudioListener` follows `InternalCamera` / `FlightCamera` tracking the real vessel's `ReferenceTransform` at a vessel-centric framing angle, which keeps engines roughly centered in the listener's forward cone. The watch-mode retarget (`HandleLoopCameraAction` / `HandleOverlapCameraAction` → `SetTargetTransform(GetWatchTarget(...))`, `WatchModeController.cs:711-740`) swaps the target transform but does not renormalise the listener framing to match where the ghost parts actually are.
-
-Symptom is probabilistic because it depends on (a) which ghost is being watched, (b) how the ghost orients at entry (ghost rotation at entry UT, snapshot root orientation), (c) the camera heading the watch mode lands on (which is either default or the remembered `WatchCameraTransitionState` — see #472). When it lines up unfavourably, the engine loop sits 60°+ off the listener's forward axis and Unity pans it hard to one side.
-
-**Fix:** two non-exclusive options to investigate in this order:
-
-1. **Pin the dominant engine `AudioSource`(s) to the ghost root (or cameraPivot) instead of the engine-part GameObject.** This moves the source to the ghost centroid so the listener framing keeps them centered. Downside: loses positional cues (stage audio separation), which may matter for multi-stage visuals. Easy win for the typical single-engine ghost.
-2. **Reduce `spatialBlend` on engine loops** from `1.0f` to something like `0.6f-0.8f` so partial stereo spread remains but extreme panning is dampened. This is the cheapest change and matches what KSP stock does for loud vessel loops (check by inspecting `ModuleEnginesFX` AudioSource config via `ilspycmd` on `Assembly-CSharp.dll` — if stock uses `<1.0`, match it).
-
-Secondary investigations worth running in the fix session:
-- Confirm the active `AudioListener` when watching a ghost: it should be on the `FlightCamera` as usual. If something in watch-mode setup leaves a stale listener elsewhere (e.g. an `InternalCamera` listener that survived), the pan would derive from the wrong transform.
-- Check `AudioSource.panStereo` is `0` on all ghost sources (`CreateGhostAudioSource` / `BuildOneShotAudioSource` never set it, so default `0` is expected — but assert in a log-capture test to pin it).
-- The one-shot source at `BuildOneShotAudioSource` uses `spatialBlend = 1f` even though it's parented to the ghost root; same recommendation applies if the user reports one-shots also panning (e.g. decouple clack only in one speaker).
-
-**Files:** `Source/Parsek/GhostVisualBuilder.cs:2410` / `:2426` (spatialBlend tweak), possibly `:2373` (engine source creation site — check where the source GameObject is parented) and `WatchModeController.cs` if the framing angle turns out to be the primary culprit. Test: in-game test that builds a single-engine ghost, enters watch mode, verifies the audio source's `panStereo` is 0 and checks framing angle between the `AudioListener.transform.forward` and the vector to the engine `AudioSource.transform.position` stays within ~45° for the default watch entry. xUnit cannot observe stereo mixing so the confirmation test has to be in-game.
-
-**Dependencies:** touches the same audio pipeline as #465 (pause handling) and the same retarget path as #472 (camera pitch/heading). Fixing #472 first may indirectly reduce the probability of the unfavourable framing that triggers this symptom.
-
-**Scope:** Small-to-medium. Option 2 (spatialBlend tuning) is a one-line change with an in-game test. Option 1 (reparent engine sources) is larger but structural.
-
-**Status:** TODO. Priority: medium — intermittent, not data-destructive, but jarring enough the user flagged it on first playtest.
+**Verification added:** runtime coverage now checks both invariants directly: `cameraPivot` recenters to the active-part midpoint on a fresh ghost, and re-anchored ghost audio sources land on `cameraPivot` with centered stereo defaults.
 
 ---
 
-## 473. Gloops group in the Recordings window should be treated as a permanent root group — no `X` disband button, and pinned to the top of the list
+## ~~473. Gloops group in the Recordings window should be treated as a permanent root group — no `X` disband button, and pinned to the top of the list~~
 
 **Source:** user playtest request.
 
@@ -271,32 +255,36 @@ Secondary investigations worth running in the fix session:
 
 Separately, root-group ordering is decided by `GetGroupSortKey` + the column's sort predicate in `RecordingsTableUI.cs:1077-1079`. The Gloops group ends up wherever its sort key lands among the user's trees/chains, which is inconsistent frame-to-frame as the user sorts by different columns.
 
-**Fix:** two adjacent changes in `RecordingsTableUI.cs`:
+**Fix:** DONE. Added `RecordingStore.IsPermanentGroup` / `IsPermanentRootGroup`, switched the Recordings-table disband gate to the permanent-group predicate, and moved root-item sorting behind a dedicated comparator that pins the Gloops group above every other root item regardless of sort column or ascending/descending state. Also hardened `GroupHierarchyStore.SetGroupParent` so `Gloops - Ghosts Only` cannot be nested under another group, and `BuildGroupTreeData` now self-heals any stale permanent-root hierarchy mapping back to root on first draw rather than only papering over one saved-parent case.
 
-1. **Hide the X for Gloops.** The cleanest option is to introduce a `RecordingStore.IsPermanentGroup(groupName)` predicate that returns true for both auto-generated tree groups and the Gloops group, then use that predicate at `:1725` instead of `IsAutoGeneratedTreeGroup`. Keeps the semantic ("this group is system-owned; do not offer disband") local to one place. Update `ShowDisbandGroupConfirmation` callers to not even receive a click for permanent groups (the `X` is simply absent, so this is already the case if the gate is fixed).
-2. **Pin to top.** After the `rootItems` list is built (`:1055-…`), re-order so any item whose group name equals `GloopsGroupName` is moved to index 0 before the sort-column comparator is applied. Equivalent: inject a sentinel sort-key (e.g. always compare-first regardless of column) inside `GetGroupSortKey` when `groupName == GloopsGroupName`. Either works; the second is less code but less visible. Preserve the "top" position across all sort columns (date, status, duration, etc.) — Gloops sits above every other root even when the user sorts descending.
+**Edge case checked:** the legacy rename path still runs in `RecordingTree.LoadRecordingFrom` before UI grouping/sorting sees the loaded recording groups, so pre-rename saves normalize to the modern `Gloops - Ghosts Only` name before the permanent-group rules apply.
 
-Edge case to confirm during fix: the `LegacyGloopsGroupName = "Gloops Flight Recordings - Ghosts Only"` rename path at `RecordingStore.cs:71` — make sure the rename happens on load before any UI sort/permanent-group check, so a legacy save does not briefly show a second "permanent" group.
+**Files:** `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/GroupHierarchyStore.cs`, plus xUnit coverage in `Source/Parsek.Tests/GroupManagementTests.cs`, `Source/Parsek.Tests/GroupTreeDataTests.cs`, and `Source/Parsek.Tests/RecordingsTableUITests.cs`.
 
-**Files:** `Source/Parsek/UI/RecordingsTableUI.cs` (`:1725`, `:1055-1079`), `Source/Parsek/RecordingStore.cs` (new `IsPermanentGroup` helper next to `IsAutoGeneratedTreeGroup` at `:615`). Test: xUnit building a `rootGrps` list containing user groups + the Gloops group under every supported sort column, asserts Gloops is always the first element; separate test on `IsPermanentGroup` returns true for both Gloops and auto-tree groups.
-
-**Scope:** Small. ~20 lines across two files + two tests.
+**Scope:** Small. Slightly larger than the original estimate because the final fix also closes the parent-assignment side door and auto-heals old hierarchy state.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low-medium — UI polish, no data-correctness impact. Batch with #471 (Gloops loop-default fix) since both touch the Gloops commit/display path.
+**Status:** ~~DONE~~. Priority was low-medium — UI polish, but now shipped independently of #471 because the root-group semantics were self-contained and low-risk.
 
 ---
 
-## 472. Watch-mode camera pitch/heading jumps when playback hands off to the next segment within a recording tree (e.g. flying → landed)
+## ~~472. Watch-mode camera pitch/heading jumps when playback hands off to the next segment within a recording tree (e.g. flying → landed)~~
 
 **Source:** user playtest report — "when watching a recording, maintain the camera watch angle exactly the same when transitioning to another recording segment (right now it moves when vessel is going from flying to landed for example)."
 
-**Concern:** inside a single tree (chain/branch) the active playback ghost changes at each segment boundary (flying recording ends, landed recording's ghost becomes the new camera target). `WatchModeController` has a `RetargetToNewGhost` handler (`Source/Parsek/WatchModeController.cs:711-721` for single-ghost and `:731-740` for overlap) that swaps the FlightCamera target transform to the new ghost's pivot. The swap is implemented via `FlightCamera.SetTargetTransform(GetWatchTarget(evt.GhostPivot))` — which snaps the camera to the new target but does NOT re-apply the remembered pitch/heading. Even though `WatchCameraTransitionState` (`:25`) captures `Pitch`/`Heading` in degrees and `RememberWatchCameraState` persists it (`:1012-1057`) for enter/exit transitions, the per-frame segment retarget skips that restoration path. Net effect: the camera yanks to whatever pitch/heading the new ghost's default orientation implies.
+**Concern:** inside a single tree (chain/branch) the active playback ghost changes at each segment boundary (flying recording ends, landed recording's ghost becomes the new camera target). Investigation on `origin/main` confirmed the explicit tree-segment transfer path (`TransferWatchToNextSegment`) already captured and replayed `WatchCameraTransitionState`; the remaining snap lived in adjacent watch retarget paths that still did raw `FlightCamera.SetTargetTransform(...)` calls. The exposed offenders were the loop/overlap `RetargetToNewGhost` handlers plus the quiet-expiry / primary-cycle fallback, overlap-hold rebind, and stock vessel-switch re-target path. Those branches swapped the target transform without replaying the current pitch/heading, so the camera yanked to whatever framing the new target basis implied.
 
 The existing loop-cycle-boundary code path (`CameraActionType.RetargetToNewGhost` inside `HandleLoopCameraAction`) has the same shape — if the bug reproduces at loop boundaries too, the fix covers both. Confirm during fix.
 
-**Fix:** in both `RetargetToNewGhost` branches (`WatchModeController.cs:711-721`, `:731-740`), before the `SetTargetTransform` call, capture the current `flightCamera.camPitch` / `camHdg` (radians), then after the retarget re-apply them via the same `ApplyCameraState`-style helper used on watch-mode entry (`:486-525` writes pitch/heading back to the camera). The `WatchCameraTransitionState` struct already carries both fields in the right unit (degrees) — the helper path is ready; it just needs to fire on segment-boundary retargets too, not only on enter/exit.
+**Fix landed (2026-04-19):** centralized the retarget angle replay around `TryResolveRetargetedWatchAngles` inside `WatchModeController`'s watch-camera rebind path. Every watch-mode ghost rebind that should preserve framing now captures the current watch camera state, primes the replacement ghost's `horizonProxy` before target selection when `HorizonLocked` is active, then re-targets and replays compensated pitch/heading in the new target basis instead of doing a raw `SetTargetTransform(...)`. Applied to:
+
+- loop `RetargetToNewGhost`
+- overlap `RetargetToNewGhost`
+- watched-cycle fallback to primary
+- overlap-hold completion rebind
+- quiet-expiry bridge retarget
+- stock `OnVesselSwitchComplete` re-target
 
 Edge cases to cover in the test matrix:
 - `HorizonLocked` mode (default on entry) — pitch/heading are relative to the horizon and must survive the target swap
@@ -304,13 +292,13 @@ Edge cases to cover in the test matrix:
 - Overlap retarget vs non-overlap — both code paths at `:711` and `:731`
 - Loop cycle boundary — verify same issue/fix
 
-**Files:** `Source/Parsek/WatchModeController.cs` (retarget sites + helper plumbing). Test: in-game test (xUnit cannot observe `FlightCamera`) that enters watch mode on a multi-segment tree recording, waits for the segment boundary to trigger retarget, asserts `flightCamera.camPitch` / `camHdg` remain within a small epsilon of their pre-retarget values.
+**Files:** `Source/Parsek/WatchModeController.cs` (retarget sites + helper plumbing), `Source/Parsek.Tests/WatchModeControllerTests.cs` (pure retarget-angle regression coverage). Verification in this environment used `dotnet build --no-restore` plus a direct reflection harness over the compiled `WatchModeControllerTests` methods because the standard `dotnet test` runner aborts here on local socket initialization (`SocketException 10106` before test execution starts).
 
-**Scope:** Small — pitch/heading capture-and-reapply around each retarget call. Main complexity is the test harness driving a real segment boundary; if too coupled, add a test seam on `HandleLoopCameraAction` / `HandleOverlapCameraAction` to drive the `RetargetToNewGhost` branch directly from a synthetic `CameraActionEvent`.
+**Scope:** Closed in a small controller-only patch. The explicit tree-transfer path needed no change; the missing coverage was the remaining raw re-target sites around loop/overlap and stock camera rebinds.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: medium — user-visible camera jerk every time playback crosses a segment/terminal state boundary.
+**Status:** Closed — shipped for v0.8.3 as a targeted watch-camera retarget preservation pass. Priority was medium.
 
 ---
 
@@ -334,7 +322,7 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 ---
 
-## 470. `Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)
+## 470. ~~`Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)~~ CLOSED 2026-04-19
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. Top-of-list pattern in the deduplicated WARN/VERBOSE counts:
 
@@ -344,15 +332,15 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 **Concern:** every `RecalculateAndPatch` sweep (33 of them in this session) fans out to the per-module replay, and each module emits a `FundsSpending: -0` line for zero-delta entries inside the "Other" source bucket. Zero-delta spendings convey nothing a reader would ever act on, and at 4 per recalc × 33 recalcs = 132 lines, they bury the real entries. Adjacent modules already early-return on zero-delta (see the verbose threshold filters in `GameStateRecorder.cs`), so this one is the odd one out.
 
-**Fix:** in the `Funds` subsystem's spending emit path, skip the log entirely when `Math.Abs(delta) < 0.5` (or exact zero — the threshold just needs to exclude `-0` / `+0`). Keep the event itself if any downstream consumer cares about zero-delta entries; only suppress the VERBOSE log. Grep for the `FundsSpending: ` format string in `Source/Parsek/GameActions/` to locate the emit site (most likely `FundsModule.cs` or similar).
+**Fix shipped (2026-04-19):** `Source/Parsek/GameActions/FundsModule.cs` now suppresses the success VERBOSE log when `FundsSpent == 0`, which is enough to eliminate the `FundsSpending: -0` replay spam without hiding any real low-value spendings. The action still flows through affordability and running-balance updates unchanged.
 
-**Files:** likely `Source/Parsek/GameActions/FundsModule.cs` (or whichever `.cs` owns the `[Funds]` subsystem tag). Test: log-assertion xUnit that submits a zero-delta spending, asserts no VERBOSE line hits the sink.
+**Files:** `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek.Tests/FundsModuleTests.cs`. Added `FundsSpending_ZeroCost_DoesNotLogVerboseSpend`, which submits a zero-cost `FundsSpending(Other)` action, asserts the action remains affordable with no balance change, and confirms the log sink stays silent.
 
 **Scope:** Trivial. One-line guard + one test.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure log-hygiene. Bundle with any touch of the Funds module.
+**Status:** CLOSED 2026-04-19. Priority: low — pure log-hygiene. Ready to ship with the targeted regression coverage above.
 
 ---
 
@@ -592,6 +580,8 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 **Status:** TODO. Priority: medium-to-high — real data correctness bug with no user-facing symptom today except the WARNs, but compounds over long saves.
 
 **Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. The root cause is duplicate `MilestoneAchievement` action emissions (not a double-count at the event-store side). See #477 for the general case — fixing #477 is expected to resolve #462 simultaneously; close this entry only after verifying the reconcile WARN disappears for `Kerbin/SurfaceEVA` specifically.
+
+**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `SumExpectedPostWalkWindow` (post-walk) by `recordingId`. This closes the "2 events keyed 'Progression'" shape when the two events belong to sibling recordings at the same UT, but does NOT address #477's duplicate-emission cause. Re-run the thorough-check log pass after #477 ships to confirm whether `Kerbin/SurfaceEVA` is now silent.
 
 ---
 

@@ -815,6 +815,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FundsSpending_ZeroCost_DoesNotLogVerboseSpend()
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+            logLines.Clear();
+
+            var spending = MakeFundsSpending(10, 0f, FundsSpendingSource.Other);
+            module.ProcessAction(spending);
+
+            Assert.True(spending.Affordable);
+            Assert.Equal(25000.0, module.GetRunningBalance());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Funds]") && l.Contains("FundsSpending:"));
+        }
+
+        [Fact]
         public void MilestoneEarning_LogsMilestoneId()
         {
             module.ProcessAction(MakeMilestone(50, "FirstLaunch", 8000f, effective: true));

@@ -50,7 +50,8 @@ namespace Parsek.Tests
         }
 
         private static void AddKeyedEvent(
-            double ut, GameStateEventType type, string key, double before, double after)
+            double ut, GameStateEventType type, string key, double before, double after,
+            string recordingId = "")
         {
             var e = new GameStateEvent
             {
@@ -58,7 +59,8 @@ namespace Parsek.Tests
                 eventType = type,
                 key = key,
                 valueBefore = before,
-                valueAfter = after
+                valueAfter = after,
+                recordingId = recordingId
             };
             GameStateStore.AddEvent(ref e);
         }
@@ -104,9 +106,9 @@ namespace Parsek.Tests
 
             // KSP-side store events observed at the same UT (paired with the
             // ContractComplete by key "ContractReward").
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 29700);
-            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7);
-            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 29700, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3, "rec-contract");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 
@@ -126,7 +128,10 @@ namespace Parsek.Tests
             // Two contract rewards inside the 0.1 s coalesce window share one
             // FundsChanged(ContractReward) event in the store. Post-walk must sum the
             // expected side across both actions before comparing, or it false-warns on
-            // each individual action against the coalesced delta.
+            // each individual action against the coalesced delta. Both actions share
+            // RecordingId 'rec-coalesce' because GameStateStore.AddEvent requires equal
+            // recordingId tags to coalesce (see GameStateStore.cs:60, #431): a single
+            // cross-tag coalesced event is physically impossible in production.
             LedgerOrchestrator.Initialize();
 
             Ledger.AddAction(new GameAction
@@ -145,7 +150,7 @@ namespace Parsek.Tests
             {
                 UT = 500.0,
                 Type = GameActionType.ContractComplete,
-                RecordingId = "rec-a",
+                RecordingId = "rec-coalesce",
                 ContractId = "c-coalesce-a",
                 FundsReward = 3000f
             });
@@ -153,12 +158,12 @@ namespace Parsek.Tests
             {
                 UT = 500.05,
                 Type = GameActionType.ContractComplete,
-                RecordingId = "rec-b",
+                RecordingId = "rec-coalesce",
                 ContractId = "c-coalesce-b",
                 FundsReward = 4000f
             });
 
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 32000);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 32000, "rec-coalesce");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 
@@ -201,9 +206,9 @@ namespace Parsek.Tests
             });
 
             // Store observed +9200 funds, +7 rep, +3 sci -> funds diverges by 4500.
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 34200);
-            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7);
-            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged,      "ContractReward", 25000, 34200, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward",     0,     7, "rec-contract");
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged,    "ContractReward",     0,     3, "rec-contract");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 
@@ -253,7 +258,7 @@ namespace Parsek.Tests
                 ScienceReward = 3f
             });
 
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 29700);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 29700, "rec-future");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: 200.0);
 

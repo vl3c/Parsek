@@ -2756,6 +2756,8 @@ namespace Parsek
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+            GhostPlaybackLogic.RecalculateCameraPivot(state);
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(buildResult, state.cameraPivot);
             buildDictionariesStopwatch.Stop();
             lastSpawnDictionariesTicks = buildDictionariesStopwatch.ElapsedTicks - dictionariesPre;
 
