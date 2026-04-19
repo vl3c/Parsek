@@ -18,7 +18,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
-## 480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy
+## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
 
@@ -47,7 +47,9 @@ Separately: the same save-state shape may make #439 Phase A behaviour unreliable
 
 **Dependencies:** none (the other StrategyLifecycle work is on main already).
 
-**Status:** TODO. Priority: medium — test regression on main, user-visible if the underlying NRE also fires during normal career play.
+**Resolution:** fixed in PR #409 (`issue-480-stock-strategy-lifecycle`). Root cause landed in the test harness: probing stock strategies on the first SPACECENTER frames could catch the strategy system mid-hydration, and the tests also lacked targeted diagnostics around stock `Activate()` itself. The fix adds a bounded readiness/stability probe, rejects nameless configs, and fails loudly if readiness never settles or activation still throws after stabilization.
+
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
