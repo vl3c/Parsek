@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 - `#477` Added unit coverage for coalesced same-UT milestone windows on both the matching path and the missing-event warning path.
 - `#462` Added a regression for mixed null-tagged/tagged post-walk milestone windows so legacy siblings cannot reclaim ownership of a tagged `Progression` burst purely because they appear earlier in the ledger.
 - `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, invariant-culture WARN formatting, and the still-live missing-event warning path.
+- `#467` Added `GameStateRecorder` regression coverage for near-threshold `ReputationChanged` deltas, including the stock-rounded `+/-0.9999995` shape and a control case that still ignores clearly sub-threshold reputation noise.
 
 ### Enhancements
 
@@ -46,7 +47,9 @@ All notable changes to Parsek are documented here.
 - `#462` Post-walk milestone reconciliation now prefers tagged recording-scoped actions over null-tagged legacy siblings when picking the owner of a mixed-scope `Progression` window, closing the remaining order-dependent false-positive WARN where a legacy row could re-fold another recording's delta back into `expected=`.
 - `#468` Post-walk science reconciliation now matches `ScienceTransmission` across the owning recording span for end-anchored committed `ScienceEarning` rows.
 - `#469` Post-walk earnings reconciliation now skips ledger history the live `GameStateStore` can no longer represent after milestone pruning or epoch changes, eliminating false `"no matching FundsChanged keyed 'Progression'"` WARNs against already-processed milestone rewards while preserving live-tail mismatch detection.
+- `#464` Timeline Details no longer renders duplicate gray legacy milestone / strategy lifecycle rows when a matching ledger `GameAction` exists at the same UT and key; the view now keeps the richer action entry and suppresses only the redundant legacy shadow row.
 - `#465` KSC ghost engine/RCS audio now pauses with the stock ESC menu and resumes on unpause. KSC now latches the pause state before replaying runtime part events, so ghosts spawned while ESC is open stay silent instead of restarting looped engine/RCS audio or one-shot part-event audio; tracking-station ghosts were checked and remain map-only (no `AudioSource`s there to pause).
+- `#467` `ReputationChanged` no longer drops stock `+1`/`-1` reputation deltas that arrive as `0.9999995`/`-0.9999995` due to float rounding, so records-milestone reputation legs now reconcile instead of falsely warning as missing.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
 
 ---
