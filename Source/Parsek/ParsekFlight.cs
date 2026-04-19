@@ -6707,7 +6707,7 @@ namespace Parsek
             {
                 activeRec.TerminalStateValue =
                     RecordingTree.DetermineTerminalState((int)v.situation, v);
-                RecordingEndpointResolver.RefreshEndpointDecision(activeRec);
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.LiveNonLeaf");
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: set terminalState=" +
                     $"{activeRec.TerminalStateValue} on active recording " +
@@ -6729,7 +6729,7 @@ namespace Parsek
                     PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
                     TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
                 }
-                RecordingEndpointResolver.RefreshEndpointDecision(activeRec);
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeaf");
                 return;
             }
 
@@ -6780,7 +6780,7 @@ namespace Parsek
 
             CaptureTerminalOrbit(activeRec, activeVessel);
             CaptureTerminalPosition(activeRec, activeVessel);
-            RecordingEndpointResolver.RefreshEndpointDecision(activeRec);
+            RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.StableLeaf");
             TryRefreshStableTerminalSnapshot(
                 activeRec,
                 activeVessel,
@@ -6945,7 +6945,7 @@ namespace Parsek
                 }
             }
 
-            RecordingEndpointResolver.RefreshEndpointDecision(rec);
+            RecordingEndpointResolver.RefreshEndpointDecision(rec, "FinalizeIndividualRecording");
 
             // Bug #290d: backfill MaxDistanceFromLaunch if not yet computed.
             // Tree recordings reach finalization via ForceStop which skips BuildCaptureRecording

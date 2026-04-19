@@ -468,6 +468,7 @@ namespace Parsek
         public static void SpawnOrRecoverIfTooClose(Recording rec, int index)
         {
             const int maxSpawnAttempts = 3;
+            string logContext = $"recording #{index} ({rec?.VesselName ?? "(unknown)"})";
             if (rec.SpawnAttempts >= maxSpawnAttempts)
             {
                 ParsekLog.Verbose("Spawner",
@@ -482,7 +483,7 @@ namespace Parsek
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
-                    $"recording #{index} ({rec.VesselName})",
+                    logContext,
                     excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
@@ -513,7 +514,7 @@ namespace Parsek
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
-                    $"recording #{index} ({rec.VesselName})",
+                    logContext,
                     excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
@@ -648,6 +649,16 @@ namespace Parsek
                 || isBreakupContinuous;
             if (routeThroughSpawnAtPosition)
             {
+                ConfigNode validatedSpawnSnapshot = BuildValidatedRespawnSnapshot(
+                    rec,
+                    spawnUT,
+                    $"{logContext} SpawnAtPosition");
+                if (validatedSpawnSnapshot == null)
+                {
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
+                    return;
+                }
+
                 Vector3d velocity = useRecordedTerminalOrbit
                     ? orbitalSpawnVelocity
                     : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
@@ -662,7 +673,7 @@ namespace Parsek
                 else pathLabel = "Orbital";
 
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
-                    rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                    validatedSpawnSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
                     terminalState: rec.TerminalStateValue,
                     rotation: rotArg,
                     orbitOverride: orbitalSpawnOrbit);
@@ -689,7 +700,7 @@ namespace Parsek
 
             rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                 rec,
-                $"recording #{index} ({rec.VesselName})",
+                logContext,
                 excludeCrew);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
@@ -1658,23 +1669,17 @@ namespace Parsek
                 return false;
 
             ApplySituationToNode(snapshot, corrected);
-            NormalizeSurfaceStateLocationFields(snapshot, corrected);
+            NormalizeCorrectedSituationLocationFields(snapshot);
             ParsekLog.Info("Spawner",
                 $"Corrected unsafe snapshot situation: {currentSit} -> {corrected} " +
                 $"(terminal={terminalState}) — prevents on-rails pressure destruction (#169)");
             return true;
         }
 
-        private static void NormalizeSurfaceStateLocationFields(ConfigNode snapshot, string correctedSit)
+        private static void NormalizeCorrectedSituationLocationFields(ConfigNode snapshot)
         {
             if (snapshot == null)
                 return;
-
-            if (!string.Equals(correctedSit, "LANDED", StringComparison.Ordinal)
-                && !string.Equals(correctedSit, "SPLASHED", StringComparison.Ordinal))
-            {
-                return;
-            }
 
             snapshot.SetValue("landedAt", string.Empty, true);
             snapshot.SetValue("displaylandedAt", string.Empty, true);
@@ -2367,12 +2372,14 @@ namespace Parsek
             bool hasSnapshotBody = TryGetSnapshotReferenceBodyName(snapshot, out string snapshotBodyName);
             bool hasEndpointCoords = RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
                 rec,
-                out string endpointBodyName,
+                out string endpointBodyNameFromCoords,
                 out double endpointLat,
                 out double endpointLon,
                 out double endpointAlt);
-            bool hasEndpointBody = hasEndpointCoords
-                || RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBodyName);
+            string endpointBodyName = endpointBodyNameFromCoords;
+            bool hasEndpointBody = hasEndpointCoords;
+            if (!hasEndpointBody)
+                hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBodyName);
             bool bodyMismatch = hasEndpointBody
                 && hasSnapshotBody
                 && !string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal);

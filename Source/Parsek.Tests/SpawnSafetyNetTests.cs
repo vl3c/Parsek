@@ -788,6 +788,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CorrectUnsafeSnapshotSituation_FlyingToOrbiting_ClearsStaleSiteLabels()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+            snapshot.AddValue("landedAt", "LaunchPad");
+            snapshot.AddValue("displaylandedAt", "#autoLOC_6002112");
+
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Orbiting);
+
+            Assert.True(corrected);
+            Assert.Equal("ORBITING", snapshot.GetValue("sit"));
+            Assert.Equal("False", snapshot.GetValue("landed"));
+            Assert.Equal("False", snapshot.GetValue("splashed"));
+            Assert.Equal(string.Empty, snapshot.GetValue("landedAt"));
+            Assert.Equal(string.Empty, snapshot.GetValue("displaylandedAt"));
+        }
+
+        [Fact]
         public void BuildValidatedRespawnSnapshot_MalformedSnapshotWithoutEndpoint_Rejects()
         {
             var snapshot = new ConfigNode("VESSEL");

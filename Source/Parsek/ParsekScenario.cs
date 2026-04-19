@@ -3107,7 +3107,7 @@ namespace Parsek
                     rec.DockTargetVesselPid = dockTargetPid;
             }
 
-            RecordingEndpointResolver.BackfillEndpointDecision(rec);
+            RecordingEndpointResolver.BackfillEndpointDecision(rec, "ParsekScenario.LoadRecordingMetadata");
 
         }
 

@@ -624,8 +624,12 @@ namespace Parsek.Tests
         {
             var a = MakeChainSegment("c1", 0);
             var b = MakeChainSegment("c1", 1);
-            a.Points[0].bodyName = "Kerbin";
-            a.Points[1].bodyName = "Kerbin";
+            var firstPoint = a.Points[0];
+            firstPoint.bodyName = "Kerbin";
+            a.Points[0] = firstPoint;
+            var secondPoint = a.Points[1];
+            secondPoint.bodyName = "Kerbin";
+            a.Points[1] = secondPoint;
             a.EndpointPhase = RecordingEndpointPhase.TrajectoryPoint;
             a.EndpointBodyName = "Kerbin";
             b.TerminalStateValue = TerminalState.Landed;
@@ -1378,9 +1382,8 @@ namespace Parsek.Tests
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
                 body1: "Kerbin", body2: "Mun");
             // Seed stale endpoint metadata that matches neither split half's final endpoint.
-            // SplitAtSection copies these fields into the second half before recomputing, so
-            // the second-half assertions below would fail if RefreshEndpointDecision(second)
-            // were removed.
+            // Both halves now recompute their endpoint decision from the split payload, so
+            // the assertions below would fail if the split-time refresh were removed.
             rec.EndpointPhase = RecordingEndpointPhase.OrbitSegment;
             rec.EndpointBodyName = "Minmus";
 

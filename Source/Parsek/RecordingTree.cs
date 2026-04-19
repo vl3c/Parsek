@@ -761,7 +761,7 @@ namespace Parsek
             // Resource, rewind, geometry, and mutable state
             LoadRecordingResourceAndState(recNode, rec);
 
-            RecordingEndpointResolver.BackfillEndpointDecision(rec);
+            RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingTree.LoadRecordingFrom");
 
             ParsekLog.Verbose("RecordingTree",
                 $"LoadRecordingFrom: id={rec.RecordingId} vessel='{rec.VesselName}' " +
