@@ -425,6 +425,9 @@ namespace Parsek
                     && maxTicks != long.MaxValue
                     && Stopwatch.GetTimestamp() - startedAt >= maxTicks)
                 {
+                    // `maxTicks == 0` is the intentional one-part-yield test seam: the
+                    // budget check runs AFTER each processed part, so zero still makes
+                    // forward progress once, then returns Pending when work remains.
                     return false;
                 }
             }

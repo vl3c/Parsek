@@ -1362,6 +1362,9 @@ namespace Parsek.InGameTests
             GhostBuildResult result = null;
             try
             {
+                // `maxTicks: 0` is the deliberate "one part, then yield if work remains"
+                // seam from AdvanceTimelineGhostBuild. This keeps the test deterministic:
+                // we assert the split-build path itself, not a stopwatch-dependent budget.
                 bool completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
                 InGameAssert.IsFalse(completed,
                     $"AdvanceTimelineGhostBuild(0) should yield for multipart snapshot '{withMultipartSnapshot.VesselName}'");

@@ -613,6 +613,8 @@ Timeline dominates (65.7 %) and reentry is a significant secondary contributor (
 
 **Status:** CLOSED. Phase A, Phase B3, and Phase B2 shipped for v0.8.3. Priority was medium. The remaining bimodal single-spawn timeline cost is now spread across multiple frames instead of monopolizing one `UpdatePlayback` tick.
 
+**Follow-up note:** B2 intentionally changes the diagnostics shape: the old `spawnMax >= 15 ms` one-shot WARN now sees several smaller per-advance samples instead of one large single-spawn spike. Re-validate that gate on the next post-B2 playtest so future heavy snapshot builds do not disappear from the WARN signal purely because the work is now chunked.
+
 ---
 
 ## 435. Multi-recording Gloops trees (main + debris + crew children, no vessel spawn)

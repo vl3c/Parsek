@@ -2825,6 +2825,24 @@ namespace Parsek
 
         internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
 
+        // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
+        // for pending split-build states using MockTrajectory in xUnit, without requiring
+        // a full UpdatePlayback pass or live KSP scene objects.
+        internal void UpdateLoopingPlaybackForTesting(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            FrameContext ctx, bool suppressGhosts, bool suppressVisualFx)
+            => UpdateLoopingPlayback(index, traj, flags, ctx, suppressGhosts, suppressVisualFx);
+
+        internal void UpdateOverlapPlaybackForTesting(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx)
+        {
+            double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
+            double duration = EffectiveLoopDuration(traj);
+            UpdateOverlapPlayback(index, traj, flags, ctx, primaryState,
+                intervalSeconds, duration, suppressVisualFx);
+        }
+
         private GhostVisualLoadStatus TryPopulateGhostVisuals(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
             bool forceImmediateBuild, out HeaviestSpawnBuildType buildType)
@@ -2847,6 +2865,9 @@ namespace Parsek
             GameObject ghost = null;
             bool builtFromSnapshot = false;
             PendingGhostVisualBuild pendingBuild = state.pendingVisualBuild;
+            // Retain the exact snapshot used to begin the split build so the final
+            // dictionaries/logical-part reconstruction runs against the same node after
+            // several yielded frames instead of re-resolving from traj mid-build.
             ConfigNode snapshot = pendingBuild?.snapshotNode;
 
             // Bug #450 sub-phase 1: snapshot resolve. Included even though it's trivial so
