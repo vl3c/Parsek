@@ -4784,7 +4784,8 @@ namespace Parsek
 
                     if (!matched) continue;
 
-                    if (primaryAction == null)
+                    if (primaryAction == null ||
+                        (!ActionHasRecordingScope(primaryAction) && ActionHasRecordingScope(other)))
                         primaryAction = other;
 
                     contributorIds.Add(ActionIdForPostWalk(other));
@@ -4837,6 +4838,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(anchorRecordingId))
                 return true;
             return string.Equals(anchorRecordingId, otherRecordingId, StringComparison.Ordinal);
+        }
+
+        private static bool ActionHasRecordingScope(GameAction action)
+        {
+            return !string.IsNullOrEmpty(action?.RecordingId);
         }
 
         private static bool AccumulateMatchingPostWalkLeg(

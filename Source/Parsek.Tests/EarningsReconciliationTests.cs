@@ -1956,6 +1956,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PostWalk_MilestoneAchievement_NullTaggedLegacySibling_YieldsTaggedOwner_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 22880, "Progression", recordingId: "rec-child")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 600,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = null,
+                    MilestoneId = "RecordsSpeed-Legacy",
+                    Effective = true,
+                    MilestoneFundsAwarded = 2880f
+                },
+                new GameAction
+                {
+                    UT = 600,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = "rec-child",
+                    MilestoneId = "RecordsSpeed",
+                    Effective = true,
+                    MilestoneFundsAwarded = 2880f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk match: MilestoneAchievement funds") &&
+                l.Contains("id=RecordsSpeed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Post-walk match: MilestoneAchievement funds") &&
+                l.Contains("RecordsSpeed-Legacy"));
+        }
+
+        [Fact]
         public void PostWalk_MilestoneAchievement_PrunedByCommittedThreshold_Skipped_NoWarn()
         {
             MilestoneStore.AddMilestoneForTesting(new Milestone
