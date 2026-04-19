@@ -512,6 +512,13 @@ namespace Parsek.InGameTests
             Description = "MapMarkerRenderer per-type atlas+UV entries match live MapNode.iconSprites (#387 + multi-atlas follow-up)")]
         public void MapMarkerIconsMatchStockAtlas()
         {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT
+                && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
+            {
+                InGameAssert.Skip("requires FLIGHT or TRACKSTATION scene");
+                return;
+            }
+
             InGameAssert.IsNotNull(MapView.fetch,
                 "MapView.fetch should exist — test requires flight or tracking station scene");
 
