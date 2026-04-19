@@ -29,6 +29,24 @@ namespace Parsek.InGameTests
         private static readonly FieldInfo PartAirlockField =
             typeof(Part).GetField("airlock",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo PopupDialogToDisplayField =
+            typeof(PopupDialog).GetField("dialogToDisplay",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogNameField =
+            typeof(MultiOptionDialog).GetField("name",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogTitleField =
+            typeof(MultiOptionDialog).GetField("title",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogOptionsField =
+            typeof(MultiOptionDialog).GetField("Options",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo DialogGuiButtonTextField =
+            typeof(DialogGUIButton).GetField("OptionText",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
+            typeof(DialogGUIButton).GetMethod("OptionSelected",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         public RuntimeTests(InGameTestRunner runner)
         {
@@ -816,6 +834,197 @@ namespace Parsek.InGameTests
 
             skipReason = $"active vessel '{vessel.vesselName}' has no crewed part with an airlock";
             return false;
+        }
+
+        #endregion
+
+        #region MergeDialog
+
+        [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
+            Description = "Tree merge popup shows both actions and the discard button clears the pending tree")]
+        public IEnumerator TreeMergeDialog_DiscardButton_ClearsPendingTree()
+        {
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            bool originalMergeDialogPending = ParsekScenario.MergeDialogPending;
+            RecordingTree tree = BuildSyntheticPendingTree("ingame-merge-dialog-discard");
+
+            try
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                ParsekScenario.MergeDialogPending = true;
+
+                MergeDialog.ShowTreeDialog(tree);
+
+                yield return WaitForPopupDialog("ParsekMerge", 2f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup, "ParsekMerge popup should exist after ShowTreeDialog");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                InGameAssert.AreEqual(2, buttons.Length,
+                    $"Expected exactly two merge dialog buttons, got {buttons.Length}");
+
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(discardButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 2f);
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Discard button should clear the pending tree");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Discard button should clear the deferred merge-dialog flag");
+
+                ParsekLog.Info("TestRunner",
+                    $"Merge dialog discard runtime: tree='{tree.TreeName}' buttons={buttons.Length}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                    RecordingStore.DiscardPendingTree();
+                ParsekScenario.MergeDialogPending = originalMergeDialogPending;
+            }
+        }
+
+        private static RecordingTree BuildSyntheticPendingTree(string suffix)
+        {
+            string treeId = "runtime-tree-" + suffix;
+            string recordingId = "runtime-rec-" + suffix;
+            double startUt = Planetarium.GetUniversalTime();
+            string vesselName = FlightGlobals.ActiveVessel?.vesselName ?? "Runtime Test Vessel";
+            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.bodyName ?? "Kerbin";
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = vesselName,
+                TreeId = treeId,
+                VesselPersistentId = 900000u,
+                TerminalStateValue = TerminalState.Landed,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = startUt, bodyName = bodyName, altitude = 10.0 },
+                    new TrajectoryPoint { ut = startUt + 5.0, bodyName = bodyName, altitude = 12.0 }
+                }
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Runtime Merge Dialog " + suffix,
+                RootRecordingId = recordingId,
+                ActiveRecordingId = recordingId
+            };
+            tree.Recordings[recordingId] = rec;
+            return tree;
+        }
+
+        private static IEnumerator WaitForPopupDialog(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) != null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialog timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static IEnumerator WaitForPopupDialogToClose(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) == null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialogToClose timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static PopupDialog FindPopupDialog(string dialogName)
+        {
+            if (string.IsNullOrEmpty(dialogName) || PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
+                return null;
+
+            PopupDialog[] popups = Object.FindObjectsOfType<PopupDialog>();
+            for (int i = 0; i < popups.Length; i++)
+            {
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
+                if (dialog == null)
+                    continue;
+
+                string currentName = MultiOptionDialogNameField.GetValue(dialog) as string;
+                if (currentName == dialogName)
+                    return popups[i];
+            }
+
+            return null;
+        }
+
+        private static DialogGUIButton[] GetDialogButtons(MultiOptionDialog dialog)
+        {
+            if (dialog == null || MultiOptionDialogOptionsField == null)
+                return new DialogGUIButton[0];
+
+            DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
+            if (options == null || options.Length == 0)
+                return new DialogGUIButton[0];
+
+            var buttons = new List<DialogGUIButton>();
+            for (int i = 0; i < options.Length; i++)
+            {
+                DialogGUIButton button = options[i] as DialogGUIButton;
+                if (button != null)
+                    buttons.Add(button);
+            }
+
+            return buttons.ToArray();
+        }
+
+        private static string GetDialogButtonText(DialogGUIButton button)
+        {
+            if (button == null || DialogGuiButtonTextField == null)
+                return null;
+
+            return DialogGuiButtonTextField.GetValue(button) as string;
         }
 
         #endregion

@@ -393,7 +393,7 @@ Quick source verification against the current tree shows that some of the older 
 - `KerbalsWindowUITests` still leaves two `xUnit2009` warnings in the suite; they are low severity but should be cleaned up the next time that file is touched.
 - Mechanical coverage reporting is still not validated end-to-end. A local `coverlet.msbuild` + `scripts/test-coverage.ps1` scaffold now exists in this worktree, but the current machine cannot complete restore/test execution reliably enough to trust the numbers yet.
 - The auto-record player flow is now materially better covered in this worktree: this audit adds helper-level xUnit coverage for launch gating and deferred EVA gating plus real single-run in-game launch and EVA auto-record scenarios. The remaining weakness is not the basic auto-start path anymore, but broader multi-step player flows like merge/revert and playback control.
-- The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers), but not yet as one scripted runtime UI flow.
+- The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers). This worktree now also has a runtime popup/discard smoke test for a synthetic pending tree, but it still does not have the full revert transition and merge-branch flow scripted end-to-end.
 - Part-event playback is stronger than the older audits suggested: xUnit has broad structural/event coverage and in-game tests already verify live FX/buildability for engines, parachutes, lights, RCS, fairings, and deployables. The remaining gap is narrower: player-visible timing/assertion scenarios, not basic subsystem absence.
 
 The remaining concerns are mostly strategic now, not cleanup nits: validated coverage reporting, a few real player-flow scenario tests, and tighter release evidence around logs/runtime exports.
@@ -434,6 +434,7 @@ The next-sequence auto-record follow-up has now started locally:
 - added xUnit coverage for prelaunch starts, settled-LANDED starts, bounce suppression, inactive-vessel suppression, setting-disable gating, and deferred EVA start preconditions
 - added a real single-run in-game test that stages a PRELAUNCH vessel, waits for launch auto-record to start, and asserts the launch auto-record log fires exactly once
 - added a second real single-run in-game test that forces a stock EVA from a crewed vessel, waits for the deferred active-vessel switch, and asserts the EVA auto-record log fires exactly once
+- added a live merge-dialog runtime smoke test that opens the real tree merge popup for a synthetic pending tree, verifies the button surface, and drives the actual `Discard` button callback through the UI object
 - verified the modified test project still builds with `--no-restore`
 - the remaining auto-record work is now mostly evidence quality: these runtime scenarios should be executed in a healthy KSP session and captured in `parsek-test-results.txt` / `KSP.log`
 
@@ -451,7 +452,7 @@ From here, I would continue with one structural pass, but with a tighter order t
 2. **Run the new auto-record runtime scenarios in KSP**
    The structural work is now in place. The next useful evidence is a real `parsek-test-results.txt` / `KSP.log` capture from a healthy KSP session that proves both launch-from-pad and EVA-from-pad auto-record start exactly once.
 3. **Promote one real merge/revert UI flow**
-   The seam-level coverage is already strong. The missing confidence is the runtime path where a pending tree survives the transition, the dialog appears, and the player choice actually does the right thing in-scene.
+   The dialog itself now has a runtime discard smoke test. The missing confidence is the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
 4. **Then add one playback-control scenario**
    The best candidate is a `Keep Vessel` timeline run that asserts warp-stop behavior near `StartUT`, playback start, and no duplicate spawn. Quickload already has targeted runtime coverage, so it is no longer the first thing I would add.
 5. **Only after that, add part-event timing scenarios**
@@ -464,7 +465,7 @@ The first scripted runtime scenarios I would add are:
 1. **Auto-record launch/EVA cycle**
    Launch from pad, assert auto-record starts exactly once, then run the EVA-from-pad path and assert the deferred auto-record/log sequence completes correctly. This is now implemented locally and needs live runtime execution evidence rather than more structural coverage.
 2. **Pending-tree merge dialog flow**
-   Create a real pending tree with `autoMerge = false`, move through the runtime transition that surfaces the dialog, then assert both `Merge to Timeline` and `Discard` do the right thing to pending/committed state.
+   Create a real pending tree with `autoMerge = false`, move through the runtime transition that surfaces the dialog, then assert the `Merge to Timeline` branch does the right thing to pending/committed state. The discard branch now has a lighter runtime popup smoke test in this worktree.
 3. **`Keep Vessel` playback control flow**
    Use a known recording that should persist, warp toward `StartUT`, assert warp-stop behavior and playback handoff, then assert the end-of-recording spawn happens once.
 4. **Part-event timing showcase**
