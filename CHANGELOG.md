@@ -26,6 +26,7 @@ All notable changes to Parsek are documented here.
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
 - `#472` Watch-mode camera retargets now preserve the current pitch/heading when follow rebinds to a replacement ghost, eliminating the visible camera jerk on loop/overlap handoffs, quiet-expiry primary rebinds, and stock vessel-switch re-targets.
 - `#474` Ghost audio now recenters on the fresh watch pivot instead of staying on off-axis part transforms, and ghost sources use a softer 3D blend so Watch mode no longer hard-pans loops or one-shots into a single speaker.
+- `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
 
 ---
 

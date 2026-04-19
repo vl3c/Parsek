@@ -53,7 +53,7 @@ Separately: the same save-state shape may make #439 Phase A behaviour unreliable
 
 ---
 
-## 479. `FlightIntegrationTests.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` fails in FLIGHT — `sit` field not refreshed from the live vessel after stable-terminal re-snapshot
+## ~~479. `FlightIntegrationTests.FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` fails in FLIGHT — `sit` field not refreshed from the live vessel after stable-terminal re-snapshot~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:18, 41`.
 
@@ -78,7 +78,7 @@ Test should keep passing once the path writes a consistent `sit`; no other asser
 
 **Dependencies:** #289 original fix (shipped). This is the regression test catching a hole the original fix left.
 
-**Status:** TODO. Priority: medium-high — silent sidecar drift on every stable-terminal finalize with a mismatched-sit live vessel, reloads see stale FLYING, affects spawn decisions downstream.
+**Status:** CLOSED 2026-04-19. Fixed in PR #407 — stable-terminal re-snapshots now normalize unsafe `BackupVessel()` `sit` values before persisting the fresh snapshot, so the FLIGHT regression and stale-sidecar drift are resolved.
 
 ---
 
