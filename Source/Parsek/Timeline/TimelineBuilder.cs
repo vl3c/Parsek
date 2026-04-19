@@ -292,7 +292,7 @@ namespace Parsek
         /// </summary>
         internal static string EncodeEvaBranchKey(string recordingId, double ut)
         {
-            return string.Concat(recordingId, ":", ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            return string.Concat(recordingId, ":", ut.ToString("R", IC));
         }
 
         private static HashSet<string> BuildLegacyDuplicateKeys(IReadOnlyList<GameAction> ledgerActions)
@@ -304,46 +304,39 @@ namespace Parsek
                 if (!ledgerActions[i].Effective)
                     continue;
 
-                string key;
-                GameStateEventType eventType;
-                if (!TryMapLegacyDuplicateKey(ledgerActions[i], out eventType, out key))
+                string duplicateKey = GetLegacyDuplicateKey(ledgerActions[i]);
+                if (duplicateKey == null)
                     continue;
 
-                keys.Add(EncodeLegacyDuplicateKey(eventType, ledgerActions[i].UT, key));
+                keys.Add(duplicateKey);
             }
             return keys;
         }
 
-        private static bool TryMapLegacyDuplicateKey(
-            GameAction action,
-            out GameStateEventType eventType,
-            out string key)
+        private static string GetLegacyDuplicateKey(GameAction action)
         {
-            eventType = GameStateEventType.FundsChanged;
-            key = null;
-
-            if (action == null)
-                return false;
-
             switch (action.Type)
             {
                 case GameActionType.MilestoneAchievement:
-                    eventType = GameStateEventType.MilestoneAchieved;
-                    key = action.MilestoneId;
-                    return true;
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.MilestoneAchieved,
+                        action.UT,
+                        action.MilestoneId);
 
                 case GameActionType.StrategyActivate:
-                    eventType = GameStateEventType.StrategyActivated;
-                    key = action.StrategyId;
-                    return true;
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.StrategyActivated,
+                        action.UT,
+                        action.StrategyId);
 
                 case GameActionType.StrategyDeactivate:
-                    eventType = GameStateEventType.StrategyDeactivated;
-                    key = action.StrategyId;
-                    return true;
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.StrategyDeactivated,
+                        action.UT,
+                        action.StrategyId);
 
                 default:
-                    return false;
+                    return null;
             }
         }
 
