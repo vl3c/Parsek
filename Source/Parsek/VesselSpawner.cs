@@ -294,6 +294,264 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Real-vessel spawn consumes format-v0 surface-relative recording data. `VESSEL.rot`
+        /// must be written in world space before ProtoVessel.Load(), so reconstruct explicitly
+        /// instead of relying on stock spawn-side interpretation.
+        /// </summary>
+        internal static Quaternion ComputeWorldSpawnRotationFromSurfaceRelative(
+            Quaternion bodyRotation,
+            Quaternion surfaceRelativeRotation)
+        {
+            Quaternion sanitizedBodyRotation = TrajectoryMath.SanitizeQuaternion(bodyRotation);
+            Quaternion sanitizedSurfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation);
+            return TrajectoryMath.SanitizeQuaternion(
+                sanitizedBodyRotation * sanitizedSurfaceRelativeRotation);
+        }
+
+        internal static Quaternion ApplyWorldSpawnRotationToNode(
+            ConfigNode vesselNode,
+            string bodyName,
+            Quaternion bodyRotation,
+            Quaternion surfaceRelativeRotation,
+            string context)
+        {
+            Quaternion worldRotation = ComputeWorldSpawnRotationFromSurfaceRelative(
+                bodyRotation, surfaceRelativeRotation);
+            vesselNode?.SetValue("rot", KSPUtil.WriteQuaternion(worldRotation), true);
+
+            ParsekLog.Verbose("Spawner",
+                $"Spawn rotation prep ({context}): body={bodyName ?? "?"} " +
+                "frame=surface-relative(format-v0) -> world via " +
+                "body.bodyTransform.rotation * srfRelRotation " +
+                $"srfRel={KSPUtil.WriteQuaternion(surfaceRelativeRotation)} " +
+                $"world={KSPUtil.WriteQuaternion(worldRotation)}");
+
+            return worldRotation;
+        }
+
+        internal static bool TryApplySpawnRotationFromSurfaceRelative(
+            ConfigNode vesselNode,
+            string bodyName,
+            Quaternion? bodyRotation,
+            Quaternion? surfaceRelativeRotation,
+            string context)
+        {
+            if (vesselNode == null || !surfaceRelativeRotation.HasValue)
+                return false;
+
+            if (!bodyRotation.HasValue)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"Spawn rotation prep skipped ({context}): missing body/bodyTransform " +
+                    $"for format-v0 surface-relative rotation (body={bodyName ?? "?"})");
+                return false;
+            }
+
+            ApplyWorldSpawnRotationToNode(
+                vesselNode,
+                bodyName,
+                bodyRotation.Value,
+                surfaceRelativeRotation.Value,
+                context);
+            return true;
+        }
+
+        internal static bool TryApplySpawnRotationFromSurfaceRelative(
+            ConfigNode vesselNode,
+            CelestialBody body,
+            Quaternion? surfaceRelativeRotation,
+            string context)
+        {
+            Quaternion? bodyRotation = body != null && body.bodyTransform != null
+                ? (Quaternion?)body.bodyTransform.rotation
+                : null;
+            return TryApplySpawnRotationFromSurfaceRelative(
+                vesselNode,
+                body?.name,
+                bodyRotation,
+                surfaceRelativeRotation,
+                context);
+        }
+
+        internal static bool IsSurfaceTerminal(TerminalState? terminalState)
+        {
+            return terminalState == TerminalState.Landed
+                || terminalState == TerminalState.Splashed;
+        }
+
+        internal static bool TryGetPreferredSpawnRotationFrame(
+            Recording rec,
+            TrajectoryPoint? fallbackPoint,
+            out string bodyName,
+            out Quaternion surfaceRelativeRotation,
+            out string source)
+        {
+            bodyName = null;
+            surfaceRelativeRotation = Quaternion.identity;
+            source = null;
+
+            if (rec == null || !IsSurfaceTerminal(rec.TerminalStateValue))
+                return false;
+
+            if (rec.TerminalPosition.HasValue)
+            {
+                SurfacePosition terminalPose = rec.TerminalPosition.Value;
+                if (terminalPose.HasRecordedRotation)
+                {
+                    bodyName = terminalPose.body;
+                    if (string.IsNullOrEmpty(bodyName))
+                        RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName);
+                    if (!string.IsNullOrEmpty(bodyName))
+                    {
+                        surfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(terminalPose.rotation);
+                        source = "terminal surface pose";
+                        return true;
+                    }
+                }
+            }
+
+            if (fallbackPoint.HasValue)
+            {
+                bodyName = fallbackPoint.Value.bodyName;
+                if (string.IsNullOrEmpty(bodyName))
+                    RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName);
+                if (!string.IsNullOrEmpty(bodyName))
+                {
+                    surfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(fallbackPoint.Value.rotation);
+                    source = "last trajectory point";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool TryResolvePreferredSpawnRotation(
+            Recording rec,
+            TrajectoryPoint? fallbackPoint,
+            out string bodyName,
+            out Quaternion bodyRotation,
+            out Quaternion surfaceRelativeRotation,
+            out string source)
+        {
+            bodyName = null;
+            bodyRotation = Quaternion.identity;
+            surfaceRelativeRotation = Quaternion.identity;
+            source = null;
+
+            if (!TryGetPreferredSpawnRotationFrame(
+                rec, fallbackPoint, out bodyName, out surfaceRelativeRotation, out source))
+            {
+                return false;
+            }
+
+            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+            if (body == null || body.bodyTransform == null)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"Spawn rotation prep skipped: body '{bodyName ?? "?"}' unavailable " +
+                    $"for {source}");
+                return false;
+            }
+
+            bodyRotation = body.bodyTransform.rotation;
+            return true;
+        }
+
+        internal static bool TryApplyPreferredSpawnRotation(
+            ConfigNode vesselNode,
+            Recording rec,
+            TrajectoryPoint? fallbackPoint,
+            string context)
+        {
+            if (!TryResolvePreferredSpawnRotation(
+                rec, fallbackPoint,
+                out string bodyName,
+                out Quaternion bodyRotation,
+                out Quaternion surfaceRelativeRotation,
+                out string source))
+            {
+                return false;
+            }
+
+            return TryApplySpawnRotationFromSurfaceRelative(
+                vesselNode,
+                bodyName,
+                bodyRotation,
+                surfaceRelativeRotation,
+                $"{context}, source={source}");
+        }
+
+        internal static CelestialBody ResolveSpawnRotationBody(
+            Recording rec,
+            TrajectoryPoint? point = null)
+        {
+            string bodyName = null;
+            if (point.HasValue && !string.IsNullOrEmpty(point.Value.bodyName))
+                bodyName = point.Value.bodyName;
+            if (string.IsNullOrEmpty(bodyName))
+                RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName);
+
+            return string.IsNullOrEmpty(bodyName)
+                ? null
+                : FlightGlobals.GetBodyByName(bodyName);
+        }
+
+        internal static string PrepareSpawnNodeAtPosition(
+            ConfigNode spawnNode,
+            string bodyName,
+            Quaternion? bodyRotation,
+            double lat, double lon, double alt,
+            double speed,
+            double orbitalSpeed,
+            bool overWater,
+            TerminalState? terminalState,
+            Quaternion? surfaceRelativeRotation)
+        {
+            if (spawnNode == null)
+                return null;
+
+            spawnNode.SetValue("lat", lat.ToString("R"), true);
+            spawnNode.SetValue("lon", lon.ToString("R"), true);
+            spawnNode.SetValue("alt", alt.ToString("R"), true);
+
+            string sit = DetermineSituation(alt, overWater, speed, orbitalSpeed);
+
+            // Override FLYING situation from terminal state (#176 for Orbiting/Docked, #264
+            // for Landed/Splashed). Without this, an EVA kerbal walking at alt > 0 with
+            // low speed classifies as FLYING and hits the OrbitDriver updateMode=UPDATE
+            // stale-orbit bug on the first physics frame after load.
+            string overriddenSit = OverrideSituationFromTerminalState(sit, terminalState);
+            if (overriddenSit != sit)
+            {
+                ParsekLog.Info("Spawner",
+                    $"SpawnAtPosition: overriding sit {sit} → {overriddenSit} " +
+                    $"(terminal={terminalState}, speed={speed.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                    $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}) — prevents stale-orbit / pressure destruction (#176, #264)");
+                sit = overriddenSit;
+            }
+
+            ApplySituationToNode(spawnNode, sit);
+            ParsekLog.Verbose("Spawner",
+                $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", CultureInfo.InvariantCulture)}, speed={speed.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}, overWater={overWater})");
+
+            // Optional rotation override: recorded trajectory points store surface-relative
+            // rotation (format-v0 contract), so reconstruct world-space VESSEL.rot explicitly.
+            if (surfaceRelativeRotation.HasValue)
+            {
+                TryApplySpawnRotationFromSurfaceRelative(
+                    spawnNode,
+                    bodyName,
+                    bodyRotation,
+                    surfaceRelativeRotation,
+                    "SpawnAtPosition");
+            }
+
+            return sit;
+        }
+
+        /// <summary>
         /// Spawn a vessel from a snapshot at a specific position and velocity,
         /// overriding the snapshot's stored orbit and location.
         /// Spawns at a specific position overriding the snapshot's stored orbit.
@@ -303,51 +561,30 @@ namespace Parsek
             Vector3d velocity, double ut,
             HashSet<string> excludeCrew = null, bool preserveIdentity = false,
             TerminalState? terminalState = null,
-            Quaternion? rotation = null,
+            Quaternion? surfaceRelativeRotation = null,
             Orbit orbitOverride = null)
         {
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
 
-                // Update position
-                spawnNode.SetValue("lat", lat.ToString("R"), true);
-                spawnNode.SetValue("lon", lon.ToString("R"), true);
-                spawnNode.SetValue("alt", alt.ToString("R"), true);
-
                 // Determine situation from altitude and velocity
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
                 bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
-                string sit = DetermineSituation(alt, overWater, velocity.magnitude, orbitalSpeed);
-
-                // Override FLYING situation from terminal state (#176 for Orbiting/Docked, #264
-                // for Landed/Splashed). Without this, an EVA kerbal walking at alt > 0 with
-                // low speed classifies as FLYING and hits the OrbitDriver updateMode=UPDATE
-                // stale-orbit bug on the first physics frame after load.
-                string overriddenSit = OverrideSituationFromTerminalState(sit, terminalState);
-                if (overriddenSit != sit)
-                {
-                    ParsekLog.Info("Spawner",
-                        $"SpawnAtPosition: overriding sit {sit} → {overriddenSit} " +
-                        $"(terminal={terminalState}, speed={velocity.magnitude.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                        $"orbitalSpeed={orbitalSpeed.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}) — prevents stale-orbit / pressure destruction (#176, #264)");
-                    sit = overriddenSit;
-                }
-
-                ApplySituationToNode(spawnNode, sit);
-                ParsekLog.Verbose("Spawner",
-                    $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}, speed={velocity.magnitude.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                    $"orbitalSpeed={orbitalSpeed.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, overWater={overWater})");
-
-                // Optional rotation override: for breakup-continuous spawns the last trajectory
-                // point's rotation represents the near-impact orientation; without this, the
-                // spawned vessel appears in its mid-flight tumbling pose. (#264 follow-up)
-                if (rotation.HasValue)
-                {
-                    spawnNode.SetValue("rot", KSPUtil.WriteQuaternion(rotation.Value), true);
-                    ParsekLog.Verbose("Spawner",
-                        $"SpawnAtPosition: rotation override applied (rot={rotation.Value})");
-                }
+                string sit = PrepareSpawnNodeAtPosition(
+                    spawnNode,
+                    body?.name,
+                    body != null && body.bodyTransform != null
+                        ? (Quaternion?)body.bodyTransform.rotation
+                        : null,
+                    lat,
+                    lon,
+                    alt,
+                    velocity.magnitude,
+                    orbitalSpeed,
+                    overWater,
+                    terminalState,
+                    surfaceRelativeRotation);
 
                 // Rebuild ORBIT subnode from position + velocity
                 Orbit orbit = orbitOverride;
@@ -569,8 +806,25 @@ namespace Parsek
             // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
             if (isEva && rec.VesselSnapshot != null)
             {
-                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                    index, rec.VesselName);
+                if (TryResolvePreferredSpawnRotation(
+                    rec, lastPt,
+                    out string evaRotationBodyName,
+                    out Quaternion evaBodyRotation,
+                    out Quaternion evaSurfaceRelativeRotation,
+                    out string evaRotationSource))
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName,
+                        evaRotationBodyName,
+                        evaBodyRotation,
+                        evaSurfaceRelativeRotation,
+                        evaRotationSource);
+                }
+                else
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName);
+                }
                 StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
             }
 
@@ -579,8 +833,26 @@ namespace Parsek
             // endpoint. Same pattern as EVA fix above. (#224)
             if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
             {
-                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                    index, rec.VesselName);
+                if (!useRecordedTerminalOrbit
+                    && TryResolvePreferredSpawnRotation(
+                        rec, lastPt,
+                        out string breakupRotationBodyName,
+                        out Quaternion breakupBodyRotation,
+                        out Quaternion breakupSurfaceRelativeRotation,
+                        out string breakupRotationSource))
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName,
+                        breakupRotationBodyName,
+                        breakupBodyRotation,
+                        breakupSurfaceRelativeRotation,
+                        breakupRotationSource);
+                }
+                else
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName);
+                }
             }
 
             // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
@@ -591,8 +863,25 @@ namespace Parsek
             if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
                 && (rec.TerminalStateValue == TerminalState.Landed || rec.TerminalStateValue == TerminalState.Splashed))
             {
-                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                    index, rec.VesselName, lastPt.rotation);
+                if (TryResolvePreferredSpawnRotation(
+                    rec, lastPt,
+                    out string surfaceRotationBodyName,
+                    out Quaternion surfaceBodyRotation,
+                    out Quaternion surfaceRelativeRotation,
+                    out string surfaceRotationSource))
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName,
+                        surfaceRotationBodyName,
+                        surfaceBodyRotation,
+                        surfaceRelativeRotation,
+                        surfaceRotationSource);
+                }
+                else
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName);
+                }
             }
 
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
@@ -635,13 +924,15 @@ namespace Parsek
             //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
             //   walked endpoint so the kerbal stays where recorded.
             // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
-            //   Rotation is preserved via the new Quaternion? rotation parameter.
+            //   Rotation is preserved via the same surface-relative -> world helper used by
+            //   snapshot-prep fallbacks.
             //
             // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
             // paths remain as defense-in-depth for the RespawnVessel fallback below: if
             // SpawnAtPosition returns 0, RespawnVessel still sees the corrected snapshot
-            // lat/lon/alt (which at least places the kerbal correctly on frame 0 — the
-            // stale-orbit bug only re-fires on frame 1).
+            // endpoint pose. For breakup-continuous surface/state-vector spawns that now
+            // includes the reconstructed world rot, so the degraded fallback does not
+            // regress to writing raw format-v0 surface-relative quaternions.
             bool routeThroughSpawnAtPosition =
                 rec.TerminalStateValue == TerminalState.Orbiting
                 || rec.TerminalStateValue == TerminalState.Docked
@@ -662,9 +953,17 @@ namespace Parsek
                 Vector3d velocity = useRecordedTerminalOrbit
                     ? orbitalSpawnVelocity
                     : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
-                Quaternion? rotArg = isBreakupContinuous && !useRecordedTerminalOrbit
-                    ? (Quaternion?)lastPt.rotation
-                    : null;
+                Quaternion? surfaceRelativeRotationArg = null;
+                if (!useRecordedTerminalOrbit
+                    && (isEva || isBreakupContinuous)
+                    && TryGetPreferredSpawnRotationFrame(
+                        rec, lastPt,
+                        out _,
+                        out Quaternion preferredSurfaceRelativeRotation,
+                        out _))
+                {
+                    surfaceRelativeRotationArg = preferredSurfaceRelativeRotation;
+                }
 
                 string pathLabel;
                 if (useRecordedTerminalOrbit) pathLabel = "Orbital";
@@ -675,7 +974,7 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
                     validatedSpawnSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
                     terminalState: rec.TerminalStateValue,
-                    rotation: rotArg,
+                    surfaceRelativeRotation: surfaceRelativeRotationArg,
                     orbitOverride: orbitalSpawnOrbit);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (rec.VesselSpawned)
@@ -1693,7 +1992,28 @@ namespace Parsek
         /// </summary>
         internal static void OverrideSnapshotPosition(ConfigNode snapshot,
             double lat, double lon, double alt, int index, string vesselName,
-            Quaternion? rotation = null)
+            CelestialBody rotationBody = null,
+            Quaternion? surfaceRelativeRotation = null,
+            string rotationSource = null)
+        {
+            Quaternion? bodyRotation = rotationBody != null && rotationBody.bodyTransform != null
+                ? (Quaternion?)rotationBody.bodyTransform.rotation
+                : null;
+            OverrideSnapshotPosition(
+                snapshot,
+                lat, lon, alt, index, vesselName,
+                rotationBody?.name,
+                bodyRotation,
+                surfaceRelativeRotation,
+                rotationSource);
+        }
+
+        internal static void OverrideSnapshotPosition(ConfigNode snapshot,
+            double lat, double lon, double alt, int index, string vesselName,
+            string rotationBodyName,
+            Quaternion? rotationBodyRotation,
+            Quaternion? surfaceRelativeRotation,
+            string rotationSource = null)
         {
             if (snapshot == null) return;
 
@@ -1703,15 +2023,23 @@ namespace Parsek
             snapshot.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
             snapshot.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
 
-            if (rotation.HasValue)
-            {
-                snapshot.SetValue("rot", KSPUtil.WriteQuaternion(rotation.Value), true);
-            }
+            bool rotationRequested = surfaceRelativeRotation.HasValue;
+            string rotationContext = $"Snapshot override #{index} ({vesselName})";
+            if (!string.IsNullOrEmpty(rotationSource))
+                rotationContext += $", source={rotationSource}";
+            bool rotationUpdated = TryApplySpawnRotationFromSurfaceRelative(
+                snapshot,
+                rotationBodyName,
+                rotationBodyRotation,
+                surfaceRelativeRotation,
+                rotationContext);
 
             ParsekLog.Info("Spawner",
                 $"Snapshot position override for #{index} ({vesselName}): " +
                 $"alt {oldAlt} → {alt.ToString("R", CultureInfo.InvariantCulture)}" +
-                (rotation.HasValue ? " (rot updated)" : ""));
+                (rotationUpdated
+                    ? $" (rot updated from surface-relative frame{(!string.IsNullOrEmpty(rotationSource) ? $", source={rotationSource}" : "")})"
+                    : rotationRequested ? " (rot unchanged)" : ""));
         }
 
         /// <summary>

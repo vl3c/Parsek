@@ -1277,7 +1277,7 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = HasMeaningfulRotation(pos.rotation);
+                hasRotation = pos.HasRecordedRotation;
                 return true;
             }
 
@@ -1289,7 +1289,7 @@ namespace Parsek
                 lon = pos.longitude;
                 alt = pos.altitude;
                 rotation = pos.rotation;
-                hasRotation = HasMeaningfulRotation(pos.rotation);
+                hasRotation = pos.HasRecordedRotation;
                 return true;
             }
 
@@ -1346,7 +1346,11 @@ namespace Parsek
 
         private static bool HasMeaningfulRotation(Quaternion rotation)
         {
-            return rotation.x != 0f || rotation.y != 0f || rotation.z != 0f || rotation.w != 0f;
+            if (rotation.x == 0f && rotation.y == 0f && rotation.z == 0f && rotation.w == 0f)
+                return false;
+
+            Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(rotation);
+            return Quaternion.Angle(sanitized, Quaternion.identity) > 1e-4f;
         }
 
         /// <summary>
