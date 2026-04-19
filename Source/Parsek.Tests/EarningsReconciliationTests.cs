@@ -1751,6 +1751,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PostWalk_MilestoneAchievement_NullTaggedSiblingDefersToTaggedScope_NoWarn()
+        {
+            // Mixed-scope edge for the #462 partial fix: a null-tagged legacy action
+            // should still be allowed to match tagged store events when it is alone,
+            // but it must not become the primary owner of a coalesced window that also
+            // contains a tagged sibling. Otherwise list order decides whether the
+            // aggregate re-folds sibling recordings back into the expected sum.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 20960, "Progression", recordingId: "rec-parent"),
+                MakeKeyedFundsChanged(600, 20960, 21440, "Progression", recordingId: "rec-child")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 600,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = null,
+                    MilestoneId = "Kerbin/SurfaceEVA (legacy)",
+                    Effective = true,
+                    MilestoneFundsAwarded = 960f
+                },
+                new GameAction
+                {
+                    UT = 600,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = "rec-parent",
+                    MilestoneId = "Kerbin/SurfaceEVA",
+                    Effective = true,
+                    MilestoneFundsAwarded = 960f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk match: MilestoneAchievement funds") &&
+                l.Contains("id=Kerbin/SurfaceEVA"));
+        }
+
+        [Fact]
         public void PostWalk_ContractComplete_NullTaggedAction_MatchesTaggedEvent_NoWarn()
         {
             var events = new List<GameStateEvent>
@@ -2403,6 +2446,171 @@ namespace Parsek.Tests
             LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_EndAnchoredCommit_MatchesEarlierTransmissionWindow_NoWarn()
+        {
+            // #468: the committed ScienceEarning stays anchored at recording end/recovery
+            // UT, but the paired ScienceTransmission events were emitted earlier in flight.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(39.8, 0.0, 5.5, "ScienceTransmission", recordingId: "rec_sci_window"),
+                MakeKeyedScienceChanged(66.3, 5.5, 11.0, "ScienceTransmission", recordingId: "rec_sci_window")
+            };
+            var action = new GameAction
+            {
+                UT = 204.4,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_sci_window",
+                SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                Effective = true,
+                ScienceAwarded = 11.0f,
+                EffectiveScience = 11.0f,
+                StartUT = 10.0f,
+                EndUT = 204.4f
+            };
+            var actions = new List<GameAction> { action };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_EndAnchoredCommit_LargeUtFloatSpanStillMatchesEarlierTransmissionWindow_NoWarn()
+        {
+            // Reviewer follow-up: ScienceEarning spans round-trip through float fields.
+            // At large UTs, the stored EndUT drifts from the double-backed action.UT by
+            // more than 0.1s, so both the end-anchor gate and the widened window
+            // boundaries must allow float quantization loss.
+            const double actionUt = 10000000.4;
+
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(9999950.0, 0.0, 5.5, "ScienceTransmission", recordingId: "rec_sci_window_large_ut"),
+                MakeKeyedScienceChanged(10000000.35, 5.5, 11.0, "ScienceTransmission", recordingId: "rec_sci_window_large_ut")
+            };
+            var action = new GameAction
+            {
+                UT = actionUt,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_sci_window_large_ut",
+                SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                Effective = true,
+                ScienceAwarded = 11.0f,
+                EffectiveScience = 11.0f,
+                StartUT = 9999900.0f,
+                EndUT = (float)actionUt
+            };
+            Assert.NotEqual(actionUt, (double)action.EndUT);
+
+            LedgerOrchestrator.ReconcilePostWalk(events, new List<GameAction> { action }, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_AndMilestoneAchievement_SameUtNeighborhood_DoNotCrossCoalesce()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(39.8, 0.0, 5.5, "ScienceTransmission", recordingId: "rec_mix"),
+                MakeKeyedScienceChanged(66.3, 5.5, 11.0, "ScienceTransmission", recordingId: "rec_mix"),
+                MakeKeyedScienceChanged(204.45, 11.0, 14.0, "Progression", recordingId: "rec_mix")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 204.4,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_mix",
+                    SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 11.0f,
+                    EffectiveScience = 11.0f,
+                    StartUT = 10.0f,
+                    EndUT = 204.4f
+                },
+                new GameAction
+                {
+                    UT = 204.45,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = "rec_mix",
+                    MilestoneId = "Kerbin/Escape",
+                    Effective = true,
+                    MilestoneScienceAwarded = 3.0f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+
+            var scienceMatches = logLines.FindAll(l =>
+                l.Contains("Post-walk match: ScienceEarning sci"));
+            var milestoneMatches = logLines.FindAll(l =>
+                l.Contains("Post-walk match: MilestoneAchievement sci"));
+
+            Assert.Single(scienceMatches);
+            Assert.Single(milestoneMatches);
+            Assert.Contains("within recording window [10.0,204.4]", scienceMatches[0]);
+            Assert.Contains("id=mysteryGoo@KerbinSrfLandedLaunchPad", scienceMatches[0]);
+            Assert.Contains("within 0.1s of ut=204.4", milestoneMatches[0]);
+            Assert.Contains("id=Kerbin/Escape", milestoneMatches[0]);
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_EndAnchoredCommit_MultiSubjectRecording_CoalescesOnce()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(39.8, 0.0, 5.5, "ScienceTransmission", recordingId: "rec_multi_subject"),
+                MakeKeyedScienceChanged(66.3, 5.5, 11.0, "ScienceTransmission", recordingId: "rec_multi_subject"),
+                MakeKeyedScienceChanged(80.0, 11.0, 15.0, "ScienceTransmission", recordingId: "rec_multi_subject")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 204.4,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_multi_subject",
+                    SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 11.0f,
+                    EffectiveScience = 11.0f,
+                    StartUT = 10.0f,
+                    EndUT = 204.4f
+                },
+                new GameAction
+                {
+                    UT = 204.4,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_multi_subject",
+                    SubjectId = "crewReport@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 4.0f,
+                    EffectiveScience = 4.0f,
+                    StartUT = 10.0f,
+                    EndUT = 204.4f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+
+            var scienceMatches = logLines.FindAll(l =>
+                l.Contains("Post-walk match: ScienceEarning sci"));
+
+            Assert.Single(scienceMatches);
+            Assert.Contains(
+                "ids=[mysteryGoo@KerbinSrfLandedLaunchPad, crewReport@KerbinSrfLandedLaunchPad] across 2 action(s)",
+                scienceMatches[0]);
+            Assert.Contains("expected=15.0, observed=15.0", scienceMatches[0]);
+            Assert.Contains("within recording window [10.0,204.4]", scienceMatches[0]);
         }
 
         // ---------- utCutoff ----------

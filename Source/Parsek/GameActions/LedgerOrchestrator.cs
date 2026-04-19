@@ -244,7 +244,7 @@ namespace Parsek
             IReadOnlyList<PendingScienceSubject> pendingSource =
                 pendingScienceOverride ?? GameStateRecorder.PendingScienceSubjects;
             var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                pendingSource, recordingId, endUT);
+                pendingSource, recordingId, startUT, endUT);
             actions.AddRange(scienceActions);
 
             // 3. Inject vessel build cost and recovery funds from recording data
@@ -1030,15 +1030,28 @@ namespace Parsek
             // EffectiveScience) are populated and before KSP state is patched.
             ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
 
-            // KSP state mutations (PostWalk already called by engine). Repeatable
-            // Records* nodes only rebuild strictly from ledger-backed thresholds on
-            // rewind-style cutoff walks; normal same-branch recalculations preserve the
-            // live in-tier best value because that finer-grained partial progress is not
-            // persisted in the ledger.
-            kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-            KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                milestonesModule, facilitiesModule, contractsModule,
-                authoritativeRepeatableRecordState: utCutoff.HasValue);
+            // #466: a live or pending tree means KSP's mutable state may already include
+            // uncommitted in-flight effects that the committed-only ledger cannot see yet.
+            // Walking the committed ledger is still useful, but writing that partial state
+            // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
+            string patchDeferralReason = GetKspPatchDeferralReason(utCutoff);
+            if (!string.IsNullOrEmpty(patchDeferralReason))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");
+            }
+            else
+            {
+                // KSP state mutations (PostWalk already called by engine). Repeatable
+                // Records* nodes only rebuild strictly from ledger-backed thresholds on
+                // rewind-style cutoff walks; normal same-branch recalculations preserve the
+                // live in-tier best value because that finer-grained partial progress is not
+                // persisted in the ledger.
+                kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+                KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
+                    milestonesModule, facilitiesModule, contractsModule,
+                    authoritativeRepeatableRecordState: utCutoff.HasValue);
+            }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
             // per-subject credits. This prunes stale entries left behind when a
@@ -1051,6 +1064,37 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        private static string GetKspPatchDeferralReason(double? utCutoff)
+        {
+            if (utCutoff.HasValue)
+                return null;
+
+            bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
+            bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
+            bool hasPendingTree = RecordingStore.HasPendingTree;
+            if (!hasActiveUncommittedTree && !hasPendingTree)
+                return null;
+
+            string reason = null;
+            if (hasLiveRecorder)
+                reason = "live recorder active";
+            else if (hasActiveUncommittedTree)
+                reason = "active uncommitted flight tree";
+
+            if (hasPendingTree)
+            {
+                string treeName = RecordingStore.PendingTree?.TreeName;
+                string pendingReason = string.IsNullOrEmpty(treeName)
+                    ? $"pending tree state={RecordingStore.PendingTreeStateValue}"
+                    : $"pending tree '{treeName}' state={RecordingStore.PendingTreeStateValue}";
+                reason = string.IsNullOrEmpty(reason)
+                    ? pendingReason
+                    : reason + "; " + pendingReason;
+            }
+
+            return reason;
         }
 
         /// <summary>
@@ -4211,8 +4255,10 @@ namespace Parsek
         /// order; for each Transformed-bucket action whose UT survives the
         /// cutoff, compares the post-walk derived delta against the live KSP
         /// delta (<c>valueAfter - valueBefore</c>) summed across matching
-        /// <see cref="GameStateStore"/> events within
-        /// <see cref="PostWalkReconcileEpsilonSeconds"/> of <c>action.UT</c>.
+        /// <see cref="GameStateStore"/> events inside the observed-side match window:
+        /// normally <see cref="PostWalkReconcileEpsilonSeconds"/> around <c>action.UT</c>,
+        /// but for end-anchored <see cref="GameActionType.ScienceEarning"/> actions the
+        /// owning recording span is used so earlier in-flight science transmissions still pair.
         /// WARN on divergence per leg; VERBOSE rate-limited on match. Emits a
         /// single INFO summary after the iteration. Log-only.
         /// <para>
@@ -4664,6 +4710,12 @@ namespace Parsek
             if (!aggregate.IsPrimary)
                 return PostWalkCompareResult.Skipped;
 
+            GetPostWalkObservedWindow(
+                action, leg,
+                out double observedWindowStartUt,
+                out double observedWindowEndUt,
+                out string observedWindowLabel);
+
             double observed = 0.0;
             int observedCount = 0;
             if (events != null)
@@ -4673,7 +4725,7 @@ namespace Parsek
                     var e = events[i];
                     if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
                     if (e.eventType != leg.EventType) continue;
-                    if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                    if (e.ut < observedWindowStartUt || e.ut > observedWindowEndUt) continue;
                     if (!PostWalkEventMatchesAction(e, action)) continue;
                     string eventKey = e.key ?? "";
                     if (!string.Equals(eventKey, leg.ReasonKey, StringComparison.Ordinal))
@@ -4691,16 +4743,13 @@ namespace Parsek
 
             string expectedLabel = aggregate.Expected.ToString("F1", CultureInfo.InvariantCulture);
             string observedLabel = observed.ToString("F1", CultureInfo.InvariantCulture);
-            string epsilonLabel = PostWalkReconcileEpsilonSeconds.ToString("F1", CultureInfo.InvariantCulture);
-            string utLabel = action.UT.ToString("F1", CultureInfo.InvariantCulture);
 
             if (observedCount == 0)
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
                     $"{aggregate.ContributorLabel} expected={expectedLabel} but no matching {leg.EventType} event " +
-                    $"keyed '{leg.ReasonKey}' within {epsilonLabel}s of " +
-                    $"ut={utLabel} -- missing earning channel or stale event?");
+                    $"keyed '{leg.ReasonKey}' {observedWindowLabel} -- missing earning channel or stale event?");
                 return PostWalkCompareResult.Mismatch;
             }
 
@@ -4709,7 +4758,7 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
                     $"{aggregate.ContributorLabel} expected={expectedLabel}, observed={observedLabel} across " +
-                    $"{observedCount} event(s) keyed '{leg.ReasonKey}' at ut={utLabel} " +
+                    $"{observedCount} event(s) keyed '{leg.ReasonKey}' {observedWindowLabel} " +
                     $"-- post-walk delta mismatch");
                 return PostWalkCompareResult.Mismatch;
             }
@@ -4717,8 +4766,102 @@ namespace Parsek
             ParsekLog.VerboseRateLimited(Tag,
                 $"post-walk-match:{action.Type}:{legTag}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
                 $"Post-walk match: {action.Type} {legTag} {aggregate.ContributorLabel} " +
-                $"expected={expectedLabel}, observed={observedLabel}, ut={utLabel}");
+                $"expected={expectedLabel}, observed={observedLabel}, {observedWindowLabel}");
             return PostWalkCompareResult.Match;
+        }
+
+        private static void GetPostWalkObservedWindow(
+            GameAction action,
+            PostWalkLeg leg,
+            out double startUt,
+            out double endUt,
+            out string label)
+        {
+            double epsilon = PostWalkReconcileEpsilonSeconds;
+            startUt = action.UT - epsilon;
+            endUt = action.UT + epsilon;
+            label = $"within {epsilon:F1}s of ut={action.UT:F1}";
+
+            if (action.Type != GameActionType.ScienceEarning ||
+                leg.EventType != GameStateEventType.ScienceChanged ||
+                !string.Equals(leg.ReasonKey, "ScienceTransmission", StringComparison.Ordinal) ||
+                string.IsNullOrEmpty(action.SubjectId) ||
+                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!TryGetScienceTransmissionReconcileWindow(action, out double recordingStartUt, out double recordingEndUt))
+                return;
+
+            double startPad = GetScienceTransmissionBoundaryPadding(recordingStartUt);
+            double endPad = GetScienceTransmissionBoundaryPadding(recordingEndUt);
+            startUt = recordingStartUt - epsilon - startPad;
+            endUt = recordingEndUt + epsilon + endPad;
+            label = $"within recording window [{recordingStartUt:F1},{recordingEndUt:F1}] for action ut={action.UT:F1}";
+        }
+
+        private static bool TryGetScienceTransmissionReconcileWindow(
+            GameAction action,
+            out double startUt,
+            out double endUt)
+        {
+            startUt = 0.0;
+            endUt = 0.0;
+
+            if (action == null)
+                return false;
+
+            if (!float.IsNaN(action.EndUT) && action.EndUT > action.StartUT)
+            {
+                startUt = action.StartUT;
+                endUt = action.EndUT;
+            }
+            else
+            {
+                var rec = FindRecordingById(action.RecordingId);
+                if (rec == null)
+                    return false;
+
+                startUt = rec.StartUT;
+                endUt = rec.EndUT;
+                if (endUt <= startUt)
+                    return false;
+
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"post-walk-science-window-fallback:{action.RecordingId}:{ActionIdForPostWalk(action)}",
+                    $"Post-walk science window: {ActionIdForPostWalk(action)} missing persisted span; " +
+                    $"falling back to recording {action.RecordingId ?? "(null)"} " +
+                    $"[{startUt:F1},{endUt:F1}]");
+            }
+
+            // Only widen the observed-side window for the current end-anchored shape.
+            // ScienceEarning spans are persisted through float fields, so at large UTs
+            // the stored EndUT may drift from the double-backed action.UT by more than
+            // the nominal 0.1 s epsilon. Allow the float quantization loss here while
+            // still keeping the gate tight enough to reject truly non-end-anchored rows.
+            return Math.Abs(action.UT - endUt) <= GetScienceTransmissionAnchorTolerance(action.UT);
+        }
+
+        private static double GetScienceTransmissionAnchorTolerance(double actionUt)
+        {
+            double floatRoundTripLoss = Math.Abs((double)(float)actionUt - actionUt);
+            return PostWalkReconcileEpsilonSeconds + floatRoundTripLoss;
+        }
+
+        private static double GetScienceTransmissionBoundaryPadding(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return 0.0;
+
+            float single = (float)value;
+            int bits = BitConverter.ToInt32(BitConverter.GetBytes(single), 0);
+            float nextUp = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
+            if (float.IsNaN(nextUp) || float.IsInfinity(nextUp))
+                return 0.0;
+
+            // One full ULP safely covers any double->float rounding loss at this magnitude.
+            return Math.Abs((double)nextUp - single);
         }
 
         /// <summary>

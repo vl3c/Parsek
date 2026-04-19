@@ -46,6 +46,7 @@ namespace Parsek.Tests
 
             RecordingStore.SuppressLogging = true;
             GameStateStore.SuppressLogging = true;
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -55,6 +56,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.ResetForTesting();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -270,6 +272,41 @@ namespace Parsek.Tests
             Assert.Equal(2, rec.LastAppliedResourceIndex);
             // But CommitPendingTree was a no-op so committed storage stays empty.
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "tree-nopending");
+        }
+
+        [Fact]
+        public void DiscardPendingTreeAndRecalculate_RemovesPendingTreeAndRunsPatch()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+
+            var rec = MakeRecording("rec-discard-helper", "tree-discard-helper", 100.0, 200.0);
+            var tree = MakeTree("tree-discard-helper", "rec-discard-helper", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            ParsekScenario.DiscardPendingTreeAndRecalculate("test helper");
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("deferred KSP state patch"));
+        }
+
+        [Fact]
+        public void DiscardPendingTreeAndRecalculate_WithoutPendingTree_IsSilentNoOp()
+        {
+            ParsekScenario.DiscardPendingTreeAndRecalculate("test helper no-op");
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("DiscardPendingTree recalc path"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
         }
 
         // ================================================================

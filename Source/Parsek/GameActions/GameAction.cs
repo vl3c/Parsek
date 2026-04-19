@@ -579,6 +579,11 @@ namespace Parsek
             n.AddValue("method", ((int)Method).ToString(IC));
             n.AddValue("transmitScalar", TransmitScalar.ToString("R", IC));
             n.AddValue("subjectMaxValue", SubjectMaxValue.ToString("R", IC));
+            if (!float.IsNaN(EndUT))
+            {
+                n.AddValue("startUT", StartUT.ToString("R", IC));
+                n.AddValue("endUT", EndUT.ToString("R", IC));
+            }
         }
 
         private static void DeserializeScienceEarning(ConfigNode n, GameAction a)
@@ -592,6 +597,9 @@ namespace Parsek
             TryParseEnum(n, "method", out a.Method);
             TryParseFloat(n, "transmitScalar", out a.TransmitScalar);
             TryParseFloat(n, "subjectMaxValue", out a.SubjectMaxValue);
+            TryParseFloat(n, "startUT", out a.StartUT);
+            if (!TryParseFloat(n, "endUT", out a.EndUT))
+                a.EndUT = float.NaN;
         }
 
         private void SerializeScienceSpending(ConfigNode n)
