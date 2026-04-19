@@ -3575,6 +3575,194 @@ namespace Parsek.InGameTests
                 "Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio completed without crash");
         }
 
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Ghost audio re-anchors to watch pivot and keeps centered stereo defaults")]
+        public void GhostAudioSources_AnchorToWatchPivot()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostAudioPivot");
+            runner.TrackForCleanup(ghostRoot);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+            cameraPivot.transform.localPosition = new Vector3(4f, 2f, -3f);
+
+            var partRoot = new GameObject("ghost_part_100");
+            partRoot.transform.SetParent(ghostRoot.transform, false);
+            partRoot.transform.localPosition = new Vector3(-8f, 1f, 6f);
+
+            var engineAudioRoot = new GameObject("ghost_audio_loop");
+            engineAudioRoot.transform.SetParent(partRoot.transform, false);
+            var engineSource = engineAudioRoot.AddComponent<AudioSource>();
+            engineSource.spatialBlend = 1f;
+            engineSource.panStereo = 0.35f;
+
+            var oneShotAudioRoot = new GameObject("ghost_audio_oneshot");
+            oneShotAudioRoot.transform.SetParent(ghostRoot.transform, false);
+            var oneShotSource = oneShotAudioRoot.AddComponent<AudioSource>();
+            oneShotSource.spatialBlend = 1f;
+            oneShotSource.panStereo = -0.4f;
+
+            var result = new GhostBuildResult
+            {
+                audioInfos = new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo
+                    {
+                        partPersistentId = 100u,
+                        moduleIndex = 0,
+                        audioSource = engineSource
+                    }
+                },
+                oneShotAudio = new OneShotAudioInfo
+                {
+                    audioSource = oneShotSource
+                }
+            };
+
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(result, cameraPivot.transform);
+
+            InGameAssert.IsTrue(ghostRoot.transform.parent == null,
+                "Ghost root should not be reparented by audio centering");
+            InGameAssert.IsTrue(partRoot.transform.parent == ghostRoot.transform,
+                "Part visuals should stay under the ghost root when audio is re-anchored");
+            InGameAssert.IsTrue(engineSource.transform.parent == cameraPivot.transform,
+                "Engine ghost audio should be parented to cameraPivot");
+            InGameAssert.IsTrue(oneShotSource.transform.parent == cameraPivot.transform,
+                "One-shot ghost audio should be parented to cameraPivot");
+            InGameAssert.IsTrue(engineSource.transform.localPosition == Vector3.zero,
+                "Engine ghost audio should sit at the watch pivot local origin");
+            InGameAssert.IsTrue(oneShotSource.transform.localPosition == Vector3.zero,
+                "One-shot ghost audio should sit at the watch pivot local origin");
+            InGameAssert.ApproxEqual(0f, engineSource.panStereo, 0.0001f,
+                "Engine ghost audio panStereo should stay centered");
+            InGameAssert.ApproxEqual(0f, oneShotSource.panStereo, 0.0001f,
+                "One-shot ghost audio panStereo should stay centered");
+            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, engineSource.spatialBlend, 0.0001f,
+                "Engine ghost audio spatialBlend should use the damped watch-safe blend");
+            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, oneShotSource.spatialBlend, 0.0001f,
+                "One-shot ghost audio spatialBlend should use the damped watch-safe blend");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Part visibility toggles keep re-anchored ghost audio in sync")]
+        public IEnumerator GhostAudioSources_FollowPartVisibilityAfterReanchor()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostAudioVisibility");
+            runner.TrackForCleanup(ghostRoot);
+
+            Transform visualsRoot = GhostVisualBuilder.EnsureGhostVisualsRoot(ghostRoot.transform);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+
+            var partRoot = new GameObject("ghost_part_100");
+            partRoot.transform.SetParent(visualsRoot, false);
+
+            var engineAudioRoot = new GameObject("ghost_audio_loop");
+            engineAudioRoot.transform.SetParent(partRoot.transform, false);
+            var engineSource = engineAudioRoot.AddComponent<AudioSource>();
+            engineSource.clip = AudioClip.Create("test_loop", 44100, 1, 44100, false);
+
+            var result = new GhostBuildResult
+            {
+                audioInfos = new List<AudioGhostInfo>
+                {
+                    new AudioGhostInfo
+                    {
+                        partPersistentId = 100u,
+                        moduleIndex = 0,
+                        audioSource = engineSource,
+                        clip = engineSource.clip,
+                        volumeCurve = GhostAudioPresets.BuildDefaultVolumeCurve(),
+                        pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
+                        currentPower = 1f
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                cameraPivot = cameraPivot.transform,
+                atmosphereFactor = 1f,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    [FlightRecorder.EncodeEngineKey(100u, 0)] = result.audioInfos[0]
+                }
+            };
+
+            GhostVisualBuilder.AttachGhostAudioToWatchPivot(result, cameraPivot.transform);
+            GhostPlaybackLogic.SetEngineAudio(state, new PartEvent
+            {
+                partPersistentId = 100u,
+                moduleIndex = 0
+            }, 1f);
+            yield return null;
+
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Engine audio should be playing before the part is hidden");
+
+            GhostPlaybackLogic.SetGhostPartActive(state, 100u, false);
+            yield return null;
+            InGameAssert.IsFalse(partRoot.activeSelf,
+                "Part visual should disable when part visibility turns off");
+            InGameAssert.IsFalse(engineSource.gameObject.activeSelf,
+                "Re-anchored engine audio host should disable with the part");
+            InGameAssert.IsFalse(engineSource.isPlaying,
+                "Re-anchored engine audio should stop when the part hides");
+
+            GhostPlaybackLogic.SetGhostPartActive(state, 100u, true);
+            yield return null;
+            InGameAssert.IsTrue(partRoot.activeSelf,
+                "Part visual should re-enable when part visibility turns on");
+            InGameAssert.IsTrue(engineSource.gameObject.activeSelf,
+                "Re-anchored engine audio host should re-enable with the part");
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Re-anchored engine audio should resume when the part becomes visible again");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#474: Fresh ghost cameraPivot recenters on the active-part midpoint before watch/audio uses it")]
+        public void CameraPivot_RecalculatesToActivePartMidpoint()
+        {
+            var ghostRoot = new GameObject("ParsekTest_GhostPivot");
+            runner.TrackForCleanup(ghostRoot);
+
+            Transform visualsRoot = GhostVisualBuilder.EnsureGhostVisualsRoot(ghostRoot.transform);
+
+            var left = new GameObject("ghost_part_100");
+            left.transform.SetParent(visualsRoot, false);
+            left.transform.localPosition = new Vector3(-6f, 1f, 0f);
+
+            var right = new GameObject("ghost_part_200");
+            right.transform.SetParent(visualsRoot, false);
+            right.transform.localPosition = new Vector3(2f, 5f, 4f);
+
+            var hidden = new GameObject("ghost_part_300");
+            hidden.transform.SetParent(visualsRoot, false);
+            hidden.transform.localPosition = new Vector3(50f, 50f, 50f);
+            hidden.SetActive(false);
+
+            var ignored = new GameObject("not_a_ghost_part");
+            ignored.transform.SetParent(visualsRoot, false);
+            ignored.transform.localPosition = new Vector3(99f, 99f, 99f);
+
+            var cameraPivot = new GameObject("cameraPivot");
+            cameraPivot.transform.SetParent(ghostRoot.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                cameraPivot = cameraPivot.transform
+            };
+
+            GhostPlaybackLogic.RecalculateCameraPivot(state);
+
+            Vector3 expectedMidpoint = new Vector3(-2f, 3f, 2f);
+            InGameAssert.IsTrue((state.cameraPivot.localPosition - expectedMidpoint).sqrMagnitude < 0.0001f,
+                $"cameraPivot should recenter to {expectedMidpoint}, got {state.cameraPivot.localPosition}");
+        }
+
         // ======================= FinalizeBackfill (#265 / #259) =======================
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
