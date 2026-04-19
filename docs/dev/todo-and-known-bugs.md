@@ -269,7 +269,7 @@ Secondary investigations worth running in the fix session:
 
 Separately, root-group ordering is decided by `GetGroupSortKey` + the column's sort predicate in `RecordingsTableUI.cs:1077-1079`. The Gloops group ends up wherever its sort key lands among the user's trees/chains, which is inconsistent frame-to-frame as the user sorts by different columns.
 
-**Fix:** DONE. Added `RecordingStore.IsPermanentGroup` / `IsPermanentRootGroup`, switched the Recordings-table disband gate to the permanent-group predicate, and moved root-item sorting behind a dedicated comparator that pins the Gloops group above every other root item regardless of sort column or ascending/descending state. Also hardened `GroupHierarchyStore.SetGroupParent` so `Gloops - Ghosts Only` cannot be nested under another group, and `BuildGroupTreeData` now self-heals any stale saved parent mapping back to root on first draw.
+**Fix:** DONE. Added `RecordingStore.IsPermanentGroup` / `IsPermanentRootGroup`, switched the Recordings-table disband gate to the permanent-group predicate, and moved root-item sorting behind a dedicated comparator that pins the Gloops group above every other root item regardless of sort column or ascending/descending state. Also hardened `GroupHierarchyStore.SetGroupParent` so `Gloops - Ghosts Only` cannot be nested under another group, and `BuildGroupTreeData` now self-heals any stale permanent-root hierarchy mapping back to root on first draw rather than only papering over one saved-parent case.
 
 **Edge case checked:** the legacy rename path still runs in `RecordingTree.LoadRecordingFrom` before UI grouping/sorting sees the loaded recording groups, so pre-rename saves normalize to the modern `Gloops - Ghosts Only` name before the permanent-group rules apply.
 

@@ -1298,8 +1298,7 @@ namespace Parsek.Tests
         [Fact]
         public void CompareRootItemsForSort_GloopsGroupAlwaysSortsFirst()
         {
-            var columns = (RecordingsTableUI.SortColumn[])Enum.GetValues(typeof(RecordingsTableUI.SortColumn));
-            foreach (var column in columns)
+            foreach (RecordingsTableUI.SortColumn column in Enum.GetValues(typeof(RecordingsTableUI.SortColumn)))
             {
                 foreach (bool ascending in new[] { true, false })
                 {
