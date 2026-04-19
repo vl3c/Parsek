@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.3
 
+### Features
+
+- Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
+
 ### Tests
 
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
