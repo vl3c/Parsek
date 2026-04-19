@@ -1118,6 +1118,187 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClearLoadedVisualReferences_ResetsPendingSplitBuildState()
+        {
+            // Bug #450 B2: unloading / rebuild paths must clear any partial snapshot-build
+            // state and deferred lifecycle payload. Otherwise a later rehydrate can inherit
+            // a stale pending root or emit the wrong OnGhostCreated / camera-retarget event.
+            var state = new GhostPlaybackState
+            {
+                pendingVisualBuild = new PendingGhostVisualBuild
+                {
+                    rootName = "Parsek_Timeline_7",
+                    nextPartIndex = 3,
+                    buildType = HeaviestSpawnBuildType.VesselSnapshot,
+                    hasLoggedSplitYield = true,
+                },
+                pendingSpawnLifecycle = PendingSpawnLifecycle.OverlapPrimaryEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags
+                {
+                    needsSpawn = true,
+                    chainEndUT = 123.45,
+                    recordingId = "rec-7",
+                },
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.Null(state.pendingVisualBuild);
+            Assert.Equal(PendingSpawnLifecycle.None, state.pendingSpawnLifecycle);
+            Assert.False(state.pendingSpawnFlags.needsSpawn);
+            Assert.Equal(0.0, state.pendingSpawnFlags.chainEndUT);
+            Assert.Null(state.pendingSpawnFlags.recordingId);
+        }
+
+        [Fact(Skip = "UpdateLoopingPlayback body references Unity GameObject.activeSelf / SetActive, which trip .NET 4.7.2 JIT verification (ECall must be in system module) even on the pending-cycle-boundary path. Pending-build cycle-advance invariant is instead covered by ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents (pure-logic) and by the in-game flow; do not re-enable without a Unity runtime harness.")]
+        public void UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents()
+        {
+            // Bug #450 B2: a split first-spawn can still be pending when the next loop
+            // cycle starts. That branch must advance the cycle index without firing
+            // restart / explosion-hold camera events for a ghost that never spawned.
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = new MockTrajectory
+            {
+                IsDebris = true, // no snapshot => EnsureGhostVisualsLoaded fails before any Unity build path
+                VesselName = "PendingLoop",
+                RecordingId = "rec-loop",
+            }.WithTimeRange(100, 200).WithLoop(150);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "PendingLoop",
+                loopCycleIndex = 0,
+                pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags { recordingId = "rec-loop" },
+            };
+            engine.ghostStates[4] = state;
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            engine.UpdateLoopingPlaybackForTesting(
+                index: 4,
+                traj,
+                flags: default,
+                ctx: new FrameContext
+                {
+                    currentUT = 260,
+                    warpRate = 1f,
+                    activeVesselPos = new Vector3d(0, 0, 0),
+                    protectedIndex = -1,
+                    protectedLoopCycleIndex = -1,
+                    autoLoopIntervalSeconds = 150,
+                },
+                suppressGhosts: false,
+                suppressVisualFx: false);
+
+            Assert.Empty(cameraEvents);
+            Assert.Empty(restartedEvents);
+            Assert.Equal(1L, state.loopCycleIndex);
+            Assert.Equal(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle);
+            Assert.Same(state, engine.ghostStates[4]);
+            Assert.Equal(0, engine.FrameSpawnCountForTesting);
+        }
+
+        [Fact]
+        public void ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents()
+        {
+            // Bug #450 B2 (pure-logic replacement for the Unity-gated
+            // UpdateLoopingPlayback_PendingCycleBoundary_* test above): when the
+            // reuse path is entered on a state whose ghost has never materialised
+            // (pending split-build), it must advance loopCycleIndex and emit
+            // zero restart / camera events for a ghost that never spawned.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory
+            {
+                IsDebris = true,
+                VesselName = "PendingLoop",
+                RecordingId = "rec-loop",
+            }.WithTimeRange(100, 200).WithLoop(150);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "PendingLoop",
+                ghost = null,
+                loopCycleIndex = 0,
+                pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags { recordingId = "rec-loop" },
+            };
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            engine.ReusePrimaryGhostAcrossCycle(
+                index: 4, traj, flags: default, state,
+                playbackUT: 160, newCycleIndex: 1);
+
+            Assert.Empty(cameraEvents);
+            Assert.Empty(restartedEvents);
+            Assert.Equal(1L, state.loopCycleIndex);
+            Assert.Equal(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle);
+        }
+
+        [Fact]
+        public void UpdateOverlapPlayback_PendingPrimaryDemotion_ClearsLifecycleBeforeOverlapList()
+        {
+            // Bug #450 B2: when an overlap primary is demoted before its split build
+            // completes, it must move into the overlap list as a quiet shell rather than
+            // later finalizing as a fresh OverlapPrimaryEnter.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory
+            {
+                IsDebris = true, // keep the replacement primary on the early-fail path in xUnit
+                VesselName = "PendingOverlap",
+                RecordingId = "rec-overlap",
+            }.WithTimeRange(100, 200).WithLoop(30);
+            var primaryState = new GhostPlaybackState
+            {
+                vesselName = "PendingOverlap",
+                loopCycleIndex = 1,
+                pendingSpawnLifecycle = PendingSpawnLifecycle.OverlapPrimaryEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags
+                {
+                    needsSpawn = true,
+                    chainEndUT = 321.0,
+                    recordingId = "rec-overlap",
+                },
+            };
+            engine.ghostStates[5] = primaryState;
+
+            var overlapCameraEvents = new List<CameraActionEvent>();
+            engine.OnOverlapCameraAction += evt => overlapCameraEvents.Add(evt);
+
+            engine.UpdateOverlapPlaybackForTesting(
+                index: 5,
+                traj,
+                flags: default,
+                ctx: new FrameContext
+                {
+                    currentUT = 160,
+                    warpRate = 1f,
+                    activeVesselPos = new Vector3d(0, 0, 0),
+                    protectedIndex = -1,
+                    protectedLoopCycleIndex = -1,
+                    autoLoopIntervalSeconds = 30,
+                },
+                primaryState,
+                suppressVisualFx: false);
+
+            Assert.Empty(overlapCameraEvents);
+            Assert.False(engine.ghostStates.ContainsKey(5));
+            Assert.True(engine.TryGetOverlapGhosts(5, out var overlaps));
+            Assert.Single(overlaps);
+            Assert.Same(primaryState, overlaps[0]);
+            Assert.Equal(PendingSpawnLifecycle.None, primaryState.pendingSpawnLifecycle);
+            Assert.False(primaryState.pendingSpawnFlags.needsSpawn);
+            Assert.Equal(0.0, primaryState.pendingSpawnFlags.chainEndUT);
+            Assert.Null(primaryState.pendingSpawnFlags.recordingId);
+        }
+
+        [Fact]
         public void ShouldPrewarmHiddenGhost_NearVisibleTierBoundary_ReturnsTrue()
         {
             var traj = new MockTrajectory().WithTimeRange(100, 200);
