@@ -465,19 +465,23 @@ The follow-up `logs/2026-04-19_2302_bridge-hang` bundle confirms that observer f
 - both `KSP.log` and `Player.log` now contain the real Recorder `Recording started: vessel=...` line for the launch and EVA auto-record runs, which confirms the live log file is no longer being muted by the in-game assertion hook
 - that same session also captured a separate runtime problem after the auto-record rerun: `FlightIntegrationTests.BridgeSurvivesSceneTransition` started, but no pass/fail/export line followed for that test, and the tail of `Player.log` shows repeated stock `PauseMenu` `NullReferenceException` failures during revert-option button handling before the session tears down
 
+The later `logs/2026-04-19_2332_fix-488-build` bundle closes that quickload/runtime blocker:
+
+- `parsek-test-results.txt` captured all three `QuickloadResume` checks in `FLIGHT`, and all three passed: `BridgeSurvivesSceneTransition`, `Quickload_MidRecording_ResumesSameActiveRecordingId`, and `ReentrancyGuard_ClearedAfterRestore`
+- both `KSP.log` and `Player.log` show the bridge canary and the mid-recording quickload-resume test reaching a real `PASSED` line after the scene transition
+- the previous stock `FlightCamera` / `PauseMenu` `NullReferenceException` storm from `logs/2026-04-19_2302_bridge-hang` does not recur in the validated rerun, so the helper-side `FlightDriver.StartAndFocusVessel(...)` fix is now backed by live KSP evidence instead of only code review
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Investigate the `BridgeSurvivesSceneTransition` hang**
-   The auto-record/logging path is now validated. The next live issue is the bridge quicksave/quickload scenario: the test starts, triggers the scene transition, then the session falls into stock `PauseMenu` revert-option `NullReferenceException` spam with no final test result export.
-3. **Promote one real merge/revert UI flow**
-   The dialog itself now has a runtime discard smoke test. The missing confidence is still the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene, but the immediate blocker is now the bridge/revert instability seen in the latest live run.
-4. **Then add one playback-control scenario**
-   The best candidate is a `Keep Vessel` timeline run that asserts warp-stop behavior near `StartUT`, playback start, and no duplicate spawn. Quickload already has targeted runtime coverage, so it is no longer the first thing I would add.
-5. **Only after that, add part-event timing scenarios**
+2. **Promote one real merge/revert UI flow**
+   The dialog itself now has a runtime discard smoke test and the `#488` quickload blocker is closed. The next live confidence gap is the full deferred merge path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
+3. **Then add one playback-control scenario**
+   The best next candidate is a `Keep Vessel` timeline run that asserts fast-forward handoff into playback and that the end-of-recording spawn happens exactly once. Natural warp-stop behavior near `StartUT` is still worth validating later, but the first automated canary should focus on the less ambiguous playback/spawn path.
+4. **Only after that, add part-event timing scenarios**
    These are still valuable, but the repo already has stronger structural coverage here than it does for auto-record and merge/revert.
 
 ### Scenario promotion shortlist
@@ -491,7 +495,7 @@ The first scripted runtime scenarios I would add are:
 3. **Part-event timing showcase**
    Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
 
-That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied.
+That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
 
 ## Bottom Line
 
