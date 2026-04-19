@@ -77,6 +77,7 @@ namespace Parsek
 
         // Cached recording lookup by ID — refreshed on cache rebuild
         private Dictionary<string, Recording> recordingById;
+        private Dictionary<string, bool> rewindSaveExistsByRecordingId;
 
         public bool IsOpen
         {
@@ -178,6 +179,7 @@ namespace Parsek
             filterDirty = true;
             cachedStatsText = null;
             recordingById = null;
+            rewindSaveExistsByRecordingId = null;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
@@ -269,6 +271,7 @@ namespace Parsek
                 // Rebuild recording lookup cache
                 var recordings = RecordingStore.CommittedRecordings;
                 recordingById = new Dictionary<string, Recording>(recordings.Count);
+                rewindSaveExistsByRecordingId = new Dictionary<string, bool>(recordings.Count);
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     var r = recordings[i];
@@ -368,7 +371,16 @@ namespace Parsek
             // Recordings 8px left of This Year due to the missing margin gap.
             GUILayout.Label("", GUILayout.Width(btnW));
 
+            bool rewindOrFastForwardMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
+            if (rewindOrFastForwardMode && !showRecordingEntries)
+            {
+                showRecordingEntries = true;
+                filterDirty = true;
+            }
+
             // Source toggles (columns 4-6).
+            bool previousGuiEnabled = GUI.enabled;
+            GUI.enabled = !rewindOrFastForwardMode;
             bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
@@ -376,11 +388,6 @@ namespace Parsek
                 filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
-
-            bool rewindOrFastForwardMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
-
-            bool previousGuiEnabled = GUI.enabled;
-            GUI.enabled = !rewindOrFastForwardMode;
             bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
@@ -406,6 +413,7 @@ namespace Parsek
                 !rewindOrFastForwardActive)
             {
                 tierFilterMode = TimelineTierFilterMode.RewindOrFastForward;
+                showRecordingEntries = true;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
             }
@@ -853,15 +861,37 @@ namespace Parsek
         {
             bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
             string resolvedSave = RecordingStore.GetRewindSaveFileName(rec);
-            bool saveExists = false;
-            if (!string.IsNullOrEmpty(resolvedSave))
-            {
-                string savePath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
-                saveExists = !string.IsNullOrEmpty(savePath) && System.IO.File.Exists(savePath);
-            }
+            bool saveExists = DoesRewindSaveExist(rec, resolvedSave);
             return RecordingStore.CanRewindWithResolvedSaveState(
                 resolvedSave, saveExists, out reason, isRecording: isRecording);
+        }
+
+        private bool DoesRewindSaveExist(Recording rec, string resolvedSave)
+        {
+            if (string.IsNullOrEmpty(resolvedSave))
+                return false;
+
+            string recordingId = rec?.RecordingId;
+            if (string.IsNullOrEmpty(recordingId))
+                return DoesRewindSaveExistUncached(resolvedSave);
+
+            if (rewindSaveExistsByRecordingId == null)
+                rewindSaveExistsByRecordingId = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+            bool saveExists;
+            if (rewindSaveExistsByRecordingId.TryGetValue(recordingId, out saveExists))
+                return saveExists;
+
+            saveExists = DoesRewindSaveExistUncached(resolvedSave);
+            rewindSaveExistsByRecordingId[recordingId] = saveExists;
+            return saveExists;
+        }
+
+        private static bool DoesRewindSaveExistUncached(string resolvedSave)
+        {
+            string savePath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
+            return !string.IsNullOrEmpty(savePath) && System.IO.File.Exists(savePath);
         }
 
         private GUIStyle GetStyleForColor(Color color)

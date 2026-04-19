@@ -4,12 +4,6 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.8.3
-
-### Features
-
-- Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
-
 ## 0.8.2
 
 ### Features
@@ -23,6 +17,7 @@ All notable changes to Parsek are documented here.
 - `#416` New **Career State** window (Contracts / Strategies / Facilities / Milestones tabs) with "current" vs. "at timeline end" columns. Kerbals mission-outcome rows are now clickable and scroll the Timeline to the matching recording.
 - `#388` New **Show ghosts in Tracking Station** toggle (Settings → Ghosts); sticky across rewind, quickload, and KSP session restart.
 - `#389` Timeline and Recordings windows now share a time-range filter with quick presets (Last Day, 7d, 30d, This Year, All) and a custom-range dual-slider. A filter indicator with a Clear button stays visible in the Recordings table.
+- Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
 - Added an **L** (loop toggle) button next to R on the timeline for loopable recordings; active loops show green text.
 
 ### Enhancements
