@@ -3961,13 +3961,14 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Canary test: verifies that the TestRunnerShortcut singleton survives a
-        /// scene transition via quickload. This drives a real stock quickload and is
-        /// intentionally single-run only: when stock restore itself fails, it can
-        /// leave the live FLIGHT session broken.
+        /// scene transition via quickload. This drives the canonical stock
+        /// programmatic F9 resume path and remains intentionally single-run only:
+        /// when stock flight restore itself fails, it can still leave the live
+        /// FLIGHT session hung or broken.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 scene transition can leave the live FLIGHT session broken when stock quickload fails.",
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this drives the real stock F5/F9 flight-restore path, and a stock-side quickload failure can still hang or poison the current FLIGHT session.",
             Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
         public IEnumerator BridgeSurvivesSceneTransition()
         {
@@ -3995,11 +3996,13 @@ namespace Parsek.InGameTests
         /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
-        /// This also drives a real stock quickload, so it is intentionally single-run only.
+        /// This also drives the canonical stock programmatic F9 resume path, so it
+        /// remains intentionally single-run only while stock quickload itself can
+        /// still destabilize the current FLIGHT session on failure.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 resume check can poison the current FLIGHT session if stock quickload restores into a broken state.",
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this drives the real stock F5/F9 resume path, and a stock-side quickload failure can still leave the current FLIGHT session unusable.",
             Description = "F5/F9 mid-recording resumes same activeRecordingId")]
         public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
         {
