@@ -393,7 +393,8 @@ Quick source verification against the current tree shows that some of the older 
 - `KerbalsWindowUITests` still leaves two `xUnit2009` warnings in the suite; they are low severity but should be cleaned up the next time that file is touched.
 - Mechanical coverage reporting is still not validated end-to-end. A local `coverlet.msbuild` + `scripts/test-coverage.ps1` scaffold now exists in this worktree, but the current machine cannot complete restore/test execution reliably enough to trust the numbers yet.
 - The auto-record player flow is now materially better covered in this worktree: this audit adds helper-level xUnit coverage for launch gating and deferred EVA gating plus real single-run in-game launch and EVA auto-record scenarios. The remaining weakness is not the basic auto-start path anymore, but broader multi-step player flows like merge/revert and playback control.
-- The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers). This worktree now also has a runtime popup/discard smoke test for a synthetic pending tree, but it still does not have the full revert transition and merge-branch flow scripted end-to-end.
+- The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers). This worktree now also has manual-only runtime coverage for both the synthetic pending-tree discard popup and the deferred `Merge to Timeline` commit path; the remaining gap is the full stock revert-to-launch transition with fresh live log evidence, not the dialog button branch itself.
+- Playback control is no longer "missing automation" in the abstract: this worktree now includes a manual-only `Keep Vessel` canary that commits a synthetic timeline recording, fast-forwards into its window, asserts ghost activation, and asserts that the end-of-recording vessel spawn happens exactly once. The remaining gap is broader stock-behavior validation such as natural warp-stop and cross-scene duplicate-prevention evidence.
 - Part-event playback is stronger than the older audits suggested: xUnit has broad structural/event coverage and in-game tests already verify live FX/buildability for engines, parachutes, lights, RCS, fairings, and deployables. The remaining gap is narrower: player-visible timing/assertion scenarios, not basic subsystem absence.
 
 The remaining concerns are mostly strategic now, not cleanup nits: validated coverage reporting, a few real player-flow scenario tests, and tighter release evidence around logs/runtime exports.
@@ -471,27 +472,32 @@ The later `logs/2026-04-19_2332_fix-488-build` bundle closes that quickload/runt
 - both `KSP.log` and `Player.log` show the bridge canary and the mid-recording quickload-resume test reaching a real `PASSED` line after the scene transition
 - the previous stock `FlightCamera` / `PauseMenu` `NullReferenceException` storm from `logs/2026-04-19_2302_bridge-hang` does not recur in the validated rerun, so the helper-side `FlightDriver.StartAndFocusVessel(...)` fix is now backed by live KSP evidence instead of only code review
 
+On top of that, this worktree now adds two more manual-only in-game runtime canaries that are compile-validated locally but not yet live-run in KSP:
+
+- a deferred merge-dialog test that invokes `ParsekScenario.ShowDeferredMergeDialog()`, presses `Merge to Timeline`, and asserts the pending tree is committed into `RecordingStore.CommittedTrees` / `CommittedRecordings`
+- a synthetic `Keep Vessel` playback-control test that commits a one-recording tree, fast-forwards into its playback window, waits for a live ghost, and asserts the end-of-recording spawn materializes exactly once before cleanup
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Promote one real merge/revert UI flow**
-   The dialog itself now has a runtime discard smoke test and the `#488` quickload blocker is closed. The next live confidence gap is the full deferred merge path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
-3. **Then add one playback-control scenario**
-   The best next candidate is a `Keep Vessel` timeline run that asserts fast-forward handoff into playback and that the end-of-recording spawn happens exactly once. Natural warp-stop behavior near `StartUT` is still worth validating later, but the first automated canary should focus on the less ambiguous playback/spawn path.
-4. **Only after that, add part-event timing scenarios**
+2. **Live-run the new manual-only merge/playback canaries**
+   The deferred merge-commit path and the synthetic `Keep Vessel` fast-forward/spawn-once path now exist in this worktree, but they still need real KSP evidence (`parsek-test-results.txt`, `KSP.log`, `Player.log`) before they count as closed gaps rather than compile-only additions.
+3. **Then extend from synthetic coverage to a full stock revert flow**
+   Once the deferred merge button path is validated, the next live confidence gap is the fully stock `record -> revert -> pending tree survives scene transition -> merge` player flow, not the popup button wiring by itself.
+4. **After that, add part-event timing scenarios**
    These are still valuable, but the repo already has stronger structural coverage here than it does for auto-record and merge/revert.
 
 ### Scenario promotion shortlist
 
 The first scripted runtime scenarios I would add are:
 
-1. **Pending-tree merge dialog flow**
-   Create a real pending tree with `autoMerge = false`, move through the runtime transition that surfaces the dialog, then assert the `Merge to Timeline` branch does the right thing to pending/committed state. The discard branch now has a lighter runtime popup smoke test in this worktree.
-2. **`Keep Vessel` playback control flow**
-   Use a known recording that should persist, warp toward `StartUT`, assert warp-stop behavior and playback handoff, then assert the end-of-recording spawn happens once.
+1. **Live-validate deferred merge commit**
+   Run the new single-run deferred merge-dialog test in KSP and confirm the synthetic pending tree reaches a clean `PASSED` export with the expected pending/committed logs.
+2. **Live-validate `Keep Vessel` playback control**
+   Run the new single-run playback canary and confirm the fast-forward handoff, ghost activation, and single end-of-recording spawn all show up cleanly in the logs without duplicate spawns.
 3. **Part-event timing showcase**
    Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
 
