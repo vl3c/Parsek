@@ -138,7 +138,7 @@ Same shape across `RecordsSpeed`, `RecordsAltitude`, `RecordsDistance` (hundreds
 
 The duplicate emissions correlate with `actionsTotal` growing across recalcs even when no new stock events happened (`RecalculateAndPatch: actionsTotal=32 → 32 → 32 → 39` over a ~20ms span near `:01:07:54`). Each bump is a recording's commit path replaying its enrichment into the ledger without dedup.
 
-This supersedes / refines #462 (prior observation was "double-count for a single milestone"; #477 is the general case across every milestone). #469's "zero-match" shape is a *different* manifestation of the same coupling — there the `events` list simply doesn't reach `CompareLeg`, so observed=0 while expected is the N× sum. Fix #477 first; depending on the root cause, #469 may resolve simultaneously.
+This supersedes / refines #462 (prior observation was "double-count for a single milestone"; #477 is the general case across every milestone). #469's old "zero-match" shape turned out to be a separate stale-history live-store-coverage bug and is now closed independently; it did not resolve the duplicate-action emission tracked here.
 
 **Fix:** trace the emission path. Two hypotheses, in priority order:
 
@@ -309,33 +309,44 @@ No schema change: existing recordings that already have `LoopPlayback=true` are 
 
 ---
 
-## 469. Post-walk reconciliation fails to find same-UT FundsChanged events that are demonstrably in the store — "no matching event keyed 'Progression'" warns fire on events that exist
+## ~~469. Post-walk reconciliation fails to find same-UT FundsChanged events that are demonstrably in the store — "no matching event keyed 'Progression'" warns fire on events that exist~~
 
-**Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. 176 WARNs of this shape from one career session:
+**Source:** `logs/2026-04-19_0014_investigate/KSP.log` and `logs/2026-04-19_0123_test-report/Player.log`.
 
-```
-10399: [WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, funds): MilestoneAchievement id=FirstLaunch expected=800.0 but no matching FundsChanged event keyed 'Progression' within 0.1s of ut=57.2 -- missing earning channel or stale event?
-```
+**Root cause (confirmed):** `CompareLeg` itself was not losing a same-UT same-key live event. The false WARNs happened later, after `GameStateStore.PruneProcessedEvents()` had already removed the relevant `FundsChanged(Progression)` rows from the live store. `ReconcilePostWalk` walks the full ledger history on every recalc, but the store only retains the current live tail: resource events at or below the latest committed milestone `EndUT` are pruned, and after a rewind/load the current epoch may also have no live-event coverage for older-epoch ledger actions. That is why the logs could show an earlier `AddEvent: FundsChanged key='Progression' ... ut=57.2` line and then later emit `no matching event` WARNs for the same milestone: the event existed when recorded, but no longer existed in the live store by the time the later recalc pass ran.
 
-**Concern:** the event the reconciliation cannot find is visibly in the store — same session records it explicitly at line 9425: `[GameStateStore] AddEvent: FundsChanged key='Progression' epoch=0 ut=57.2 (total=7)` (and line 9426 `FundsChanged +800 (Progression) → 23395`). So the event was captured with exactly the UT and key the reconcile filters on, yet `CompareLeg` (`Source/Parsek/GameActions/LedgerOrchestrator.cs:4248-4293`) reports `observedCount == 0`. Same-UT ScienceChanged `'ScienceTransmission'` at ut=204.4 fires in a separate subsystem (10260 `Suppressed ScienceChanged event (None) during timeline replay`) — some science WARNs are caused by replay-suppression, but the funds ones are not: they fire against events already committed to the store from pre-replay user play.
+**Fix (2026-04-19):** gate post-walk reconciliation to the portion of ledger history the live store can still represent. `ReconcilePostWalk` now skips:
 
-`Post-walk reconcile: actions=15, matches=0, mismatches(funds/rep/sci)=9/2/6, cutoffUT=null` at 10416 — 0 of 15 actions matched on this pass. Within a single session, identical actions go from "6 matches" → "0 matches" across recalc invocations 7ms apart, which is what initially suggested the `events` list passed into `CompareLeg` differs between calls.
+1. actions at or below the current epoch's prune threshold (`MilestoneStore.GetLatestCommittedEndUT()`), because their paired resource events have already been consumed and removed; and
+2. pre-live-tail history after an epoch bump, where the current epoch has neither a live source anchor nor any live observed reward leg for the historical action being revisited.
 
-**Fix:** trace what `events` list `ReconcilePostWalkActions` (around `LedgerOrchestrator.cs:4230`) actually hands to `CompareLeg`. Hypotheses in priority order:
+If a live observed reward still exists but there is no live source anchor, the reconcile only continues when the same-UT window is unambiguous; otherwise it emits a one-shot VERBOSE coverage-skip and leaves the ambiguous stale-history action alone.
 
-1. **Pre-replay snapshot vs live store.** The post-walk hook may be comparing the post-replay in-memory action list against a pre-replay events snapshot (or vice versa). Verify the `events` parameter at the call site is `GameStateStore.Events` (or equivalent live view), not a captured `IReadOnlyList` taken before the walk began.
-2. **Epoch filter.** `CompareLeg` does not check `e.epoch`. If the store is walked with epoch > 0 while the `FundsChanged` events were stored at `epoch=0`, same-UT same-key events may be silently skipped by an outer filter. Confirm by dumping the events the reconcile sees (add a one-shot VERBOSE just before the inner loop).
-3. **`action.UT` source.** If `action.UT` drifts slightly from the event ut (e.g. the action is tagged with the recalc timestamp instead of the milestone emission ut), `Math.Abs(e.ut - action.UT) > 0.1` can fail. Unlikely here since WARN `ut` matches event `ut` to one decimal, but worth confirming on the full-precision values.
+Live-tail mismatches still WARN normally, so this is not a blanket suppression of `Progression` reconciliation.
 
-Once root cause is known, fix is local to `CompareLeg` or its call site. Test: xUnit harness that seeds `GameStateStore` with `FundsChanged key='Progression' ut=57.2 +800`, creates a `MilestoneAchievement action.UT=57.2`, invokes `ReconcilePostWalkActions`, asserts no WARN fires and the corresponding `Post-walk match: ...` VERBOSE does.
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs`; targeted regressions in `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (`CompareLeg`, `ReconcilePostWalkActions`, caller). Test: `Source/Parsek.Tests/` new file.
+**Verification:** build succeeded in the worktree. Targeted regression methods executed directly from the built test assembly:
 
-**Scope:** Small-to-medium. Investigation first, fix likely one-line once the event-source mismatch is identified.
+- `PostWalk_MilestoneAchievement_EffectiveTrue_AllLegsMatch_NoWarn`
+- `PostWalk_MilestoneAchievement_EffectiveFalseDuplicate_Skipped_NoWarn`
+- `PostWalk_MilestoneAchievement_CoalescedWindow_MatchesOnce_NoWarn`
+- `PostWalk_MilestoneAchievement_CoalescedWindow_MissingEvent_WarnsOncePerLeg`
+- `PostWalk_MilestoneAchievement_CoalescedTinyScienceLegs_AggregateWarnsOnce`
+- `PostWalk_MilestoneAchievement_PrunedByCommittedThreshold_Skipped_NoWarn`
+- `PostWalk_MilestoneAchievement_WithoutLiveSourceAnchorInNewEpoch_Skipped_NoWarn`
+- `PostWalk_MilestoneAchievement_WithLiveSourceAnchorInNewEpoch_MissingFundsEvent_Warns`
+- `PostWalk_MilestoneAchievement_WithLiveFundsButNoSourceAnchorInNewEpoch_DoesNotSkip`
+- `PostWalk_MilestoneAchievement_StaleNeighborInsideCoalesceWindow_DoesNotInflateLiveExpected`
+- `PostWalk_MilestoneAchievement_StaleObservedEventIgnored_InLiveWindow`
+- `PostWalk_MilestoneAchievement_ThresholdStraddlingStaleNeighbor_DoesNotSuppressLiveFallback`
+- `PostWalk_MilestoneAchievement_LiveNoSourceOverlap_SkipsAmbiguousFallback`
 
-**Dependencies:** none. Supersedes / subsumes #462 (the previous observation was double-count; this one is zero-count — same reconciliation code, different symptoms; root-cause fix here may close #462 simultaneously — re-test before closing either).
+All passed.
 
-**Status:** TODO. Priority: high — drowns the log in false WARNs every session, erodes trust in the reconciliation subsystem. Related-but-distinct from #466 (suspicious-drawdown patch) and #467 (rep threshold); fix them together if the same investigation surfaces the source-list bug.
+**Dependencies / follow-up:** independent of #462 / #477. Those entries are about duplicate milestone-action emission and over-counted expected deltas; this fix only closes the stale-history zero-match WARN path.
+
+**Status:** ~~TODO~~ CLOSED for v0.8.3.
 
 ---
 
@@ -485,7 +496,7 @@ Keep the gray rows emitted at the data layer — they're still useful for the ra
 
 ---
 
-## 463. Deferred-spawn flush skips FlagEvents — flags planted mid-recording never materialise when warp carries the active vessel past a non-watched recording's end
+## ~~463. Deferred-spawn flush skips FlagEvents — flags planted mid-recording never materialise when warp carries the active vessel past a non-watched recording's end~~
 
 **Source:** user playtest `logs/2026-04-19_0014_investigate/KSP.log`. Reproducer:
 
@@ -508,13 +519,15 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 **Also verify during fix:** earlier in the same session, `00:09:08.031 [Scenario] Stripping future vessel 'a' (pid=1009931614, sit=LANDED) — not in quicksave whitelist` fires from `ParsekScenario.StripFuturePrelaunchVessels`. This is the rewind/quickload strip path (`Source/Parsek/ParsekScenario.cs:1490`). Confirm that flags planted during a committed recording are NOT treated as future-prelaunch vessels on quicksave round-trip — the whitelist-based strip predates flag support, so a fresh look at whether the planted-flag PID should be added to the whitelist (or filtered by type) would close a related observation. If a quickload can strip the flag before the deferred-spawn replay even runs, the main fix above does not cover that path.
 
-**Files:** `Source/Parsek/ParsekPlaybackPolicy.cs` (spawn + flag-flush); likely `Source/Parsek/GhostPlaybackLogic.cs` (new shared helper); possibly `Source/Parsek/ParsekScenario.cs` (strip-whitelist check). Test: xUnit that drives `ExecuteDeferredSpawns` with a `Recording` carrying one `FlagEvent` at `ut=currentUT-1`, asserts `SpawnFlagVessel` is invoked exactly once and the log line fires.
+**Files:** `Source/Parsek/ParsekPlaybackPolicy.cs` (deferred spawn flush + policy log), `Source/Parsek/GhostPlaybackLogic.cs` (shared flag replay helper), `Source/Parsek.Tests/DeferredSpawnTests.cs` (helper + policy-path regressions). Verification in this environment used `dotnet test --no-restore` for compile/build plus a direct reflection harness over the compiled `DeferredSpawnTests` methods because the standard `dotnet test` runner aborts here on local socket initialization (`SocketException 10106` before test execution starts).
 
 **Scope:** Small-to-medium. Core fix is a 5-10 line loop in one method + one helper + one unit test. Strip-path verification is separate and may be a no-op if flags are already on the whitelist.
 
 **Dependencies:** none (flag event capture + `SpawnFlagVessel` both already work).
 
-**Status:** TODO. Priority: medium-high — functional correctness bug, reproducible every session, no workaround except manually watching every recording end-to-end.
+**Resolution:** fixed in branch `fix-463-flagevents-deferred-spawn` on 2026-04-19. Deferred warp-end spawn flushes now call a shared `GhostPlaybackLogic.SpawnFlagVesselsUpToUT(...)` helper immediately after the real vessel/chain-tip spawn, reusing the existing dedup check and emitting a `[Verbose][Policy] Deferred flag flush ... spawned K/N flag(s)` line. The quickload-strip observation was reviewed separately: `StripFuturePrelaunchVessels` already strips any vessel PID that was not present in the rewind quicksave, so this patch intentionally leaves `ParsekScenario` unchanged; the main missing behaviour was the post-spawn replay of already-due flag events.
+
+**Status:** CLOSED 2026-04-19. Priority was medium-high — fixed for v0.8.3.
 
 ---
 

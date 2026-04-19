@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 - `#476` Added unit and integration coverage for tracker-unavailable post-walk/commit-time earnings reconciliation, including full sandbox-style skips and partial per-resource gating.
 - `#477` Added unit coverage for coalesced same-UT milestone windows on both the matching path and the missing-event warning path.
 - `#462` Added a regression for mixed null-tagged/tagged post-walk milestone windows so legacy siblings cannot reclaim ownership of a tagged `Progression` burst purely because they appear earlier in the ledger.
+- `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, invariant-culture WARN formatting, and the still-live missing-event warning path.
 
 ### Enhancements
 
@@ -32,6 +33,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#463` Deferred warp-end spawns now replay already-due `FlagEvents` for the spawned recording, so flags planted mid-recording still materialise even if you time-warp past that recording while watching something else.
 - `#466` `RecalculateAndPatch` now defers KSP state patching while a live, active, or pending flight tree is still uncommitted, so mid-flight/load-time recalculations no longer snap funds back down to the committed-ledger target. Discard paths now explicitly recalculate once the pending tree is gone.
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
 - `#471` Gloops recordings now commit with looping off by default, so fresh ghost-only captures stay idle until you turn looping on and then follow the normal auto loop timing.
@@ -42,6 +44,7 @@ All notable changes to Parsek are documented here.
 - `#477` Post-walk milestone reconciliation now compares coalesced `Progression` bursts once per window instead of attributing the summed funds/rep delta to each individual `MilestoneAchievement`. Same-UT milestone bursts now log grouped ids/counts, eliminating the misleading 2× / 3× `expected=` warnings while preserving correct aggregate matching.
 - `#462` Post-walk milestone reconciliation now prefers tagged recording-scoped actions over null-tagged legacy siblings when picking the owner of a mixed-scope `Progression` window, closing the remaining order-dependent false-positive WARN where a legacy row could re-fold another recording's delta back into `expected=`.
 - `#468` Post-walk science reconciliation now matches `ScienceTransmission` across the owning recording span for end-anchored committed `ScienceEarning` rows.
+- `#469` Post-walk earnings reconciliation now skips ledger history the live `GameStateStore` can no longer represent after milestone pruning or epoch changes, eliminating false `"no matching FundsChanged keyed 'Progression'"` WARNs against already-processed milestone rewards while preserving live-tail mismatch detection.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
 
 ---
