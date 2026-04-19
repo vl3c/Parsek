@@ -47,6 +47,9 @@ namespace Parsek.InGameTests
         private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
             typeof(DialogGUIButton).GetMethod("OptionSelected",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekScenarioShowDeferredMergeDialogMethod =
+            typeof(ParsekScenario).GetMethod("ShowDeferredMergeDialog",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         public RuntimeTests(InGameTestRunner runner)
         {
@@ -918,6 +921,106 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test fabricates a pending tree, drives the deferred FLIGHT merge popup, and commits synthetic timeline state into the current session before cleaning it up.",
+            Description = "Deferred merge popup commits a pending tree through the real Merge to Timeline path")]
+        public IEnumerator TreeMergeDialog_DeferredMergeButton_CommitsPendingTree()
+        {
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null
+                || ParsekScenarioShowDeferredMergeDialogMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            ParsekScenario scenario = Object.FindObjectOfType<ParsekScenario>();
+            if (scenario == null)
+            {
+                InGameAssert.Skip("ParsekScenario instance is unavailable in FLIGHT");
+                yield break;
+            }
+
+            bool originalMergeDialogPending = ParsekScenario.MergeDialogPending;
+            RecordingTree tree = BuildSyntheticPendingTree("ingame-deferred-merge-commit");
+
+            try
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                ParsekScenario.MergeDialogPending = true;
+
+                IEnumerator deferredDialog = ParsekScenarioShowDeferredMergeDialogMethod.Invoke(
+                    scenario, null) as IEnumerator;
+                InGameAssert.IsNotNull(deferredDialog,
+                    "ShowDeferredMergeDialog should return an IEnumerator");
+                scenario.StartCoroutine(deferredDialog);
+
+                yield return WaitForPopupDialog("ParsekMerge", 8f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup,
+                    "ParsekMerge popup should exist after deferred merge dialog starts");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Deferred merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(mergeButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
+                yield return null;
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Merge to Timeline should consume the pending tree");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Merge to Timeline should clear the deferred merge-dialog flag");
+
+                RecordingTree committedTree = RecordingStore.CommittedTrees.FirstOrDefault(
+                    candidate => candidate != null && candidate.Id == tree.Id);
+                InGameAssert.IsNotNull(committedTree,
+                    "Deferred Merge to Timeline should commit the synthetic tree");
+
+                bool recordingCommitted = RecordingStore.CommittedRecordings.Any(
+                    rec => rec != null && rec.TreeId == tree.Id && rec.RecordingId == tree.ActiveRecordingId);
+                InGameAssert.IsTrue(recordingCommitted,
+                    "CommittedRecordings should contain the merged tree's active recording");
+
+                ParsekLog.Info("TestRunner",
+                    $"Deferred merge runtime: committed tree='{tree.TreeName}' id={tree.Id}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                    RecordingStore.DiscardPendingTree();
+                RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
+                ParsekScenario.MergeDialogPending = originalMergeDialogPending;
+            }
+        }
+
         private static RecordingTree BuildSyntheticPendingTree(string suffix)
         {
             string treeId = "runtime-tree-" + suffix;
@@ -933,6 +1036,7 @@ namespace Parsek.InGameTests
                 TreeId = treeId,
                 VesselPersistentId = 900000u,
                 TerminalStateValue = TerminalState.Landed,
+                MaxDistanceFromLaunch = 100.0,
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = startUt, bodyName = bodyName, altitude = 10.0 },
@@ -1027,6 +1131,24 @@ namespace Parsek.InGameTests
                 return null;
 
             return DialogGuiButtonTextField.GetValue(button) as string;
+        }
+
+        private static void RemoveCommittedTreeByIdForRuntimeTest(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                RecordingTree tree = committed[i];
+                if (tree == null || tree.Id != treeId)
+                    continue;
+
+                foreach (Recording rec in tree.Recordings.Values)
+                    RecordingStore.RemoveCommittedInternal(rec);
+                committed.RemoveAt(i);
+            }
         }
 
         #endregion
