@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#482` Added xUnit coverage for recording-path validation log routing, pinning `WARN` in production callers and `VERBOSE` for explicit test contexts.
 - `#461` Added in-game loop-cycle reuse visibility regressions that drive the full `UpdatePlayback -> UpdateLoopingPlayback` boundary path, pinning both the same-frame visible reactivation case and the hidden-by-zone deferred/inactive case.
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
 - `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
@@ -35,6 +36,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#482` Recording-path validation now keeps expected negative security-test rejections at `VERBOSE` when tests opt into the explicit test context, while save/load/delete production callers still emit `WARN` on invalid recording ids.
 - `#463` Deferred warp-end spawns now replay already-due `FlagEvents` for the spawned recording, so flags planted mid-recording still materialise even if you time-warp past that recording while watching something else.
 - `#466` `RecalculateAndPatch` now defers KSP state patching while a live, active, or pending flight tree is still uncommitted, so mid-flight/load-time recalculations no longer snap funds back down to the committed-ledger target. Discard paths now explicitly recalculate once the pending tree is gone.
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.

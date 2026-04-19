@@ -1274,12 +1274,19 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(RecordingPaths.ValidateRecordingId("abc-123"),
                 "Simple alphanumeric ID should be valid");
 
-            // Invalid IDs
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(null),
+            // Invalid IDs are intentionally exercised in the test-only logging context
+            // so expected security rejections stay visible without polluting WARN triage.
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    null,
+                    RecordingIdValidationLogContext.Test),
                 "null ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(""),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "",
+                    RecordingIdValidationLogContext.Test),
                 "empty ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId("../etc/passwd"),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "../etc/passwd",
+                    RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
         }
     }
