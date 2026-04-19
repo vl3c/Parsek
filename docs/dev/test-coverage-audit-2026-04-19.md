@@ -458,16 +458,23 @@ The later `logs/2026-04-19_2228` bundle closes the auto-record validation gap:
 - the root cause was not the recorder contract itself but the in-game assertion hook: those runtime tests were installing `ParsekLog.TestSinkForTesting`, which short-circuits `Debug.Log` and therefore swallowed the live recorder start line out of `KSP.log` / `Player.log` while still letting the tests assert on the captured line in-process
 - this worktree now fixes that by adding a tee-style `ParsekLog.TestObserverForTesting` hook and moving the in-game log-capture sites to it, so live KSP logging should remain intact while runtime tests still capture lines for assertions; compile validation passed, but a fresh KSP run is still needed to confirm `REC-001` is gone in practice
 
+The follow-up `logs/2026-04-19_2302_bridge-hang` bundle confirms that observer fix:
+
+- `log-validation.txt` passed, so `REC-001` is no longer failing on the same single-run `AutoRecord` scenarios
+- `parsek-test-results.txt` again captured exactly the two `AutoRecord` tests in `FLIGHT`, and both passed
+- both `KSP.log` and `Player.log` now contain the real Recorder `Recording started: vessel=...` line for the launch and EVA auto-record runs, which confirms the live log file is no longer being muted by the in-game assertion hook
+- that same session also captured a separate runtime problem after the auto-record rerun: `FlightIntegrationTests.BridgeSurvivesSceneTransition` started, but no pass/fail/export line followed for that test, and the tail of `Player.log` shows repeated stock `PauseMenu` `NullReferenceException` failures during revert-option button handling before the session tears down
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Re-run the single-run auto-record scenarios once to validate the observer fix**
-   The logger/test-hook fix is in place locally. The next useful evidence is one fresh `KSP.log` / `Player.log` / `log-validation.txt` bundle that proves `REC-001` now passes when the same `AutoRecord` tests are launched individually.
+2. **Investigate the `BridgeSurvivesSceneTransition` hang**
+   The auto-record/logging path is now validated. The next live issue is the bridge quicksave/quickload scenario: the test starts, triggers the scene transition, then the session falls into stock `PauseMenu` revert-option `NullReferenceException` spam with no final test result export.
 3. **Promote one real merge/revert UI flow**
-   The dialog itself now has a runtime discard smoke test. The missing confidence is the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
+   The dialog itself now has a runtime discard smoke test. The missing confidence is still the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene, but the immediate blocker is now the bridge/revert instability seen in the latest live run.
 4. **Then add one playback-control scenario**
    The best candidate is a `Keep Vessel` timeline run that asserts warp-stop behavior near `StartUT`, playback start, and no duplicate spawn. Quickload already has targeted runtime coverage, so it is no longer the first thing I would add.
 5. **Only after that, add part-event timing scenarios**
