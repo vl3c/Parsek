@@ -375,5 +375,25 @@ namespace Parsek.Tests
             // The code does "if (!list.Contains(ri)) list.Add(ri)" — so no dups
             Assert.Single(grpToRecs["G"]);
         }
+
+        [Fact]
+        public void PermanentRootGroup_IgnoresStoredParentAndStaysRoot()
+        {
+            GroupHierarchyStore.groupParents[RecordingStore.GloopsGroupName] = "Folder";
+
+            var committed = new List<Recording>
+            {
+                MakeRec("Ghost", groups: new List<string> { RecordingStore.GloopsGroupName })
+            };
+
+            ParsekUI.BuildGroupTreeData(committed, IdentityIndices(1), new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.Contains(RecordingStore.GloopsGroupName, rootGrps);
+            Assert.False(GroupHierarchyStore.HasGroupParent(RecordingStore.GloopsGroupName));
+            Assert.False(grpChildren.ContainsKey("Folder")
+                && grpChildren["Folder"].Contains(RecordingStore.GloopsGroupName));
+        }
     }
 }
