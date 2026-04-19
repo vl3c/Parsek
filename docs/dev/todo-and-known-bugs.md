@@ -82,7 +82,9 @@ Test should keep passing once the path writes a consistent `sit`; no other asser
 
 ---
 
-## 478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only
+## ~~478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only~~
+
+**Closed:** 2026-04-19 in PR #406.
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:15, 21, 24, 434-438`.
 
@@ -105,7 +107,7 @@ The `InGameTestAttribute` only supports a single `GameScenes` value; it can't ex
 
 Option 2 is the cheapest and matches what several other tests already do internally (see `StrategyLifecycle` tests at `:3915-3932` for the skip pattern). Option 1 is worth doing only if a batch of other tests would benefit.
 
-**Fix:** option 2 — add the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Optionally also audit other `Category = "MapView"` / `Category = "TrackingStation"` tests for the same scoping issue; grep `InGameTest\(Category = "\(MapView\|TrackingStation\)"` and verify each either sets `Scene = GameScenes.FLIGHT` / `TRACKSTATION` or skips internally.
+**Fix:** implemented option 2 — added the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Audited other `Category = "MapView"` / `Category = "TrackingStation"` tests; no other exposed `AnyScene` cases found.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs:513` (add skip), optionally `Source/Parsek/InGameTests/InGameTestAttribute.cs` if option 1 is chosen.
 
@@ -113,7 +115,7 @@ Option 2 is the cheapest and matches what several other tests already do interna
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure test hygiene, no user-visible impact. But 3 false FAILs per test run drowns the signal in the report and should be closed.
+**Status:** CLOSED. Priority: low — fixed in PR #406. Unsupported scenes now skip instead of failing, so the per-scene report no longer shows three false FAILs for this test.
 
 ---
 
