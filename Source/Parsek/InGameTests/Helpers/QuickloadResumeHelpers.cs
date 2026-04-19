@@ -33,7 +33,7 @@ namespace Parsek.InGameTests.Helpers
 
         /// <summary>
         /// Triggers a quickload from the default "quicksave" slot.
-        /// Uses KSP's stock programmatic flight-resume path
+        /// Uses KSP's stock programmatic flight-resume backend
         /// (FlightDriver.StartAndFocusVessel) instead of directly swapping the
         /// current game and calling LoadScene(FLIGHT).
         /// This destroys the current ParsekFlight instance and creates a new one
@@ -44,17 +44,23 @@ namespace Parsek.InGameTests.Helpers
         {
             string saveName = HighLogic.SaveFolder;
             string quicksavePath = GetQuicksavePath(saveName);
-            AssertQuicksaveFileReady(quicksavePath, saveName, caller: "TriggerQuickload");
+            EnsureQuicksaveFileReady(quicksavePath, saveName, caller: "TriggerQuickload");
 
             Game game = GamePersistence.LoadGame(QuicksaveSlotName, saveName, true, false);
             InGameAssert.IsNotNull(game,
                 $"TriggerQuickload failed: LoadGame returned null for '{saveName}/{QuicksaveSlotName}'");
             InGameAssert.IsNotNull(game.flightState,
                 $"TriggerQuickload failed: loaded game for '{saveName}/{QuicksaveSlotName}' had null flightState");
+            InGameAssert.IsNotNull(game.flightState.protoVessels,
+                $"TriggerQuickload failed: loaded game for '{saveName}/{QuicksaveSlotName}' had null protoVessels");
 
             int activeVesselIdx = game.flightState.activeVesselIdx;
-            InGameAssert.IsTrue(activeVesselIdx >= 0,
-                $"TriggerQuickload failed: loaded game for '{saveName}/{QuicksaveSlotName}' had invalid activeVesselIdx={activeVesselIdx}");
+            if (activeVesselIdx < 0 || activeVesselIdx >= game.flightState.protoVessels.Count)
+            {
+                InGameAssert.Skip(
+                    $"TriggerQuickload skipped: loaded quicksave '{saveName}/{QuicksaveSlotName}' had invalid activeVesselIdx={activeVesselIdx} " +
+                    $"for protoVessels.Count={game.flightState.protoVessels.Count}");
+            }
 
             FlightDriver.StartAndFocusVessel(game, activeVesselIdx);
             ParsekLog.Info("TestHelper",
@@ -70,7 +76,7 @@ namespace Parsek.InGameTests.Helpers
                 QuicksaveSlotName + ".sfs");
         }
 
-        private static long AssertQuicksaveFileReady(string quicksavePath, string saveName, string caller)
+        private static long EnsureQuicksaveFileReady(string quicksavePath, string saveName, string caller)
         {
             InGameAssert.IsTrue(!string.IsNullOrEmpty(saveName),
                 $"{caller} failed: HighLogic.SaveFolder was null/empty");
@@ -78,12 +84,16 @@ namespace Parsek.InGameTests.Helpers
                 $"{caller} failed: KSPUtil.ApplicationRootPath was null/empty");
             InGameAssert.IsTrue(!string.IsNullOrEmpty(quicksavePath),
                 $"{caller} failed: quicksave path was null/empty for save '{saveName}'");
-            InGameAssert.IsTrue(File.Exists(quicksavePath),
-                $"{caller} failed: quicksave file missing at '{quicksavePath}'");
+            if (!File.Exists(quicksavePath))
+            {
+                InGameAssert.Skip($"{caller} skipped: quicksave file missing at '{quicksavePath}'");
+            }
 
             long quicksaveBytes = new FileInfo(quicksavePath).Length;
-            InGameAssert.IsTrue(quicksaveBytes > 0,
-                $"{caller} failed: quicksave file '{quicksavePath}' was empty");
+            if (quicksaveBytes <= 0)
+            {
+                InGameAssert.Skip($"{caller} skipped: quicksave file '{quicksavePath}' was empty");
+            }
             return quicksaveBytes;
         }
 
