@@ -6,9 +6,32 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.3
 
+### Features
+
+- Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
+
+### Tests
+
+- `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
+- `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
+- `#472` Added unit coverage for watch-camera retarget angle resolution so preserved pitch/heading stays pinned to the same world orbit direction across ghost handoffs.
+- `#474` Added runtime coverage for fresh ghost watch-pivot centering and ghost audio re-anchoring / stereo-default configuration.
+- `#476` Added unit and integration coverage for tracker-unavailable post-walk/commit-time earnings reconciliation, including full sandbox-style skips and partial per-resource gating.
+- `#477` Added unit coverage for coalesced same-UT milestone windows on both the matching path and the missing-event warning path.
+
+### Enhancements
+
+- `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
+
 ### Bug Fixes
 
+- `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
 - `#471` Gloops recordings now commit with looping off by default, so fresh ghost-only captures stay idle until you turn looping on and then follow the normal auto loop timing.
+- `#472` Watch-mode camera retargets now preserve the current pitch/heading when follow rebinds to a replacement ghost, eliminating the visible camera jerk on loop/overlap handoffs, quiet-expiry primary rebinds, and stock vessel-switch re-targets.
+- `#474` Ghost audio now recenters on the fresh watch pivot instead of staying on off-axis part transforms, and ghost sources use a softer 3D blend so Watch mode no longer hard-pans loops or one-shots into a single speaker.
+- `#476` Post-walk and commit-time earnings reconciliation now skip sandbox / tracker-unavailable resource legs instead of comparing against zeroed stock stores. When funds, science, and reputation tracking are all unavailable, Parsek emits a one-shot VERBOSE skip line instead of flooding `KSP.log` with false `store delta=0.0` and `no matching event` WARNs.
+- `#477` Post-walk milestone reconciliation now compares coalesced `Progression` bursts once per window instead of attributing the summed funds/rep delta to each individual `MilestoneAchievement`. Same-UT milestone bursts now log grouped ids/counts, eliminating the misleading 2× / 3× `expected=` warnings while preserving correct aggregate matching.
+- `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
 
 ---
 
