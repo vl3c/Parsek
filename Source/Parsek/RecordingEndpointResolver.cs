@@ -18,10 +18,13 @@ namespace Parsek
             return TryComputeEndpointDecisionFromData(rec, out _, out bodyName);
         }
 
-        internal static bool RefreshEndpointDecision(Recording rec)
+        internal static bool RefreshEndpointDecision(Recording rec, string context = null)
         {
             if (rec == null)
                 return false;
+
+            RecordingEndpointPhase phaseBefore = rec.EndpointPhase;
+            string bodyBefore = rec.EndpointBodyName;
 
             if (!TryComputeEndpointDecisionFromData(rec, out RecordingEndpointPhase phase, out string bodyName))
             {
@@ -29,6 +32,16 @@ namespace Parsek
                     || !string.IsNullOrEmpty(rec.EndpointBodyName);
                 rec.EndpointPhase = RecordingEndpointPhase.Unknown;
                 rec.EndpointBodyName = null;
+                LogEndpointDecision(
+                    "RefreshEndpointDecision",
+                    context,
+                    rec,
+                    phaseBefore,
+                    bodyBefore,
+                    rec.EndpointPhase,
+                    rec.EndpointBodyName,
+                    hadPersistedDecision,
+                    resolved: false);
                 return hadPersistedDecision;
             }
 
@@ -36,18 +49,55 @@ namespace Parsek
                 || !string.Equals(rec.EndpointBodyName, bodyName, StringComparison.Ordinal);
             rec.EndpointPhase = phase;
             rec.EndpointBodyName = bodyName;
+            LogEndpointDecision(
+                "RefreshEndpointDecision",
+                context,
+                rec,
+                phaseBefore,
+                bodyBefore,
+                rec.EndpointPhase,
+                rec.EndpointBodyName,
+                changed,
+                resolved: true);
             return changed;
         }
 
-        internal static bool BackfillEndpointDecision(Recording rec)
+        internal static bool BackfillEndpointDecision(Recording rec, string context = null)
         {
             if (rec == null)
                 return false;
 
+            RecordingEndpointPhase phaseBefore = rec.EndpointPhase;
+            string bodyBefore = rec.EndpointBodyName;
             if (TryGetPersistedEndpointDecision(rec, out _, out _))
+            {
+                LogEndpointDecision(
+                    "BackfillEndpointDecision",
+                    context,
+                    rec,
+                    phaseBefore,
+                    bodyBefore,
+                    rec.EndpointPhase,
+                    rec.EndpointBodyName,
+                    changed: false,
+                    resolved: true,
+                    skippedPersisted: true);
                 return false;
+            }
 
-            return RefreshEndpointDecision(rec);
+            bool changed = RefreshEndpointDecision(rec, context);
+            LogEndpointDecision(
+                "BackfillEndpointDecision",
+                context,
+                rec,
+                phaseBefore,
+                bodyBefore,
+                rec.EndpointPhase,
+                rec.EndpointBodyName,
+                changed,
+                resolved: rec.EndpointPhase != RecordingEndpointPhase.Unknown
+                    || !string.IsNullOrEmpty(rec.EndpointBodyName));
+            return changed;
         }
 
         internal static bool ShouldUseOrbitEndpoint(IPlaybackTrajectory traj)
@@ -368,6 +418,35 @@ namespace Parsek
             return traj != null
                 && !string.IsNullOrEmpty(traj.TerminalOrbitBody)
                 && traj.TerminalOrbitSemiMajorAxis > 0.0;
+        }
+
+        private static void LogEndpointDecision(
+            string action,
+            string context,
+            Recording rec,
+            RecordingEndpointPhase phaseBefore,
+            string bodyBefore,
+            RecordingEndpointPhase phaseAfter,
+            string bodyAfter,
+            bool changed,
+            bool resolved,
+            bool skippedPersisted = false)
+        {
+            string safeContext = string.IsNullOrEmpty(context) ? "unspecified" : context;
+            string beforeBody = string.IsNullOrEmpty(bodyBefore) ? "(none)" : bodyBefore;
+            string afterBody = string.IsNullOrEmpty(bodyAfter) ? "(none)" : bodyAfter;
+            string status;
+            if (skippedPersisted)
+                status = "kept-persisted";
+            else if (!resolved)
+                status = "cleared";
+            else
+                status = "resolved";
+
+            ParsekLog.Verbose("EndpointDecision",
+                $"{action}: context={safeContext} rec={rec.RecordingId} " +
+                $"before=({phaseBefore},{beforeBody}) after=({phaseAfter},{afterBody}) " +
+                $"status={status} changed={changed}");
         }
     }
 }

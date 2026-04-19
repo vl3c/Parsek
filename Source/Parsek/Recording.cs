@@ -5,14 +5,6 @@ namespace Parsek
 {
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
     public enum GhostSnapshotMode { Unspecified = 0, Separate = 1, AliasVessel = 2 }
-    public enum RecordingEndpointPhase
-    {
-        Unknown = 0,
-        TerminalPosition = 1,
-        OrbitSegment = 2,
-        TrajectoryPoint = 3,
-        SurfacePosition = 4
-    }
 
     public class Recording : IPlaybackTrajectory
     {

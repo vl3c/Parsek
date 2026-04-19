@@ -5609,7 +5609,7 @@ namespace Parsek
 
             RecordingEndpointPhase endpointPhaseBeforeBackfill = rec.EndpointPhase;
             string endpointBodyBeforeBackfill = rec.EndpointBodyName;
-            if (RecordingEndpointResolver.BackfillEndpointDecision(rec)
+            if (RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingStore.LoadRecordingFilesFromPathsInternal")
                 && (rec.EndpointPhase != endpointPhaseBeforeBackfill
                     || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal)))
             {

@@ -343,7 +343,7 @@ namespace Parsek
 
             // Merged recordings inherit later terminal/body state from the absorbed segment.
             // Re-resolve the authoritative endpoint from the merged payload before persistence.
-            RecordingEndpointResolver.RefreshEndpointDecision(target);
+            RecordingEndpointResolver.RefreshEndpointDecision(target, "RecordingOptimizer.MergeInto");
 
             // 12. Invalidate cached stats
             target.CachedStats = null;
@@ -543,8 +543,6 @@ namespace Parsek
             second.TerminalOrbitMeanAnomalyAtEpoch = original.TerminalOrbitMeanAnomalyAtEpoch;
             second.TerminalOrbitEpoch = original.TerminalOrbitEpoch;
             second.TerminalOrbitBody = original.TerminalOrbitBody;
-            second.EndpointPhase = original.EndpointPhase;
-            second.EndpointBodyName = original.EndpointBodyName;
             original.TerminalOrbitInclination = 0;
             original.TerminalOrbitEccentricity = 0;
             original.TerminalOrbitSemiMajorAxis = 0;
@@ -553,8 +551,6 @@ namespace Parsek
             original.TerminalOrbitMeanAnomalyAtEpoch = 0;
             original.TerminalOrbitEpoch = 0;
             original.TerminalOrbitBody = null;
-            original.EndpointPhase = RecordingEndpointPhase.Unknown;
-            original.EndpointBodyName = null;
 
             second.TerminalPosition = original.TerminalPosition;
             original.TerminalPosition = null;
@@ -585,8 +581,8 @@ namespace Parsek
 
             // Both halves now have their final trajectory/terminal payloads. Refresh the
             // persisted endpoint decision so optimizer outputs do not save stale or unknown data.
-            RecordingEndpointResolver.RefreshEndpointDecision(original);
-            RecordingEndpointResolver.RefreshEndpointDecision(second);
+            RecordingEndpointResolver.RefreshEndpointDecision(original, "RecordingOptimizer.SplitAtSection.FirstHalf");
+            RecordingEndpointResolver.RefreshEndpointDecision(second, "RecordingOptimizer.SplitAtSection.SecondHalf");
 
             // 12. Invalidate cached stats
             original.CachedStats = null;
