@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#469` Post-walk earnings reconciliation now skips ledger history the live `GameStateStore` can no longer represent after milestone pruning or epoch changes, eliminating false `"no matching FundsChanged keyed 'Progression'"` WARNs against already-processed milestone rewards while preserving live-tail mismatch detection.
+
+### Tests
+
+- `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, and the still-live missing-event warning path.
+
 ## 0.8.2
 
 ### Features

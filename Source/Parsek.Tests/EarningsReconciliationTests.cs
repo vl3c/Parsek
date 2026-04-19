@@ -24,6 +24,9 @@ namespace Parsek.Tests
 
         public EarningsReconciliationTests()
         {
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -33,6 +36,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            LedgerOrchestrator.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -1682,6 +1688,278 @@ namespace Parsek.Tests
             LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_PrunedByCommittedThreshold_Skipped_NoWarn()
+        {
+            MilestoneStore.AddMilestoneForTesting(new Milestone
+            {
+                MilestoneId = "m1",
+                StartUT = 0,
+                EndUT = 650,
+                Epoch = 0,
+                Committed = true,
+                Events = new List<GameStateEvent>()
+            });
+
+            var action = new GameAction
+            {
+                UT = 600,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 2000f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                new List<GameStateEvent>(),
+                new List<GameAction> { action },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_WithoutLiveSourceAnchorInNewEpoch_Skipped_NoWarn()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+            var laterMilestone = new GameStateEvent
+            {
+                ut = 100,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "LaterMilestone"
+            };
+            GameStateStore.AddEvent(ref laterMilestone);
+            var laterFunds = MakeKeyedFundsChanged(100, 0, 500, "Progression");
+            GameStateStore.AddEvent(ref laterFunds);
+            var action = new GameAction
+            {
+                UT = 50,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                GameStateStore.Events,
+                new List<GameAction> { action },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_WithLiveSourceAnchorInNewEpoch_MissingFundsEvent_Warns()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+            var milestoneEvt = new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "FirstLaunch"
+            };
+            GameStateStore.AddEvent(ref milestoneEvt);
+            var action = new GameAction
+            {
+                UT = 50,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                GameStateStore.Events,
+                new List<GameAction> { action },
+                utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("FirstLaunch") &&
+                l.Contains("expected=800.0"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_WithLiveFundsButNoSourceAnchorInNewEpoch_DoesNotSkip()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+            var liveFunds = MakeKeyedFundsChanged(50, 0, 800, "Progression");
+            GameStateStore.AddEvent(ref liveFunds);
+            var action = new GameAction
+            {
+                UT = 50,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                GameStateStore.Events,
+                new List<GameAction> { action },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l => l.Contains("Post-walk reconcile: actions=1"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_StaleNeighborInsideCoalesceWindow_DoesNotInflateLiveExpected()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+
+            var liveMilestone = new GameStateEvent
+            {
+                ut = 50.05,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "LaterMilestone"
+            };
+            GameStateStore.AddEvent(ref liveMilestone);
+            var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
+            GameStateStore.AddEvent(ref liveFunds);
+
+            var staleAction = new GameAction
+            {
+                UT = 50.00,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+            var liveAction = new GameAction
+            {
+                UT = 50.05,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "LaterMilestone",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                GameStateStore.Events,
+                new List<GameAction> { staleAction, liveAction },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("LaterMilestone"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_StaleObservedEventIgnored_InLiveWindow()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+
+            var staleFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
+            staleFunds.epoch = 0;
+            var liveMilestone = new GameStateEvent
+            {
+                ut = 50.05,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "LaterMilestone",
+                epoch = 1
+            };
+            var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
+            liveFunds.epoch = 1;
+
+            var action = new GameAction
+            {
+                UT = 50.05,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "LaterMilestone",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                new List<GameStateEvent> { staleFunds, liveMilestone, liveFunds },
+                new List<GameAction> { action },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("LaterMilestone"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_ThresholdStraddlingStaleNeighbor_DoesNotSuppressLiveFallback()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+            MilestoneStore.AddMilestoneForTesting(new Milestone
+            {
+                MilestoneId = "m1",
+                StartUT = 0,
+                EndUT = 50.0,
+                Epoch = 1,
+                Committed = true,
+                Events = new List<GameStateEvent>()
+            });
+
+            var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
+            GameStateStore.AddEvent(ref liveFunds);
+
+            var staleAction = new GameAction
+            {
+                UT = 49.98,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+            var liveAction = new GameAction
+            {
+                UT = 50.05,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "LaterMilestone",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                GameStateStore.Events,
+                new List<GameAction> { staleAction, liveAction },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, funds)") &&
+                l.Contains("LaterMilestone"));
+            Assert.Contains(logLines, l => l.Contains("Post-walk reconcile: actions=1"));
+        }
+
+        [Fact]
+        public void PostWalk_MilestoneAchievement_LiveNoSourceOverlap_SkipsAmbiguousFallback()
+        {
+            MilestoneStore.CurrentEpoch = 1;
+
+            var liveFunds = MakeKeyedFundsChanged(50.05, 0, 800, "Progression");
+            GameStateStore.AddEvent(ref liveFunds);
+
+            var firstAction = new GameAction
+            {
+                UT = 50.00,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+            var secondAction = new GameAction
+            {
+                UT = 50.05,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "LaterMilestone",
+                Effective = true,
+                MilestoneFundsAwarded = 800f
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                GameStateStore.Events,
+                new List<GameAction> { firstAction, secondAction },
+                utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l => l.Contains("Post-walk reconcile: actions=0"));
         }
 
         // ---------- ReputationEarning / ReputationPenalty ----------
