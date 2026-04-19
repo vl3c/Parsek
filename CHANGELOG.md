@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Tests
+
+- `#480` Strategy lifecycle in-game regressions no longer throw an early `NullReferenceException` on some SPACECENTER career saves. The tests now wait for stock strategy hydration to stabilize, reject nameless configs, and fail with targeted readiness/activation diagnostics instead of silently downgrading the regression to a skip.
+
+### Bug Fixes
+
+- `#480` Hardened the SPACECENTER stock-strategy lifecycle regression tests against transient stock strategy-system hydration on early scene frames, while keeping persistent readiness or `Activate()` failures visible as real test failures.
+
 ## 0.8.2
 
 ### Features
