@@ -17,12 +17,13 @@ namespace Parsek
         public double longitude;
         public double altitude;
         public Quaternion rotation;
-        // Null means "implicit current-format default": callers constructed a pose in memory
-        // and did not need to distinguish recorded-vs-missing rotation metadata.
+        // Null means "not explicitly annotated". In that case infer from the quaternion itself:
+        // default(Quaternion) means "missing", while any concrete value (including identity)
+        // means the caller intentionally populated a recorded surface-frame rotation.
         public bool? rotationRecorded;
         public SurfaceSituation situation;
 
-        public bool HasRecordedRotation => !rotationRecorded.HasValue || rotationRecorded.Value;
+        public bool HasRecordedRotation => rotationRecorded ?? HasImplicitRecordedRotation(rotation);
 
         public override string ToString()
         {
@@ -75,6 +76,11 @@ namespace Parsek
                 && Enum.IsDefined(typeof(SurfaceSituation), sitInt))
                 pos.situation = (SurfaceSituation)sitInt;
             return pos;
+        }
+
+        private static bool HasImplicitRecordedRotation(Quaternion rotation)
+        {
+            return rotation.x != 0f || rotation.y != 0f || rotation.z != 0f || rotation.w != 0f;
         }
     }
 }

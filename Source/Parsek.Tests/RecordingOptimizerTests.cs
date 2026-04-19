@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -2289,6 +2290,41 @@ namespace Parsek.Tests
 
             Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(130, rec.EndUT);
+        }
+
+        [Fact]
+        public void TryGetTerminalSurfaceReference_LastPointIdentityRotation_DoesNotMarkRotationRecorded()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint
+            {
+                bodyName = "Kerbin",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0,
+                rotation = Quaternion.identity
+            });
+
+            MethodInfo method = typeof(RecordingOptimizer).GetMethod(
+                "TryGetTerminalSurfaceReference",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            object[] args =
+            {
+                rec,
+                null,
+                0.0,
+                0.0,
+                0.0,
+                Quaternion.identity,
+                false
+            };
+
+            bool found = (bool)method.Invoke(null, args);
+
+            Assert.True(found);
+            Assert.False((bool)args[6]);
         }
 
         [Fact]

@@ -74,6 +74,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrepareSpawnNodeAtPosition_KerbinPadCase_RewritesSpawnNodeRotToWorldFrame()
+        {
+            var spawnNode = new ConfigNode("VESSEL");
+            Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
+            Quaternion expected = VesselSpawner.ComputeWorldSpawnRotationFromSurfaceRelative(
+                bodyRotation,
+                KerbinPadSurfaceRelativeRotation);
+
+            string sit = VesselSpawner.PrepareSpawnNodeAtPosition(
+                spawnNode,
+                "Kerbin",
+                bodyRotation,
+                lat: -0.0972,
+                lon: -74.5577,
+                alt: 70.0,
+                speed: 0.0,
+                orbitalSpeed: 2200.0,
+                overWater: false,
+                terminalState: TerminalState.Landed,
+                surfaceRelativeRotation: KerbinPadSurfaceRelativeRotation);
+
+            Assert.Equal("LANDED", sit);
+            Assert.Equal(KSPUtil.WriteQuaternion(expected), spawnNode.GetValue("rot"));
+        }
+
+        [Fact]
+        public void PrepareSpawnNodeAtPosition_MunCase_RewritesSpawnNodeRotToWorldFrame()
+        {
+            var spawnNode = new ConfigNode("VESSEL");
+            Quaternion bodyRotation = Quaternion.Euler(18f, -40f, 12f);
+            Quaternion munSurfaceRelativeRotation = Quaternion.Euler(-8f, 15f, 27f);
+            Quaternion expected = VesselSpawner.ComputeWorldSpawnRotationFromSurfaceRelative(
+                bodyRotation,
+                munSurfaceRelativeRotation);
+
+            string sit = VesselSpawner.PrepareSpawnNodeAtPosition(
+                spawnNode,
+                "Mun",
+                bodyRotation,
+                lat: -1.534,
+                lon: 27.245,
+                alt: 12.0,
+                speed: 0.0,
+                orbitalSpeed: 560.0,
+                overWater: false,
+                terminalState: TerminalState.Landed,
+                surfaceRelativeRotation: munSurfaceRelativeRotation);
+
+            Assert.Equal("LANDED", sit);
+            Assert.Equal(KSPUtil.WriteQuaternion(expected), spawnNode.GetValue("rot"));
+        }
+
+        [Fact]
         public void TryApplySpawnRotationFromSurfaceRelative_NullBody_LeavesRotUnchangedAndWarns()
         {
             var snapshot = new ConfigNode("VESSEL");
@@ -197,6 +250,33 @@ namespace Parsek.Tests
             AssertQuaternionEquivalent(
                 TrajectoryMath.SanitizeQuaternion(lastPointRotation),
                 surfaceRelativeRotation);
+        }
+
+        [Fact]
+        public void TryGetPreferredSpawnRotationFrame_OrbitingTerminal_DoesNotReconstructSurfaceRotation()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            var lastPt = new TrajectoryPoint
+            {
+                bodyName = "Kerbin",
+                rotation = Quaternion.Euler(-11f, 8f, 29f)
+            };
+
+            bool found = VesselSpawner.TryGetPreferredSpawnRotationFrame(
+                rec,
+                lastPt,
+                out string bodyName,
+                out Quaternion surfaceRelativeRotation,
+                out string source);
+
+            Assert.False(found);
+            Assert.Null(bodyName);
+            Assert.Null(source);
+            Assert.Equal(Quaternion.identity, surfaceRelativeRotation);
         }
 
         [Fact]

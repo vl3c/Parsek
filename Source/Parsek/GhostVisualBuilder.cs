@@ -6993,9 +6993,13 @@ namespace Parsek
                 vesselNode.SetValue("alt", evt.altitude.ToString("R", ic), true);
                 vesselNode.SetValue("landedAt", body.name, true);
 
-                // Set surface-relative rotation
+                // Reconstruct world-space VESSEL.rot from the recorded surface-relative frame.
                 Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
-                vesselNode.SetValue("rot", KSPUtil.WriteQuaternion(surfRot), true);
+                VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+                    vesselNode,
+                    body,
+                    surfRot,
+                    "Flag spawn");
 
                 // Spawn via ProtoVessel
                 ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);

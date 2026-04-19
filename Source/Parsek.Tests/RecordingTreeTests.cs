@@ -37,6 +37,7 @@ namespace Parsek.Tests
                 longitude = 23.4,
                 altitude = 1234.5,
                 rotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f),
+                rotationRecorded = true,
                 situation = SurfaceSituation.Landed
             };
 
@@ -67,6 +68,7 @@ namespace Parsek.Tests
                 longitude = -50.0,
                 altitude = 0.5,
                 rotation = new Quaternion(0f, 0f, 0f, 1f),
+                rotationRecorded = true,
                 situation = SurfaceSituation.Splashed
             };
 
@@ -95,6 +97,14 @@ namespace Parsek.Tests
             Assert.Equal(0f, restored.rotation.y);
             Assert.Equal(0f, restored.rotation.z);
             Assert.Equal(1f, restored.rotation.w);
+        }
+
+        [Fact]
+        public void SurfacePosition_DefaultStruct_DoesNotClaimRecordedRotation()
+        {
+            var pos = default(SurfacePosition);
+
+            Assert.False(pos.HasRecordedRotation);
         }
 
         // --- BranchPoint serialization ---

@@ -390,7 +390,10 @@ namespace Parsek
             surfaceRelativeRotation = Quaternion.identity;
             source = null;
 
-            if (rec != null && IsSurfaceTerminal(rec.TerminalStateValue) && rec.TerminalPosition.HasValue)
+            if (rec == null || !IsSurfaceTerminal(rec.TerminalStateValue))
+                return false;
+
+            if (rec.TerminalPosition.HasValue)
             {
                 SurfacePosition terminalPose = rec.TerminalPosition.Value;
                 if (terminalPose.HasRecordedRotation)
@@ -494,6 +497,60 @@ namespace Parsek
                 : FlightGlobals.GetBodyByName(bodyName);
         }
 
+        internal static string PrepareSpawnNodeAtPosition(
+            ConfigNode spawnNode,
+            string bodyName,
+            Quaternion? bodyRotation,
+            double lat, double lon, double alt,
+            double speed,
+            double orbitalSpeed,
+            bool overWater,
+            TerminalState? terminalState,
+            Quaternion? surfaceRelativeRotation)
+        {
+            if (spawnNode == null)
+                return null;
+
+            spawnNode.SetValue("lat", lat.ToString("R"), true);
+            spawnNode.SetValue("lon", lon.ToString("R"), true);
+            spawnNode.SetValue("alt", alt.ToString("R"), true);
+
+            string sit = DetermineSituation(alt, overWater, speed, orbitalSpeed);
+
+            // Override FLYING situation from terminal state (#176 for Orbiting/Docked, #264
+            // for Landed/Splashed). Without this, an EVA kerbal walking at alt > 0 with
+            // low speed classifies as FLYING and hits the OrbitDriver updateMode=UPDATE
+            // stale-orbit bug on the first physics frame after load.
+            string overriddenSit = OverrideSituationFromTerminalState(sit, terminalState);
+            if (overriddenSit != sit)
+            {
+                ParsekLog.Info("Spawner",
+                    $"SpawnAtPosition: overriding sit {sit} → {overriddenSit} " +
+                    $"(terminal={terminalState}, speed={speed.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                    $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}) — prevents stale-orbit / pressure destruction (#176, #264)");
+                sit = overriddenSit;
+            }
+
+            ApplySituationToNode(spawnNode, sit);
+            ParsekLog.Verbose("Spawner",
+                $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", CultureInfo.InvariantCulture)}, speed={speed.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}, overWater={overWater})");
+
+            // Optional rotation override: recorded trajectory points store surface-relative
+            // rotation (format-v0 contract), so reconstruct world-space VESSEL.rot explicitly.
+            if (surfaceRelativeRotation.HasValue)
+            {
+                TryApplySpawnRotationFromSurfaceRelative(
+                    spawnNode,
+                    bodyName,
+                    bodyRotation,
+                    surfaceRelativeRotation,
+                    "SpawnAtPosition");
+            }
+
+            return sit;
+        }
+
         /// <summary>
         /// Spawn a vessel from a snapshot at a specific position and velocity,
         /// overriding the snapshot's stored orbit and location.
@@ -511,43 +568,23 @@ namespace Parsek
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
 
-                // Update position
-                spawnNode.SetValue("lat", lat.ToString("R"), true);
-                spawnNode.SetValue("lon", lon.ToString("R"), true);
-                spawnNode.SetValue("alt", alt.ToString("R"), true);
-
                 // Determine situation from altitude and velocity
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
                 bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
-                string sit = DetermineSituation(alt, overWater, velocity.magnitude, orbitalSpeed);
-
-                // Override FLYING situation from terminal state (#176 for Orbiting/Docked, #264
-                // for Landed/Splashed). Without this, an EVA kerbal walking at alt > 0 with
-                // low speed classifies as FLYING and hits the OrbitDriver updateMode=UPDATE
-                // stale-orbit bug on the first physics frame after load.
-                string overriddenSit = OverrideSituationFromTerminalState(sit, terminalState);
-                if (overriddenSit != sit)
-                {
-                    ParsekLog.Info("Spawner",
-                        $"SpawnAtPosition: overriding sit {sit} → {overriddenSit} " +
-                        $"(terminal={terminalState}, speed={velocity.magnitude.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                        $"orbitalSpeed={orbitalSpeed.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}) — prevents stale-orbit / pressure destruction (#176, #264)");
-                    sit = overriddenSit;
-                }
-
-                ApplySituationToNode(spawnNode, sit);
-                ParsekLog.Verbose("Spawner",
-                    $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}, speed={velocity.magnitude.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                    $"orbitalSpeed={orbitalSpeed.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, overWater={overWater})");
-
-                // Optional rotation override: recorded trajectory points store surface-relative
-                // rotation (format-v0 contract), so reconstruct world-space VESSEL.rot explicitly.
-                if (surfaceRelativeRotation.HasValue)
-                    TryApplySpawnRotationFromSurfaceRelative(
-                        spawnNode,
-                        body,
-                        surfaceRelativeRotation,
-                        "SpawnAtPosition");
+                string sit = PrepareSpawnNodeAtPosition(
+                    spawnNode,
+                    body?.name,
+                    body != null && body.bodyTransform != null
+                        ? (Quaternion?)body.bodyTransform.rotation
+                        : null,
+                    lat,
+                    lon,
+                    alt,
+                    velocity.magnitude,
+                    orbitalSpeed,
+                    overWater,
+                    terminalState,
+                    surfaceRelativeRotation);
 
                 // Rebuild ORBIT subnode from position + velocity
                 Orbit orbit = orbitOverride;
@@ -757,8 +794,25 @@ namespace Parsek
             // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
             if (isEva && rec.VesselSnapshot != null)
             {
-                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                    index, rec.VesselName);
+                if (TryResolvePreferredSpawnRotation(
+                    rec, lastPt,
+                    out string evaRotationBodyName,
+                    out Quaternion evaBodyRotation,
+                    out Quaternion evaSurfaceRelativeRotation,
+                    out string evaRotationSource))
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName,
+                        evaRotationBodyName,
+                        evaBodyRotation,
+                        evaSurfaceRelativeRotation,
+                        evaRotationSource);
+                }
+                else
+                {
+                    OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                        index, rec.VesselName);
+                }
                 StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
             }
 
@@ -858,7 +912,8 @@ namespace Parsek
             //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
             //   walked endpoint so the kerbal stays where recorded.
             // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
-            //   Rotation is preserved via the new Quaternion? rotation parameter.
+            //   Rotation is preserved via the same surface-relative -> world helper used by
+            //   snapshot-prep fallbacks.
             //
             // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
             // paths remain as defense-in-depth for the RespawnVessel fallback below: if
@@ -877,7 +932,8 @@ namespace Parsek
                     ? orbitalSpawnVelocity
                     : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
                 Quaternion? surfaceRelativeRotationArg = null;
-                if (isBreakupContinuous && !useRecordedTerminalOrbit
+                if (!useRecordedTerminalOrbit
+                    && (isEva || isBreakupContinuous)
                     && TryGetPreferredSpawnRotationFrame(
                         rec, lastPt,
                         out _,

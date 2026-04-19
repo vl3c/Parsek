@@ -7038,6 +7038,7 @@ namespace Parsek
                 longitude = lastPt.longitude,
                 altitude = lastPt.altitude,
                 rotation = lastPt.rotation,
+                rotationRecorded = true,
                 situation = inferredState == TerminalState.Splashed
                     ? SurfaceSituation.Splashed
                     : SurfaceSituation.Landed
@@ -7665,6 +7666,7 @@ namespace Parsek
                     longitude = vessel.longitude,
                     altitude = vessel.altitude,
                     rotation = vessel.srfRelRotation,
+                    rotationRecorded = true,
                     situation = sit == Vessel.Situations.SPLASHED
                         ? SurfaceSituation.Splashed
                         : SurfaceSituation.Landed
