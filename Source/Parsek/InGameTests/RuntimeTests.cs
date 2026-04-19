@@ -50,7 +50,6 @@ namespace Parsek.InGameTests
         private static readonly MethodInfo ParsekScenarioShowDeferredMergeDialogMethod =
             typeof(ParsekScenario).GetMethod("ShowDeferredMergeDialog",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
         public RuntimeTests(InGameTestRunner runner)
         {
             this.runner = runner;
@@ -3250,7 +3249,98 @@ namespace Parsek.InGameTests
     public class FlightIntegrationTests
     {
         private readonly InGameTestRunner runner;
+        private static readonly MethodInfo FlightDriverRevertToLaunchMethod =
+            typeof(FlightDriver).GetMethod("RevertToLaunch",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly PropertyInfo FlightDriverCanRevertProperty =
+            typeof(FlightDriver).GetProperty("CanRevert",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo PopupDialogToDisplayField =
+            typeof(PopupDialog).GetField("dialogToDisplay",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogNameField =
+            typeof(MultiOptionDialog).GetField("name",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogTitleField =
+            typeof(MultiOptionDialog).GetField("title",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         public FlightIntegrationTests(InGameTestRunner runner) { this.runner = runner; }
+
+        private static IEnumerator WaitForRecordingToLeavePrelaunch(string expectedRecordingId, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.situation != Vessel.Situations.PRELAUNCH
+                    && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForRecordingToLeavePrelaunch timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecordingId={timedOutFlight?.ActiveTreeForSerialization?.ActiveRecordingId ?? "null"}, " +
+                $"expectedRecordingId={expectedRecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static IEnumerator AssertNoPopupDialog(string dialogName, float durationSeconds)
+        {
+            float deadline = Time.time + durationSeconds;
+            while (Time.time < deadline)
+            {
+                PopupDialog popup = FindPopupDialog(dialogName);
+                if (popup != null)
+                {
+                    string title = null;
+                    if (PopupDialogToDisplayField != null && MultiOptionDialogTitleField != null)
+                    {
+                        MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                        title = dialog != null ? MultiOptionDialogTitleField.GetValue(dialog) as string : null;
+                    }
+
+                    InGameAssert.Fail(
+                        $"Unexpected popup dialog '{dialogName}' appeared during no-dialog window " +
+                        $"(title='{title ?? "<null>"}')");
+                }
+
+                yield return null;
+            }
+        }
+
+        private static PopupDialog FindPopupDialog(string dialogName)
+        {
+            if (string.IsNullOrEmpty(dialogName) || PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
+                return null;
+
+            PopupDialog[] popups = Object.FindObjectsOfType<PopupDialog>();
+            for (int i = 0; i < popups.Length; i++)
+            {
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
+                if (dialog == null)
+                    continue;
+
+                string currentName = MultiOptionDialogNameField.GetValue(dialog) as string;
+                if (currentName == dialogName)
+                    return popups[i];
+            }
+
+            return null;
+        }
 
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
             Description = "Ghost world position matches lat/lon/alt via GetWorldSurfacePosition")]
@@ -4182,6 +4272,142 @@ namespace Parsek.InGameTests
             string postRecId = postFlight.ActiveTreeForSerialization.ActiveRecordingId;
             InGameAssert.AreEqual(preRecId, postRecId,
                 $"ActiveRecordingId must match: pre={preRecId} post={postRecId}");
+        }
+
+        /// <summary>
+        /// Stock Revert to Launch player-flow canary. Starts a real recording,
+        /// launches the active vessel, then drives KSP's stock Revert-to-Launch
+        /// backend. The expected shipped behavior after #434 is soft-unstash:
+        /// the pending tree is cleared without a merge dialog and the reverted
+        /// flight does not commit into the timeline. Use a disposable/manual-
+        /// backup save before running it.
+        /// </summary>
+        [InGameTest(Category = "RevertFlow", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, stages the active vessel, and drives stock Revert to Launch in the live FLIGHT session.",
+            Description = "Stock Revert to Launch soft-unstashes a live recording without opening the merge dialog")]
+        public IEnumerator RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can launch and then stock-revert, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (FlightDriverRevertToLaunchMethod == null || FlightDriverCanRevertProperty == null)
+            {
+                InGameAssert.Skip("FlightDriver revert-to-launch reflection surface unavailable on this KSP build");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the stock revert flow");
+
+                string activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the live revert-flow canary");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return new WaitForSeconds(1.0f);
+
+                bool canRevert = (bool)(FlightDriverCanRevertProperty.GetValue(null, null) ?? false);
+                InGameAssert.IsTrue(canRevert,
+                    "FlightDriver.CanRevert should be true after the staged vessel leaves PRELAUNCH");
+
+                int previousFlightInstanceId = flight.GetInstanceID();
+                try
+                {
+                    FlightDriverRevertToLaunchMethod.Invoke(null, null);
+                }
+                catch (TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        $"FlightDriver.RevertToLaunch threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 15f);
+                yield return new WaitForSeconds(0.5f);
+                yield return AssertNoPopupDialog("ParsekMerge", 2.5f);
+
+                var postFlight = ParsekFlight.Instance;
+                var postVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after stock revert");
+                InGameAssert.IsNotNull(postVessel, "Active vessel must exist after stock revert");
+                InGameAssert.IsFalse(postFlight.IsRecording,
+                    "Stock revert should end the pre-revert live recording instead of resuming it");
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Stock revert should soft-unstash the pending tree instead of surfacing the merge dialog");
+                InGameAssert.AreEqual(committedBefore, RecordingStore.CommittedRecordings.Count,
+                    "Revert-to-launch must not commit the reverted recording into the timeline");
+                InGameAssert.AreEqual(committedTreesBefore, RecordingStore.CommittedTrees.Count,
+                    "Revert-to-launch must not commit a reverted tree into CommittedTrees");
+                InGameAssert.IsTrue(
+                    postVessel.situation == Vessel.Situations.PRELAUNCH || postVessel.LandedOrSplashed,
+                    $"Revert-to-launch should bring the vessel back to a launch-site state, got {postVessel.situation}");
+
+                bool sawKeepFreshPending = captured.Any(
+                    l => l.Contains("Revert: keeping freshly-stashed pending")
+                        || l.Contains("Revert: keeping pending Limbo tree"));
+                bool sawSoftUnstash = captured.Any(
+                    l => l.Contains("Unstashed pending tree '") && l.Contains("sidecar files preserved"));
+                InGameAssert.IsTrue(sawKeepFreshPending,
+                    "Expected revert OnLoad to keep the freshly-stashed pending tree long enough to classify it");
+                InGameAssert.IsTrue(sawSoftUnstash,
+                    "Expected revert OnLoad to soft-unstash the pending tree instead of committing or discarding it");
+
+                ParsekLog.Info("TestRunner",
+                    $"Revert flow runtime: rec='{activeRecId}' postVessel='{postVessel.vesselName}' " +
+                    $"situation={postVessel.situation} committedBefore={committedBefore} " +
+                    $"committedAfter={RecordingStore.CommittedRecordings.Count}");
+            }
+            finally
+            {
+                FlightInputHandler.state.mainThrottle = originalThrottle;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+            }
         }
 
         /// <summary>

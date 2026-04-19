@@ -13,7 +13,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - `#488` Quickload-resume in-game helpers now drive the stock `FlightDriver.StartAndFocusVessel` resume path instead of a bare `LoadScene(FLIGHT)`, and they now skip early on a missing/empty `quicksave.sfs` before attempting the scene reload.
-- Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path and a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once.
+- Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, and a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics.
 - `#461` Added in-game loop-cycle reuse visibility regressions that drive the full `UpdatePlayback -> UpdateLoopingPlayback` boundary path, pinning both the same-frame visible reactivation case and the hidden-by-zone deferred/inactive case.
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
 - `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.

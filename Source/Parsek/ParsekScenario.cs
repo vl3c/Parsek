@@ -945,8 +945,10 @@ namespace Parsek
                         // but user reverted before acting on it. Prevents OnFlightReady fallback
                         // from showing the dialog again (#64).
                         // However, if the pending was stashed during THIS scene transition
-                        // (OnSceneChangeRequested → StashPendingTree), it is fresh
-                        // and must survive so OnFlightReady can show the merge dialog.
+                        // (OnSceneChangeRequested → StashPendingTree), it is fresh and must
+                        // survive long enough for the current OnLoad to classify it correctly.
+                        // On true revert the later soft-unstash branch below clears it again;
+                        // on quickload/non-revert paths other dispatch owns it.
                         if (RecordingStore.PendingStashedThisTransition)
                         {
                             ParsekLog.Info("Scenario",
