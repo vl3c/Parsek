@@ -61,7 +61,7 @@ Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed 
 
 ---
 
-## 485. `StrategyLifecycle` readiness probe throws `NullReferenceException` for every stock strategy on every poll — ~1980 `[Parsek][WARN][TestRunner]` lines in a single session
+## ~~485. `StrategyLifecycle` readiness probe throws `NullReferenceException` for every stock strategy on every poll — ~1980 `[Parsek][WARN][TestRunner]` lines in a single session~~
 
 **Source:** `logs/2026-04-19_2126/KSP.log` (≥ 1980 lines). Representative pair:
 
@@ -78,16 +78,16 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 - (a) **Log volume regression.** PR #409 (fix for #480) added the per-index WARN to make failures legible, but every index in this career save throws, so the per-index lines are pure noise — the FAILED summary already tells you `probeThrows=11`. This violates the project's logging-efficiency principle (`VisualEfficiency`, CLAUDE.md "batch counting convention" — use aggregate summaries, not per-item). The spam also drowns out every other genuinely useful WARN during a test run.
 - (b) **The underlying NRE is not resolved.** #480 closed with "fails loudly if readiness never settles" but didn't fix the throw; the four test failures (`ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` × 4, `FailedActivation_DoesNotEmitEvent` × 4) in the report are all caused by this. The probe still touches a null field somewhere in `CanBeActivated` access for every stock strategy on this save. `#480` has this in the fix-plan notes (`strategy.Config.Name` null guard, `StrategyLifecyclePatch` throwing, or stock `Activate()` NREing) — that investigation did not happen before the PR shipped.
 
-**Fix:**
+**Fix shipped (2026-04-19):**
 
-- For (a): collapse the per-index loop in `InGameTests/RuntimeTests.cs` (the `StrategyLifecycle probe skipped` emit site) to a single summary line per poll — include total probe count and the first offending index/exception, drop the per-index WARN spam. Keep the per-index info at `Verbose` level for when needed.
-- For (b): first widen the FAIL log to include `ex.ToString()` (the stack trace) instead of `ex.Message`, as originally scoped in #480's notes. Once the stack lands in the next collected-logs run, root-cause the actual null field. Until then, #485 remains the parent item for both issues.
+- Root cause found from local stock decompile + collected logs: `Strategies.Strategy.CanBeActivated` dereferences `Administration.Instance` immediately, and the SPACECENTER strategy probe was running before that singleton finished hydrating. This was a stock-readiness timing fault, not eleven different strategy-specific nulls.
+- `Source/Parsek/InGameTests/RuntimeTests.cs` now gates the readiness probe on `Administration.Instance` before calling stock `CanBeActivated`, so the test no longer throws a per-strategy `NullReferenceException` during early KSC hydration.
+- Any future unexpected `CanBeActivated` throws now emit one WARN summary per poll with the first failing index/exception, while the per-index detail moves to `VERBOSE`.
+- Strategy lifecycle failure logging now carries `ex.ToString()` in the runtime tests and the Harmony postfix catches, so any future regression lands with the full stack trace instead of just `ex.Message`.
 
-**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (probe loop WARN emit + FAIL log widening), possibly `Source/Parsek/Patches/StrategyLifecyclePatch.cs`.
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/Patches/StrategyLifecyclePatch.cs`, `Source/Parsek.Tests/StrategyLifecycleProbeSupportTests.cs`.
 
-**Scope:** Small for (a), unknown for (b) until the stack trace lands.
-
-**Dependencies:** reopens follow-up work from #480 (closed in PR #409).
+**Dependencies:** closes the open follow-up from `#480`.
 
 ---
 
