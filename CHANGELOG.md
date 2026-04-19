@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#477` Post-walk milestone reconciliation now compares coalesced `Progression` bursts once per window instead of attributing the summed funds/rep delta to each individual `MilestoneAchievement`. Same-UT milestone bursts now log grouped ids/counts, eliminating the misleading 2× / 3× `expected=` warnings while preserving correct aggregate matching.
+
+### Tests
+
+- `#477` Added unit coverage for coalesced same-UT milestone windows on both the matching path and the missing-event warning path.
+
+---
+
 ## 0.8.2
 
 ### Features
