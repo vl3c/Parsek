@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -1327,6 +1328,80 @@ namespace Parsek.InGameTests
             ParsekLog.Info("TestRunner",
                 $"Ghost build sweep: {built} built, {fallback} degraded, {noSnapshot} no snapshot " +
                 $"(of {recordings.Count} recordings)");
+        }
+
+        [InGameTest(Category = "GhostVisuals", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B2: incremental snapshot build yields after one part and completes across subsequent advances")]
+        public IEnumerator IncrementalSnapshotBuild_YieldsThenCompletes()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            Recording withMultipartSnapshot = recordings.FirstOrDefault(rec =>
+            {
+                ConfigNode snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                return snapshot != null && snapshot.GetNodes("PART").Length >= 2;
+            });
+
+            if (withMultipartSnapshot == null)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "No committed recording with a multipart snapshot — skipping incremental build test");
+                yield break;
+            }
+
+            ConfigNode snapshotNode = GhostVisualBuilder.GetGhostSnapshot(withMultipartSnapshot);
+            PendingGhostVisualBuild build = GhostVisualBuilder.TryBeginTimelineGhostBuild(
+                withMultipartSnapshot,
+                snapshotNode,
+                "ParsekTest_SplitAdvance",
+                withMultipartSnapshot.GhostVisualSnapshot != null
+                    ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                    : HeaviestSpawnBuildType.VesselSnapshot);
+
+            InGameAssert.IsNotNull(build, "TryBeginTimelineGhostBuild should succeed for a multipart snapshot");
+
+            GameObject cleanupRoot = build.root;
+            GhostBuildResult result = null;
+            try
+            {
+                // `maxTicks: 0` is the deliberate "one part, then yield if work remains"
+                // seam from AdvanceTimelineGhostBuild. This keeps the test deterministic:
+                // we assert the split-build path itself, not a stopwatch-dependent budget.
+                bool completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
+                InGameAssert.IsFalse(completed,
+                    $"AdvanceTimelineGhostBuild(0) should yield for multipart snapshot '{withMultipartSnapshot.VesselName}'");
+                InGameAssert.IsTrue(build.nextPartIndex > 0 && build.nextPartIndex < build.partNodes.Length,
+                    $"First incremental advance should process at least one part and leave work remaining, got nextPartIndex={build.nextPartIndex} of {build.partNodes.Length}");
+
+                int advances = 1;
+                while (!completed)
+                {
+                    yield return null;
+                    completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
+                    advances++;
+                    InGameAssert.IsTrue(advances <= build.partNodes.Length + 1,
+                        $"Incremental build should complete within one advance per part, got advances={advances} parts={build.partNodes.Length}");
+                }
+
+                InGameAssert.IsTrue(build.nextPartIndex == build.partNodes.Length,
+                    $"Completed incremental build should consume every snapshot part, got {build.nextPartIndex}/{build.partNodes.Length}");
+
+                result = GhostVisualBuilder.CompleteTimelineGhostBuild(build, withMultipartSnapshot);
+                InGameAssert.IsNotNull(result, "CompleteTimelineGhostBuild should return a result after all parts are advanced");
+                InGameAssert.IsNotNull(result.root, "Incremental build result should keep the ghost root");
+
+                cleanupRoot = result.root;
+                InGameAssert.IsGreaterThan(result.root.transform.childCount, 0,
+                    $"Incremental ghost root should contain built children for '{withMultipartSnapshot.VesselName}'");
+
+                ParsekLog.Verbose("TestRunner",
+                    $"Incremental ghost build completed for '{withMultipartSnapshot.VesselName}' in {advances} advances " +
+                    $"({build.partNodes.Length} snapshot parts)");
+            }
+            finally
+            {
+                if (cleanupRoot != null)
+                    runner.TrackForCleanup(cleanupRoot);
+            }
         }
 
         [InGameTest(Category = "GhostVisuals",
@@ -3388,6 +3463,91 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 regression: scene reset must not cache a transparent opaque window
+        /// style while the destination scene skin is still bootstrapping.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Scene reset defers opaque window rebuild until a skin background exists")]
+        public void SceneReset_DefersOpaqueStyleUntilSkinReady()
+        {
+            var shortcut = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(shortcut, "TestRunnerShortcut.Instance must exist");
+
+            MethodInfo onSceneChange = typeof(TestRunnerShortcut).GetMethod(
+                "OnSceneChangeRequested",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(onSceneChange,
+                "Failed to reflect TestRunnerShortcut.OnSceneChangeRequested");
+
+            var readySkin = ScriptableObject.CreateInstance<GUISkin>();
+            var missingBackgroundSkin = ScriptableObject.CreateInstance<GUISkin>();
+            var sourceBackground = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+
+            try
+            {
+                sourceBackground.SetPixels(new[]
+                {
+                    new Color(0.18f, 0.24f, 0.31f, 0.35f),
+                    new Color(0.20f, 0.27f, 0.34f, 0.40f),
+                    new Color(0.22f, 0.29f, 0.36f, 0.45f),
+                    new Color(0.24f, 0.31f, 0.38f, 0.50f),
+                });
+                sourceBackground.Apply();
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Test must start from a cleared opaque-style cache");
+
+                readySkin.window = new GUIStyle();
+                readySkin.window.normal.background = sourceBackground;
+
+                missingBackgroundSkin.window = new GUIStyle();
+
+                bool builtBeforeReset = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtBeforeReset,
+                    "Opaque style should build when a window background exists");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Opaque style must be cached before the scene reset");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Opaque style cache must keep a non-null window background before reset");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Lagging hover/focus/active states must fall back to the ready normal background");
+                InGameAssert.AreNotEqual(sourceBackground.GetInstanceID(),
+                    shortcut.OpaqueWindowBackgroundForTesting.GetInstanceID(),
+                    "Opaque style must keep a copied background texture instead of the live skin texture");
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Scene reset should clear the cached opaque style before the next rebuild");
+
+                bool builtWithMissingBackground = shortcut.TryEnsureOpaqueStyleForTesting(missingBackgroundSkin);
+                InGameAssert.IsFalse(builtWithMissingBackground,
+                    "Opaque style rebuild must defer when the destination scene skin has no window background yet");
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Deferred rebuild must not cache an opaque style with null backgrounds");
+                InGameAssert.IsNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Deferred rebuild must leave the cached opaque background unset");
+
+                bool builtAfterSkinReady = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtAfterSkinReady,
+                    "Opaque style rebuild should succeed once the scene skin is ready");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Ready-skin rebuild must repopulate the cached opaque style");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Ready-skin rebuild must cache a non-null opaque background");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Ready-skin rebuild must populate every window state background");
+            }
+            finally
+            {
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                Object.Destroy(readySkin);
+                Object.Destroy(missingBackgroundSkin);
+                Object.Destroy(sourceBackground);
+            }
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// This also drives a real stock quickload, so it is intentionally single-run only.
@@ -4852,6 +5012,171 @@ namespace Parsek.InGameTests
                 "frameLazyReentryBuildCount must NOT bump on reuse itself (the NEXT frame's UpdateReentryFx may build, but that is the B3 path, not reuse)");
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#461: loop-cycle reuse clears deferVisibilityUntilPlaybackSync and re-activates the reused ghost on the same UpdatePlayback frame when the ghost stays visible")]
+        public void Bug406_ReuseClearsDeferVisOnSameFrame()
+        {
+            var state = RunBug406ReuseVisibilityScenario(
+                hiddenByZone: false,
+                out var originalGhost,
+                out var capturedLog);
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "test must cross a real loop-cycle boundary; otherwise the post-frame visibility assertion is meaningless");
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "cycle-boundary pass must reset playbackIndex before the new-cycle frame finishes");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "cycle-boundary pass must reset partEventIndex before the new-cycle frame finishes");
+            InGameAssert.IsFalse(state.deferVisibilityUntilPlaybackSync,
+                "visible same-frame path must clear deferVisibilityUntilPlaybackSync after reuse");
+            InGameAssert.IsNotNull(state.ghost,
+                "visible same-frame path must keep the reused ghost loaded");
+            InGameAssert.IsTrue(ReferenceEquals(originalGhost, state.ghost),
+                "full UpdatePlayback loop-cycle path must preserve the same ghost GameObject instance instead of rebuilding");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "visible same-frame path must re-activate the reused ghost before UpdatePlayback returns");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("ghost reused across loop cycle")),
+                "full-frame regression must prove UpdatePlayback took the reuse path instead of destroy+spawn");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("re-shown: entered visible distance tier")),
+                "zone rendering must NOT re-show a deferred ghost before ActivateGhostVisualsIfNeeded owns the same-frame activation");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#461: loop-cycle reuse leaves the ghost deferred/inactive when the same frame is hidden by zone rendering")]
+        public void Bug406_ReuseHiddenByZone_DoesNotActivateGhostOnSameFrame()
+        {
+            var state = RunBug406ReuseVisibilityScenario(
+                hiddenByZone: true,
+                out var originalGhost,
+                out var capturedLog);
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "hidden-by-zone variant must still cross a real loop-cycle boundary");
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "hidden-by-zone variant must still rewind playbackIndex on the reused cycle");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "hidden-by-zone variant must still rewind partEventIndex on the reused cycle");
+            InGameAssert.IsNotNull(state.ghost,
+                "hidden-tier prewarm should keep the reused ghost loaded while it remains invisible");
+            InGameAssert.IsTrue(ReferenceEquals(originalGhost, state.ghost),
+                "hidden-tier prewarm path must keep the same ghost GameObject instance loaded across the loop boundary");
+            InGameAssert.IsTrue(state.deferVisibilityUntilPlaybackSync,
+                "hidden-by-zone branch must preserve deferVisibilityUntilPlaybackSync for the next visible frame");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "hidden-by-zone branch must not activate the reused ghost on the cycle-boundary frame");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("ghost reused across loop cycle")),
+                "hidden-by-zone regression must prove UpdatePlayback took the reuse path instead of destroy+spawn");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("re-shown: entered visible distance tier")),
+                "zone rendering must NOT re-show a deferred ghost while the loop frame is still hidden by zone policy");
+        }
+
+        private GhostPlaybackState RunBug406ReuseVisibilityScenario(
+            bool hiddenByZone, out GameObject originalGhost, out List<string> capturedLog)
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight");
+
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            if (flight.WatchedRecordingIndex >= 0)
+                flight.ExitWatchMode(skipCameraRestore: true);
+
+            var engine = new GhostPlaybackEngine(flight);
+            double renderDistance = hiddenByZone ? 1.0e9 : 0.0;
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => renderDistance;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            originalGhost = new GameObject(
+                hiddenByZone ? "ParsekTestGhost_Bug406ReuseHiddenByZone" : "ParsekTestGhost_Bug406ReuseVisible");
+            runner.TrackForCleanup(originalGhost);
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(originalGhost.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestReuseVisibility",
+                ghost = originalGhost,
+                cameraPivot = cameraPivotObj.transform,
+                loopCycleIndex = 0,
+                playbackIndex = 7,
+                partEventIndex = 3,
+                flagEventIndex = 1,
+                explosionFired = true,
+                pauseHidden = true,
+                audioMuted = true,
+            };
+
+            engine.ghostStates[0] = state;
+            var traj = new TestLoopTrajectoryForBug461(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                addHiddenPrewarmEvent: hiddenByZone);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = traj.EndUT,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 12.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line =>
+            {
+                localLog.Add(line);
+                priorSink?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            capturedLog = localLog;
+            return state;
+        }
+
         #endregion
     }
 
@@ -4879,6 +5204,87 @@ namespace Parsek.InGameTests
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "TestReuse";
         public string RecordingId => "test-b406";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
+    }
+
+    internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
+    {
+        internal TestLoopTrajectoryForBug461(
+            string bodyName, double latitude, double longitude, double altitude,
+            bool addHiddenPrewarmEvent)
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0,
+                    latitude = latitude,
+                    longitude = longitude,
+                    altitude = altitude,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 5,
+                    latitude = latitude,
+                    longitude = longitude + 0.001,
+                    altitude = altitude + 10.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+            };
+
+            PartEvents = addHiddenPrewarmEvent
+                ? new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 3.0,
+                        partPersistentId = 1,
+                        partName = "prewarm",
+                        eventType = PartEventType.Decoupled,
+                    }
+                }
+                : new List<PartEvent>();
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+        public double StartUT => 0;
+        public double EndUT => 5;
+        public int RecordingFormatVersion => 0;
+        public List<PartEvent> PartEvents { get; }
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "TestReuseVisibility";
+        public string RecordingId => "test-b461";
         public bool LoopPlayback => true;
         public double LoopIntervalSeconds => 10;
         public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;

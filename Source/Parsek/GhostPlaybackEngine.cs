@@ -7,14 +7,13 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Core ghost playback engine. Manages ghost GameObjects, per-frame positioning,
-    /// part event application, loop/overlap playback, zone transitions, and soft caps.
+    /// Core ghost playback engine.
+    /// Consumes <see cref="IPlaybackTrajectory"/> data plus rendering collaborators to manage
+    /// ghost visuals, per-frame positioning, part-event playback, loop/overlap playback,
+    /// zone transitions, and soft caps.
     ///
-    /// This class has no knowledge of Recording, RecordingTree, BranchPoint, chain IDs,
-    /// resource deltas, vessel spawning, or any Parsek-specific concept. It renders
-    /// trajectories as visual ghosts and nothing more.
-    ///
-    /// Future: this class becomes the core of the standalone ghost playback mod.
+    /// Concrete recording/tree policy stays outside this class; trajectory knowledge crosses
+    /// this boundary only through the interface surface.
     /// </summary>
     internal class GhostPlaybackEngine
     {
@@ -68,6 +67,14 @@ namespace Parsek
         // playback-budget WARN threshold. Watch-mode and loop-cycle-rebuild spawns bypass
         // this cap; see plan-414-spawn-throttle.md for the full call-site taxonomy.
         internal const int MaxSpawnsPerFrame = 2;
+        // Bug #450 B2: maximum timeline-build work one ghost is allowed to consume in a
+        // single BuildGhostVisualsWithMetrics call. This caps the dominant
+        // BuildTimelineGhostFromSnapshot bucket; the final completion call still pays the
+        // fixed dictionaries / priming tail. Explicit watch-mode loads bypass this cap and
+        // complete immediately on the user's request.
+        internal const double MaxSpawnBuildMillisecondsPerAdvance = 4.0;
+        private static readonly long MaxSpawnTimelineBuildTicksPerAdvance =
+            (long)(Stopwatch.Frequency * (MaxSpawnBuildMillisecondsPerAdvance / 1000.0));
 
         // Bug #450 B3: cap on deferred reentry-FX builds that can fire on a single frame.
         // Without a cap, N ghosts crossing atmosphereDepth in the same frame would each
@@ -156,6 +163,14 @@ namespace Parsek
         // destructive part event. Keep those indices suppressed until a rewind/reset so
         // they do not respawn while the original recording window is still in range.
         private readonly HashSet<int> earlyDestroyedDebrisCompleted = new HashSet<int>();
+
+        private enum GhostVisualLoadStatus : byte
+        {
+            Failed = 0,
+            Pending = 1,
+            Ready = 2,
+            CompletedThisCall = 3
+        }
 
         #endregion
 
@@ -749,20 +764,22 @@ namespace Parsek
                 // land every eligible ghost's visual build on a single frame.
                 if (!TryReserveSpawnSlot(i, "first-spawn"))
                     return false;
-                SpawnGhost(i, traj, ctx.currentUT);
-                ghostStates.TryGetValue(i, out state);
-                ghostActive = HasLoadedGhostVisuals(state);
-                if (ghostActive)
-                {
-                    loggedGhostEnter.Add(i);
 
-                    if (OnGhostCreated != null)
-                    {
-                        deferredCreatedEvents.Add(new GhostLifecycleEvent
-                        {
-                            Index = i, Trajectory = traj, State = state, Flags = f
-                        });
-                    }
+                state = CreatePendingSpawnState(traj, PendingSpawnLifecycle.StandardEnter, f);
+                ghostStates[i] = state;
+                GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
+                    i, traj, state, ctx.currentUT, "first spawn",
+                    resetCompletedEventDedup: true);
+                if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
+                {
+                    ghostStates.Remove(i);
+                    ghostActive = false;
+                    return false;
+                }
+                if (firstSpawnStatus == GhostVisualLoadStatus.Pending)
+                {
+                    ghostActive = false;
+                    return true;
                 }
             }
 
@@ -787,15 +804,28 @@ namespace Parsek
             {
                 // Bug #414: throttle distance-tier rehydration — a 1-frame delay is invisible
                 // when a ghost comes back into LOD range.
-                if (!TryReserveSpawnSlot(i, "distance-tier-rehydrate"))
+                string reloadSite = state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                    ? "first-spawn-continue"
+                    : "distance-tier-rehydrate";
+                if (!TryReserveSpawnSlot(i, reloadSite))
                 {
                     ghostActive = false;
                     return false;
                 }
-                if (!EnsureGhostVisualsLoaded(i, traj, state, ctx.currentUT, "entered visible distance tier"))
+                GhostVisualLoadStatus loadStatus = EnsureGhostVisualsLoaded(
+                    i, traj, state, ctx.currentUT,
+                    state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                        ? "continuing first spawn"
+                        : "entered visible distance tier");
+                if (loadStatus == GhostVisualLoadStatus.Failed)
                 {
                     ghostActive = false;
                     return false;
+                }
+                if (loadStatus == GhostVisualLoadStatus.Pending)
+                {
+                    ghostActive = false;
+                    return true;
                 }
             }
 
@@ -1034,55 +1064,66 @@ namespace Parsek
             bool cycleChanged = HasLoopCycleChanged(state, cycleIndex);
             if (cycleChanged && state != null)
             {
+                if (!HasLoadedGhostVisuals(state))
+                {
+                    // Bug #450 B2: split first-spawn builds can survive across a loop
+                    // boundary before any ghost GameObject exists. Advance the cycle index
+                    // so the pending spawn eventually finalizes against the current cycle,
+                    // but do NOT emit restart / explosion-hold events for a ghost that
+                    // never actually spawned.
+                    ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+                }
+                else
+                {
                 // Position at the loop endpoint so explosion appears at the real loop end.
-                if (state.ghost != null)
                     PositionGhostAtLoopEndpoint(index, traj, state);
 
-                bool needsExplosion = state != null
-                    && !state.explosionFired
+                    bool needsExplosion = !state.explosionFired
                     && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
                         traj, ResolveLoopPlaybackEndpointUT(traj));
 
-                if (needsExplosion)
-                    TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+                    if (needsExplosion)
+                        TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
 
-                // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
-                OnLoopCameraAction?.Invoke(new CameraActionEvent
-                {
-                    Index = index,
-                    Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
-                    AnchorPosition = state?.ghost != null ? state.ghost.transform.position : Vector3.zero,
-                    HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
-                    Trajectory = traj, Flags = flags
-                });
+                    // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index,
+                        Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
+                        AnchorPosition = state.ghost.transform.position,
+                        HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
+                        Trajectory = traj, Flags = flags
+                    });
 
-                // Fire loop restarted event
-                OnLoopRestarted?.Invoke(new LoopRestartedEvent
-                {
-                    Index = index, Trajectory = traj, State = state, Flags = flags,
-                    PreviousCycleIndex = state?.loopCycleIndex ?? 0,
-                    NewCycleIndex = cycleIndex,
-                    ExplosionFired = needsExplosion,
-                    ExplosionPosition = state?.ghost != null ? state.ghost.transform.position : Vector3.zero
-                });
+                    // Fire loop restarted event
+                    OnLoopRestarted?.Invoke(new LoopRestartedEvent
+                    {
+                        Index = index, Trajectory = traj, State = state, Flags = flags,
+                        PreviousCycleIndex = state.loopCycleIndex,
+                        NewCycleIndex = cycleIndex,
+                        ExplosionFired = needsExplosion,
+                        ExplosionPosition = state.ghost.transform.position
+                    });
 
-                GhostPlaybackLogic.ResetReentryFx(state, index);
+                    GhostPlaybackLogic.ResetReentryFx(state, index);
 
-                // #406 follow-up: reuse the ghost GameObject across the loop
-                // cycle boundary instead of destroy+spawn. The reuse preserves
-                // the ghost hierarchy, reentryFxInfo, reentryFxPendingBuild
-                // (#450 B3), all info dictionaries, cameraPivot identity,
-                // and horizonProxy; it resets playback iterators, explosionFired,
-                // pauseHidden, rcsSuppressed, lightPlaybackStates, fakeCanopies,
-                // logicalPartIds (re-materialised from snapshot), and part
-                // visibility (previous-cycle decoupled parts get reactivated).
-                // This path does NOT consume a #414 spawn slot and does NOT
-                // increment frameLazyReentryBuildCount. See
-                // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
-                // preservation table.
-                ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
-                // state is the same object; ghostActive stays true. Skip the
-                // "state == null" first-spawn branch below.
+                    // #406 follow-up: reuse the ghost GameObject across the loop
+                    // cycle boundary instead of destroy+spawn. The reuse preserves
+                    // the ghost hierarchy, reentryFxInfo, reentryFxPendingBuild
+                    // (#450 B3), all info dictionaries, cameraPivot identity,
+                    // and horizonProxy; it resets playback iterators, explosionFired,
+                    // pauseHidden, rcsSuppressed, lightPlaybackStates, fakeCanopies,
+                    // logicalPartIds (re-materialised from snapshot), and part
+                    // visibility (previous-cycle decoupled parts get reactivated).
+                    // This path does NOT consume a #414 spawn slot and does NOT
+                    // increment frameLazyReentryBuildCount. See
+                    // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
+                    // preservation table.
+                    ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+                    // state is the same object; loaded-ghost path keeps visuals live, and
+                    // pending-build path above just advances the cycle index without
+                    // emitting restart side effects.
+                }
             }
 
             // Looped ghost distance gating
@@ -1102,31 +1143,22 @@ namespace Parsek
                 // safe on this line.
                 if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
                     return;
-                SpawnGhost(index, traj, loopUT);
-                if (!ghostStates.TryGetValue(index, out state) || state == null)
-                    return;
+                state = CreatePendingSpawnState(traj, PendingSpawnLifecycle.LoopEnter, flags);
                 state.loopCycleIndex = cycleIndex;
-                ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
-                    $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {ctx.currentUT:F1} (loop cycle={cycleIndex})");
-
-                // Defer OnGhostCreated for policy (ghost map ProtoVessel creation)
-                if (OnGhostCreated != null)
+                ghostStates[index] = state;
+                GhostVisualLoadStatus loopSpawnStatus = EnsureGhostVisualsLoaded(
+                    index, traj, state, loopUT, "loop first spawn",
+                    resetCompletedEventDedup: true);
+                if (loopSpawnStatus == GhostVisualLoadStatus.Failed)
                 {
-                    deferredCreatedEvents.Add(new GhostLifecycleEvent
-                    {
-                        Index = index, Trajectory = traj, State = state, Flags = flags
-                    });
+                    ghostStates.Remove(index);
+                    return;
                 }
-
-                // Fire camera event for retarget to new ghost
-                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                if (loopSpawnStatus == GhostVisualLoadStatus.Pending)
                 {
-                    Index = index, Action = CameraActionType.RetargetToNewGhost,
-                    NewCycleIndex = cycleIndex,
-                    GhostPivot = state.cameraPivot,
-                    Trajectory = traj, Flags = flags
-                });
-
+                    ghostActive = false;
+                    return;
+                }
                 ghostActive = true;
             }
 
@@ -1151,9 +1183,19 @@ namespace Parsek
             if (!HasLoadedGhostVisuals(state))
             {
                 // Bug #414: throttle loop distance-tier rehydration.
-                if (!TryReserveSpawnSlot(index, "loop-distance-tier-rehydrate"))
+                string loopReloadSite = state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                    ? "loop-first-spawn-continue"
+                    : "loop-distance-tier-rehydrate";
+                if (!TryReserveSpawnSlot(index, loopReloadSite))
                     return;
-                if (!EnsureGhostVisualsLoaded(index, traj, state, loopUT, "loop re-entered visible distance tier"))
+                GhostVisualLoadStatus loopLoadStatus = EnsureGhostVisualsLoaded(
+                    index, traj, state, loopUT,
+                    state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                        ? "continuing loop first spawn"
+                        : "loop re-entered visible distance tier");
+                if (loopLoadStatus == GhostVisualLoadStatus.Failed)
+                    return;
+                if (loopLoadStatus == GhostVisualLoadStatus.Pending)
                     return;
             }
 
@@ -1229,6 +1271,7 @@ namespace Parsek
             double primaryCycleStartUT = loopStartUT + lastCycle * cycleDuration;
             double primaryPhase = Math.Max(0, Math.Min(ctx.currentUT - primaryCycleStartUT, duration));
             double primaryLoopUT = loopStartUT + primaryPhase;
+            bool primaryAdvanceDeferredThisFrame = false;
 
             if (primaryCycleChanged)
             {
@@ -1236,6 +1279,15 @@ namespace Parsek
                 if (primaryState != null)
                 {
                     ghostStates.Remove(index);
+                    if (primaryState.pendingSpawnLifecycle != PendingSpawnLifecycle.None)
+                    {
+                        // Bug #450 B2: a primary that gets demoted to the overlap list before
+                        // its split build completes must NOT later finalize as a brand-new
+                        // overlap-primary enter. The old cycle should quietly finish as an
+                        // overlap shell with no ghost-created / camera-retarget side effects.
+                        primaryState.pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+                        primaryState.pendingSpawnFlags = default(TrajectoryPlaybackFlags);
+                    }
                     if (primaryState.ghost != null)
                         GhostPlaybackLogic.MuteAllAudio(primaryState); // overlap ghosts get no audio
                     overlaps.Add(primaryState);
@@ -1244,34 +1296,21 @@ namespace Parsek
                 }
 
                 // Spawn new primary for lastCycle
-                SpawnGhost(index, traj, primaryLoopUT);
-                if (!ghostStates.TryGetValue(index, out primaryState) || primaryState == null)
+                primaryState = CreatePendingSpawnState(traj, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
+                primaryState.loopCycleIndex = lastCycle;
+                ghostStates[index] = primaryState;
+                GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
+                    index, traj, primaryState, primaryLoopUT, "overlap primary first spawn",
+                    resetCompletedEventDedup: true);
+                if (overlapPrimarySpawnStatus == GhostVisualLoadStatus.Failed)
                 {
+                    ghostStates.Remove(index);
                     ParsekLog.Warn("Engine",
                         $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
                     return;
                 }
-                primaryState.loopCycleIndex = lastCycle;
-                ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
-                    $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" cycle={lastCycle} at UT {ctx.currentUT:F1} (overlap)");
-
-                // Defer OnGhostCreated for policy (ghost map ProtoVessel creation)
-                if (OnGhostCreated != null)
-                {
-                    deferredCreatedEvents.Add(new GhostLifecycleEvent
-                    {
-                        Index = index, Trajectory = traj, State = primaryState, Flags = flags
-                    });
-                }
-
-                // Fire camera event for retarget
-                OnOverlapCameraAction?.Invoke(new CameraActionEvent
-                {
-                    Index = index, Action = CameraActionType.RetargetToNewGhost,
-                    NewCycleIndex = lastCycle,
-                    GhostPivot = primaryState.cameraPivot,
-                    Trajectory = traj, Flags = flags
-                });
+                primaryAdvanceDeferredThisFrame =
+                    overlapPrimarySpawnStatus == GhostVisualLoadStatus.Pending;
             }
 
             // Position primary ghost
@@ -1289,19 +1328,45 @@ namespace Parsek
                     index, primaryState, traj, primaryDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
-                    HandleHiddenGhostVisualState(
-                        index, traj, primaryState, primaryLoopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
-                        hiddenReason: $"overlap primary hidden by distance LOD at {primaryDistance:F0}m");
+                    // Bug #450 B2: a newly-started overlap-primary build may already have
+                    // consumed its one allowed timeline advance this frame above. Do not let
+                    // hidden-tier prewarm immediately take a second advance through
+                    // HandleHiddenGhostVisualState's EnsureGhostVisualsLoaded path.
+                    if (!(primaryAdvanceDeferredThisFrame && !HasLoadedGhostVisuals(primaryState)))
+                    {
+                        HandleHiddenGhostVisualState(
+                            index, traj, primaryState, primaryLoopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
+                            hiddenReason: $"overlap primary hidden by distance LOD at {primaryDistance:F0}m");
+                    }
                 }
                 else
                 {
                     if (!HasLoadedGhostVisuals(primaryState))
                     {
-                        // Bug #414: throttle overlap-primary distance-tier rehydration.
-                        if (!TryReserveSpawnSlot(index, "overlap-primary-rehydrate"))
+                        if (primaryAdvanceDeferredThisFrame)
                             primaryReady = false;
-                        else if (!EnsureGhostVisualsLoaded(index, traj, primaryState, primaryLoopUT, "overlap primary re-entered visible distance tier"))
-                            primaryReady = false;
+                        else
+                        {
+                            // Bug #414: throttle overlap-primary distance-tier rehydration.
+                            string overlapPrimaryReloadSite = primaryState.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                                ? "overlap-primary-first-spawn-continue"
+                                : "overlap-primary-rehydrate";
+                            if (!TryReserveSpawnSlot(index, overlapPrimaryReloadSite))
+                                primaryReady = false;
+                            else
+                            {
+                                GhostVisualLoadStatus overlapPrimaryLoadStatus = EnsureGhostVisualsLoaded(
+                                    index, traj, primaryState, primaryLoopUT,
+                                    primaryState.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                                        ? "continuing overlap primary first spawn"
+                                        : "overlap primary re-entered visible distance tier");
+                                if (overlapPrimaryLoadStatus != GhostVisualLoadStatus.CompletedThisCall
+                                    && overlapPrimaryLoadStatus != GhostVisualLoadStatus.Ready)
+                                {
+                                    primaryReady = false;
+                                }
+                            }
+                        }
                     }
 
                     if (primaryReady)
@@ -1420,7 +1485,10 @@ namespace Parsek
                     // Bug #414: throttle loop-overlap distance-tier rehydration.
                     if (!TryReserveSpawnSlot(index, "loop-overlap-rehydrate"))
                         continue;
-                    if (!EnsureGhostVisualsLoaded(index, traj, ovState, loopUT, "overlap re-entered visible distance tier"))
+                    GhostVisualLoadStatus overlapLoadStatus = EnsureGhostVisualsLoaded(
+                        index, traj, ovState, loopUT, "overlap re-entered visible distance tier");
+                    if (overlapLoadStatus == GhostVisualLoadStatus.Failed
+                        || overlapLoadStatus == GhostVisualLoadStatus.Pending)
                         continue;
                 }
 
@@ -2257,7 +2325,11 @@ namespace Parsek
                 DestroyGhostResourcesWithMetrics(state, lingerParticleSystems: false);
                 state.ClearLoadedVisualReferences();
             }
-            if (!EnsureGhostVisualsLoaded(index, traj, state, playbackUT, "watch mode requested"))
+            GhostVisualLoadStatus loadStatus = EnsureGhostVisualsLoaded(
+                index, traj, state, playbackUT, "watch mode requested",
+                forceImmediateBuild: true);
+            if (loadStatus != GhostVisualLoadStatus.CompletedThisCall
+                && loadStatus != GhostVisualLoadStatus.Ready)
                 return false;
 
             SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT);
@@ -2521,32 +2593,116 @@ namespace Parsek
                 return;
             }
 
-            var state = new GhostPlaybackState
+            var state = CreatePendingSpawnState(
+                traj, PendingSpawnLifecycle.StandardEnter, default(TrajectoryPlaybackFlags));
+            ghostStates[index] = state;
+
+            GhostVisualLoadStatus status = EnsureGhostVisualsLoaded(
+                index, traj, state, playbackUT, "direct spawn",
+                forceImmediateBuild: true, resetCompletedEventDedup: true);
+            if (status == GhostVisualLoadStatus.Failed)
+                ghostStates.Remove(index);
+        }
+
+        private GhostPlaybackState CreatePendingSpawnState(
+            IPlaybackTrajectory traj, PendingSpawnLifecycle lifecycle, TrajectoryPlaybackFlags flags)
+        {
+            return new GhostPlaybackState
             {
                 vesselName = traj?.VesselName ?? "Unknown",
                 playbackIndex = 0,
                 partEventIndex = 0,
-                flagEventIndex = 0
+                flagEventIndex = 0,
+                pendingSpawnLifecycle = lifecycle,
+                pendingSpawnFlags = flags
             };
+        }
 
-            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out HeaviestSpawnBuildType buildType))
+        private void QueueOrEmitGhostCreated(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, TrajectoryPlaybackFlags flags)
+        {
+            if (OnGhostCreated == null)
                 return;
 
-            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
+            var evt = new GhostLifecycleEvent
+            {
+                Index = index,
+                Trajectory = traj,
+                State = state,
+                Flags = flags
+            };
+
+            if (updateStopwatch.IsRunning)
+                deferredCreatedEvents.Add(evt);
+            else
+                OnGhostCreated(evt);
+        }
+
+        private void FinalizePendingSpawnLifecycle(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, HeaviestSpawnBuildType buildType)
+        {
+            if (state == null)
+                return;
+
+            PendingSpawnLifecycle lifecycle = state.pendingSpawnLifecycle;
+            if (lifecycle == PendingSpawnLifecycle.None)
+                return;
+
+            TrajectoryPlaybackFlags flags = state.pendingSpawnFlags;
+            state.pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+            state.pendingSpawnFlags = default(TrajectoryPlaybackFlags);
+
             GhostPlaybackLogic.InitializeFlagVisibility(traj, state);
-            ghostStates[index] = state;
+            loggedGhostEnter.Add(index);
 
             ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
                 $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType.ToLogToken()}, " +
                 $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
                 $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
+
+            QueueOrEmitGhostCreated(index, traj, state, flags);
+
+            switch (lifecycle)
+            {
+                case PendingSpawnLifecycle.LoopEnter:
+                    ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
+                        $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {playbackUT:F1} " +
+                        $"(loop cycle={state.loopCycleIndex})");
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index,
+                        Action = CameraActionType.RetargetToNewGhost,
+                        NewCycleIndex = state.loopCycleIndex,
+                        GhostPivot = state.cameraPivot,
+                        Trajectory = traj,
+                        Flags = flags
+                    });
+                    break;
+
+                case PendingSpawnLifecycle.OverlapPrimaryEnter:
+                    ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
+                        $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" cycle={state.loopCycleIndex} " +
+                        $"at UT {playbackUT:F1} (overlap)");
+                    OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index,
+                        Action = CameraActionType.RetargetToNewGhost,
+                        NewCycleIndex = state.loopCycleIndex,
+                        GhostPivot = state.cameraPivot,
+                        Trajectory = traj,
+                        Flags = flags
+                    });
+                    break;
+            }
         }
 
-        private bool BuildGhostVisualsWithMetrics(
+        private GhostVisualLoadStatus BuildGhostVisualsWithMetrics(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            bool resetCompletedEventDedup, out HeaviestSpawnBuildType buildType)
+            bool resetCompletedEventDedup, bool forceImmediateBuild,
+            out HeaviestSpawnBuildType buildType)
         {
-            bool built = false;
+            GhostVisualLoadStatus status = GhostVisualLoadStatus.Failed;
             buildType = HeaviestSpawnBuildType.None;
             // Bug #414: record per-spawn cost so the breakdown WARN surfaces whether a single
             // heavy ghost is the culprit vs many light ones. Take the pre-call tick count
@@ -2559,8 +2715,8 @@ namespace Parsek
 
             try
             {
-                built = TryPopulateGhostVisuals(index, traj, state, out buildType);
-                return built;
+                status = TryPopulateGhostVisuals(index, traj, state, forceImmediateBuild, out buildType);
+                return status;
             }
             finally
             {
@@ -2589,7 +2745,7 @@ namespace Parsek
                     frameHeaviestSpawnOtherTicks = otherTicks < 0 ? 0 : otherTicks;
                     frameHeaviestSpawnBuildType = buildType;
                 }
-                if (built)
+                if (status == GhostVisualLoadStatus.CompletedThisCall)
                     DiagnosticsState.health.ghostBuildsThisSession++;
             }
         }
@@ -2668,9 +2824,27 @@ namespace Parsek
 
         internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
 
-        private bool TryPopulateGhostVisuals(
+        // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
+        // for pending split-build states using MockTrajectory in xUnit, without requiring
+        // a full UpdatePlayback pass or live KSP scene objects.
+        internal void UpdateLoopingPlaybackForTesting(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            FrameContext ctx, bool suppressGhosts, bool suppressVisualFx)
+            => UpdateLoopingPlayback(index, traj, flags, ctx, suppressGhosts, suppressVisualFx);
+
+        internal void UpdateOverlapPlaybackForTesting(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx)
+        {
+            double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
+            double duration = EffectiveLoopDuration(traj);
+            UpdateOverlapPlayback(index, traj, flags, ctx, primaryState,
+                intervalSeconds, duration, suppressVisualFx);
+        }
+
+        private GhostVisualLoadStatus TryPopulateGhostVisuals(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            out HeaviestSpawnBuildType buildType)
+            bool forceImmediateBuild, out HeaviestSpawnBuildType buildType)
         {
             buildType = HeaviestSpawnBuildType.None;
             // Bug #450: reset per-call sub-phase deltas so a prior (shorter-lived) spawn's
@@ -2683,45 +2857,98 @@ namespace Parsek
             lastSpawnReentryTicks = 0;
 
             if (state == null)
-                return false;
+                return GhostVisualLoadStatus.Failed;
 
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             GhostBuildResult buildResult = null;
             GameObject ghost = null;
             bool builtFromSnapshot = false;
+            PendingGhostVisualBuild pendingBuild = state.pendingVisualBuild;
+            // Retain the exact snapshot used to begin the split build so the final
+            // dictionaries/logical-part reconstruction runs against the same node after
+            // several yielded frames instead of re-resolving from traj mid-build.
+            ConfigNode snapshot = pendingBuild?.snapshotNode;
 
             // Bug #450 sub-phase 1: snapshot resolve. Included even though it's trivial so
             // the breakdown reconciles — callers reading the log can sanity-check that
             // snapshot+timeline+dicts+reentry+other ≈ spawnMax.
-            long snapshotResolvePre = buildSnapshotResolveStopwatch.ElapsedTicks;
-            buildSnapshotResolveStopwatch.Start();
-            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
-            buildSnapshotResolveStopwatch.Stop();
-            lastSpawnSnapshotResolveTicks = buildSnapshotResolveStopwatch.ElapsedTicks - snapshotResolvePre;
+            if (pendingBuild == null)
+            {
+                long snapshotResolvePre = buildSnapshotResolveStopwatch.ElapsedTicks;
+                buildSnapshotResolveStopwatch.Start();
+                snapshot = GhostVisualBuilder.GetGhostSnapshot(traj);
+                buildSnapshotResolveStopwatch.Stop();
+                lastSpawnSnapshotResolveTicks = buildSnapshotResolveStopwatch.ElapsedTicks - snapshotResolvePre;
+            }
 
             // Bug #450 sub-phase 2: timeline build (the dominant suspect). Covers both the
             // snapshot path (BuildTimelineGhostFromSnapshot — part instantiation, engine FX
-            // size-boost, audio wiring) and the sphere fallback (CreateGhostSphere). Grouping
-            // them gives a single bucket for "ghost GameObject construction".
+            // size-boost, audio wiring) and the sphere fallback (CreateGhostSphere). Bug
+            // #450 B2 advances the snapshot path in bounded chunks across frames.
             long timelinePre = buildTimelineStopwatch.ElapsedTicks;
             buildTimelineStopwatch.Start();
-            // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
-            if (snapshot != null)
+            if (pendingBuild != null)
             {
-                buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                    traj, $"Parsek_Timeline_{index}");
+                buildType = pendingBuild.buildType;
+                long timelineBudgetTicks = forceImmediateBuild
+                    ? long.MaxValue
+                    : MaxSpawnTimelineBuildTicksPerAdvance;
+                if (!GhostVisualBuilder.AdvanceTimelineGhostBuild(pendingBuild, timelineBudgetTicks))
+                {
+                    buildTimelineStopwatch.Stop();
+                    lastSpawnTimelineTicks = buildTimelineStopwatch.ElapsedTicks - timelinePre;
+                    return GhostVisualLoadStatus.Pending;
+                }
+
+                buildResult = GhostVisualBuilder.CompleteTimelineGhostBuild(pendingBuild, traj);
+                state.pendingVisualBuild = null;
                 if (buildResult != null)
+                {
                     ghost = buildResult.root;
-                builtFromSnapshot = ghost != null;
+                    builtFromSnapshot = true;
+                }
+            }
+            else if (snapshot != null)
+            {
+                HeaviestSpawnBuildType snapshotBuildType = traj.GhostVisualSnapshot != null
+                    ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                    : HeaviestSpawnBuildType.VesselSnapshot;
+                pendingBuild = GhostVisualBuilder.TryBeginTimelineGhostBuild(
+                    traj, snapshot, $"Parsek_Timeline_{index}", snapshotBuildType);
+                if (pendingBuild != null)
+                {
+                    state.pendingVisualBuild = pendingBuild;
+                    buildType = snapshotBuildType;
+                    long timelineBudgetTicks = forceImmediateBuild
+                        ? long.MaxValue
+                        : MaxSpawnTimelineBuildTicksPerAdvance;
+                    if (!GhostVisualBuilder.AdvanceTimelineGhostBuild(pendingBuild, timelineBudgetTicks))
+                    {
+                        buildTimelineStopwatch.Stop();
+                        lastSpawnTimelineTicks = buildTimelineStopwatch.ElapsedTicks - timelinePre;
+                        return GhostVisualLoadStatus.Pending;
+                    }
+
+                    buildResult = GhostVisualBuilder.CompleteTimelineGhostBuild(pendingBuild, traj);
+                    state.pendingVisualBuild = null;
+                    if (buildResult != null)
+                    {
+                        ghost = buildResult.root;
+                        builtFromSnapshot = true;
+                    }
+                }
             }
 
             if (ghost == null)
+            {
                 ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+                buildType = HeaviestSpawnBuildType.SphereFallback;
+            }
             buildTimelineStopwatch.Stop();
             lastSpawnTimelineTicks = buildTimelineStopwatch.ElapsedTicks - timelinePre;
 
             if (ghost == null)
-                return false;
+                return GhostVisualLoadStatus.Failed;
 
             var cameraPivotObj = new GameObject("cameraPivot");
             cameraPivotObj.transform.SetParent(ghost.transform, false);
@@ -2807,12 +3034,13 @@ namespace Parsek
             state.deferVisibilityUntilPlaybackSync = true;
             ResetGhostAppearanceTracking(state);
 
-            buildType = builtFromSnapshot
-                ? (traj.GhostVisualSnapshot != null
+            if (builtFromSnapshot && buildType == HeaviestSpawnBuildType.None)
+            {
+                buildType = traj.GhostVisualSnapshot != null
                     ? HeaviestSpawnBuildType.RecordingStartSnapshot
-                    : HeaviestSpawnBuildType.VesselSnapshot)
-                : HeaviestSpawnBuildType.SphereFallback;
-            return true;
+                    : HeaviestSpawnBuildType.VesselSnapshot;
+            }
+            return GhostVisualLoadStatus.CompletedThisCall;
         }
 
         private bool HandleHiddenGhostVisualState(
@@ -2833,9 +3061,13 @@ namespace Parsek
                     // ghost is hidden by distance LOD anyway. A 1-frame prewarm delay is invisible.
                     if (!TryReserveSpawnSlot(index, "hidden-tier-prewarm"))
                         return false;
-                    if (!EnsureGhostVisualsLoaded(index, traj, state, playbackUT,
-                            $"hidden-tier prewarm ({hiddenReason})"))
+                    GhostVisualLoadStatus prewarmStatus = EnsureGhostVisualsLoaded(
+                        index, traj, state, playbackUT,
+                        $"hidden-tier prewarm ({hiddenReason})");
+                    if (prewarmStatus == GhostVisualLoadStatus.Failed)
                         return false;
+                    if (prewarmStatus == GhostVisualLoadStatus.Pending)
+                        return true;
                 }
 
                 if (HasLoadedGhostVisuals(state))
@@ -2866,24 +3098,46 @@ namespace Parsek
             return false;
         }
 
-        private bool EnsureGhostVisualsLoaded(
+        private GhostVisualLoadStatus EnsureGhostVisualsLoaded(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
-            double playbackUT, string reason)
+            double playbackUT, string reason, bool forceImmediateBuild = false,
+            bool resetCompletedEventDedup = false)
         {
             if (state == null)
-                return false;
+                return GhostVisualLoadStatus.Failed;
             if (HasLoadedGhostVisuals(state))
-                return true;
+                return GhostVisualLoadStatus.Ready;
             if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
-                return false;
+                return GhostVisualLoadStatus.Failed;
 
-            if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out HeaviestSpawnBuildType buildType))
-                return false;
+            GhostVisualLoadStatus status = BuildGhostVisualsWithMetrics(
+                index, traj, state, resetCompletedEventDedup, forceImmediateBuild,
+                out HeaviestSpawnBuildType buildType);
+            if (status == GhostVisualLoadStatus.Pending)
+            {
+                if (state.pendingVisualBuild != null && !state.pendingVisualBuild.hasLoggedSplitYield)
+                {
+                    state.pendingVisualBuild.hasLoggedSplitYield = true;
+                    ParsekLog.VerboseRateLimited("Engine", $"spawn-split-{index}",
+                        $"Ghost #{index} \"{state.vesselName}\" build split across frames: " +
+                        $"{state.pendingVisualBuild.nextPartIndex}/{state.pendingVisualBuild.partNodes.Length} " +
+                        $"snapshot parts built ({reason}, budget={MaxSpawnBuildMillisecondsPerAdvance:F1}ms)",
+                        1.0);
+                }
+                return status;
+            }
+
+            if (status != GhostVisualLoadStatus.CompletedThisCall)
+                return status;
 
             PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
-            ParsekLog.VerboseRateLimited("Engine", $"rebuild-{index}",
-                $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType.ToLogToken()}, {reason})", 1.0);
-            return HasLoadedGhostVisuals(state);
+            if (state.pendingSpawnLifecycle != PendingSpawnLifecycle.None)
+                FinalizePendingSpawnLifecycle(index, traj, state, playbackUT, buildType);
+            else
+                ParsekLog.VerboseRateLimited("Engine", $"rebuild-{index}",
+                    $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType.ToLogToken()}, {reason})", 1.0);
+
+            return status;
         }
 
         private void PrimeLoadedGhostForPlaybackUT(
@@ -3016,13 +3270,7 @@ namespace Parsek
 
         internal static double ResolveGhostActivationStartUT(IPlaybackTrajectory traj)
         {
-            if (traj == null)
-                return 0.0;
-
-            if (traj is Recording recording && recording.TryGetGhostActivationStartUT(out double activationStartUT))
-                return activationStartUT;
-
-            return traj.StartUT;
+            return PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
         }
 
         internal static double ResolveVisiblePlaybackUT(
@@ -3341,6 +3589,12 @@ namespace Parsek
         /// </summary>
         internal void DestroyGhostResources(GhostPlaybackState state, bool lingerParticleSystems = true)
         {
+            if (state.pendingVisualBuild != null)
+            {
+                GhostVisualBuilder.DestroyPendingTimelineGhostBuild(state.pendingVisualBuild);
+                state.pendingVisualBuild = null;
+            }
+
             if (state.materials != null)
             {
                 for (int i = 0; i < state.materials.Count; i++)
