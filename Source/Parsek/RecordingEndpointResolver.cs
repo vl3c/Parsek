@@ -61,7 +61,10 @@ namespace Parsek
             return false;
         }
 
-        internal static bool RefreshEndpointDecision(Recording rec, string context = null)
+        internal static bool RefreshEndpointDecision(
+            Recording rec,
+            string context = null,
+            bool logDecision = true)
         {
             if (rec == null)
                 return false;
@@ -75,6 +78,28 @@ namespace Parsek
                     || !string.IsNullOrEmpty(rec.EndpointBodyName);
                 rec.EndpointPhase = RecordingEndpointPhase.Unknown;
                 rec.EndpointBodyName = null;
+                if (logDecision)
+                {
+                    LogEndpointDecision(
+                        "RefreshEndpointDecision",
+                        context,
+                        rec,
+                        phaseBefore,
+                        bodyBefore,
+                        rec.EndpointPhase,
+                        rec.EndpointBodyName,
+                        hadPersistedDecision,
+                        resolved: false);
+                }
+                return hadPersistedDecision;
+            }
+
+            bool changed = rec.EndpointPhase != phase
+                || !string.Equals(rec.EndpointBodyName, bodyName, StringComparison.Ordinal);
+            rec.EndpointPhase = phase;
+            rec.EndpointBodyName = bodyName;
+            if (logDecision)
+            {
                 LogEndpointDecision(
                     "RefreshEndpointDecision",
                     context,
@@ -83,25 +108,9 @@ namespace Parsek
                     bodyBefore,
                     rec.EndpointPhase,
                     rec.EndpointBodyName,
-                    hadPersistedDecision,
-                    resolved: false);
-                return hadPersistedDecision;
+                    changed,
+                    resolved: true);
             }
-
-            bool changed = rec.EndpointPhase != phase
-                || !string.Equals(rec.EndpointBodyName, bodyName, StringComparison.Ordinal);
-            rec.EndpointPhase = phase;
-            rec.EndpointBodyName = bodyName;
-            LogEndpointDecision(
-                "RefreshEndpointDecision",
-                context,
-                rec,
-                phaseBefore,
-                bodyBefore,
-                rec.EndpointPhase,
-                rec.EndpointBodyName,
-                changed,
-                resolved: true);
             return changed;
         }
 
@@ -128,7 +137,7 @@ namespace Parsek
                 return false;
             }
 
-            bool changed = RefreshEndpointDecision(rec, context);
+            bool changed = RefreshEndpointDecision(rec, context, logDecision: false);
             LogEndpointDecision(
                 "BackfillEndpointDecision",
                 context,

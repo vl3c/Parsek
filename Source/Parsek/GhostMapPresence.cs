@@ -603,7 +603,7 @@ namespace Parsek
             CelestialBody body = FindBodyByName(point.bodyName);
             if (body == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic,
                         "CreateGhostVesselFromStateVectors: body '{0}' not found for recording #{1}",
                         point.bodyName, recordingIndex));
@@ -642,7 +642,7 @@ namespace Parsek
 
             if (vessel.orbitDriver == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic,
                         "UpdateGhostOrbitFromStateVectors: no OrbitDriver for recording #{0}",
                         recordingIndex));
@@ -652,7 +652,7 @@ namespace Parsek
             CelestialBody body = FindBodyByName(point.bodyName);
             if (body == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic,
                         "UpdateGhostOrbitFromStateVectors: body '{0}' not found for recording #{1}",
                         point.bodyName, recordingIndex));
@@ -692,7 +692,7 @@ namespace Parsek
         {
             if (vessel.orbitDriver == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic, "ApplyOrbitToVessel: no OrbitDriver for {0}", logContext));
                 return;
             }
@@ -700,7 +700,7 @@ namespace Parsek
             CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic, "ApplyOrbitToVessel: body '{0}' not found for {1}",
                         segment.bodyName, logContext));
                 return;
@@ -1213,7 +1213,7 @@ namespace Parsek
             CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic,
                         "BuildAndLoadGhostProtoVessel(segment): body '{0}' not found for {1}",
                         segment.bodyName, logContext));
@@ -1246,7 +1246,7 @@ namespace Parsek
                 out double epoch,
                 out string orbitBodyName))
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic,
                         "BuildAndLoadGhostProtoVessel: no endpoint-aligned orbit seed for {0}",
                         logContext));
@@ -1256,7 +1256,7 @@ namespace Parsek
             CelestialBody body = FindBodyByName(orbitBodyName);
             if (body == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Error(Tag,
                     string.Format(ic,
                         "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
                         orbitBodyName, logContext));
@@ -1350,7 +1350,7 @@ namespace Parsek
 
                 if (pv.vesselRef == null)
                 {
-                    ParsekLog.Warn(Tag,
+                    ParsekLog.Error(Tag,
                         string.Format(ic,
                             "BuildAndLoadGhostProtoVessel: vesselRef is null after Load for {0}",
                             logContext));
