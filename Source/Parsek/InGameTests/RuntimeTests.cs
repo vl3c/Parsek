@@ -3252,6 +3252,9 @@ namespace Parsek.InGameTests
         private static readonly MethodInfo FlightDriverRevertToLaunchMethod =
             typeof(FlightDriver).GetMethod("RevertToLaunch",
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo FlightGlobalsClearPersistentIdDictionariesMethod =
+            typeof(FlightGlobals).GetMethod("ClearpersistentIdDictionaries",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly PropertyInfo FlightDriverCanRevertProperty =
             typeof(FlightDriver).GetProperty("CanRevert",
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
@@ -3263,6 +3266,15 @@ namespace Parsek.InGameTests
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly FieldInfo MultiOptionDialogTitleField =
             typeof(MultiOptionDialog).GetField("title",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogOptionsField =
+            typeof(MultiOptionDialog).GetField("Options",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo DialogGuiButtonTextField =
+            typeof(DialogGUIButton).GetField("OptionText",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
+            typeof(DialogGUIButton).GetMethod("OptionSelected",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         public FlightIntegrationTests(InGameTestRunner runner) { this.runner = runner; }
 
@@ -3340,6 +3352,183 @@ namespace Parsek.InGameTests
             }
 
             return null;
+        }
+
+        private static DialogGUIButton[] GetDialogButtons(MultiOptionDialog dialog)
+        {
+            if (dialog == null || MultiOptionDialogOptionsField == null)
+                return new DialogGUIButton[0];
+
+            DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
+            if (options == null || options.Length == 0)
+                return new DialogGUIButton[0];
+
+            var buttons = new List<DialogGUIButton>();
+            for (int i = 0; i < options.Length; i++)
+            {
+                DialogGUIButton button = options[i] as DialogGUIButton;
+                if (button != null)
+                    buttons.Add(button);
+            }
+
+            return buttons.ToArray();
+        }
+
+        private static string GetDialogButtonText(DialogGUIButton button)
+        {
+            if (button == null || DialogGuiButtonTextField == null)
+                return null;
+
+            return DialogGuiButtonTextField.GetValue(button) as string;
+        }
+
+        private static IEnumerator WaitForPopupDialog(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) != null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialog timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static IEnumerator WaitForPopupDialogToClose(string dialogName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FindPopupDialog(dialogName) == null)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForPopupDialogToClose timed out after {timeoutSeconds:F0}s (dialog='{dialogName}')");
+        }
+
+        private static IEnumerator WaitForLoadedScene(GameScenes expectedScene, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (HighLogic.LoadedScene == expectedScene)
+                {
+                    if (expectedScene != GameScenes.SPACECENTER
+                        || Object.FindObjectOfType<ParsekKSC>() != null)
+                    {
+                        yield break;
+                    }
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForLoadedScene timed out after {timeoutSeconds:F0}s " +
+                $"(expected={expectedScene}, actual={HighLogic.LoadedScene})");
+        }
+
+        private static IEnumerator WaitForRecordingToClearPad(
+            Vector3d launchWorldPosition,
+            double minimumDistanceMeters,
+            string expectedRecordingId,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
+                double currentDistance = vessel != null
+                    ? Vector3d.Distance(vessel.GetWorldPos3D(), launchWorldPosition)
+                    : double.NaN;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId)
+                    && currentDistance >= minimumDistanceMeters)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            double finalDistance = timedOutVessel != null
+                ? Vector3d.Distance(timedOutVessel.GetWorldPos3D(), launchWorldPosition)
+                : double.NaN;
+            InGameAssert.Fail(
+                $"WaitForRecordingToClearPad timed out after {timeoutSeconds:F0}s " +
+                $"(minimumDistance={minimumDistanceMeters:F0}m, actualDistance={finalDistance:F1}m, " +
+                $"parsekFlight={(timedOutFlight != null)}, isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecordingId={timedOutFlight?.ActiveTreeForSerialization?.ActiveRecordingId ?? "null"}, " +
+                $"expectedRecordingId={expectedRecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static void TriggerSaveAndExitToSpaceCenter()
+        {
+            if (HighLogic.CurrentGame == null)
+                InGameAssert.Fail("TriggerSaveAndExitToSpaceCenter requires HighLogic.CurrentGame");
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+                InGameAssert.Fail("TriggerSaveAndExitToSpaceCenter requires HighLogic.SaveFolder");
+            if (FlightGlobalsClearPersistentIdDictionariesMethod == null)
+                InGameAssert.Fail(
+                    "TriggerSaveAndExitToSpaceCenter requires FlightGlobals.ClearpersistentIdDictionaries reflection");
+
+            GameEvents.onSceneConfirmExit.Fire(HighLogic.CurrentGame.startScene);
+            Game updatedGame = HighLogic.CurrentGame.Updated();
+            InGameAssert.IsNotNull(updatedGame,
+                "HighLogic.CurrentGame.Updated() should return a game before stock-style Space Center exit");
+            try
+            {
+                FlightGlobalsClearPersistentIdDictionariesMethod.Invoke(null, null);
+            }
+            catch (TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    $"FlightGlobals.ClearpersistentIdDictionaries threw " +
+                    $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
+            GamePersistence.SaveGame(updatedGame, "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+            HighLogic.LoadScene(GameScenes.SPACECENTER);
+        }
+
+        private static void RemoveCommittedTreeByIdForRuntimeTest(string treeId, bool recalculateAfterRemoval)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+
+            bool removedAny = false;
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                RecordingTree tree = committed[i];
+                if (tree == null || tree.Id != treeId)
+                    continue;
+
+                foreach (Recording rec in tree.Recordings.Values)
+                    RecordingStore.RemoveCommittedInternal(rec);
+                committed.RemoveAt(i);
+                removedAny = true;
+            }
+
+            if (removedAny && recalculateAfterRemoval)
+            {
+                RecordingStore.RunOptimizationPass();
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
         }
 
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
@@ -4407,6 +4596,367 @@ namespace Parsek.InGameTests
                 ParsekLog.TestObserverForTesting = priorObserver;
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
                     ParsekFlight.Instance.StopRecording();
+            }
+        }
+
+        /// <summary>
+        /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
+        /// launches the active vessel far enough to avoid the idle-on-pad discard
+        /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
+        /// stock PauseMenu uses. The expected shipped behavior after #434 with
+        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
+        /// "Merge to Timeline" button commits the pending tree. Use a disposable/
+        /// manual-backup save before running it.
+        /// </summary>
+        [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog in SPACECENTER.",
+            Description = "Space Center exit shows deferred merge dialog and Merge to Timeline commits the pending tree")]
+        public IEnumerator ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can stage and then exit to Space Center, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            bool originalAutoMerge = ParsekSettings.Current.autoMerge;
+            Vector3d launchWorldPosition = vessel.GetWorldPos3D();
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string treeId = null;
+            string activeRecId = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                PopupDialog.DismissPopup("ParsekMerge");
+                ParsekSettings.Current.autoMerge = false;
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the Space Center exit flow");
+
+                treeId = flight.ActiveTreeForSerialization?.Id;
+                activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(treeId, "Active tree id should exist before the Space Center exit flow");
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the Space Center exit flow");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                TriggerSaveAndExitToSpaceCenter();
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+                yield return WaitForPopupDialog("ParsekMerge", 10f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup,
+                    "ParsekMerge popup should exist after the real Space Center exit");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Deferred merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
+                    "Real Space Center exit should surface a pending tree before the merge click");
+                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
+                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
+                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(mergeButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
+                yield return null;
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Merge to Timeline should consume the pending tree after real scene exit");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Merge to Timeline should clear the deferred merge-dialog flag");
+                InGameAssert.AreEqual(committedTreesBefore + 1, RecordingStore.CommittedTrees.Count,
+                    "Merge to Timeline should add exactly one committed tree after the real scene exit");
+                InGameAssert.IsGreaterThan(RecordingStore.CommittedRecordings.Count, committedBefore,
+                    "Merge to Timeline should add committed recordings after the real scene exit");
+
+                RecordingTree committedTree = RecordingStore.CommittedTrees.FirstOrDefault(
+                    candidate => candidate != null && candidate.Id == treeId);
+                InGameAssert.IsNotNull(committedTree,
+                    "Merge to Timeline should commit the live pending tree into CommittedTrees");
+                bool recordingCommitted = RecordingStore.CommittedRecordings.Any(
+                    rec => rec != null && rec.TreeId == treeId && rec.RecordingId == activeRecId);
+                InGameAssert.IsTrue(recordingCommitted,
+                    "CommittedRecordings should contain the merged tree's active recording");
+
+                bool sawDeferredDialog = captured.Any(
+                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawUserMerge = captured.Any(
+                    line => line.Contains("User chose: Tree Merge"));
+                InGameAssert.IsTrue(sawDeferredDialog,
+                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawUserMerge,
+                    "Expected the real scene-exit flow to log the Merge to Timeline branch");
+
+                ParsekLog.Info("TestRunner",
+                    $"Scene-exit merge commit runtime: treeId={treeId} recId={activeRecId} " +
+                    $"committedTreesBefore={committedTreesBefore} committedTreesAfter={RecordingStore.CommittedTrees.Count}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoMerge = originalAutoMerge;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                    ParsekScenario.DiscardPendingTreeAndRecalculate("scene-exit merge commit canary cleanup");
+                RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+            }
+        }
+
+        /// <summary>
+        /// Stock non-revert scene-exit discard canary. Starts a real recording,
+        /// launches the active vessel far enough to avoid the idle-on-pad discard
+        /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
+        /// stock PauseMenu uses. The expected shipped behavior after #434 with
+        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
+        /// explicit "Discard" button clears the pending tree without committing
+        /// anything to the timeline. Use a disposable/manual-backup save before
+        /// running it.
+        /// </summary>
+        [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog discard branch in SPACECENTER.",
+            Description = "Space Center exit shows deferred merge dialog and Discard clears the pending tree without a commit")]
+        public IEnumerator ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH vessel on the pad so the test can stage and then exit to Space Center, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (PopupDialogToDisplayField == null
+                || MultiOptionDialogNameField == null
+                || MultiOptionDialogTitleField == null
+                || MultiOptionDialogOptionsField == null
+                || DialogGuiButtonTextField == null
+                || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                InGameAssert.Skip("merge dialog reflection helpers are unavailable");
+                yield break;
+            }
+
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            bool originalAutoMerge = ParsekSettings.Current.autoMerge;
+            Vector3d launchWorldPosition = vessel.GetWorldPos3D();
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string treeId = null;
+            string activeRecId = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                PopupDialog.DismissPopup("ParsekMerge");
+                ParsekSettings.Current.autoMerge = false;
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the Space Center discard flow");
+
+                treeId = flight.ActiveTreeForSerialization?.Id;
+                activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(treeId, "Active tree id should exist before the Space Center discard flow");
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the Space Center discard flow");
+
+                yield return new WaitForSeconds(0.5f);
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                TriggerSaveAndExitToSpaceCenter();
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+                yield return WaitForPopupDialog("ParsekMerge", 10f);
+
+                PopupDialog popup = FindPopupDialog("ParsekMerge");
+                InGameAssert.IsNotNull(popup,
+                    "ParsekMerge popup should exist after the real Space Center exit");
+
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+                InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
+
+                string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
+                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                    "Deferred merge dialog title should match the production popup");
+
+                DialogGUIButton[] buttons = GetDialogButtons(dialog);
+                DialogGUIButton mergeButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Merge to Timeline");
+                DialogGUIButton discardButton = buttons.FirstOrDefault(
+                    button => GetDialogButtonText(button) == "Discard");
+
+                InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
+                InGameAssert.IsNotNull(discardButton, "Discard button should exist");
+                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
+                    "Real Space Center exit should surface a pending tree before the discard click");
+                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
+                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
+                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+
+                DialogGuiButtonOptionSelectedMethod.Invoke(discardButton, null);
+
+                yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
+                yield return null;
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Discard should clear the pending tree after the real scene exit");
+                InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
+                    "Discard should clear the deferred merge-dialog flag");
+                InGameAssert.AreEqual(committedBefore, RecordingStore.CommittedRecordings.Count,
+                    "Discard should not add committed recordings after the real scene exit");
+                InGameAssert.AreEqual(committedTreesBefore, RecordingStore.CommittedTrees.Count,
+                    "Discard should not add committed trees after the real scene exit");
+                InGameAssert.IsFalse(RecordingStore.CommittedTrees.Any(
+                        candidate => candidate != null && candidate.Id == treeId),
+                    "Discard should not leave the pending tree inside CommittedTrees");
+
+                bool sawDeferredDialog = captured.Any(
+                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawUserDiscard = captured.Any(
+                    line => line.Contains("User chose: Tree Discard"));
+                InGameAssert.IsTrue(sawDeferredDialog,
+                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawUserDiscard,
+                    "Expected the real scene-exit flow to log the Discard branch");
+
+                ParsekLog.Info("TestRunner",
+                    $"Scene-exit merge discard runtime: treeId={treeId} recId={activeRecId} " +
+                    $"committedTreesBefore={committedTreesBefore} committedTreesAfter={RecordingStore.CommittedTrees.Count}");
+            }
+            finally
+            {
+                PopupDialog.DismissPopup("ParsekMerge");
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoMerge = originalAutoMerge;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                    ParsekScenario.DiscardPendingTreeAndRecalculate("scene-exit merge discard canary cleanup");
+                RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
             }
         }
 
