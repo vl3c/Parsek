@@ -18,7 +18,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
-## 489. Manual-only runtime coverage for deferred merge commit and `Keep Vessel` playback exists locally; deferred merge is now live-validated, while `Keep Vessel` needs one rerun after a synthetic spawn-location fix
+## ~~489. Manual-only runtime coverage for deferred merge commit and `Keep Vessel` playback existed locally; both now have live KSP validation~~
 
 **Source:** local audit work on `audit-test-coverage-2026-04-19` after `#488` closed. New tests now exist in `Source/Parsek/InGameTests/RuntimeTests.cs`:
 
@@ -27,17 +27,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **What landed already:** the first test drives `ParsekScenario.ShowDeferredMergeDialog()` in `FLIGHT`, presses the real `Merge to Timeline` button, and asserts the synthetic pending tree moves into `RecordingStore.CommittedTrees` / `CommittedRecordings`. That path has now passed in a live KSP run. The second test commits a synthetic one-recording tree, calls `ParsekFlight.FastForwardToRecording(...)`, waits for a live ghost, and asserts the end-of-recording vessel spawn happens exactly once before cleanup/recovery.
 
-**Current state:** both tests are intentionally `AllowBatchExecution = false`. The deferred-merge canary is no longer the blocker. The first live run of `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce` showed a real ghost playback, but the deferred spawn timed out because the synthetic recording's landed snapshot still resolved inside the KSC exclusion zone even though the visible trajectory had moved off-pad. The helper has now been fixed locally so it picks a non-KSC endpoint on Kerbin, stamps that endpoint into the synthetic landed snapshot / terminal surface state, and preserves a sane landed clearance above terrain for the relocated spawn. That fix is build-validated but still needs a fresh KSP rerun.
+**Resolution:** the deferred-merge canary passed live earlier, and the later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closed the `Keep Vessel` side too. The first attempt hit the expected idle-flight guard and logged `SKIPPED`, but the actual row-play rerun passed once the session was idle. `KSP.log` shows the patched synthetic endpoint outside the KSC exclusion zone (`padDist≈240m`), a landed deferred spawn (`Vessel spawn for #2 ... sit=LANDED`), the runtime assertion log `Keep-vessel runtime: ... spawnedPid=...`, and the final `PASSED: FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce (6132.6ms)` line. That means both manual-only audit canaries are now live-validated.
 
-**Next validation run:**
+**Remaining gap after closure:**
 
-1. Build from `Parsek-audit-test-coverage`: `dotnet build Source/Parsek/Parsek.csproj --nologo --no-restore -v minimal`
-2. Run `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce` individually in `FLIGHT`
-4. Save the exported `parsek-test-results.txt`, `KSP.log`, and `Player.log`
+The next runtime scenario worth adding is no longer these synthetic canaries. It is the full stock `record -> revert -> pending tree survives scene transition -> merge` flow.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`.
 
-**Status:** OPEN. Immediate next step is rerunning the `Keep Vessel` canary on the patched helper; after that, the remaining player-flow gap is still the fully stock `record -> revert -> pending tree survives scene transition -> merge` path.
+**Status:** CLOSED. Fixed for the audit branch; the next open player-flow gap is the full stock revert/merge transition scenario.
 
 ---
 

@@ -472,10 +472,17 @@ The later `logs/2026-04-19_2332_fix-488-build` bundle closes that quickload/runt
 - both `KSP.log` and `Player.log` show the bridge canary and the mid-recording quickload-resume test reaching a real `PASSED` line after the scene transition
 - the previous stock `FlightCamera` / `PauseMenu` `NullReferenceException` storm from `logs/2026-04-19_2302_bridge-hang` does not recur in the validated rerun, so the helper-side `FlightDriver.StartAndFocusVessel(...)` fix is now backed by live KSP evidence instead of only code review
 
-On top of that, this worktree now adds two more manual-only in-game runtime canaries that are compile-validated locally but not yet live-run in KSP:
+On top of that, this worktree now has live runtime evidence for the two newer manual-only in-game canaries as well:
 
-- a deferred merge-dialog test that invokes `ParsekScenario.ShowDeferredMergeDialog()`, presses `Merge to Timeline`, and asserts the pending tree is committed into `RecordingStore.CommittedTrees` / `CommittedRecordings`
-- a synthetic `Keep Vessel` playback-control test that commits a one-recording tree, fast-forwards into its playback window, waits for a live ghost, and asserts the end-of-recording spawn materializes exactly once before cleanup
+- the deferred merge-dialog test that invokes `ParsekScenario.ShowDeferredMergeDialog()`, presses `Merge to Timeline`, and asserts the pending tree is committed into `RecordingStore.CommittedTrees` / `CommittedRecordings`
+- the synthetic `Keep Vessel` playback-control test that commits a one-recording tree, fast-forwards into its playback window, waits for a live ghost, and asserts the end-of-recording spawn materializes exactly once before cleanup
+
+The direct live `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closes the second half of that gap:
+
+- `parsek-test-results.txt` now records `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce` as `FLIGHT PASSED (6132.6ms)`
+- `KSP.log` shows two earlier `SKIPPED` rows because the session still had an active recording, then a clean single-run replay after the session returned to idle flight
+- the validated run chose an off-pad synthetic endpoint (`padDist≈240m`), reached ghost playback end, executed the deferred landed spawn, and logged `Vessel spawn for #2 ... sit=LANDED`
+- the final `Keep-vessel runtime: ... spawnedPid=...` line and `PASSED:` row confirm the single-spawn assertion held after the cleanup wait, so the manual-only playback-control canary is now backed by live KSP evidence rather than only compile validation
 
 ### Recommended next sequence
 
@@ -483,10 +490,8 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Live-run the new manual-only merge/playback canaries**
-   The deferred merge-commit path and the synthetic `Keep Vessel` fast-forward/spawn-once path now exist in this worktree, but they still need real KSP evidence (`parsek-test-results.txt`, `KSP.log`, `Player.log`) before they count as closed gaps rather than compile-only additions.
-3. **Then extend from synthetic coverage to a full stock revert flow**
-   Once the deferred merge button path is validated, the next live confidence gap is the fully stock `record -> revert -> pending tree survives scene transition -> merge` player flow, not the popup button wiring by itself.
+2. **Extend from synthetic coverage to a full stock revert flow**
+   The deferred merge button path and the synthetic `Keep Vessel` fast-forward/spawn-once path now both have live evidence. The next live confidence gap is the fully stock `record -> revert -> pending tree survives scene transition -> merge` player flow, not the popup button wiring by itself.
 4. **After that, add part-event timing scenarios**
    These are still valuable, but the repo already has stronger structural coverage here than it does for auto-record and merge/revert.
 
@@ -494,11 +499,9 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 The first scripted runtime scenarios I would add are:
 
-1. **Live-validate deferred merge commit**
-   Run the new single-run deferred merge-dialog test in KSP and confirm the synthetic pending tree reaches a clean `PASSED` export with the expected pending/committed logs.
-2. **Live-validate `Keep Vessel` playback control**
-   Run the new single-run playback canary and confirm the fast-forward handoff, ghost activation, and single end-of-recording spawn all show up cleanly in the logs without duplicate spawns.
-3. **Part-event timing showcase**
+1. **Full stock revert / merge flow**
+   Add one runtime scenario that starts from a real recording, crosses the actual revert/scene-transition boundary, preserves the pending tree, and then completes the merge path in live KSP.
+2. **Part-event timing showcase**
    Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.
