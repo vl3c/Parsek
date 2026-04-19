@@ -8,6 +8,31 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
+
+### Tests
+
+- `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
+- `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
+- `#472` Added unit coverage for watch-camera retarget angle resolution so preserved pitch/heading stays pinned to the same world orbit direction across ghost handoffs.
+- `#474` Added runtime coverage for fresh ghost watch-pivot centering and ghost audio re-anchoring / stereo-default configuration.
+
+### Enhancements
+
+- `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
+
+### Bug Fixes
+
+- `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
+- `#472` Watch-mode camera retargets now preserve the current pitch/heading when follow rebinds to a replacement ghost, eliminating the visible camera jerk on loop/overlap handoffs, quiet-expiry primary rebinds, and stock vessel-switch re-targets.
+- `#474` Ghost audio now recenters on the fresh watch pivot instead of staying on off-axis part transforms, and ghost sources use a softer 3D blend so Watch mode no longer hard-pans loops or one-shots into a single speaker.
+
+---
+
+## 0.8.2
+
+### Features
+
 - In-game test results file (`parsek-test-results.txt`) now preserves per-scene history so KSC and Flight runs accumulate instead of overwriting each other.
 - New **Gloops Flight Recorder** window for manual ghost-only recordings (Start/Stop, Preview, Discard). Ghost-only recordings auto-commit with looping on, run parallel to auto-recording, and get an X delete button in the recordings table.
 - `#385` New **Kerbals** window (reserved crew, active stand-ins, retired stand-ins) opened from the main Parsek window; Retired Stand-ins removed from the Timeline footer.
@@ -17,7 +42,6 @@ All notable changes to Parsek are documented here.
 - `#416` New **Career State** window (Contracts / Strategies / Facilities / Milestones tabs) with "current" vs. "at timeline end" columns. Kerbals mission-outcome rows are now clickable and scroll the Timeline to the matching recording.
 - `#388` New **Show ghosts in Tracking Station** toggle (Settings → Ghosts); sticky across rewind, quickload, and KSP session restart.
 - `#389` Timeline and Recordings windows now share a time-range filter with quick presets (Last Day, 7d, 30d, This Year, All) and a custom-range dual-slider. A filter indicator with a Clear button stays visible in the Recordings table.
-- Timeline window now has a `Rewind/FF` filter button that shows only recordings you can currently rewind to or fast-forward to.
 - Added an **L** (loop toggle) button next to R on the timeline for loopable recordings; active loops show green text.
 
 ### Enhancements
@@ -74,6 +98,7 @@ All notable changes to Parsek are documented here.
 - Overlap cadence clamping now snaps directly to the minimum cap-safe cadence instead of overshooting in powers of two.
 - Fix #440: post-walk reconciliation now covers strategy-transformed and curve-applied reward types (contract complete/fail/cancel, milestone, reputation earning/penalty, KSC-path funds/science earning), emitting a warning when post-walk derived values diverge from observed KSP deltas.
 - Fix #440B: commit-time earnings reconciliation (`ReconcileEarningsWindow`) now reads post-walk `Transformed*` / `EffectiveRep` / `EffectiveScience` reward fields, matching the rewind-path post-walk hook and closing a latent double-WARN on future non-identity reward transforms. Also silences a false-positive subject-cap WARN that fired on capped science subjects.
+- `#462 partial` Earnings reconciliation now scopes `FundsChanged` / `ReputationChanged` / `ScienceChanged` events by `recordingId`, so sibling recordings at the same UT no longer fold each other's `Progression` deltas into a WARN. Null-tagged legacy/recovered actions still match tagged store events.
 - Fix #439: capture strategy activate/deactivate lifecycle so StrategiesModule sees input on strategy-using careers and eliminates the spurious PatchFunds suspicious-drawdown warning on revert/rewind after a strategy activates.
 - `#448` KSC reconciliation no longer false-positive WARNs on every R&D part purchase under the stock-default `BypassEntryPurchaseAfterResearch=true` difficulty; the harder no-bypass difficulty still WARNs on genuine debit mismatches.
 - `#452` Cancelled-rollout build costs now render with a "(cancelled rollout)" suffix in the Actions and Timeline views so they're distinguishable from adopted, recording-tagged build costs.
