@@ -450,14 +450,21 @@ Live runtime evidence from the `logs/2026-04-19_2126` bundle is now available to
 - the two new auto-record runtime tests were still not exercised in that bundle because they are intentionally marked `AllowBatchExecution = false`; the exported `parsek-test-results.txt` shows them as `(never run)`, which is expected for `Run All`
 - the broader runtime export still had unrelated pre-existing failures in that session (`TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite`, two stock-strategy lifecycle tests, and `RuntimeTests.TimeScalePositive` in `SPACECENTER`), so that bundle is useful branch evidence for the new merge-dialog smoke path but not a globally clean in-game baseline yet
 
+The later `logs/2026-04-19_2228` bundle closes the auto-record validation gap:
+
+- `parsek-test-results.txt` captured exactly the two single-run `AutoRecord` tests in `FLIGHT`, and both passed: `AutoRecordOnLaunch_StartsExactlyOnce` and `AutoRecordOnEvaFromPad_StartsExactlyOnce`
+- both `KSP.log` and `Player.log` show the real row-play execution and `PASSED` lines for those two tests, so the launch-from-pad and deferred EVA-from-pad paths now have live runtime evidence rather than only xUnit seam coverage
+- that same bundle also exposed a separate observability issue: `log-validation.txt` failed `REC-001` because the live validator still requires a Recorder line beginning with `Recording started`, while this session emitted `TrackSection started ...` plus valid `Recording stopped` lines but no top-level `Recording started` line
+- that validator failure is not a failure of the new auto-record scenarios themselves, but it does mean the repo's current live log contract no longer matches what the recorder writes during these sessions
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Run the new auto-record runtime scenarios individually in KSP**
-   The structural work is now in place, but these tests are single-run only and will not execute under `Run All`. The next useful evidence is a real `KSP.log` / `Player.log` capture from a healthy KSP session that proves both launch-from-pad and EVA-from-pad auto-record start exactly once.
+2. **Fix the live log-validation contract mismatch**
+   The auto-record scenarios are now runtime-validated, but `REC-001` is stale against the current recorder output. The next useful change is either to restore an explicit `Recording started ...` Recorder log at real recording start or to broaden the validator so it accepts the newer recorder start contract intentionally.
 3. **Promote one real merge/revert UI flow**
    The dialog itself now has a runtime discard smoke test. The missing confidence is the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
 4. **Then add one playback-control scenario**
@@ -469,13 +476,11 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 The first scripted runtime scenarios I would add are:
 
-1. **Auto-record launch/EVA cycle**
-   Launch from pad, assert auto-record starts exactly once, then run the EVA-from-pad path and assert the deferred auto-record/log sequence completes correctly. This is now implemented locally, but it must be launched individually from the in-game runner because both tests are excluded from batch runs.
-2. **Pending-tree merge dialog flow**
+1. **Pending-tree merge dialog flow**
    Create a real pending tree with `autoMerge = false`, move through the runtime transition that surfaces the dialog, then assert the `Merge to Timeline` branch does the right thing to pending/committed state. The discard branch now has a lighter runtime popup smoke test in this worktree.
-3. **`Keep Vessel` playback control flow**
+2. **`Keep Vessel` playback control flow**
    Use a known recording that should persist, warp toward `StartUT`, assert warp-stop behavior and playback handoff, then assert the end-of-recording spawn happens once.
-4. **Part-event timing showcase**
+3. **Part-event timing showcase**
    Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied.
