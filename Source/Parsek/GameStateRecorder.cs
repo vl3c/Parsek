@@ -947,9 +947,9 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
         }
 
-        private static bool IsReputationDeltaBelowThreshold(float delta)
+        internal static bool IsReputationDeltaBelowThreshold(float delta)
         {
-            float absDelta = Mathf.Abs(delta);
+            float absDelta = Math.Abs(delta);
             return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
         }
 

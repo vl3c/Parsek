@@ -1,4 +1,3 @@
-using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -10,7 +9,7 @@ namespace Parsek.Tests
         [InlineData(-0.9999995f)]
         public void IsReputationDeltaBelowThreshold_StockRoundedOnePointZero_ReturnsFalse(float delta)
         {
-            Assert.False(InvokeIsReputationDeltaBelowThreshold(delta));
+            Assert.False(GameStateRecorder.IsReputationDeltaBelowThreshold(delta));
         }
 
         [Fact]
@@ -21,24 +20,15 @@ namespace Parsek.Tests
             float delta = newReputation - oldReputation;
 
             Assert.True(delta < 1.0f);
-            Assert.False(InvokeIsReputationDeltaBelowThreshold(delta));
+            Assert.False(GameStateRecorder.IsReputationDeltaBelowThreshold(delta));
         }
 
         [Theory]
-        [InlineData(0.5f)]
-        [InlineData(-0.5f)]
+        [InlineData(0.998f)]
+        [InlineData(-0.998f)]
         public void IsReputationDeltaBelowThreshold_ClearSubThresholdNoise_ReturnsTrue(float delta)
         {
-            Assert.True(InvokeIsReputationDeltaBelowThreshold(delta));
-        }
-
-        private static bool InvokeIsReputationDeltaBelowThreshold(float delta)
-        {
-            var method = typeof(GameStateRecorder).GetMethod(
-                "IsReputationDeltaBelowThreshold",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.NotNull(method);
-            return (bool)method.Invoke(null, new object[] { delta });
+            Assert.True(GameStateRecorder.IsReputationDeltaBelowThreshold(delta));
         }
     }
 }
