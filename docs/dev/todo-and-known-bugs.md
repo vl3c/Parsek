@@ -43,7 +43,7 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Source:** follow-up audit work after closing `#489`, aligned with shipped #434 behavior and the current user guide text.
 
-**What landed already:** `RuntimeTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` now exists in `Source/Parsek/InGameTests/RuntimeTests.cs`. It starts a real recording on a prelaunch vessel, stages the active vessel, drives stock `FlightDriver.RevertToLaunch`, waits for the fresh FLIGHT scene, asserts that:
+**What landed already:** `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` now exists in `Source/Parsek/InGameTests/RuntimeTests.cs`. It starts a real recording on a prelaunch vessel, stages the active vessel, drives stock `FlightDriver.RevertToLaunch`, waits for the fresh FLIGHT scene, asserts that:
 
 - the reverted mission did not commit into `RecordingStore.CommittedRecordings` / `CommittedTrees`
 - no Parsek `ParsekMerge` popup appears after the revert
@@ -52,7 +52,7 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Why this matters:** the audit roadmap used to describe the next gap as `record -> revert -> merge`, but that is no longer the shipped product contract. The current documented behavior is: revert soft-unstashes; if the player wants the merge dialog they take a non-revert exit such as `Space Center`. This runtime canary is the missing end-to-end proof for the actual shipped revert path.
 
-**Next validation step:** build `Source/Parsek/Parsek.csproj` from the audit worktree, load a disposable save with a simple vessel on the pad, and run `RuntimeTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` from the row `▶` in the FLIGHT in-game runner. Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt`.
+**Next validation step:** build `Source/Parsek/Parsek.csproj` from the audit worktree, load a disposable save with a simple vessel on the pad, and run `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` from the row `▶` in the FLIGHT in-game runner. Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt`.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
