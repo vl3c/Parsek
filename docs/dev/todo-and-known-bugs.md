@@ -188,46 +188,15 @@ Per-leg gating (not whole-sweep) is the correct granularity — a save that disa
 
 ---
 
-## 475. Ghost whose recording terminates in Mun orbit spawns on a Kerbin-SOI-eject trajectory instead of in Mun orbit (post-rewind, map-view watch)
+## ~~475. Ghost whose recording terminates in Mun orbit spawns on a Kerbin-SOI-eject trajectory instead of in Mun orbit (post-rewind, map-view watch)~~
 
 **Source:** user playtest report — "when recording a trip that ends in Mun orbit, after rewind when watching the ghost in map view, the ghost gets to the Mun encounter but then instead of spawning in Mun orbit, it spawns in a Kerbin SOI eject trajectory."
 
-**Concern:** the ghost playback correctly walks orbit segments through the SOI change (user visually confirms "the ghost gets to the Mun encounter" in map view), but the *real vessel spawn* at the recording's terminal UT resolves the spawn body incorrectly. `VesselSpawner.SpawnOrRecoverIfTooClose` (`Source/Parsek/VesselSpawner.cs:499-502`) picks the body via:
+**Fix shipped:** terminal-orbit capture no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, finalization/load-time backfill only trusts a last `OrbitSegment` when that segment agrees with the recording endpoint body, and spawn-at-end now resolves the body from the actual endpoint before attempting any recorded-orbit propagation. If no endpoint-aligned orbital seed exists, spawn falls back to the endpoint state instead of constructing a wrong Kerbin-frame orbit.
 
-```csharp
-string spawnBodyName = useRecordedTerminalOrbit
-    ? rec.TerminalOrbitBody
-    : RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
-CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == spawnBodyName);
-```
+**Tests:** added xUnit coverage for endpoint-aligned terminal-orbit backfill and endpoint-aligned orbital spawn-seed selection across Kerbin → Mun end-state shapes.
 
-Then passes `body` into `TryResolveRecordedTerminalOrbitSpawnState → TryBuildRecordedTerminalOrbitForSpawn` (`:520-522`, `:2566-2609`). If `rec.TerminalOrbitBody == "Kerbin"` but the stored orbit parameters (SMA ≈ Mun's semi-major axis of ~200km-13Mm range, inclination, eccentricity) were captured in Mun's reference frame, applying them to Kerbin creates an orbit whose apoapsis is well past Kerbin's SOI boundary — a "Kerbin SOI eject trajectory" is the exact shape you'd get.
-
-Primary suspect: the capture site at `ParsekFlight.cs:7547`:
-
-```csharp
-rec.TerminalOrbitBody = orb.referenceBody?.name ?? "Kerbin";
-```
-
-The `?? "Kerbin"` fallback silently writes the wrong body when `orb.referenceBody` is momentarily null (e.g. during a mid-frame SOI transition snapshot, or during a rewind where the vessel's orbit reference is being rebuilt). If this fallback fires when the vessel *was* orbiting Mun, the recording records `TerminalOrbitBody="Kerbin"` + Mun-frame orbit params → spawn-time body lookup picks Kerbin → applies Mun-frame params against Kerbin → eject trajectory.
-
-Secondary suspect (rewind interaction): the user's repro specifically mentions "after rewind". Rewind restores a save snapshot and may or may not re-finalise the recording. If the rewind restores terminal fields that were set at a pre-SOI-change capture point, the stored body could be Kerbin even though the final orbit segment is Mun. Check `ParsekFlight.FinalizeIndividualRecording` backfill path (`:6917, :6928` call sites for `PopulateTerminalOrbitFromLastSegment`) — that helper at `:7556-7574` is supposed to use the *last* `OrbitSegment`'s body, but the guard `if (!string.IsNullOrEmpty(rec.TerminalOrbitBody)) return;` (`:7559`) skips the correction when the wrong-body field is already populated from the `?? "Kerbin"` fallback.
-
-Third possibility (orbit-frame coupling): the terminal orbit fields themselves could be in the wrong frame. Verify that `CaptureTerminalOrbit` walks `vessel.orbit` (which changes reference body across SOI) and not a stale cached orbit, and that its captured `orb.referenceBody` is the same body whose name is written at `:7547`. A race where `orb` is the Mun-frame orbit but `orb.referenceBody` is null (not yet assigned after a transition) would produce the mixed-frame record.
-
-**Fix:** three-pronged, do them in order and stop when the repro dies:
-
-1. **Kill the silent `?? "Kerbin"` fallback** at `ParsekFlight.cs:7547`. If `orb.referenceBody?.name` is null, WARN + skip the terminal-orbit capture entirely (leave the terminal-orbit fields empty so `ShouldUseRecordedTerminalOrbitSpawnState` returns false and spawn falls back to the last trajectory point, which DOES carry the correct `bodyName` per sample). Same for the last-segment backfill at `:7569` — segments carry `bodyName` directly so that path is already correct; just audit whether the segment bodyName is ever the pre-SOI body.
-2. **Harden the guard in `PopulateTerminalOrbitFromLastSegment`**: the current guard at `:7559` refuses to overwrite an already-populated `TerminalOrbitBody` even if the last orbit segment disagrees with it. Change the guard to also re-run when the populated body does NOT match the last segment's body (indicating the original capture raced with an SOI change).
-3. **Add a cross-check test**: xUnit that builds a `Recording` with orbit segments spanning Kerbin → Mun and a terminal-state capture that fires mid-transition (force `orb.referenceBody = null` to reproduce the original race), asserts `TerminalOrbitBody` ends up as `"Mun"` at finalization (either from the hardened capture path or from the segment-backfill).
-
-**Files:** `Source/Parsek/ParsekFlight.cs:7547` (capture fallback), `:7559` (backfill guard), `Source/Parsek/VesselSpawner.cs:499-522` (consumer — may need defensive logging to flag the body mismatch shape when it happens in the wild). Test: new xUnit in `Source/Parsek.Tests/` seeded with a Kerbin-orbit + Mun-encounter segment chain and a terminal-orbit capture at the SOI boundary.
-
-**Scope:** Small-to-medium. One-line fix at the capture site covers the most likely root cause; the backfill guard is a defence-in-depth add; the test is the interesting bit because it has to model the SOI-transition race.
-
-**Dependencies:** none. Independent of all prior entries.
-
-**Status:** TODO. Priority: high — reproducible by any career-mode Mun mission that uses rewind, lands the ghost on an eject trajectory with no mission outcome (vessel disappears into solar orbit), destroys the mission. Write a log-capture repro before shipping any fix.
+**Status:** done/closed on this branch. Priority was high because the bad cached body could throw the spawned vessel onto a solar-escape path after rewind and effectively destroy the mission outcome.
 
 ---
 
