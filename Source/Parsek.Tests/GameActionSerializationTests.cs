@@ -62,7 +62,9 @@ namespace Parsek.Tests
                 ScienceAwarded = 2.4f,
                 Method = ScienceMethod.Transmitted,
                 TransmitScalar = 0.3f,
-                SubjectMaxValue = 8.0f
+                SubjectMaxValue = 8.0f,
+                StartUT = 17500.0f,
+                EndUT = 18000.0f
             };
 
             var result = RoundTrip(original);
@@ -70,6 +72,8 @@ namespace Parsek.Tests
             Assert.Equal(ScienceMethod.Transmitted, result.Method);
             Assert.Equal(0.3f, result.TransmitScalar);
             Assert.Equal(2.4f, result.ScienceAwarded);
+            Assert.Equal(17500.0f, result.StartUT);
+            Assert.Equal(18000.0f, result.EndUT);
         }
 
         [Fact]

@@ -2242,10 +2242,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AlreadyPopulated_DoesNotOverwrite()
+        public void AlreadyPopulatedWithSameBody_DoesNotOverwrite()
         {
             var rec = new Recording();
-            rec.TerminalOrbitBody = "Duna";
+            rec.TerminalOrbitBody = "Kerbin";
             rec.TerminalOrbitSemiMajorAxis = 500000;
             rec.OrbitSegments = new List<OrbitSegment>
             {
@@ -2254,8 +2254,76 @@ namespace Parsek.Tests
 
             ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
 
-            Assert.Equal("Duna", rec.TerminalOrbitBody);
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
             Assert.Equal(500000, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void MismatchedBody_WithEndpointAlignedLastSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 500000,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 200, bodyName = "Kerbin", semiMajorAxis = 700000 },
+                    new OrbitSegment { startUT = 200, endUT = 300, bodyName = "Mun", semiMajorAxis = 250000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void MismatchedBody_WithoutEndpointAlignedLastSegment_DoesNotOverwrite()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 500000,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 300, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(500000, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void EmptyBody_WithoutEndpointAlignedLastSegment_DoesNotPopulate()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 300, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Null(rec.TerminalOrbitBody);
+            Assert.Equal(0, rec.TerminalOrbitSemiMajorAxis);
         }
 
         [Fact]

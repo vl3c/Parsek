@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -11,6 +12,8 @@ namespace Parsek
     /// </summary>
     internal static class TimelineBuilder
     {
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
         /// <summary>
         /// Constructs the full timeline entry list from committed recordings,
         /// ledger actions, and legacy milestones. Accepts data sources as parameters
@@ -34,12 +37,13 @@ namespace Parsek
             // Bug #228: build set of (parentRecordingId, startUT) pairs from EVA recordings
             // so we can filter out crew reassignment noise at EVA branch times.
             var evaBranchKeys = BuildEvaBranchKeys(committedRecordings);
+            var legacyDuplicateKeys = BuildLegacyDuplicateKeys(ledgerActions);
 
             var entries = new List<TimelineEntry>();
 
             int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
             int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, entries);
-            int legacyCount = CollectLegacyEntries(milestones, currentEpoch, entries);
+            int legacyCount = CollectLegacyEntries(milestones, currentEpoch, legacyDuplicateKeys, entries);
 
             entries.Sort((a, b) => a.UT.CompareTo(b.UT));
 
@@ -288,7 +292,65 @@ namespace Parsek
         /// </summary>
         internal static string EncodeEvaBranchKey(string recordingId, double ut)
         {
-            return string.Concat(recordingId, ":", ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            return string.Concat(recordingId, ":", ut.ToString("R", IC));
+        }
+
+        private static HashSet<string> BuildLegacyDuplicateKeys(IReadOnlyList<GameAction> ledgerActions)
+        {
+            var keys = new HashSet<string>();
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                // Only effective actions replace the legacy audit row in the Details UI.
+                if (!ledgerActions[i].Effective)
+                    continue;
+
+                string duplicateKey = GetLegacyDuplicateKey(ledgerActions[i]);
+                if (duplicateKey == null)
+                    continue;
+
+                keys.Add(duplicateKey);
+            }
+            return keys;
+        }
+
+        private static string GetLegacyDuplicateKey(GameAction action)
+        {
+            switch (action.Type)
+            {
+                case GameActionType.MilestoneAchievement:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.MilestoneAchieved,
+                        action.UT,
+                        action.MilestoneId);
+
+                case GameActionType.StrategyActivate:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.StrategyActivated,
+                        action.UT,
+                        action.StrategyId);
+
+                case GameActionType.StrategyDeactivate:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.StrategyDeactivated,
+                        action.UT,
+                        action.StrategyId);
+
+                default:
+                    return null;
+            }
+        }
+
+        private static string EncodeLegacyDuplicateKey(
+            GameStateEventType eventType,
+            double ut,
+            string key)
+        {
+            return string.Concat(
+                ((int)eventType).ToString(IC),
+                ":",
+                ut.ToString("R", IC),
+                ":",
+                key ?? string.Empty);
         }
 
         private static int CollectGameActionEntries(
@@ -359,9 +421,11 @@ namespace Parsek
         private static int CollectLegacyEntries(
             IReadOnlyList<Milestone> milestones,
             uint currentEpoch,
+            HashSet<string> legacyDuplicateKeys,
             List<TimelineEntry> entries)
         {
             int count = 0;
+            int duplicateSkipped = 0;
 
             for (int i = 0; i < milestones.Count; i++)
             {
@@ -372,6 +436,11 @@ namespace Parsek
                 {
                     var e = m.Events[j];
                     if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
+                    if (legacyDuplicateKeys.Contains(EncodeLegacyDuplicateKey(e.eventType, e.ut, e.key)))
+                    {
+                        duplicateSkipped++;
+                        continue;
+                    }
 
                     string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
                     string description = GameStateEventDisplay.GetDisplayDescription(e);
@@ -389,6 +458,10 @@ namespace Parsek
                     count++;
                 }
             }
+
+            if (duplicateSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {duplicateSkipped} duplicate legacy milestone/strategy event(s)");
 
             return count;
         }

@@ -261,6 +261,29 @@ namespace Parsek.Tests
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "tree-discard");
         }
 
+        [Fact]
+        public void MergeDiscard_RecalculatesAfterPendingTreeRemoval()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+
+            var rec = MakeRecording("rec-discard-recalc", "tree-discard-recalc", 100.0, 200.0);
+            var tree = MakeTree("tree-discard-recalc", "rec-discard-recalc", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            MergeDialog.MergeDiscard(tree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("deferred KSP state patch"));
+        }
+
         // ================================================================
         // 5. MergeCommit logs the user-choice INFO line (regression: lambda
         //    extraction must preserve the diagnostic the in-game log relies on)

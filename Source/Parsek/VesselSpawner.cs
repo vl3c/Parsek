@@ -496,9 +496,7 @@ namespace Parsek
             double spawnLat, spawnLon, spawnAlt;
             ResolveSpawnPosition(rec, index, lastPt, out spawnLat, out spawnLon, out spawnAlt);
 
-            string spawnBodyName = useRecordedTerminalOrbit
-                ? rec.TerminalOrbitBody
-                : RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
+            string spawnBodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == spawnBodyName);
             if (body == null)
             {
@@ -2485,6 +2483,129 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+            Recording rec,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+
+            if (rec == null)
+                return false;
+
+            if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody))
+            {
+                return TryGetPreferredRecordedOrbitSeedForSpawn(
+                    rec,
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName);
+            }
+
+            bool endpointUsesOrbitSegment = RecordingEndpointResolver.ShouldUseOrbitEndpoint(rec);
+
+            bool TryGetLastMatchingSegment(out double segInclination,
+                out double segEccentricity,
+                out double segSemiMajorAxis,
+                out double segLan,
+                out double segArgumentOfPeriapsis,
+                out double segMeanAnomalyAtEpoch,
+                out double segEpoch,
+                out string segBodyName)
+            {
+                segInclination = 0.0;
+                segEccentricity = 0.0;
+                segSemiMajorAxis = 0.0;
+                segLan = 0.0;
+                segArgumentOfPeriapsis = 0.0;
+                segMeanAnomalyAtEpoch = 0.0;
+                segEpoch = 0.0;
+                segBodyName = null;
+
+                if (rec.OrbitSegments == null)
+                    return false;
+
+                for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
+                {
+                    OrbitSegment seg = rec.OrbitSegments[i];
+                    if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
+                        || seg.semiMajorAxis <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    segInclination = seg.inclination;
+                    segEccentricity = seg.eccentricity;
+                    segSemiMajorAxis = seg.semiMajorAxis;
+                    segLan = seg.longitudeOfAscendingNode;
+                    segArgumentOfPeriapsis = seg.argumentOfPeriapsis;
+                    segMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
+                    segEpoch = seg.epoch;
+                    segBodyName = seg.bodyName;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (endpointUsesOrbitSegment
+                && TryGetLastMatchingSegment(
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName))
+            {
+                return true;
+            }
+
+            if (HasRecordedTerminalOrbit(rec)
+                && string.Equals(rec.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            {
+                inclination = rec.TerminalOrbitInclination;
+                eccentricity = rec.TerminalOrbitEccentricity;
+                semiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
+                lan = rec.TerminalOrbitLAN;
+                argumentOfPeriapsis = rec.TerminalOrbitArgumentOfPeriapsis;
+                meanAnomalyAtEpoch = rec.TerminalOrbitMeanAnomalyAtEpoch;
+                epoch = rec.TerminalOrbitEpoch;
+                bodyName = rec.TerminalOrbitBody;
+                return true;
+            }
+
+            return !endpointUsesOrbitSegment
+                && TryGetLastMatchingSegment(
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName);
+        }
+
         internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)
         {
             return !isEva
@@ -2501,7 +2622,7 @@ namespace Parsek
             if (body == null)
                 return false;
 
-            if (!TryGetPreferredRecordedOrbitSeedForSpawn(
+            if (!TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
                 rec,
                 out double inclination,
                 out double eccentricity,
@@ -2512,6 +2633,14 @@ namespace Parsek
                 out double epoch,
                 out string orbitBodyName))
             {
+                string resolvedEndpointBody;
+                string endpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out resolvedEndpointBody)
+                    ? resolvedEndpointBody
+                    : "(none)";
+                ParsekLog.Warn("Spawner",
+                    $"TryBuildRecordedTerminalOrbitForSpawn: no endpoint-aligned orbit seed " +
+                    $"(endpointBody={endpointBody}, terminalBody={rec?.TerminalOrbitBody ?? "(null)"}, " +
+                    $"orbitSegments={rec?.OrbitSegments?.Count ?? 0})");
                 return false;
             }
 
