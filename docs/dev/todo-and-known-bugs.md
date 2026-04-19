@@ -421,7 +421,7 @@ Option 1 is cleaner but touches the emit path; option 2 is localised to `Compare
 
 ---
 
-## 467. `ReputationChanged` threshold filter rejects stock +1 rep awards — `Math.Abs(delta) < 1.0f` drops `0.9999995` rewards, breaking all records-milestone rep reconciliation
+## ~~467. `ReputationChanged` threshold filter rejects stock +1 rep awards — `Math.Abs(delta) < 1.0f` drops `0.9999995` rewards, breaking all records-milestone rep reconciliation~~
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`.
 
@@ -432,7 +432,9 @@ Option 1 is cleaner but touches the emit path; option 2 is localised to `Compare
 
 **Concern:** stock KSP awards `0.9999995` reputation for Records* milestones (the `(1)` in the log is the rounded display value; the actual delta is `~1 − 5e-7`). `GameStateRecorder.cs:910` drops the event with `if (Math.Abs(delta) < ReputationThreshold)` where `ReputationThreshold = 1.0f` (`:222`). `0.9999995 < 1.0` is true, so the event never makes it into the store. The post-walk reconcile for the paired `MilestoneAchievement` rep leg then reports "no matching ReputationChanged event keyed 'Progression' within 0.1s" — in this session that produced all 44 rep-mismatch WARNs (`RecordsSpeed`, `RecordsAltitude`, `RecordsDistance` each firing two per recalc pass).
 
-**Fix:** one-line change in `Source/Parsek/GameStateRecorder.cs:910`:
+**Update (2026-04-19):** Fixed in the `#467` worktree. `OnReputationChanged` now keeps a small `0.001f` epsilon under the `1.0f` threshold so stock-rounded `0.9999995` awards still survive after cumulative-float subtraction (`old + reward - old` can land slightly below `0.9999995`, e.g. `0.99999x`). Added regression coverage in `Source/Parsek.Tests/GameStateRecorderResourceThresholdTests.cs` for both raw `+/-0.9999995`, the cumulative-float subtraction shape, and clear sub-threshold control cases.
+
+**Original fix sketch:** one-line change in `Source/Parsek/GameStateRecorder.cs:910`:
 
 ```csharp
 // Before:  if (Math.Abs(delta) < ReputationThreshold)
@@ -449,7 +451,7 @@ Similar care needed for `FundsThreshold = 100.0` and `ScienceThreshold = 1.0` �
 
 **Dependencies:** none. Fixes the rep-mismatch tail of #469 specifically, though the underlying #469 investigation may also surface non-rep mismatches unrelated to this threshold.
 
-**Status:** TODO. Priority: high — trivial fix, high correctness value, currently produces false-positive reconciliation WARNs every time the player earns a records-class milestone.
+**Status:** ~~TODO~~ Fixed for v0.8.3. Priority was high — shipped as a small recorder-side threshold hardening plus targeted unit coverage.
 
 ---
 

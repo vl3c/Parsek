@@ -220,6 +220,7 @@ namespace Parsek
         private const double FundsThreshold = 100.0;
         private const double ScienceThreshold = 1.0;
         private const float ReputationThreshold = 1.0f;
+        private const float ReputationThresholdEpsilon = 0.001f;
 
         #region Subscription Management
 
@@ -907,7 +908,7 @@ namespace Parsek
             }
             if (float.IsNaN(oldReputation)) return;
             float delta = newReputation - oldReputation;
-            if (Math.Abs(delta) < ReputationThreshold)
+            if (IsReputationDeltaBelowThreshold(delta))
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "reputation-threshold",
                     $"Ignored ReputationChanged delta={delta:+0.0;-0.0} below threshold={ReputationThreshold:F1}", 5.0);
@@ -924,6 +925,12 @@ namespace Parsek
             };
             Emit(ref repEvt, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
+        }
+
+        private static bool IsReputationDeltaBelowThreshold(float delta)
+        {
+            float absDelta = Mathf.Abs(delta);
+            return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
         }
 
         #endregion
