@@ -432,6 +432,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ConvertScienceSubjects_PropagatesCaptureWindowAndScienceMethod()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                    science = 1.5f,
+                    captureUT = 88.7,
+                    reasonKey = "ScienceTransmission"
+                },
+                new PendingScienceSubject
+                {
+                    subjectId = "temperatureScan@KerbinSrfLandedLaunchPad",
+                    science = 1.2f,
+                    captureUT = 94.6,
+                    reasonKey = "VesselRecovery"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(88.7f, actions[0].StartUT);
+            Assert.Equal(ScienceMethod.Transmitted, actions[0].Method);
+            Assert.Equal(94.6f, actions[1].StartUT);
+            Assert.Equal(ScienceMethod.Recovered, actions[1].Method);
+            Assert.Equal(248.8f, actions[1].EndUT);
+        }
+
+        [Fact]
         public void ConvertScienceSubjects_SkipsEmptySubjectId()
         {
             var subjects = new List<PendingScienceSubject>

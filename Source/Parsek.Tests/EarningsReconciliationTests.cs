@@ -2555,7 +2555,7 @@ namespace Parsek.Tests
 
             Assert.Single(scienceMatches);
             Assert.Single(milestoneMatches);
-            Assert.Contains("within recording window [10.0,204.4]", scienceMatches[0]);
+            Assert.Contains("within science window [10.0,204.4]", scienceMatches[0]);
             Assert.Contains("id=mysteryGoo@KerbinSrfLandedLaunchPad", scienceMatches[0]);
             Assert.Contains("within 0.1s of ut=204.4", milestoneMatches[0]);
             Assert.Contains("id=Kerbin/Escape", milestoneMatches[0]);
@@ -2610,7 +2610,260 @@ namespace Parsek.Tests
                 "ids=[mysteryGoo@KerbinSrfLandedLaunchPad, crewReport@KerbinSrfLandedLaunchPad] across 2 action(s)",
                 scienceMatches[0]);
             Assert.Contains("expected=15.0, observed=15.0", scienceMatches[0]);
-            Assert.Contains("within recording window [10.0,204.4]", scienceMatches[0]);
+            Assert.Contains("within science window [10.0,204.4]", scienceMatches[0]);
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_PreRecordingUntaggedAndRecoveredEvents_Match_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(88.7, 0.0, 1.5, "ScienceTransmission"),
+                MakeKeyedScienceChanged(94.6, 1.5, 2.7, "VesselRecovery"),
+                MakeKeyedScienceChanged(116.2, 2.7, 6.2, "ScienceTransmission", recordingId: "rec_launchpad_prologue"),
+                MakeKeyedScienceChanged(117.8, 6.2, 7.6, "VesselRecovery", recordingId: "rec_launchpad_prologue")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_launchpad_prologue",
+                    SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 1.5f,
+                    EffectiveScience = 1.5f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 88.7f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_launchpad_prologue",
+                    SubjectId = "temperatureScan@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 1.2f,
+                    EffectiveScience = 1.2f,
+                    Method = ScienceMethod.Recovered,
+                    StartUT = 94.6f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_launchpad_prologue",
+                    SubjectId = "mysteryGoo@KerbinFlyingLow",
+                    Effective = true,
+                    ScienceAwarded = 3.5f,
+                    EffectiveScience = 3.5f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 116.2f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_launchpad_prologue",
+                    SubjectId = "telemetryReport@KerbinFlyingLow",
+                    Effective = true,
+                    ScienceAwarded = 1.4f,
+                    EffectiveScience = 1.4f,
+                    Method = ScienceMethod.Recovered,
+                    StartUT = 117.8f,
+                    EndUT = 248.8f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+
+            var scienceMatches = logLines.FindAll(l =>
+                l.Contains("Post-walk match: ScienceEarning sci"));
+            Assert.Equal(2, scienceMatches.Count);
+            Assert.Contains(scienceMatches, l =>
+                l.Contains("expected=5.0, observed=5.0") &&
+                l.Contains("keyed 'ScienceTransmission'") &&
+                l.Contains("within science window [88.7,248.8]"));
+            Assert.Contains(scienceMatches, l =>
+                l.Contains("expected=2.6, observed=2.6") &&
+                l.Contains("keyed 'VesselRecovery'") &&
+                l.Contains("within science window [94.6,248.8]"));
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_RepeatedNonConvergingWindow_WarnsOnce()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_warn_once",
+                    SubjectId = "mysteryGoo@KerbinFlyingLow",
+                    Effective = true,
+                    ScienceAwarded = 3.5f,
+                    EffectiveScience = 3.5f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 116.2f,
+                    EndUT = 248.8f
+                }
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(new List<GameStateEvent>(), actions, utCutoff: null);
+            LedgerOrchestrator.ReconcilePostWalk(new List<GameStateEvent>(), actions, utCutoff: null);
+
+            Assert.Single(logLines.FindAll(l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)") &&
+                l.Contains("mysteryGoo@KerbinFlyingLow")));
+        }
+
+        [Fact]
+        public void Reconcile_ScienceWindow_IncludesPreRecordingUntaggedScienceEvents_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(88.7, 0.0, 1.5, "ScienceTransmission"),
+                MakeKeyedScienceChanged(89.0, 1.5, 2.1, "ScienceTransmission"),
+                MakeKeyedScienceChanged(94.6, 2.1, 3.3, "VesselRecovery"),
+                MakeKeyedScienceChanged(108.8, 3.3, 6.1, "VesselRecovery", recordingId: "rec_commit_science"),
+                MakeKeyedScienceChanged(116.2, 6.1, 9.6, "ScienceTransmission", recordingId: "rec_commit_science"),
+                MakeKeyedScienceChanged(117.8, 9.6, 11.0, "VesselRecovery", recordingId: "rec_commit_science")
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_science",
+                    SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 1.5f,
+                    EffectiveScience = 1.5f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 88.7f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_science",
+                    SubjectId = "telemetryReport@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 0.6f,
+                    EffectiveScience = 0.6f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 89.0f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_science",
+                    SubjectId = "temperatureScan@KerbinSrfLandedLaunchPad",
+                    Effective = true,
+                    ScienceAwarded = 1.2f,
+                    EffectiveScience = 1.2f,
+                    Method = ScienceMethod.Recovered,
+                    StartUT = 94.6f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_science",
+                    SubjectId = "temperatureScan@KerbinFlyingLowShores",
+                    Effective = true,
+                    ScienceAwarded = 2.8f,
+                    EffectiveScience = 2.8f,
+                    Method = ScienceMethod.Recovered,
+                    StartUT = 108.8f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_science",
+                    SubjectId = "mysteryGoo@KerbinFlyingLow",
+                    Effective = true,
+                    ScienceAwarded = 3.5f,
+                    EffectiveScience = 3.5f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 116.2f,
+                    EndUT = 248.8f
+                },
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_science",
+                    SubjectId = "telemetryReport@KerbinFlyingLow",
+                    Effective = true,
+                    ScienceAwarded = 1.4f,
+                    EffectiveScience = 1.4f,
+                    Method = ScienceMethod.Recovered,
+                    StartUT = 117.8f,
+                    EndUT = 248.8f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(
+                events,
+                newActions,
+                startUT: 100.3,
+                endUT: 248.8,
+                recordingId: "rec_commit_science");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (sci)"));
+        }
+
+        [Fact]
+        public void Reconcile_ScienceWindow_StillWarnsForUnmatchedTaggedInWindowScience()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(120.0, 0.0, 5.0, "ScienceTransmission", recordingId: "rec_commit_gap"),
+                MakeKeyedScienceChanged(130.0, 5.0, 6.0, "VesselRecovery", recordingId: "rec_commit_gap")
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 248.8,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec_commit_gap",
+                    SubjectId = "mysteryGoo@KerbinFlyingLow",
+                    Effective = true,
+                    ScienceAwarded = 5.0f,
+                    EffectiveScience = 5.0f,
+                    Method = ScienceMethod.Transmitted,
+                    StartUT = 120.0f,
+                    EndUT = 248.8f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(
+                events,
+                newActions,
+                startUT: 100.3,
+                endUT: 248.8,
+                recordingId: "rec_commit_gap");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (sci)") &&
+                l.Contains("store delta=6.0") &&
+                l.Contains("ledger emitted delta=5.0"));
         }
 
         // ---------- utCutoff ----------

@@ -122,7 +122,7 @@ Cross-reference `#289` (stable-terminal re-snapshot) and `#479` (stable-terminal
 
 ---
 
-## 483. `ScienceTransmission` earnings reconciliation warns fire repeatedly for stock science transmitted from a flight that included a landed-at-launchpad prologue — `window=[100.3,248.8]` with `expected=11.0` / `store=7.7`
+## ~~483. `ScienceTransmission` earnings reconciliation warns fire repeatedly for stock science transmitted from a flight that included a landed-at-launchpad prologue — `window=[100.3,248.8]` with `expected=11.0` / `store=7.7`~~
 
 **Source:** `logs/2026-04-19_2126/KSP.log` — ≥ 15 occurrences spread across 21:18:32..21:26:05. Representative pair:
 
@@ -137,17 +137,21 @@ The recording window `[100.3,248.8]` contains six separate `ScienceEarning` ids 
 
 The repeated firing (15+ times over 8 minutes of play) suggests the reconcile path is being re-run on every `RecalculateAndPatch` call and keeps logging the same stale mismatch without converging. That matches the #466 symptom (mid-flight `RecalculateAndPatch` patching funds with an incomplete ledger), which was closed — so either #466's fix didn't cover the sci channel, or this is a different code path.
 
-**Fix:** trace the transmission-event emit site (`ScienceSubjectPatch` / `ScienceModule`) and dump the actual event UT + key for the six `ScienceEarning` ids in `window=[100.3,248.8]`. Compare to what `CompareLeg` / `AggregatePostWalkWindow` expects. Likely culprits: (1) transmission event keyed with a mixed-recording sibling so `#405`'s recordingId filter drops it; (2) event emitted at ut > 248.8 (post-recovery) and the recalc window does not extend past the recording's close.
+**Resolution (2026-04-19):** CLOSED for v0.8.3. The one-shot ERROR dump was added first and showed the real store shape: the launchpad-prologue `ScienceChanged` events at UT `88.7` and `94.6` were untagged because the recording did not start until `100.3`, one real `+0.6` science delta never entered the store because `GameStateRecorder` still treated `ScienceThreshold = 1.0` as noise, and post-walk science reconciliation was still hardcoding every `ScienceEarning` leg to key `'ScienceTransmission'` even when the stock store event was actually `'VesselRecovery'`.
 
-Before fixing, add one ERROR-level reconcile dump that logs: for each missing `ScienceChanged` event, the actual store events within `[window.start - 5, window.end + 5]` keyed `'ScienceTransmission'`, so the triage loop is: "run once, read dump, fix."
+The shipped fix does three things:
 
-Also: the repeat-log behaviour is itself a bug — if reconcile cannot converge, it should emit the warn once per window and suppress subsequent identical warns (per-action-ut dedup). At 15 repetitions per session this is approaching the `#160` log-spam class.
+1. `GameStateRecorder.OnScienceReceived` now captures the most recent positive `ScienceChanged` UT/reason and persists that onto each `PendingScienceSubject`, while the recorder-side science threshold is hardened down to real noise-only values (`0.001`) so legitimate sub-1.0 science awards are no longer dropped.
+2. `GameStateEventConverter.ConvertScienceSubjects` now carries that capture UT/reason forward into committed `ScienceEarning` actions (`StartUT` + `Method`), so both commit-time and post-walk reconciliation can match the correct pre-recording or in-recording science window and the correct store key (`ScienceTransmission` vs `VesselRecovery`).
+3. `LedgerOrchestrator` now uses those persisted science windows/reason keys for commit/post-walk reconciliation, emits a one-shot ERROR dump of nearby `ScienceChanged` events when a science window still fails, and suppresses repeated identical science WARNs once per window instead of flooding every recalculation.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (reconcile emit + dedup), `Source/Parsek/GameActions/ScienceModule.cs` (transmission event UT/key), `Source/Parsek/Patches/ScienceSubjectPatch.cs`.
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameStateEvent.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, plus targeted coverage in `Source/Parsek.Tests/EarningsReconciliationTests.cs`, `Source/Parsek.Tests/GameStateEventConverterTests.cs`, and `Source/Parsek.Tests/GameStateRecorderResourceThresholdTests.cs`.
 
-**Scope:** Medium. Includes the diagnostic dump and then the actual fix. The dedup suppression is a small change independently.
+**Scope:** Medium. Landed as a recorder + converter + reconcile follow-up with targeted unit coverage.
 
-**Dependencies:** #468, #469, #466, #405, #477 (all closed). This is the next link in that chain.
+**Dependencies:** #468, #469, #466, #405, #477 (all closed). This was the next link in that chain and is now closed.
+
+**Status:** CLOSED (2026-04-19). Fixed for v0.8.3.
 
 ---
 

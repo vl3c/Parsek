@@ -30,5 +30,52 @@ namespace Parsek.Tests
         {
             Assert.True(GameStateRecorder.IsReputationDeltaBelowThreshold(delta));
         }
+
+        [Theory]
+        [InlineData(0.6)]
+        [InlineData(-0.6)]
+        public void IsScienceDeltaBelowThreshold_RealSubOnePointScience_ReturnsFalse(double delta)
+        {
+            Assert.False(GameStateRecorder.IsScienceDeltaBelowThreshold(delta));
+        }
+
+        [Theory]
+        [InlineData(0.0005)]
+        [InlineData(-0.0005)]
+        public void IsScienceDeltaBelowThreshold_ClearNoise_ReturnsTrue(double delta)
+        {
+            Assert.True(GameStateRecorder.IsScienceDeltaBelowThreshold(delta));
+        }
+
+        [Fact]
+        public void ShouldUseRecentScienceChangeCapture_MatchingDeltaWithinWindow_ReturnsTrue()
+        {
+            var capture = new GameStateRecorder.RecentScienceChangeCapture
+            {
+                Ut = 88.7,
+                ReasonKey = "ScienceTransmission",
+                Delta = 1.512f,
+                RecordingId = "",
+                Valid = true
+            };
+
+            Assert.True(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 88.8));
+        }
+
+        [Fact]
+        public void ShouldUseRecentScienceChangeCapture_ExpiredOrMismatchedCapture_ReturnsFalse()
+        {
+            var capture = new GameStateRecorder.RecentScienceChangeCapture
+            {
+                Ut = 88.7,
+                ReasonKey = "ScienceTransmission",
+                Delta = 1.512f,
+                RecordingId = "",
+                Valid = true
+            };
+
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 0.6f, 88.8));
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 94.0));
+        }
     }
 }
