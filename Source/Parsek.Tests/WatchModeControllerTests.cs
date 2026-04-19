@@ -587,6 +587,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveRetargetedWatchAngles_WithCapturedState_ReappliesCompensatedAngles()
+        {
+            Quaternion newTargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+            Vector3 worldOrbitDirection = new Vector3(0.31f, 0.22f, 0.92f).normalized;
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = -11f,
+                Heading = 147f,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = worldOrbitDirection
+            };
+
+            bool result = WatchModeController.TryResolveRetargetedWatchAngles(
+                hasCapturedState: true,
+                cameraState: state,
+                newTargetRotation: newTargetRotation,
+                out float appliedPitch,
+                out float appliedHeading);
+
+            Assert.True(result);
+
+            Vector3 resolvedWorldDirection = WatchModeController.RotateVectorByQuaternion(
+                newTargetRotation,
+                OrbitDirectionFromAngles(appliedPitch, appliedHeading));
+
+            Assert.True(
+                Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
+                $"Expected preserved orbit direction, got {resolvedWorldDirection} from ({appliedPitch}, {appliedHeading})");
+        }
+
+        [Fact]
+        public void TryResolveRetargetedWatchAngles_WithoutCapturedState_LeavesRawAngles()
+        {
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = 12f,
+                Heading = -33f
+            };
+
+            bool result = WatchModeController.TryResolveRetargetedWatchAngles(
+                hasCapturedState: false,
+                cameraState: state,
+                newTargetRotation: new Quaternion(0f, 0.7071068f, 0f, 0.7071068f),
+                out float appliedPitch,
+                out float appliedHeading);
+
+            Assert.False(result);
+            Assert.Equal(12f, appliedPitch);
+            Assert.Equal(-33f, appliedHeading);
+        }
+
+        [Fact]
         public void TryResolveWorldOrbitDirection_PivotFrameRotatesForwardIntoWorldSpace()
         {
             Quaternion pivotRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);

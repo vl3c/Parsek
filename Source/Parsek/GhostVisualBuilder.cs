@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
@@ -20,6 +21,7 @@ namespace Parsek
         private const float LightShowcaseMinimumRange = 25f;
         private const float RcsShowcaseEmissionScale = 1f;
         private const float RcsShowcaseSpeedScale = 1f;
+        internal const float GhostAudioSpatialBlend = 0.75f;
         internal const string GhostVisualsRootName = "ghost_visuals";
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
@@ -284,6 +286,21 @@ namespace Parsek
             IPlaybackTrajectory rec, string rootName)
         {
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
+            HeaviestSpawnBuildType buildType = rec != null && rec.GhostVisualSnapshot != null
+                ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                : HeaviestSpawnBuildType.VesselSnapshot;
+            PendingGhostVisualBuild build =
+                TryBeginTimelineGhostBuild(rec, snapshotNode, rootName, buildType);
+            if (build == null)
+                return null;
+
+            AdvanceTimelineGhostBuild(build, long.MaxValue);
+            return CompleteTimelineGhostBuild(build, rec);
+        }
+
+        internal static PendingGhostVisualBuild TryBeginTimelineGhostBuild(
+            IPlaybackTrajectory rec, ConfigNode snapshotNode, string rootName, HeaviestSpawnBuildType buildType)
+        {
             if (snapshotNode == null)
             {
                 ParsekLog.Info("GhostVisual",
@@ -299,144 +316,168 @@ namespace Parsek
                 return null;
             }
 
-            GameObject root = new GameObject(rootName);
-            Transform visualsRoot = EnsureGhostVisualsRoot(root.transform);
-            bool addedAnyVisual = false;
-            int visualCount = 0;
-            int skippedName = 0;
-            int skippedPrefab = 0;
-            int skippedMesh = 0;
-            var collectedParachuteInfos = new List<ParachuteGhostInfo>();
-            var collectedJettisonInfos = new List<JettisonGhostInfo>();
-            var collectedEngineInfos = new List<EngineGhostInfo>();
-            var collectedDeployableInfos = new List<DeployableGhostInfo>();
-            var collectedHeatInfos = new List<HeatGhostInfo>();
-            var collectedLightInfos = new List<LightGhostInfo>();
-            var collectedFairingInfos = new List<FairingGhostInfo>();
-            var collectedRcsInfos = new List<RcsGhostInfo>();
-            var collectedRoboticInfos = new List<RoboticGhostInfo>();
-            var collectedColorChangerInfos = new List<ColorChangerGhostInfo>();
-            var collectedCompoundPartInfos = new List<CompoundPartGhostInfo>();
-            var collectedAudioInfos = new List<AudioGhostInfo>();
+            var root = new GameObject(rootName);
+            root.SetActive(false);
 
-            for (int i = 0; i < partNodes.Length; i++)
+            return new PendingGhostVisualBuild
             {
-                ConfigNode partNode = partNodes[i];
+                rootName = rootName,
+                root = root,
+                visualsRoot = EnsureGhostVisualsRoot(root.transform),
+                snapshotNode = snapshotNode,
+                partNodes = partNodes,
+                raiseLightVisualOnly =
+                    !string.IsNullOrEmpty(rec?.VesselName)
+                    && rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal),
+                raiseRcsVisualOnly =
+                    !string.IsNullOrEmpty(rec?.VesselName)
+                    && rec.VesselName.StartsWith(RcsShowcaseRecordingPrefix, System.StringComparison.Ordinal),
+                buildType = buildType,
+            };
+        }
+
+        internal static bool AdvanceTimelineGhostBuild(PendingGhostVisualBuild build, long maxTicks)
+        {
+            if (build == null || build.partNodes == null)
+                return true;
+
+            long startedAt = Stopwatch.GetTimestamp();
+            while (build.nextPartIndex < build.partNodes.Length)
+            {
+                ConfigNode partNode = build.partNodes[build.nextPartIndex++];
                 // Proto snapshots use "name" for part ID in PART nodes.
                 // Some synthetic builders may also emit "part"; support both.
                 string rawPart = partNode.GetValue("name") ?? partNode.GetValue("part");
                 string partName = TryExtractPartName(rawPart);
                 if (string.IsNullOrEmpty(partName))
                 {
-                    skippedName++;
-                    continue;
+                    build.skippedName++;
                 }
-
-                // Read persistentId for ghost part naming (enables O(1) lookup during playback)
-                string pidStr = partNode.GetValue("persistentId");
-                uint persistentId = 0;
-                if (pidStr != null)
-                    uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId);
-
-                AvailablePart ap = ResolveAvailablePart(partName);
-                if (ap == null || ap.partPrefab == null)
-                {
-                    skippedPrefab++;
-                    continue;
-                }
-                string resolvedName = ap.partPrefab.partInfo?.name ?? ap.name;
-
-                int meshCount = 0;
-                ParachuteGhostInfo parachuteInfo;
-                JettisonGhostInfo jettisonInfo;
-                List<EngineGhostInfo> partEngineInfos;
-                DeployableGhostInfo deployableInfo;
-                HeatGhostInfo heatInfo;
-                LightGhostInfo lightInfo;
-                FairingGhostInfo fairingInfo;
-                List<RcsGhostInfo> partRcsInfos;
-                List<RoboticGhostInfo> partRoboticInfos;
-                List<ColorChangerGhostInfo> partColorChangerInfos;
-                CompoundPartGhostInfo compoundPartInfo;
-                bool raiseLightVisualOnly =
-                    !string.IsNullOrEmpty(rec.VesselName) &&
-                    rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
-                bool raiseRcsVisualOnly =
-                    !string.IsNullOrEmpty(rec.VesselName) &&
-                    rec.VesselName.StartsWith(RcsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
-                bool partVisualAdded = AddPartVisuals(visualsRoot, partNode, ap.partPrefab,
-                    persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                    out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
-                    out partRcsInfos, out partRoboticInfos, out partColorChangerInfos, out compoundPartInfo,
-                    raiseLightVisualOnly, raiseRcsVisualOnly);
-                if (partVisualAdded)
-                    visualCount++;
                 else
                 {
-                    skippedMesh++;
+                    // Read persistentId for ghost part naming (enables O(1) lookup during playback)
+                    string pidStr = partNode.GetValue("persistentId");
+                    uint persistentId = 0;
+                    if (pidStr != null)
+                        uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId);
+
+                    AvailablePart ap = ResolveAvailablePart(partName);
+                    if (ap == null || ap.partPrefab == null)
+                    {
+                        build.skippedPrefab++;
+                    }
+                    else
+                    {
+                        int meshCount = 0;
+                        ParachuteGhostInfo parachuteInfo;
+                        JettisonGhostInfo jettisonInfo;
+                        List<EngineGhostInfo> partEngineInfos;
+                        DeployableGhostInfo deployableInfo;
+                        HeatGhostInfo heatInfo;
+                        LightGhostInfo lightInfo;
+                        FairingGhostInfo fairingInfo;
+                        List<RcsGhostInfo> partRcsInfos;
+                        List<RoboticGhostInfo> partRoboticInfos;
+                        List<ColorChangerGhostInfo> partColorChangerInfos;
+                        CompoundPartGhostInfo compoundPartInfo;
+                        bool partVisualAdded = AddPartVisuals(build.visualsRoot, partNode, ap.partPrefab,
+                            persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
+                            out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
+                            out partRcsInfos, out partRoboticInfos, out partColorChangerInfos, out compoundPartInfo,
+                            build.raiseLightVisualOnly, build.raiseRcsVisualOnly);
+                        if (partVisualAdded)
+                            build.visualCount++;
+                        else
+                            build.skippedMesh++;
+                        build.addedAnyVisual = build.addedAnyVisual || partVisualAdded;
+
+                        if (parachuteInfo != null)
+                            build.parachuteInfos.Add(parachuteInfo);
+                        if (jettisonInfo != null)
+                            build.jettisonInfos.Add(jettisonInfo);
+                        if (partEngineInfos != null)
+                            build.engineInfos.AddRange(partEngineInfos);
+                        if (deployableInfo != null)
+                            build.deployableInfos.Add(deployableInfo);
+                        if (heatInfo != null)
+                            build.heatInfos.Add(heatInfo);
+                        if (lightInfo != null)
+                            build.lightInfos.Add(lightInfo);
+                        if (fairingInfo != null)
+                            build.fairingInfos.Add(fairingInfo);
+                        if (partRcsInfos != null)
+                            build.rcsInfos.AddRange(partRcsInfos);
+                        if (partRoboticInfos != null)
+                            build.roboticInfos.AddRange(partRoboticInfos);
+                        if (partColorChangerInfos != null)
+                            build.colorChangerInfos.AddRange(partColorChangerInfos);
+                        if (compoundPartInfo != null)
+                            build.compoundPartInfos.Add(compoundPartInfo);
+
+                        // Build audio sources for engines and RCS on this part
+                        var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, build.root);
+                        if (partAudioInfos != null)
+                            build.audioInfos.AddRange(partAudioInfos);
+                    }
                 }
-                addedAnyVisual = addedAnyVisual || partVisualAdded;
 
-                if (parachuteInfo != null)
-                    collectedParachuteInfos.Add(parachuteInfo);
-                if (jettisonInfo != null)
-                    collectedJettisonInfos.Add(jettisonInfo);
-                if (partEngineInfos != null)
-                    collectedEngineInfos.AddRange(partEngineInfos);
-                if (deployableInfo != null)
-                    collectedDeployableInfos.Add(deployableInfo);
-                if (heatInfo != null)
-                    collectedHeatInfos.Add(heatInfo);
-                if (lightInfo != null)
-                    collectedLightInfos.Add(lightInfo);
-                if (fairingInfo != null)
-                    collectedFairingInfos.Add(fairingInfo);
-                if (partRcsInfos != null)
-                    collectedRcsInfos.AddRange(partRcsInfos);
-                if (partRoboticInfos != null)
-                    collectedRoboticInfos.AddRange(partRoboticInfos);
-                if (partColorChangerInfos != null)
-                    collectedColorChangerInfos.AddRange(partColorChangerInfos);
-                if (compoundPartInfo != null)
-                    collectedCompoundPartInfos.Add(compoundPartInfo);
-
-                // Build audio sources for engines and RCS on this part
-                var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, root);
-                if (partAudioInfos != null)
-                    collectedAudioInfos.AddRange(partAudioInfos);
+                if (build.nextPartIndex < build.partNodes.Length
+                    && maxTicks != long.MaxValue
+                    && Stopwatch.GetTimestamp() - startedAt >= maxTicks)
+                {
+                    // `maxTicks == 0` is the intentional one-part-yield test seam: the
+                    // budget check runs AFTER each processed part, so zero still makes
+                    // forward progress once, then returns Pending when work remains.
+                    return false;
+                }
             }
 
-            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost_built_{rootName}",
-                $"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
-                (skippedName > 0 ? $", {skippedName} bad name" : "") +
-                (skippedPrefab > 0 ? $", {skippedPrefab} no prefab" : "") +
-                (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""), 60.0);
+            return true;
+        }
 
-            if (!addedAnyVisual)
+        internal static GhostBuildResult CompleteTimelineGhostBuild(
+            PendingGhostVisualBuild build, IPlaybackTrajectory rec)
+        {
+            if (build == null)
+                return null;
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost_built_{build.rootName}",
+                $"Ghost built: {build.visualCount}/{build.partNodes.Length} parts with visuals" +
+                (build.skippedName > 0 ? $", {build.skippedName} bad name" : "") +
+                (build.skippedPrefab > 0 ? $", {build.skippedPrefab} no prefab" : "") +
+                (build.skippedMesh > 0 ? $", {build.skippedMesh} no mesh" : ""), 60.0);
+
+            if (!build.addedAnyVisual)
             {
-                Object.Destroy(root);
+                DestroyPendingTimelineGhostBuild(build);
                 ParsekLog.Warn("GhostVisual",
-                    $"Ghost build produced zero visuals for '{rec?.VesselName ?? "unknown"}' (parts={partNodes.Length})");
+                    $"Ghost build produced zero visuals for '{rec?.VesselName ?? "unknown"}' (parts={build.partNodes.Length})");
                 return null;
             }
 
             return new GhostBuildResult
             {
-                root = root,
-                parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null,
-                jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null,
-                engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null,
-                deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null,
-                heatInfos = collectedHeatInfos.Count > 0 ? collectedHeatInfos : null,
-                lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null,
-                fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null,
-                rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null,
-                roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null,
-                colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null,
-                compoundPartInfos = collectedCompoundPartInfos.Count > 0 ? collectedCompoundPartInfos : null,
-                audioInfos = collectedAudioInfos.Count > 0 ? collectedAudioInfos : null,
-                oneShotAudio = BuildOneShotAudioSource(root),
+                root = build.root,
+                parachuteInfos = build.parachuteInfos.Count > 0 ? build.parachuteInfos : null,
+                jettisonInfos = build.jettisonInfos.Count > 0 ? build.jettisonInfos : null,
+                engineInfos = build.engineInfos.Count > 0 ? build.engineInfos : null,
+                deployableInfos = build.deployableInfos.Count > 0 ? build.deployableInfos : null,
+                heatInfos = build.heatInfos.Count > 0 ? build.heatInfos : null,
+                lightInfos = build.lightInfos.Count > 0 ? build.lightInfos : null,
+                fairingInfos = build.fairingInfos.Count > 0 ? build.fairingInfos : null,
+                rcsInfos = build.rcsInfos.Count > 0 ? build.rcsInfos : null,
+                roboticInfos = build.roboticInfos.Count > 0 ? build.roboticInfos : null,
+                colorChangerInfos = build.colorChangerInfos.Count > 0 ? build.colorChangerInfos : null,
+                compoundPartInfos = build.compoundPartInfos.Count > 0 ? build.compoundPartInfos : null,
+                audioInfos = build.audioInfos.Count > 0 ? build.audioInfos : null,
+                oneShotAudio = BuildOneShotAudioSource(build.root),
             };
+        }
+
+        internal static void DestroyPendingTimelineGhostBuild(PendingGhostVisualBuild build)
+        {
+            if (build?.root != null)
+                Object.Destroy(build.root);
         }
 
         internal static ConfigNode GetGhostSnapshot(IPlaybackTrajectory rec)
@@ -2399,38 +2440,95 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build a single non-looping AudioSource on the ghost root for one-shot events
-        /// (decouple, explosion). Returns null if root is null.
+        /// Build a single non-looping AudioSource on a dedicated child of the ghost root
+        /// for one-shot events (decouple, explosion). Returns null if root is null.
         /// </summary>
         internal static OneShotAudioInfo BuildOneShotAudioSource(GameObject ghostRoot)
         {
             if (ghostRoot == null) return null;
 
-            var source = ghostRoot.AddComponent<AudioSource>();
-            source.spatialBlend = 1f;
-            source.dopplerLevel = 0f;
-            ConfigureGhostRolloff(source);
-            source.priority = 128; // same as KSP default — compete equally for voice channels
-            source.loop = false;
-            source.playOnAwake = false;
+            var sourceObject = new GameObject("ghost_audio_oneshot");
+            sourceObject.transform.SetParent(ghostRoot.transform, false);
+            var source = sourceObject.AddComponent<AudioSource>();
+            ApplyGhostAudioDefaults(source, loop: false);
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
 
             ParsekLog.Verbose("GhostAudio", $"Built one-shot audio source on '{ghostRoot.name}'");
             return new OneShotAudioInfo { audioSource = source };
         }
 
+        internal static void AttachGhostAudioToWatchPivot(GhostBuildResult result, Transform cameraPivot)
+        {
+            if (result == null || cameraPivot == null)
+                return;
+
+            int loopSourceCount = 0;
+            if (result.audioInfos != null)
+            {
+                for (int i = 0; i < result.audioInfos.Count; i++)
+                {
+                    AudioSource source = result.audioInfos[i]?.audioSource;
+                    if (source == null)
+                        continue;
+
+                    ReanchorGhostAudioSource(source, cameraPivot);
+                    loopSourceCount++;
+                }
+            }
+
+            AudioSource oneShotSource = result.oneShotAudio?.audioSource;
+            bool hasOneShotSource = oneShotSource != null;
+            ReanchorGhostAudioSource(oneShotSource, cameraPivot);
+
+            if (loopSourceCount > 0 || hasOneShotSource)
+            {
+                string ghostName = result.root != null ? result.root.name : "<null-root>";
+                ParsekLog.Verbose("GhostAudio",
+                    $"Attached watch-pivot ghost audio on '{ghostName}' to '{cameraPivot.name}' " +
+                    $"(loop={loopSourceCount}, oneShot={(hasOneShotSource ? 1 : 0)}, " +
+                    $"spatialBlend={GhostAudioSpatialBlend:0.##}, panStereo=0)");
+            }
+        }
+
         private static AudioSource CreateGhostAudioSource(GameObject go, AudioClip clip, bool loop)
         {
-            var source = go.AddComponent<AudioSource>();
+            if (go == null)
+                return null;
+
+            // Keep audio on a dedicated child so re-anchoring to cameraPivot later
+            // does not reparent the part visual GameObject itself.
+            var sourceObject = new GameObject("ghost_audio_loop");
+            sourceObject.transform.SetParent(go.transform, false);
+            var source = sourceObject.AddComponent<AudioSource>();
             source.clip = clip;
-            source.spatialBlend = 1f;
+            ApplyGhostAudioDefaults(source, loop);
+            source.volume = 0f;
+            return source;
+        }
+
+        private static void ApplyGhostAudioDefaults(AudioSource source, bool loop)
+        {
+            if (source == null)
+                return;
+
+            source.spatialBlend = GhostAudioSpatialBlend;
+            source.panStereo = 0f;
             source.dopplerLevel = 0f;
             ConfigureGhostRolloff(source);
             source.priority = 128; // same as KSP default — compete equally for voice channels
             source.loop = loop;
             source.playOnAwake = false;
-            source.volume = 0f;
-            return source;
+        }
+
+        private static void ReanchorGhostAudioSource(AudioSource source, Transform anchor)
+        {
+            if (source == null || anchor == null)
+                return;
+
+            source.transform.SetParent(anchor, false);
+            source.transform.localPosition = Vector3.zero;
+            source.transform.localRotation = Quaternion.identity;
+            ApplyGhostAudioDefaults(source, source.loop);
         }
 
         private static void ConfigureGhostRolloff(AudioSource source)

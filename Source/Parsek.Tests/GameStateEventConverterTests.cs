@@ -28,7 +28,8 @@ namespace Parsek.Tests
         // ================================================================
 
         private static GameStateEvent MakeEvent(GameStateEventType type, double ut,
-            string key = "", string detail = "", double valBefore = 0, double valAfter = 0)
+            string key = "", string detail = "", double valBefore = 0, double valAfter = 0,
+            string recordingId = "")
         {
             return new GameStateEvent
             {
@@ -37,7 +38,8 @@ namespace Parsek.Tests
                 key = key,
                 detail = detail,
                 valueBefore = valBefore,
-                valueAfter = valAfter
+                valueAfter = valAfter,
+                recordingId = recordingId
             };
         }
 
@@ -311,9 +313,9 @@ namespace Parsek.Tests
         {
             var events = new List<GameStateEvent>
             {
-                MakeEvent(GameStateEventType.TechResearched, 50.0, key: "early", detail: "cost=10"),
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "inRange", detail: "cost=20"),
-                MakeEvent(GameStateEventType.TechResearched, 200.0, key: "late", detail: "cost=30"),
+                MakeEvent(GameStateEventType.TechResearched, 50.0, key: "early", detail: "cost=10", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "inRange", detail: "cost=20", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 200.0, key: "late", detail: "cost=30", recordingId: "rec"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 100.0, 150.0);
@@ -323,13 +325,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ConvertEvents_WhenRecordingIdSupplied_IgnoresOtherRecordingTags()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(
+                    GameStateEventType.MilestoneAchieved,
+                    100.0,
+                    key: "RecordsSpeed",
+                    detail: "funds=2880",
+                    recordingId: "rec-parent"),
+                MakeEvent(
+                    GameStateEventType.MilestoneAchieved,
+                    100.0,
+                    key: "RecordsSpeed",
+                    detail: "funds=2880",
+                    recordingId: "rec-child"),
+                MakeEvent(
+                    GameStateEventType.MilestoneAchieved,
+                    100.0,
+                    key: "RecordsSpeed",
+                    detail: "funds=2880")
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec-parent", 0.0, 200.0);
+
+            var action = Assert.Single(actions);
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("RecordsSpeed", action.MilestoneId);
+            Assert.Equal("rec-parent", action.RecordingId);
+        }
+
+        [Fact]
         public void ConvertEvents_SkipsNonConvertibleTypes()
         {
             var events = new List<GameStateEvent>
             {
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5"),
-                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None"),
-                MakeEvent(GameStateEventType.ScienceChanged, 100.0, key: "None"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5", recordingId: "rec"),
+                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None", recordingId: "rec"),
+                MakeEvent(GameStateEventType.ScienceChanged, 100.0, key: "None", recordingId: "rec"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);
@@ -362,8 +396,8 @@ namespace Parsek.Tests
         {
             var events = new List<GameStateEvent>
             {
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5"),
-                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5", recordingId: "recX"),
+                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None", recordingId: "recX"),
             };
 
             GameStateEventConverter.ConvertEvents(events, "recX", 0.0, 200.0);
@@ -385,7 +419,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "evaReport@MunSrfLandedMidlands", science = 8.0f },
             };
 
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
 
             Assert.Equal(2, actions.Count);
             Assert.Equal(GameActionType.ScienceEarning, actions[0].Type);
@@ -393,6 +427,8 @@ namespace Parsek.Tests
             Assert.Equal(5.0f, actions[0].ScienceAwarded);
             Assert.Equal(1000.0, actions[0].UT);
             Assert.Equal("rec", actions[0].RecordingId);
+            Assert.Equal(900.0f, actions[0].StartUT);
+            Assert.Equal(1000.0f, actions[0].EndUT);
         }
 
         [Fact]
@@ -404,7 +440,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "valid@subject", science = 3.0f },
             };
 
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 50.0, 100.0);
 
             Assert.Single(actions);
             Assert.Equal("valid@subject", actions[0].SubjectId);
@@ -419,7 +455,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "negative@subject", science = -1.0f },
             };
 
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 50.0, 100.0);
 
             Assert.Empty(actions);
         }
@@ -427,7 +463,7 @@ namespace Parsek.Tests
         [Fact]
         public void ConvertScienceSubjects_NullList_ReturnsEmpty()
         {
-            var actions = GameStateEventConverter.ConvertScienceSubjects(null, "rec", 100.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(null, "rec", 50.0, 100.0);
             Assert.Empty(actions);
         }
 
@@ -455,9 +491,9 @@ namespace Parsek.Tests
         {
             var events = new List<GameStateEvent>
             {
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5"),
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech2", detail: "cost=10"),
-                MakeEvent(GameStateEventType.CrewHired, 100.0, key: "Jeb", detail: "trait=Pilot"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech2", detail: "cost=10", recordingId: "rec"),
+                MakeEvent(GameStateEventType.CrewHired, 100.0, key: "Jeb", detail: "trait=Pilot", recordingId: "rec"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);
@@ -473,9 +509,9 @@ namespace Parsek.Tests
         {
             var events = new List<GameStateEvent>
             {
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5"),
-                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None"),
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech2", detail: "cost=10"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5", recordingId: "rec"),
+                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech2", detail: "cost=10", recordingId: "rec"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);
@@ -490,9 +526,9 @@ namespace Parsek.Tests
         {
             var events = new List<GameStateEvent>
             {
-                MakeEvent(GameStateEventType.TechResearched, 50.0, key: "early", detail: "cost=5"),
-                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "first", detail: "cost=10"),
-                MakeEvent(GameStateEventType.TechResearched, 150.0, key: "second", detail: "cost=15"),
+                MakeEvent(GameStateEventType.TechResearched, 50.0, key: "early", detail: "cost=5", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "first", detail: "cost=10", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 150.0, key: "second", detail: "cost=15", recordingId: "rec"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 100.0, 200.0);
@@ -512,7 +548,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "temperatureScan@KerbinFlyingLow", science = 3.0f },
             };
 
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
 
             Assert.Equal(3, actions.Count);
             Assert.Equal(1, actions[0].Sequence);
@@ -531,7 +567,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "valid2@subject", science = 8.0f },
             };
 
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
 
             Assert.Equal(2, actions.Count);
             Assert.Equal(1, actions[0].Sequence);
@@ -547,7 +583,7 @@ namespace Parsek.Tests
                 new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f, subjectMaxValue = 24.0f },
             };
 
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 900.0, 1000.0);
 
             Assert.Equal(2, actions.Count);
             Assert.Equal(10.0f, actions[0].SubjectMaxValue);
@@ -779,9 +815,9 @@ namespace Parsek.Tests
             var events = new List<GameStateEvent>
             {
                 MakeEvent(GameStateEventType.MilestoneAchieved, 100.0,
-                    key: "FirstLaunch", detail: ""),
+                    key: "FirstLaunch", detail: "", recordingId: "rec"),
                 MakeEvent(GameStateEventType.TechResearched, 150.0,
-                    key: "basicRocketry", detail: "cost=5"),
+                    key: "basicRocketry", detail: "cost=5", recordingId: "rec"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);

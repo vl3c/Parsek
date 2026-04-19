@@ -6,7 +6,8 @@ namespace Parsek
     /// <summary>
     /// Gloops Flight Recorder window — manual ghost-only recording controls.
     /// Runs a parallel FlightRecorder that produces IsGhostOnly recordings
-    /// auto-committed to the Gloops group with looping enabled by default.
+    /// auto-committed to the Gloops group with looping off by default and the
+    /// loop period initialized to auto.
     /// </summary>
     internal class GloopsRecorderUI
     {
