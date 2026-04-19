@@ -552,21 +552,21 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 ---
 
-## 461. Pin the #406 reuse post-frame visibility invariant with an in-game test
+## ~~461. Pin the #406 reuse post-frame visibility invariant with an in-game test~~
 
 **Source:** clean-context Opus review of PR #394 (#406 ghost GameObject reuse across loop-cycle boundaries), finding #4.
 
 **Concern:** the reuse orchestrator (`GhostPlaybackEngine.ReusePrimaryGhostAcrossCycle`) exits with `state.deferVisibilityUntilPlaybackSync == true` and `state.ghost.activeSelf == false` (set by `PrimeLoadedGhostForPlaybackUT.SetActive(false)`). Control then falls through to `UpdateLoopingPlayback:1161-1166`, where `ActivateGhostVisualsIfNeeded` clears both on the same frame before any render pass. A post-investigation trace confirmed this is invariant-equivalent to the pre-#406 destroy+spawn path, so no visual regression exists today — but NO test pins this control-flow ordering. A future refactor that adds an early `return` between `:1068` (the reuse call) and `:1166` (the activation) would silently hide the ghost for a frame on every cycle boundary.
 
-**Fix:** new in-game test `Bug406_ReuseClearsDeferVisOnSameFrame` (alongside the existing `Bug406_ReusePrimaryGhostAcrossCycle_PreservesGhostIdentity` in `Source/Parsek/InGameTests/RuntimeTests.cs`) that drives a full `UpdateLoopingPlayback` cycle-boundary pass (using a real committed recording from the test fixture, or a minimal IPlaybackTrajectory + positioner stub with engine-level seams) and asserts on the post-frame state: `state.deferVisibilityUntilPlaybackSync == false` AND `state.ghost.activeSelf == true` (in the happy-path, not-zone-hidden case). A second variant asserts the `hiddenByZone` branch keeps the ghost inactive as designed. xUnit cannot observe `GameObject.activeSelf`; must be in-game.
+**Fix:** shipped in `Source/Parsek/InGameTests/RuntimeTests.cs` as `Bug406_ReuseClearsDeferVisOnSameFrame` plus `Bug406_ReuseHiddenByZone_DoesNotActivateGhostOnSameFrame`. The coverage now drives the real `UpdatePlayback -> UpdateLoopingPlayback` cycle-boundary path through the live FLIGHT positioner, asserts that the same ghost GameObject instance survives the full frame, and pins the two post-frame outcomes that matter: visible branch clears `deferVisibilityUntilPlaybackSync` and re-activates the reused ghost on the same frame; hidden-by-zone branch keeps the reused ghost deferred/inactive until a later visible frame. It also asserts that zone rendering does NOT emit the `re-shown: entered visible distance tier` path while the ghost is still deferred, so the same-frame activation remains owned by `ActivateGhostVisualsIfNeeded`. xUnit still cannot observe `GameObject.activeSelf`, so this remains in-game-only coverage.
 
-**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (new test). Possibly a test seam on `GhostPlaybackEngine` if the full `UpdateLoopingPlayback` path is too coupled to the real FrameContext plumbing — prefer driving the public entry point to avoid white-box coupling.
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`.
 
-**Scope:** Small (one in-game test + possibly a thin seam). Pure regression-test work, no production code change.
+**Scope:** Small. Regression-test coverage only; no production behaviour change was required after the invariant re-check.
 
 **Dependencies:** #394 (#406 follow-up) merged.
 
-**Status:** TODO. Priority: low. User-visible impact today is none (invariant-equivalent to pre-#406 behaviour); the test is a guard against future refactors.
+**Status:** CLOSED. Priority: low. Landed on 2026-04-19 with the two runtime regressions above. User-visible impact remains none today; this is a guard against future refactors that would insert an early return between reuse and same-frame activation.
 
 ---
 
