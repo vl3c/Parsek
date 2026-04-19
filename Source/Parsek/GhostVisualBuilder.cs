@@ -20,6 +20,7 @@ namespace Parsek
         private const float LightShowcaseMinimumRange = 25f;
         private const float RcsShowcaseEmissionScale = 1f;
         private const float RcsShowcaseSpeedScale = 1f;
+        internal const float GhostAudioSpatialBlend = 0.75f;
         internal const string GhostVisualsRootName = "ghost_visuals";
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
@@ -2399,38 +2400,95 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build a single non-looping AudioSource on the ghost root for one-shot events
-        /// (decouple, explosion). Returns null if root is null.
+        /// Build a single non-looping AudioSource on a dedicated child of the ghost root
+        /// for one-shot events (decouple, explosion). Returns null if root is null.
         /// </summary>
         internal static OneShotAudioInfo BuildOneShotAudioSource(GameObject ghostRoot)
         {
             if (ghostRoot == null) return null;
 
-            var source = ghostRoot.AddComponent<AudioSource>();
-            source.spatialBlend = 1f;
-            source.dopplerLevel = 0f;
-            ConfigureGhostRolloff(source);
-            source.priority = 128; // same as KSP default — compete equally for voice channels
-            source.loop = false;
-            source.playOnAwake = false;
+            var sourceObject = new GameObject("ghost_audio_oneshot");
+            sourceObject.transform.SetParent(ghostRoot.transform, false);
+            var source = sourceObject.AddComponent<AudioSource>();
+            ApplyGhostAudioDefaults(source, loop: false);
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
 
             ParsekLog.Verbose("GhostAudio", $"Built one-shot audio source on '{ghostRoot.name}'");
             return new OneShotAudioInfo { audioSource = source };
         }
 
+        internal static void AttachGhostAudioToWatchPivot(GhostBuildResult result, Transform cameraPivot)
+        {
+            if (result == null || cameraPivot == null)
+                return;
+
+            int loopSourceCount = 0;
+            if (result.audioInfos != null)
+            {
+                for (int i = 0; i < result.audioInfos.Count; i++)
+                {
+                    AudioSource source = result.audioInfos[i]?.audioSource;
+                    if (source == null)
+                        continue;
+
+                    ReanchorGhostAudioSource(source, cameraPivot);
+                    loopSourceCount++;
+                }
+            }
+
+            AudioSource oneShotSource = result.oneShotAudio?.audioSource;
+            bool hasOneShotSource = oneShotSource != null;
+            ReanchorGhostAudioSource(oneShotSource, cameraPivot);
+
+            if (loopSourceCount > 0 || hasOneShotSource)
+            {
+                string ghostName = result.root != null ? result.root.name : "<null-root>";
+                ParsekLog.Verbose("GhostAudio",
+                    $"Attached watch-pivot ghost audio on '{ghostName}' to '{cameraPivot.name}' " +
+                    $"(loop={loopSourceCount}, oneShot={(hasOneShotSource ? 1 : 0)}, " +
+                    $"spatialBlend={GhostAudioSpatialBlend:0.##}, panStereo=0)");
+            }
+        }
+
         private static AudioSource CreateGhostAudioSource(GameObject go, AudioClip clip, bool loop)
         {
-            var source = go.AddComponent<AudioSource>();
+            if (go == null)
+                return null;
+
+            // Keep audio on a dedicated child so re-anchoring to cameraPivot later
+            // does not reparent the part visual GameObject itself.
+            var sourceObject = new GameObject("ghost_audio_loop");
+            sourceObject.transform.SetParent(go.transform, false);
+            var source = sourceObject.AddComponent<AudioSource>();
             source.clip = clip;
-            source.spatialBlend = 1f;
+            ApplyGhostAudioDefaults(source, loop);
+            source.volume = 0f;
+            return source;
+        }
+
+        private static void ApplyGhostAudioDefaults(AudioSource source, bool loop)
+        {
+            if (source == null)
+                return;
+
+            source.spatialBlend = GhostAudioSpatialBlend;
+            source.panStereo = 0f;
             source.dopplerLevel = 0f;
             ConfigureGhostRolloff(source);
             source.priority = 128; // same as KSP default — compete equally for voice channels
             source.loop = loop;
             source.playOnAwake = false;
-            source.volume = 0f;
-            return source;
+        }
+
+        private static void ReanchorGhostAudioSource(AudioSource source, Transform anchor)
+        {
+            if (source == null || anchor == null)
+                return;
+
+            source.transform.SetParent(anchor, false);
+            source.transform.localPosition = Vector3.zero;
+            source.transform.localRotation = Quaternion.identity;
+            ApplyGhostAudioDefaults(source, source.loop);
         }
 
         private static void ConfigureGhostRolloff(AudioSource source)

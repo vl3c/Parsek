@@ -1294,5 +1294,31 @@ namespace Parsek.Tests
                 ParsekUI.SortColumn.LaunchSite, 0);
             Assert.Equal(0, key);
         }
+
+        [Fact]
+        public void CompareRootItemsForSort_GloopsGroupAlwaysSortsFirst()
+        {
+            foreach (RecordingsTableUI.SortColumn column in Enum.GetValues(typeof(RecordingsTableUI.SortColumn)))
+            {
+                foreach (bool ascending in new[] { true, false })
+                {
+                    var rootItems = new List<(bool IsGroup, string GroupName, string SortName, double SortKey)>
+                    {
+                        (true, "Manual Group", "Zulu", 999.0),
+                        (false, null, "Chain Alpha", -100.0),
+                        (true, RecordingStore.GloopsGroupName, "Ghosts", 50.0),
+                        (false, null, "Standalone", -200.0)
+                    };
+
+                    rootItems.Sort((a, b) => RecordingsTableUI.CompareRootItemsForSort(
+                        a.IsGroup, a.GroupName, a.SortName, a.SortKey,
+                        b.IsGroup, b.GroupName, b.SortName, b.SortKey,
+                        column, ascending));
+
+                    Assert.True(rootItems[0].IsGroup);
+                    Assert.Equal(RecordingStore.GloopsGroupName, rootItems[0].GroupName);
+                }
+            }
+        }
     }
 }
