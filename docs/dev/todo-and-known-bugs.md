@@ -282,7 +282,9 @@ Edge case to confirm during fix: the `LegacyGloopsGroupName = "Gloops Flight Rec
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low-medium — UI polish, no data-correctness impact. Batch with #471 (Gloops loop-default fix) since both touch the Gloops commit/display path.
+**Update (after #471):** the loop-default fix shipped independently because it was a commit-path behavior bug; #473 remains open as separate Recordings-table polish.
+
+**Status:** TODO. Priority: low-medium — UI polish, no data-correctness impact. Batch with any future Gloops Recordings-table touch.
 
 ---
 
@@ -312,23 +314,17 @@ Edge cases to cover in the test matrix:
 
 ---
 
-## 471. Gloops recordings should not loop by default; commit path should set `LoopPlayback=false` and `LoopIntervalSeconds=0` (auto)
+## ~~471. Gloops recordings should not loop by default; commit path should set `LoopPlayback=false` and `LoopIntervalSeconds=0` (auto)~~
 
 **Source:** user request — "gloops recordings should no longer be looped by default and their loop period should be set to auto when they are created."
 
-**Concern:** `ParsekFlight.CommitGloopsRecorderData` (`Source/Parsek/ParsekFlight.cs:7757`) unconditionally sets `rec.IsGhostOnly = true; rec.LoopPlayback = true;` at `:7776-7777`. The file's doc comment at `:7720` even states "with looping enabled by default" — so the current behaviour is by design, but the design is wrong for the user's workflow: Gloops recordings are for one-off hand-captured moments, not automatic loops, and enabling looping by default spawns unwanted repeating ghosts until the player manually toggles the L button off. Loop interval is not explicitly set, so it defaults to `0` (the "auto" sentinel the playback path maps to `ParsekSettings.autoLoopIntervalSeconds`, see `ParsekFlight.cs:450` and `ParsekKSC.cs:842`).
+**Status:** ~~Fixed~~ in this PR. `ParsekFlight.CommitGloopsRecorderData` now writes `LoopPlayback=false`, `LoopIntervalSeconds=0`, and `LoopTimeUnit=LoopTimeUnit.Auto` before `RecordingStore.CommitGloopsRecording`, so fresh Gloops captures no longer start looping immediately and the stored "auto" period behaves correctly if the player later turns looping back on.
 
-**Fix:** change `ParsekFlight.cs:7777` from `rec.LoopPlayback = true;` to `rec.LoopPlayback = false;`. Add `rec.LoopIntervalSeconds = 0;` explicitly on the line below so the "auto" intent is visible in code (it is already the default, but a new reader should not have to know that `0` is the auto sentinel). Update the doc comment at `:7719-7720` to reflect the new behaviour (`committed as ghost-only; looping off by default, interval set to auto (0)`). Also update the class-level comment at `UI/GloopsRecorderUI.cs:9` which currently says "auto-committed to the Gloops group with looping enabled by default".
+Comments/docs updated in `ParsekFlight`, `GloopsRecorderUI`, and `docs/user-guide.md` so the user-facing text matches the shipped behavior.
 
-No schema change needed — existing recordings with `LoopPlayback=true` are not touched. Test: xUnit driving `CommitGloopsRecorderData` with a minimal `FlightRecorder`, asserts the committed recording has `LoopPlayback==false` and `LoopIntervalSeconds==0`.
+Regression coverage now invokes `CommitGloopsRecorderData` with a minimal `ParsekFlight` + `FlightRecorder` harness and asserts the committed recording is ghost-only, non-looping, and stored with the auto period settings. The commit path now resolves the active-vessel name through a small defensive helper so the unit test can run without KSP's Unity-backed `FlightGlobals` static initializer.
 
-**Files:** `Source/Parsek/ParsekFlight.cs:7776-7777` (setter + doc), `Source/Parsek/UI/GloopsRecorderUI.cs:9` (doc). Test: `Source/Parsek.Tests/` (new or existing Gloops test file).
-
-**Scope:** Trivial. Two-line change + two comment updates + one test.
-
-**Dependencies:** none.
-
-**Status:** TODO. Priority: medium — small user-experience polish, no data-correctness risk.
+No schema change: existing recordings that already have `LoopPlayback=true` are preserved as-is.
 
 ---
 
