@@ -287,15 +287,22 @@ Separately, root-group ordering is decided by `GetGroupSortKey` + the column's s
 
 ---
 
-## 472. Watch-mode camera pitch/heading jumps when playback hands off to the next segment within a recording tree (e.g. flying → landed)
+## ~~472. Watch-mode camera pitch/heading jumps when playback hands off to the next segment within a recording tree (e.g. flying → landed)~~
 
 **Source:** user playtest report — "when watching a recording, maintain the camera watch angle exactly the same when transitioning to another recording segment (right now it moves when vessel is going from flying to landed for example)."
 
-**Concern:** inside a single tree (chain/branch) the active playback ghost changes at each segment boundary (flying recording ends, landed recording's ghost becomes the new camera target). `WatchModeController` has a `RetargetToNewGhost` handler (`Source/Parsek/WatchModeController.cs:711-721` for single-ghost and `:731-740` for overlap) that swaps the FlightCamera target transform to the new ghost's pivot. The swap is implemented via `FlightCamera.SetTargetTransform(GetWatchTarget(evt.GhostPivot))` — which snaps the camera to the new target but does NOT re-apply the remembered pitch/heading. Even though `WatchCameraTransitionState` (`:25`) captures `Pitch`/`Heading` in degrees and `RememberWatchCameraState` persists it (`:1012-1057`) for enter/exit transitions, the per-frame segment retarget skips that restoration path. Net effect: the camera yanks to whatever pitch/heading the new ghost's default orientation implies.
+**Concern:** inside a single tree (chain/branch) the active playback ghost changes at each segment boundary (flying recording ends, landed recording's ghost becomes the new camera target). Investigation on `origin/main` confirmed the explicit tree-segment transfer path (`TransferWatchToNextSegment`) already captured and replayed `WatchCameraTransitionState`; the remaining snap lived in adjacent watch retarget paths that still did raw `FlightCamera.SetTargetTransform(...)` calls. The exposed offenders were the loop/overlap `RetargetToNewGhost` handlers plus the quiet-expiry / primary-cycle fallback, overlap-hold rebind, and stock vessel-switch re-target path. Those branches swapped the target transform without replaying the current pitch/heading, so the camera yanked to whatever framing the new target basis implied.
 
 The existing loop-cycle-boundary code path (`CameraActionType.RetargetToNewGhost` inside `HandleLoopCameraAction`) has the same shape — if the bug reproduces at loop boundaries too, the fix covers both. Confirm during fix.
 
-**Fix:** in both `RetargetToNewGhost` branches (`WatchModeController.cs:711-721`, `:731-740`), before the `SetTargetTransform` call, capture the current `flightCamera.camPitch` / `camHdg` (radians), then after the retarget re-apply them via the same `ApplyCameraState`-style helper used on watch-mode entry (`:486-525` writes pitch/heading back to the camera). The `WatchCameraTransitionState` struct already carries both fields in the right unit (degrees) — the helper path is ready; it just needs to fire on segment-boundary retargets too, not only on enter/exit.
+**Fix landed (2026-04-19):** centralized the retarget angle replay around `TryResolveRetargetedWatchAngles` inside `WatchModeController`'s watch-camera rebind path. Every watch-mode ghost rebind that should preserve framing now captures the current watch camera state, primes the replacement ghost's `horizonProxy` before target selection when `HorizonLocked` is active, then re-targets and replays compensated pitch/heading in the new target basis instead of doing a raw `SetTargetTransform(...)`. Applied to:
+
+- loop `RetargetToNewGhost`
+- overlap `RetargetToNewGhost`
+- watched-cycle fallback to primary
+- overlap-hold completion rebind
+- quiet-expiry bridge retarget
+- stock `OnVesselSwitchComplete` re-target
 
 Edge cases to cover in the test matrix:
 - `HorizonLocked` mode (default on entry) — pitch/heading are relative to the horizon and must survive the target swap
@@ -303,13 +310,13 @@ Edge cases to cover in the test matrix:
 - Overlap retarget vs non-overlap — both code paths at `:711` and `:731`
 - Loop cycle boundary — verify same issue/fix
 
-**Files:** `Source/Parsek/WatchModeController.cs` (retarget sites + helper plumbing). Test: in-game test (xUnit cannot observe `FlightCamera`) that enters watch mode on a multi-segment tree recording, waits for the segment boundary to trigger retarget, asserts `flightCamera.camPitch` / `camHdg` remain within a small epsilon of their pre-retarget values.
+**Files:** `Source/Parsek/WatchModeController.cs` (retarget sites + helper plumbing), `Source/Parsek.Tests/WatchModeControllerTests.cs` (pure retarget-angle regression coverage). Verification in this environment used `dotnet build --no-restore` plus a direct reflection harness over the compiled `WatchModeControllerTests` methods because the standard `dotnet test` runner aborts here on local socket initialization (`SocketException 10106` before test execution starts).
 
-**Scope:** Small — pitch/heading capture-and-reapply around each retarget call. Main complexity is the test harness driving a real segment boundary; if too coupled, add a test seam on `HandleLoopCameraAction` / `HandleOverlapCameraAction` to drive the `RetargetToNewGhost` branch directly from a synthetic `CameraActionEvent`.
+**Scope:** Closed in a small controller-only patch. The explicit tree-transfer path needed no change; the missing coverage was the remaining raw re-target sites around loop/overlap and stock camera rebinds.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: medium — user-visible camera jerk every time playback crosses a segment/terminal state boundary.
+**Status:** Closed — shipped for v0.8.3 as a targeted watch-camera retarget preservation pass. Priority was medium.
 
 ---
 

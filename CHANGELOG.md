@@ -6,10 +6,9 @@ All notable changes to Parsek are documented here.
 
 ## 0.8.3
 
-### Tests
-
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
 - `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
+- `#472` Added unit coverage for watch-camera retarget angle resolution so preserved pitch/heading stays pinned to the same world orbit direction across ghost handoffs.
 
 ### Enhancements
 
@@ -18,6 +17,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
+- `#472` Watch-mode camera retargets now preserve the current pitch/heading when follow rebinds to a replacement ghost, eliminating the visible camera jerk on loop/overlap handoffs, quiet-expiry primary rebinds, and stock vessel-switch re-targets.
 
 ---
 
