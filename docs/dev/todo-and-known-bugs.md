@@ -200,9 +200,9 @@ Per-leg gating (not whole-sweep) is the correct granularity — a save that disa
 
 **Source:** user playtest report — "when recording a trip that ends in Mun orbit, after rewind when watching the ghost in map view, the ghost gets to the Mun encounter but then instead of spawning in Mun orbit, it spawns in a Kerbin SOI eject trajectory."
 
-**Fix shipped:** terminal-orbit capture no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, finalization/load-time backfill only trusts a last `OrbitSegment` when that segment agrees with the recording endpoint body, and spawn-at-end now resolves the body from the actual endpoint before attempting any recorded-orbit propagation. If no endpoint-aligned orbital seed exists, spawn falls back to the endpoint state instead of constructing a wrong Kerbin-frame orbit.
+**Fix shipped:** finalize now persists `EndpointPhase` + `EndpointBodyName` as the authoritative endpoint decision for each recording, so exact-boundary point-vs-orbit outcomes survive save/load without being re-inferred from the old epsilon-only winner check. Resolver/spawn code consumes that persisted decision when present; legacy recordings without the new fields self-heal on load by backfilling from terminal position, terminal-orbit-aligned last `OrbitSegment`, last trajectory point, or surface position. Terminal-orbit capture also no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, and orbit backfill only trusts a last segment when it agrees with the resolved endpoint body.
 
-**Tests:** added xUnit coverage for endpoint-aligned terminal-orbit backfill and endpoint-aligned orbital spawn-seed selection across Kerbin → Mun end-state shapes.
+**Tests:** added xUnit coverage for persisted exact-boundary capture/escape endpoint decisions plus legacy endpoint-decision backfill across Kerbin → Mun end-state shapes.
 
 **Status:** done/closed on this branch. Priority was high because the bad cached body could throw the spawned vessel onto a solar-escape path after rewind and effectively destroy the mission outcome.
 

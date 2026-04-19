@@ -5,6 +5,14 @@ namespace Parsek
 {
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
     public enum GhostSnapshotMode { Unspecified = 0, Separate = 1, AliasVessel = 2 }
+    public enum RecordingEndpointPhase
+    {
+        Unknown = 0,
+        TerminalPosition = 1,
+        OrbitSegment = 2,
+        TrajectoryPoint = 3,
+        SurfacePosition = 4
+    }
 
     public class Recording : IPlaybackTrajectory
     {
@@ -149,6 +157,13 @@ namespace Parsek
 
         // Terminal surface position (for Landed/Splashed terminal state)
         public SurfacePosition? TerminalPosition;      // null if not landed/splashed
+
+        // Authoritative endpoint decision captured at finalize/load-heal time.
+        // Phase = which persisted source drives endpoint resolution.
+        // Body = body paired with that phase, so exact-boundary point/orbit cases
+        // do not have to be re-inferred from timestamp epsilon checks later.
+        public RecordingEndpointPhase EndpointPhase;
+        public string EndpointBodyName;
 
         // Terrain height at recording end (for terrain correction on spawn)
         // NaN = not set (non-surface terminal state)
@@ -548,6 +563,8 @@ namespace Parsek
             TerminalOrbitEpoch = source.TerminalOrbitEpoch;
             TerminalOrbitBody = source.TerminalOrbitBody;
             TerminalPosition = source.TerminalPosition;
+            EndpointPhase = source.EndpointPhase;
+            EndpointBodyName = source.EndpointBodyName;
             TerrainHeightAtEnd = source.TerrainHeightAtEnd;
             SurfacePos = source.SurfacePos;
             ParentBranchPointId = source.ParentBranchPointId;
@@ -786,6 +803,8 @@ namespace Parsek
         double IPlaybackTrajectory.TerminalOrbitArgumentOfPeriapsis => TerminalOrbitArgumentOfPeriapsis;
         double IPlaybackTrajectory.TerminalOrbitMeanAnomalyAtEpoch => TerminalOrbitMeanAnomalyAtEpoch;
         double IPlaybackTrajectory.TerminalOrbitEpoch => TerminalOrbitEpoch;
+        RecordingEndpointPhase IPlaybackTrajectory.EndpointPhase => EndpointPhase;
+        string IPlaybackTrajectory.EndpointBodyName => EndpointBodyName;
 
         #endregion
     }

@@ -67,5 +67,7 @@ namespace Parsek
         double TerminalOrbitArgumentOfPeriapsis { get; }
         double TerminalOrbitMeanAnomalyAtEpoch { get; }
         double TerminalOrbitEpoch { get; }
+        RecordingEndpointPhase EndpointPhase { get; }
+        string EndpointBodyName { get; }
     }
 }

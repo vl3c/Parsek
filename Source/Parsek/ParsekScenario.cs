@@ -2819,6 +2819,10 @@ namespace Parsek
                 recNode.AddValue("endBiome", rec.EndBiome);
             if (!string.IsNullOrEmpty(rec.LaunchSiteName))
                 recNode.AddValue("launchSiteName", rec.LaunchSiteName);
+            if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
+                recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(rec.EndpointBodyName))
+                recNode.AddValue("endpointBodyName", rec.EndpointBodyName);
 
             // Terminal orbit fields (only when Orbiting or SubOrbital)
             if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
@@ -3033,6 +3037,15 @@ namespace Parsek
             rec.StartSituation = recNode.GetValue("startSituation");
             rec.EndBiome = recNode.GetValue("endBiome");
             rec.LaunchSiteName = recNode.GetValue("launchSiteName");
+            string endpointPhaseStr = recNode.GetValue("endpointPhase");
+            if (endpointPhaseStr != null)
+            {
+                int endpointPhaseInt;
+                if (int.TryParse(endpointPhaseStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out endpointPhaseInt)
+                    && Enum.IsDefined(typeof(RecordingEndpointPhase), endpointPhaseInt))
+                    rec.EndpointPhase = (RecordingEndpointPhase)endpointPhaseInt;
+            }
+            rec.EndpointBodyName = recNode.GetValue("endpointBodyName");
             // Terminal orbit fields
             string tOrbBody = recNode.GetValue("tOrbBody");
             if (!string.IsNullOrEmpty(tOrbBody))
@@ -3093,6 +3106,8 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
+
+            RecordingEndpointResolver.BackfillEndpointDecision(rec);
 
         }
 

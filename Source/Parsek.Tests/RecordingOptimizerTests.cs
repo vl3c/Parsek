@@ -619,6 +619,30 @@ namespace Parsek.Tests
             Assert.True(a.SurfacePos.HasValue);
         }
 
+        [Fact]
+        public void MergeInto_RefreshesEndpointDecisionFromMergedTerminalState()
+        {
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            a.Points[0].bodyName = "Kerbin";
+            a.Points[1].bodyName = "Kerbin";
+            a.EndpointPhase = RecordingEndpointPhase.TrajectoryPoint;
+            a.EndpointBodyName = "Kerbin";
+            b.TerminalStateValue = TerminalState.Landed;
+            b.TerminalPosition = new SurfacePosition
+            {
+                body = "Mun",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0
+            };
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal(RecordingEndpointPhase.TerminalPosition, a.EndpointPhase);
+            Assert.Equal("Mun", a.EndpointBodyName);
+        }
+
         #endregion
 
         #region SplitAtSection
@@ -1345,6 +1369,27 @@ namespace Parsek.Tests
             Assert.NotNull(second.TerminalPosition);
             Assert.Equal(123.4, second.TerrainHeightAtEnd);
             Assert.NotNull(second.SurfacePos);
+        }
+
+        [Fact]
+        public void SplitAtSection_RecomputesEndpointDecisionForBothHalves()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                body1: "Kerbin", body2: "Mun");
+            // Seed stale endpoint metadata that matches neither split half's final endpoint.
+            // SplitAtSection copies these fields into the second half before recomputing, so
+            // the second-half assertions below would fail if RefreshEndpointDecision(second)
+            // were removed.
+            rec.EndpointPhase = RecordingEndpointPhase.OrbitSegment;
+            rec.EndpointBodyName = "Minmus";
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(RecordingEndpointPhase.TrajectoryPoint, rec.EndpointPhase);
+            Assert.Equal("Kerbin", rec.EndpointBodyName);
+            Assert.Equal(RecordingEndpointPhase.TrajectoryPoint, second.EndpointPhase);
+            Assert.Equal("Mun", second.EndpointBodyName);
         }
 
         [Fact]
