@@ -162,6 +162,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveGhostActivationStartUT_UsesInterfacePayloadStartForNonRecordingTrajectory()
+        {
+            IPlaybackTrajectory traj = new MockTrajectory
+            {
+                StartUTOverride = 27.58,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 28.10,
+                        endUT = 32.56,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 28.12, bodyName = "Kerbin" },
+                            new TrajectoryPoint { ut = 28.70, bodyName = "Kerbin" }
+                        }
+                    }
+                }
+            };
+
+            double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(traj);
+
+            Assert.Equal(28.12, activationStartUT, 2);
+        }
+
+        [Fact]
+        public void ResolveGhostActivationStartUT_UsesOrbitalCheckpointPayloadStartForNonRecordingTrajectory()
+        {
+            IPlaybackTrajectory traj = new MockTrajectory
+            {
+                StartUTOverride = 27.58,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        startUT = 28.10,
+                        endUT = 90.00,
+                        checkpoints = new List<OrbitSegment>
+                        {
+                            new OrbitSegment { startUT = 28.42, endUT = 60.00, bodyName = "Kerbin" },
+                            new OrbitSegment { startUT = 60.00, endUT = 90.00, bodyName = "Kerbin" }
+                        }
+                    }
+                }
+            };
+
+            double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(traj);
+
+            Assert.Equal(28.42, activationStartUT, 2);
+        }
+
+        [Fact]
         public void TryGetGhostActivationStartUT_UsesSeededBoundaryPointBeforeLaterOrbitSegment()
         {
             var rec = new Recording

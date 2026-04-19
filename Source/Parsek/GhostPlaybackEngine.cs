@@ -3016,13 +3016,7 @@ namespace Parsek
 
         internal static double ResolveGhostActivationStartUT(IPlaybackTrajectory traj)
         {
-            if (traj == null)
-                return 0.0;
-
-            if (traj is Recording recording && recording.TryGetGhostActivationStartUT(out double activationStartUT))
-                return activationStartUT;
-
-            return traj.StartUT;
+            return PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
         }
 
         internal static double ResolveVisiblePlaybackUT(
