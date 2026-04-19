@@ -112,6 +112,39 @@ namespace Parsek.Tests
             Assert.Equal("InvalidOperationException: nope", summary);
         }
 
+        [Fact]
+        public void ShouldFailUnavailableSelection_ClearedReadinessBlock_Skips()
+        {
+            // Models the review case: early probes waited on Administration hydration,
+            // but the final probe reached a stable no-strategy outcome. That must stay
+            // a skip, not a hard failure.
+            bool shouldFail = StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                sawProbeException: false,
+                finalProbeHadRetryableReadinessBlock: false);
+
+            Assert.False(shouldFail);
+        }
+
+        [Fact]
+        public void ShouldFailUnavailableSelection_FinalReadinessBlock_Fails()
+        {
+            bool shouldFail = StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                sawProbeException: false,
+                finalProbeHadRetryableReadinessBlock: true);
+
+            Assert.True(shouldFail);
+        }
+
+        [Fact]
+        public void ShouldFailUnavailableSelection_ProbeException_Fails()
+        {
+            bool shouldFail = StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                sawProbeException: true,
+                finalProbeHadRetryableReadinessBlock: false);
+
+            Assert.True(shouldFail);
+        }
+
         private static Administration CreateAdministration()
         {
             return (Administration)FormatterServices.GetUninitializedObject(typeof(Administration));

@@ -84,6 +84,8 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 - `Source/Parsek/InGameTests/RuntimeTests.cs` now gates the readiness probe on `Administration.Instance` before calling stock `CanBeActivated`, so the test no longer throws a per-strategy `NullReferenceException` during early KSC hydration.
 - Any future unexpected `CanBeActivated` throws now emit one WARN summary per poll with the first failing index/exception, while the per-index detail moves to `VERBOSE`.
 - Strategy lifecycle failure logging now carries `ex.ToString()` in the runtime tests and the Harmony postfix catches, so any future regression lands with the full stack trace instead of just `ex.Message`.
+- Behavioral coverage now pins the caller decision: an unresolved final readiness block still fails, but an early hydration wait that later clears no longer poisons a later legitimate skip outcome.
+- Verified scope for this landing is local code/log analysis plus new helper/state coverage; a live in-game rerun of the SPACECENTER strategy tests is still pending local environment blockers.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/StrategyLifecycleProbeSupport.cs`, `Source/Parsek/Patches/StrategyLifecyclePatch.cs`, `Source/Parsek.Tests/StrategyLifecycleProbeSupportTests.cs`.
 

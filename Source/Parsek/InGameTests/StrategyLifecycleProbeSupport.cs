@@ -90,5 +90,12 @@ namespace Parsek.InGameTests
 
             return sb.ToString();
         }
+
+        internal static bool ShouldFailUnavailableSelection(
+            bool sawProbeException,
+            bool finalProbeHadRetryableReadinessBlock)
+        {
+            return sawProbeException || finalProbeHadRetryableReadinessBlock;
+        }
     }
 }
