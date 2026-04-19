@@ -6899,8 +6899,9 @@ namespace Parsek
 
             // Refresh terminal orbit for orbital leaf recordings even if a body was
             // captured earlier. A mid-transition capture can stamp the wrong SOI body,
-            // so we re-read the live vessel here when available and only fall back to the
-            // last orbit segment when it matches the endpoint body. (#475)
+            // so we treat TerminalOrbit* as a healable cache: re-read the live vessel
+            // when available and only fall back to the last orbit segment when it matches
+            // the recording endpoint body. (#475/#484)
             if (isLeaf && rec.TerminalStateValue.HasValue
                 && (rec.TerminalStateValue.Value == TerminalState.Orbiting
                     || rec.TerminalStateValue.Value == TerminalState.SubOrbital
@@ -7573,7 +7574,9 @@ namespace Parsek
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
-        /// a stale cached TerminalOrbitBody on finalize/load. (#219/#475)
+        /// a stale cached TerminalOrbitBody on finalize/load. Already-populated values
+        /// are preserved when they already agree with the endpoint-aligned segment.
+        /// (#219/#475/#484)
         /// </summary>
         internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
         {
@@ -7606,7 +7609,7 @@ namespace Parsek
             if (!ShouldPopulateTerminalOrbitFromLastSegment(rec)) return;
 
             var seg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-            bool overwritingMismatchedBody = !string.IsNullOrEmpty(rec.TerminalOrbitBody)
+            bool healingStaleCachedBody = !string.IsNullOrEmpty(rec.TerminalOrbitBody)
                 && !string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal);
             rec.TerminalOrbitInclination = seg.inclination;
             rec.TerminalOrbitEccentricity = seg.eccentricity;
@@ -7617,10 +7620,10 @@ namespace Parsek
             rec.TerminalOrbitEpoch = seg.epoch;
             rec.TerminalOrbitBody = seg.bodyName;
 
-            if (overwritingMismatchedBody)
+            if (healingStaleCachedBody)
             {
                 ParsekLog.Warn("Flight",
-                    $"PopulateTerminalOrbitFromLastSegment: overwrote mismatched body for '{rec.RecordingId}' " +
+                    $"PopulateTerminalOrbitFromLastSegment: healed stale cached body for '{rec.RecordingId}' " +
                     $"with endpoint-aligned segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
                 return;
             }

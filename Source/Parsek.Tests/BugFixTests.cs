@@ -2250,7 +2250,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MismatchedBody_WithEndpointAlignedLastSegment_Overwrites()
+        public void MismatchedBody_WithPointEndpointAlignedLastSegment_Overwrites()
         {
             var rec = new Recording
             {
@@ -2271,6 +2271,33 @@ namespace Parsek.Tests
 
             Assert.Equal("Mun", rec.TerminalOrbitBody);
             Assert.Equal(250000, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void MismatchedBody_WithOrbitEndpointAlignedLastSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "heal-stale-terminal-orbit",
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300, bodyName = "Mun" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 300, endUT = 400, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(700000, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment")
+                && l.Contains("healed stale cached body")
+                && l.Contains("endpoint-aligned segment body=Kerbin"));
         }
 
         [Fact]

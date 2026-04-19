@@ -91,34 +91,11 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 
 ---
 
-## 484. `FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` fails in FLIGHT — `PopulateTerminalOrbitFromLastSegment` overwrites an already-populated `TerminalOrbitBody` when the last segment's body disagrees
+## ~~484. `FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` fails in FLIGHT — `PopulateTerminalOrbitFromLastSegment` overwrites an already-populated `TerminalOrbitBody` when the last segment's body disagrees~~
 
-**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:14-16` + `KSP.log`:
+**Resolution (2026-04-19):** Closed on `bug/484-terminal-orbit-preserve`. Investigation confirmed the current code contract comes from `#475`, not `#289`: `TerminalOrbitBody` is a healable cache, not immutable finalized metadata. `PopulateTerminalOrbitFromLastSegment` may replace a stale cached body only when the last `OrbitSegment` is endpoint-aligned; already-populated values that already agree with that endpoint-aligned segment remain preserved. The failing FLIGHT test was asserting the old pre-`#475` preserve-everything contract, so it was updated to split the two cases explicitly (preserve-on-match, heal-on-stale-mismatch), and xUnit coverage now pins the orbit-endpoint variant directly.
 
-```
-[WARN][Flight] PopulateTerminalOrbitFromLastSegment: overwrote mismatched body for 'c95578d708e649f29373e3416d2fec79' with endpoint-aligned segment body=Kerbin sma=700000.0
-[WARN][TestRunner] FAILED: FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite - Existing TerminalOrbitBody should not be overwritten
-[WARN][Flight] FinalizeTreeRecordings: leaf 'bug278-preserve-639122194081278693' has no playback data
-```
-
-Two identical failures observed (21:16:48 and 21:20:39), both caused by the same `PopulateTerminalOrbitFromLastSegment` path.
-
-**Concern:** the test's contract is "if `TerminalOrbitBody` is already populated, do not overwrite." The code explicitly does overwrite when the segment endpoint body disagrees with the existing field, and logs it as a WARN. So either the test is wrong (mismatch-overwrite is intentional and should be accepted) or the code is wrong (it should trust the already-populated value even when it disagrees with the segment). A decision is needed before either side is patched.
-
-The `leaf 'bug278-preserve-…' has no playback data` WARN that follows the overwrite is suspicious — the test builds that leaf specifically to exercise the preserve invariant; if the finalize path is walking it at all the invariant is being re-checked in a code path that shouldn't be re-checking it.
-
-**Fix:** decide the contract.
-
-- If mismatch-overwrite is the correct behaviour (the segment's endpoint is authoritative and an out-of-date `TerminalOrbitBody` from an earlier backfill is a bug to be corrected), update the test to assert the overwrite happens with the expected body/SMA, and keep the WARN as a diagnostic.
-- If the test is correct (preserve is preserve, even on mismatch), change `PopulateTerminalOrbitFromLastSegment` to short-circuit when `TerminalOrbitBody != null`, regardless of whether the segment agrees.
-
-Cross-reference `#289` (stable-terminal re-snapshot) and `#479` (stable-terminal sit refresh) — the `bug278-preserve-…` leaf name suggests this is covering the bug-278 preservation path specifically, which was supposed to be closed under #289. If the test was written to enforce a preserve invariant that the current code violates, #484 is a regression of the #289 fix, not a test-code issue.
-
-**Files:** `Source/Parsek/ParsekFlight.cs` (`PopulateTerminalOrbitFromLastSegment`), `Source/Parsek/InGameTests/RuntimeTests.cs` (`TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` assertion).
-
-**Scope:** Small. One decision + a 1-2 line change on whichever side loses.
-
-**Dependencies:** #289.
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
