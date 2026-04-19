@@ -443,14 +443,21 @@ One environment caveat also appeared during this pass:
 - the current machine's socket provider is broken for `dotnet test` / `TcpListener`, so I could still build the test project but I could not rerun the full xUnit suite from this session; the blocker is environmental, not a compile or assertion failure in the changed tests
 - the current machine also fails `dotnet restore` inside NuGet initialization (`NuGet.Configuration.ConfigurationDefaults`, `path1` null), so the new coverage scaffold is staged but not yet validated end-to-end from this environment
 
+Live runtime evidence from the `logs/2026-04-19_2126` bundle is now available too:
+
+- `log-validation.txt` passed, so the session produced a clean `KSP.log` validation run
+- the real `TreeMergeDialog_DiscardButton_ClearsPendingTree` runtime smoke test passed in both `KSP.log` and `Player.log`, with the expected popup creation and real `Discard` callback execution
+- the two new auto-record runtime tests were still not exercised in that bundle because they are intentionally marked `AllowBatchExecution = false`; the exported `parsek-test-results.txt` shows them as `(never run)`, which is expected for `Run All`
+- the broader runtime export still had unrelated pre-existing failures in that session (`TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite`, two stock-strategy lifecycle tests, and `RuntimeTests.TimeScalePositive` in `SPACECENTER`), so that bundle is useful branch evidence for the new merge-dialog smoke path but not a globally clean in-game baseline yet
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Run the new auto-record runtime scenarios in KSP**
-   The structural work is now in place. The next useful evidence is a real `parsek-test-results.txt` / `KSP.log` capture from a healthy KSP session that proves both launch-from-pad and EVA-from-pad auto-record start exactly once.
+2. **Run the new auto-record runtime scenarios individually in KSP**
+   The structural work is now in place, but these tests are single-run only and will not execute under `Run All`. The next useful evidence is a real `KSP.log` / `Player.log` capture from a healthy KSP session that proves both launch-from-pad and EVA-from-pad auto-record start exactly once.
 3. **Promote one real merge/revert UI flow**
    The dialog itself now has a runtime discard smoke test. The missing confidence is the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
 4. **Then add one playback-control scenario**
@@ -463,7 +470,7 @@ From here, I would continue with one structural pass, but with a tighter order t
 The first scripted runtime scenarios I would add are:
 
 1. **Auto-record launch/EVA cycle**
-   Launch from pad, assert auto-record starts exactly once, then run the EVA-from-pad path and assert the deferred auto-record/log sequence completes correctly. This is now implemented locally and needs live runtime execution evidence rather than more structural coverage.
+   Launch from pad, assert auto-record starts exactly once, then run the EVA-from-pad path and assert the deferred auto-record/log sequence completes correctly. This is now implemented locally, but it must be launched individually from the in-game runner because both tests are excluded from batch runs.
 2. **Pending-tree merge dialog flow**
    Create a real pending tree with `autoMerge = false`, move through the runtime transition that surfaces the dialog, then assert the `Merge to Timeline` branch does the right thing to pending/committed state. The discard branch now has a lighter runtime popup smoke test in this worktree.
 3. **`Keep Vessel` playback control flow**
