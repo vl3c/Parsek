@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
+
 ## 0.8.2
 
 ### Features
