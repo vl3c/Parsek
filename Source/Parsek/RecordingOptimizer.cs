@@ -341,6 +341,10 @@ namespace Parsek
             if (normalizeEvaBoundaryMerge)
                 NormalizeContinuousEvaBoundaryMerge(target);
 
+            // Merged recordings inherit later terminal/body state from the absorbed segment.
+            // Re-resolve the authoritative endpoint from the merged payload before persistence.
+            RecordingEndpointResolver.RefreshEndpointDecision(target, "RecordingOptimizer.MergeInto");
+
             // 12. Invalidate cached stats
             target.CachedStats = null;
             target.CachedStatsPointCount = 0;
@@ -574,6 +578,11 @@ namespace Parsek
                 original, allowRelativeSections: true);
             bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                 second, allowRelativeSections: true);
+
+            // Both halves now have their final trajectory/terminal payloads. Refresh the
+            // persisted endpoint decision so optimizer outputs do not save stale or unknown data.
+            RecordingEndpointResolver.RefreshEndpointDecision(original, "RecordingOptimizer.SplitAtSection.FirstHalf");
+            RecordingEndpointResolver.RefreshEndpointDecision(second, "RecordingOptimizer.SplitAtSection.SecondHalf");
 
             // 12. Invalidate cached stats
             original.CachedStats = null;

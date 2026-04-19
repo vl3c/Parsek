@@ -5224,6 +5224,8 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
@@ -5303,5 +5305,7 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 }

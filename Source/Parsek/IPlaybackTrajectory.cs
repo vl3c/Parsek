@@ -2,6 +2,15 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
+    public enum RecordingEndpointPhase
+    {
+        Unknown = 0,
+        TerminalPosition = 1,
+        OrbitSegment = 2,
+        TrajectoryPoint = 3,
+        SurfacePosition = 4
+    }
+
     /// <summary>
     /// Trajectory and visual data for ghost playback.
     /// The ghost playback engine accesses recordings only through this interface,
@@ -72,5 +81,7 @@ namespace Parsek
         double TerminalOrbitArgumentOfPeriapsis { get; }
         double TerminalOrbitMeanAnomalyAtEpoch { get; }
         double TerminalOrbitEpoch { get; }
+        RecordingEndpointPhase EndpointPhase { get; }
+        string EndpointBodyName { get; }
     }
 }
