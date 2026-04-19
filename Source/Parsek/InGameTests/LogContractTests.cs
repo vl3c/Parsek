@@ -29,10 +29,10 @@ namespace Parsek.InGameTests
         public static void LogFormatIsStructured()
         {
             var captured = new List<string>();
-            var originalSink = ParsekLog.TestSinkForTesting;
+            var originalObserver = ParsekLog.TestObserverForTesting;
             try
             {
-                ParsekLog.TestSinkForTesting = line => captured.Add(line);
+                ParsekLog.TestObserverForTesting = line => captured.Add(line);
 
                 ParsekLog.Info("TestSub", "test info message");
                 ParsekLog.Verbose("TestSub", "test verbose message");
@@ -41,7 +41,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = originalSink;
+                ParsekLog.TestObserverForTesting = originalObserver;
             }
 
             InGameAssert.AreEqual(4, captured.Count, $"Expected 4 log lines, got {captured.Count}");
@@ -62,10 +62,10 @@ namespace Parsek.InGameTests
         public static void LogLevelsAreValid()
         {
             var captured = new List<string>();
-            var originalSink = ParsekLog.TestSinkForTesting;
+            var originalObserver = ParsekLog.TestObserverForTesting;
             try
             {
-                ParsekLog.TestSinkForTesting = line => captured.Add(line);
+                ParsekLog.TestObserverForTesting = line => captured.Add(line);
 
                 ParsekLog.Info("Test", "msg");
                 ParsekLog.Verbose("Test", "msg");
@@ -74,7 +74,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = originalSink;
+                ParsekLog.TestObserverForTesting = originalObserver;
             }
 
             foreach (string line in captured)
@@ -96,15 +96,15 @@ namespace Parsek.InGameTests
         public static void WarnLinesNoRedundantPrefix()
         {
             var captured = new List<string>();
-            var originalSink = ParsekLog.TestSinkForTesting;
+            var originalObserver = ParsekLog.TestObserverForTesting;
             try
             {
-                ParsekLog.TestSinkForTesting = line => captured.Add(line);
+                ParsekLog.TestObserverForTesting = line => captured.Add(line);
                 ParsekLog.Warn("Test", "Something happened");
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = originalSink;
+                ParsekLog.TestObserverForTesting = originalObserver;
             }
 
             InGameAssert.AreEqual(1, captured.Count, "Expected exactly 1 captured line");
@@ -147,12 +147,12 @@ namespace Parsek.InGameTests
         public static void RateLimitSuppressedCountValid()
         {
             var captured = new List<string>();
-            var originalSink = ParsekLog.TestSinkForTesting;
+            var originalObserver = ParsekLog.TestObserverForTesting;
             var originalClock = ParsekLog.ClockOverrideForTesting;
             var originalVerbose = ParsekLog.VerboseOverrideForTesting;
             try
             {
-                ParsekLog.TestSinkForTesting = line => captured.Add(line);
+                ParsekLog.TestObserverForTesting = line => captured.Add(line);
                 ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.ResetRateLimitsForTesting();
 
@@ -175,7 +175,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = originalSink;
+                ParsekLog.TestObserverForTesting = originalObserver;
                 ParsekLog.ClockOverrideForTesting = originalClock;
                 ParsekLog.VerboseOverrideForTesting = originalVerbose;
                 ParsekLog.ResetRateLimitsForTesting();
@@ -311,15 +311,15 @@ namespace Parsek.InGameTests
         public static void ErrorLogFormatCorrect()
         {
             var captured = new List<string>();
-            var originalSink = ParsekLog.TestSinkForTesting;
+            var originalObserver = ParsekLog.TestObserverForTesting;
             try
             {
-                ParsekLog.TestSinkForTesting = line => captured.Add(line);
+                ParsekLog.TestObserverForTesting = line => captured.Add(line);
                 ParsekLog.Error("TestSub", "deliberate test error");
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = originalSink;
+                ParsekLog.TestObserverForTesting = originalObserver;
             }
 
             InGameAssert.AreEqual(1, captured.Count, "Expected 1 error line");

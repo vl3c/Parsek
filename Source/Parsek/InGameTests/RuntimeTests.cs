@@ -575,12 +575,12 @@ namespace Parsek.InGameTests
             bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
             float originalThrottle = FlightInputHandler.state.mainThrottle;
             var captured = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorObserver = ParsekLog.TestObserverForTesting;
 
             try
             {
                 ParsekSettings.Current.autoRecordOnLaunch = true;
-                ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
@@ -607,7 +607,7 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = originalThrottle;
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
             }
         }
 
@@ -655,12 +655,12 @@ namespace Parsek.InGameTests
 
             bool originalAutoRecord = ParsekSettings.Current.autoRecordOnEva;
             var captured = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorObserver = ParsekLog.TestObserverForTesting;
 
             try
             {
                 ParsekSettings.Current.autoRecordOnEva = true;
-                ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 try
                 {
@@ -700,7 +700,7 @@ namespace Parsek.InGameTests
             {
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoRecordOnEva = originalAutoRecord;
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
             }
         }
 
@@ -2830,8 +2830,8 @@ namespace Parsek.InGameTests
             // Capture log output so we can assert on the name-fallback INFO line
             // and the summary counter.
             var logLines = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => logLines.Add(line);
             try
             {
                 CrewReservationManager.ClearReplacementsInternal();
@@ -2907,7 +2907,7 @@ namespace Parsek.InGameTests
             finally
             {
                 // Restore log sink first so cleanup doesn't pollute the captured lines.
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
 
                 if (placedCrew && target.protoModuleCrew.Contains(standIn))
                     target.RemoveCrewmember(standIn);
@@ -3595,8 +3595,8 @@ namespace Parsek.InGameTests
 
             // Capture log output so we can assert the walkback ran.
             var captured = new List<string>();
-            System.Action<string> prevSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => captured.Add(line);
+            System.Action<string> prevObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => captured.Add(line);
 
             try
             {
@@ -3701,7 +3701,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = prevSink;
+                ParsekLog.TestObserverForTesting = prevObserver;
                 if (spawnedVessel != null && spawnedVessel.protoVessel != null)
                 {
                     try
@@ -3868,8 +3868,8 @@ namespace Parsek.InGameTests
 
             // Capture log so we can assert the re-snapshot fired
             var logLines = new System.Collections.Generic.List<string>();
-            var prevSink = Parsek.ParsekLog.TestSinkForTesting;
-            Parsek.ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var prevObserver = Parsek.ParsekLog.TestObserverForTesting;
+            Parsek.ParsekLog.TestObserverForTesting = line => logLines.Add(line);
             try
             {
                 ParsekFlight.FinalizeIndividualRecording(
@@ -3877,7 +3877,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                Parsek.ParsekLog.TestSinkForTesting = prevSink;
+                Parsek.ParsekLog.TestObserverForTesting = prevObserver;
             }
 
             // The fresh snapshot should be from the live vessel — its sit field should
@@ -4590,8 +4590,8 @@ namespace Parsek.InGameTests
         {
             // Capture log lines for the duration of the test.
             var captured = new List<string>();
-            var prevSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => { captured.Add(line); prevSink?.Invoke(line); };
+            var prevObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { captured.Add(line); prevObserver?.Invoke(line); };
 
             try
             {
@@ -4627,7 +4627,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = prevSink;
+                ParsekLog.TestObserverForTesting = prevObserver;
             }
         }
 
@@ -4920,10 +4920,11 @@ namespace Parsek.InGameTests
             int eventCountBefore = GameStateStore.EventCount;
             int ledgerCountBefore = Ledger.Actions.Count;
 
-            // Install log sink chained to prior sink.
+            // Install a tee-style observer so the assertions can capture log lines
+            // without muting the live KSP log file.
             var captured = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
             // Note: GameStateRecorder.IsReplayingActions is false during normal
             // test-runner execution — we are not inside a KspStatePatcher walk — so
@@ -5008,8 +5009,8 @@ namespace Parsek.InGameTests
             }
             catch
             {
-                // Ensure the sink + financials are restored on an exception path.
-                // We leave the sink installed on the happy path so the second
+                // Ensure the observer + financials are restored on an exception path.
+                // We leave the observer installed on the happy path so the second
                 // yield-and-assert block can read the deactivate log line that
                 // was emitted synchronously inside strategy.Deactivate above.
                 if (strategy.IsActive)
@@ -5021,7 +5022,7 @@ namespace Parsek.InGameTests
                             $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
                     }
                 }
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
                 GameStateStore.TruncateEventsForTesting(eventCountBefore);
                 Ledger.TruncateActionsForTesting(ledgerCountBefore);
@@ -5076,7 +5077,7 @@ namespace Parsek.InGameTests
                             $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
                     }
                 }
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
                 // Truncate events and ledger actions AFTER the restore so the
                 // restore's (resource-suppressed) calls can't append stray rows
@@ -5373,8 +5374,8 @@ namespace Parsek.InGameTests
             // prior invocation in the same KSP session.
             ParsekLog.ResetRateLimitsForTesting();
             var capturedLog = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
-            ParsekLog.TestSinkForTesting = line => { capturedLog.Add(line); priorSink?.Invoke(line); };
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { capturedLog.Add(line); priorObserver?.Invoke(line); };
             try
             {
                 engine.ReusePrimaryGhostAcrossCycle(
@@ -5383,7 +5384,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
             }
 
             // Log-line assertion: the reuse path MUST emit the distinctive
@@ -5595,14 +5596,14 @@ namespace Parsek.InGameTests
             };
 
             var localLog = new List<string>();
-            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
             ParsekLog.ResetRateLimitsForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.TestSinkForTesting = line =>
+            ParsekLog.TestObserverForTesting = line =>
             {
                 localLog.Add(line);
-                priorSink?.Invoke(line);
+                priorObserver?.Invoke(line);
             };
 
             try
@@ -5614,7 +5615,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.TestObserverForTesting = priorObserver;
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
             }
 
