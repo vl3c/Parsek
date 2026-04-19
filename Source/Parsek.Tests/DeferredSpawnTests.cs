@@ -226,7 +226,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.SetSpawnFlagOverrideForTesting(evt =>
             {
                 spawnAttempts++;
-                return spawnAttempts >= 2;
+                return spawnAttempts >= 4;
             });
 
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
@@ -247,10 +247,21 @@ namespace Parsek.Tests
             policy.FlushDeferredSpawns();
             Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
             Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
+            Assert.DoesNotContain(logLines, line => line.Contains("Deferred flag replay still failing"));
+
+            policy.FlushDeferredSpawns();
+            Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
+
+            policy.FlushDeferredSpawns();
+            Assert.Contains(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Policy]") &&
+                line.Contains("Deferred flag replay still failing after 3 flush attempt(s)") &&
+                line.Contains("Retry Kerbal"));
 
             policy.FlushDeferredSpawns();
             Assert.DoesNotContain(rec.RecordingId, policy.pendingFlagReplayRecordingIds);
-            Assert.Equal(2, spawnAttempts);
+            Assert.Equal(4, spawnAttempts);
         }
 
         [Fact]
