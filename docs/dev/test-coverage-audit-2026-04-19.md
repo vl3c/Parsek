@@ -392,7 +392,7 @@ Quick source verification against the current tree shows that some of the older 
 
 - `KerbalsWindowUITests` still leaves two `xUnit2009` warnings in the suite; they are low severity but should be cleaned up the next time that file is touched.
 - Mechanical coverage reporting is still not validated end-to-end. A local `coverlet.msbuild` + `scripts/test-coverage.ps1` scaffold now exists in this worktree, but the current machine cannot complete restore/test execution reliably enough to trust the numbers yet.
-- The auto-record player flow is no longer purely manual in this worktree: this audit now adds helper-level xUnit coverage for launch gating and deferred EVA gating plus a real single-run in-game launch test. The remaining gap is the broader live launch/EVA cycle, especially the deferred EVA-from-pad path.
+- The auto-record player flow is now materially better covered in this worktree: this audit adds helper-level xUnit coverage for launch gating and deferred EVA gating plus real single-run in-game launch and EVA auto-record scenarios. The remaining weakness is not the basic auto-start path anymore, but broader multi-step player flows like merge/revert and playback control.
 - The real merge-dialog / revert-to-launch / discard player flows are covered strongly at the seam level (`MergeDialog`, `RecordingStore`, `ParsekScenario` helpers), but not yet as one scripted runtime UI flow.
 - Part-event playback is stronger than the older audits suggested: xUnit has broad structural/event coverage and in-game tests already verify live FX/buildability for engines, parachutes, lights, RCS, fairings, and deployables. The remaining gap is narrower: player-visible timing/assertion scenarios, not basic subsystem absence.
 
@@ -433,8 +433,9 @@ The next-sequence auto-record follow-up has now started locally:
 - extracted pure auto-record helpers from `ParsekFlight` for launch-transition gating and deferred EVA start gating
 - added xUnit coverage for prelaunch starts, settled-LANDED starts, bounce suppression, inactive-vessel suppression, setting-disable gating, and deferred EVA start preconditions
 - added a real single-run in-game test that stages a PRELAUNCH vessel, waits for launch auto-record to start, and asserts the launch auto-record log fires exactly once
+- added a second real single-run in-game test that forces a stock EVA from a crewed vessel, waits for the deferred active-vessel switch, and asserts the EVA auto-record log fires exactly once
 - verified the modified test project still builds with `--no-restore`
-- the remaining auto-record gap is now narrower: the deferred EVA-from-pad runtime path still needs the same treatment
+- the remaining auto-record work is now mostly evidence quality: these runtime scenarios should be executed in a healthy KSP session and captured in `parsek-test-results.txt` / `KSP.log`
 
 One environment caveat also appeared during this pass:
 
@@ -447,8 +448,8 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Promote the auto-record flow first**
-   This is now the clearest player-flow gap: launch-from-pad auto-start, EVA-from-pad deferred auto-start, and the "start exactly once" log assertions still look manual-only.
+2. **Run the new auto-record runtime scenarios in KSP**
+   The structural work is now in place. The next useful evidence is a real `parsek-test-results.txt` / `KSP.log` capture from a healthy KSP session that proves both launch-from-pad and EVA-from-pad auto-record start exactly once.
 3. **Promote one real merge/revert UI flow**
    The seam-level coverage is already strong. The missing confidence is the runtime path where a pending tree survives the transition, the dialog appears, and the player choice actually does the right thing in-scene.
 4. **Then add one playback-control scenario**
@@ -461,7 +462,7 @@ From here, I would continue with one structural pass, but with a tighter order t
 The first scripted runtime scenarios I would add are:
 
 1. **Auto-record launch/EVA cycle**
-   Launch from pad, assert auto-record starts exactly once, then run the EVA-from-pad path and assert the deferred auto-record/log sequence completes correctly.
+   Launch from pad, assert auto-record starts exactly once, then run the EVA-from-pad path and assert the deferred auto-record/log sequence completes correctly. This is now implemented locally and needs live runtime execution evidence rather than more structural coverage.
 2. **Pending-tree merge dialog flow**
    Create a real pending tree with `autoMerge = false`, move through the runtime transition that surfaces the dialog, then assert both `Merge to Timeline` and `Discard` do the right thing to pending/committed state.
 3. **`Keep Vessel` playback control flow**

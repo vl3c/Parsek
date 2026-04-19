@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -14,6 +15,20 @@ namespace Parsek.InGameTests
     public class RuntimeTests
     {
         private readonly InGameTestRunner runner;
+        private static readonly System.Type FlightEvaType =
+            typeof(Part).Assembly.GetType("FlightEVA", false);
+        private static readonly FieldInfo FlightEvaFetchField =
+            FlightEvaType?.GetField("fetch",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo FlightEvaSpawnMethod =
+            FlightEvaType?.GetMethod("spawnEVA",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
+                null);
+        private static readonly FieldInfo PartAirlockField =
+            typeof(Part).GetField("airlock",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         public RuntimeTests(InGameTestRunner runner)
         {
@@ -578,6 +593,99 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test forces a crew EVA from the active vessel to verify deferred auto-record in a disposable FLIGHT session.",
+            Description = "Deferred EVA auto-record starts exactly once after switching to the EVA kerbal")]
+        public IEnumerator AutoRecordOnEvaFromPad_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA)
+            {
+                InGameAssert.Skip("requires a crewed vessel, got EVA");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle crewed vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (!TryResolveFlightEva(out object flightEva, out string flightEvaSkipReason))
+            {
+                InGameAssert.Skip(flightEvaSkipReason);
+                yield break;
+            }
+            if (!TryGetEvaSource(vessel, out Part sourcePart, out ProtoCrewMember crewMember,
+                out Transform airlock, out string evaSourceSkipReason))
+            {
+                InGameAssert.Skip(evaSourceSkipReason);
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnEva;
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnEva = true;
+                ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+
+                try
+                {
+                    FlightEvaSpawnMethod.Invoke(flightEva, new object[] { crewMember, sourcePart, airlock, true });
+                }
+                catch (TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        $"FlightEVA.spawnEVA threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+
+                yield return WaitForDeferredEvaAutoRecordStart(crewMember.name, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = captured.Count(
+                    l => l.Contains("[Flight]") && l.Contains("Auto-record started (EVA from pad)"));
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one EVA auto-record log line, got {autoStartCount}");
+
+                var activeVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(activeVessel,
+                    "Active vessel should switch to the EVA kerbal before the deferred auto-record starts");
+                InGameAssert.IsTrue(activeVessel.isEVA,
+                    $"Expected active vessel to be EVA, got {activeVessel?.vesselName ?? "null"}");
+
+                string activeRecId = ParsekFlight.Instance?.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set after deferred EVA auto-record starts");
+
+                ParsekLog.Info("TestRunner",
+                    $"AutoRecord EVA: source='{vessel.vesselName}' crew='{crewMember.name}' " +
+                    $"active='{activeVessel.vesselName}' activeRecId={activeRecId} " +
+                    $"autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnEva = originalAutoRecord;
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+        }
+
         private static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -604,6 +712,110 @@ namespace Parsek.InGameTests
                 $"isRecording={timedOutFlight?.IsRecording == true}, " +
                 $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        private static IEnumerator WaitForDeferredEvaAutoRecordStart(string expectedCrewName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.isEVA
+                    && (string.IsNullOrEmpty(expectedCrewName)
+                        || vessel.vesselName == expectedCrewName
+                        || vessel.vesselName.Contains(expectedCrewName)))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForDeferredEvaAutoRecordStart timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"isEva={timedOutVessel?.isEVA == true})");
+        }
+
+        private static bool TryResolveFlightEva(out object flightEva, out string skipReason)
+        {
+            flightEva = null;
+            skipReason = null;
+
+            if (FlightEvaType == null)
+            {
+                skipReason = "FlightEVA type is unavailable";
+                return false;
+            }
+            if (FlightEvaFetchField == null)
+            {
+                skipReason = "FlightEVA.fetch field is not reflectable";
+                return false;
+            }
+            if (FlightEvaSpawnMethod == null)
+            {
+                skipReason = "FlightEVA.spawnEVA(ProtoCrewMember, Part, Transform, bool) is not reflectable";
+                return false;
+            }
+
+            flightEva = FlightEvaFetchField.GetValue(null);
+            if (flightEva == null)
+            {
+                skipReason = "FlightEVA.fetch is null";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetEvaSource(Vessel vessel, out Part sourcePart,
+            out ProtoCrewMember crewMember, out Transform airlock, out string skipReason)
+        {
+            sourcePart = null;
+            crewMember = null;
+            airlock = null;
+            skipReason = null;
+
+            if (vessel == null)
+            {
+                skipReason = "no active vessel";
+                return false;
+            }
+            if (PartAirlockField == null)
+            {
+                skipReason = "Part.airlock field is not reflectable";
+                return false;
+            }
+
+            foreach (Part part in vessel.parts)
+            {
+                if (part?.protoModuleCrew == null || part.protoModuleCrew.Count == 0)
+                    continue;
+
+                Transform partAirlock = PartAirlockField.GetValue(part) as Transform;
+                if (partAirlock == null)
+                    continue;
+
+                ProtoCrewMember firstCrew = part.protoModuleCrew[0];
+                if (firstCrew == null)
+                    continue;
+
+                sourcePart = part;
+                crewMember = firstCrew;
+                airlock = partAirlock;
+                return true;
+            }
+
+            skipReason = $"active vessel '{vessel.vesselName}' has no crewed part with an airlock";
+            return false;
         }
 
         #endregion
