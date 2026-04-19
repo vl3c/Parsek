@@ -1118,6 +1118,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClearLoadedVisualReferences_ResetsPendingSplitBuildState()
+        {
+            // Bug #450 B2: unloading / rebuild paths must clear any partial snapshot-build
+            // state and deferred lifecycle payload. Otherwise a later rehydrate can inherit
+            // a stale pending root or emit the wrong OnGhostCreated / camera-retarget event.
+            var state = new GhostPlaybackState
+            {
+                pendingVisualBuild = new PendingGhostVisualBuild
+                {
+                    rootName = "Parsek_Timeline_7",
+                    nextPartIndex = 3,
+                    buildType = HeaviestSpawnBuildType.VesselSnapshot,
+                    hasLoggedSplitYield = true,
+                },
+                pendingSpawnLifecycle = PendingSpawnLifecycle.OverlapPrimaryEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags
+                {
+                    needsSpawn = true,
+                    chainEndUT = 123.45,
+                    recordingId = "rec-7",
+                },
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.Null(state.pendingVisualBuild);
+            Assert.Equal(PendingSpawnLifecycle.None, state.pendingSpawnLifecycle);
+            Assert.False(state.pendingSpawnFlags.needsSpawn);
+            Assert.Equal(0.0, state.pendingSpawnFlags.chainEndUT);
+            Assert.Null(state.pendingSpawnFlags.recordingId);
+        }
+
+        [Fact]
         public void ShouldPrewarmHiddenGhost_NearVisibleTierBoundary_ReturnsTrue()
         {
             var traj = new MockTrajectory().WithTimeRange(100, 200);
