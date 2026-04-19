@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#471` Gloops recordings now commit with looping off by default. The commit path explicitly stores `LoopPlayback=false`, `LoopIntervalSeconds=0`, and `LoopTimeUnit=Auto` so fresh ghost-only captures stay idle until you enable looping, and then inherit the global auto loop period.
+
+---
+
 ## 0.8.2
 
 ### Features

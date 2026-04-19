@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -171,6 +173,40 @@ namespace Parsek.Tests
 
             Assert.True(rec.LoopPlayback);
             Assert.True(rec.IsGhostOnly);
+        }
+
+        [Fact]
+        public void CommitGloopsRecorderData_DefaultsToLoopOffAndAutoPeriod()
+        {
+            var flight = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var recorder = new FlightRecorder();
+            recorder.Recording.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 70.0,
+                velocity = new UnityEngine.Vector3(15f, 0f, 0f)
+            });
+            recorder.Recording.Add(new TrajectoryPoint
+            {
+                ut = 112.0,
+                altitude = 95.0,
+                velocity = new UnityEngine.Vector3(20f, 0f, 0f)
+            });
+
+            typeof(ParsekFlight)
+                .GetField("gloopsRecorder", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(flight, recorder);
+
+            typeof(ParsekFlight)
+                .GetMethod("CommitGloopsRecorderData", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(flight, new object[] { "GhostOnlyRecordingTests" });
+
+            Recording committed = Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.True(committed.IsGhostOnly);
+            Assert.False(committed.LoopPlayback);
+            Assert.Equal(0.0, committed.LoopIntervalSeconds);
+            Assert.Equal(LoopTimeUnit.Auto, committed.LoopTimeUnit);
+            Assert.Contains(RecordingStore.GloopsGroupName, committed.RecordingGroups);
         }
     }
 }
