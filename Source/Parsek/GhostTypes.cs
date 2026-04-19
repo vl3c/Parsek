@@ -222,6 +222,50 @@ namespace Parsek
         public Transform partTransform;
     }
 
+    internal enum PendingSpawnLifecycle : byte
+    {
+        None = 0,
+        StandardEnter = 1,
+        LoopEnter = 2,
+        OverlapPrimaryEnter = 3
+    }
+
+    /// <summary>
+    /// Incremental timeline-ghost build state for bug #450 B2. The expensive
+    /// part-instantiation loop advances across multiple UpdatePlayback ticks
+    /// instead of monopolizing one frame.
+    /// </summary>
+    internal class PendingGhostVisualBuild
+    {
+        public string rootName;
+        public GameObject root;
+        public Transform visualsRoot;
+        public ConfigNode snapshotNode;
+        public ConfigNode[] partNodes;
+        public int nextPartIndex;
+        public bool addedAnyVisual;
+        public int visualCount;
+        public int skippedName;
+        public int skippedPrefab;
+        public int skippedMesh;
+        public bool raiseLightVisualOnly;
+        public bool raiseRcsVisualOnly;
+        public bool hasLoggedSplitYield;
+        public HeaviestSpawnBuildType buildType;
+        public List<ParachuteGhostInfo> parachuteInfos = new List<ParachuteGhostInfo>();
+        public List<JettisonGhostInfo> jettisonInfos = new List<JettisonGhostInfo>();
+        public List<EngineGhostInfo> engineInfos = new List<EngineGhostInfo>();
+        public List<DeployableGhostInfo> deployableInfos = new List<DeployableGhostInfo>();
+        public List<HeatGhostInfo> heatInfos = new List<HeatGhostInfo>();
+        public List<LightGhostInfo> lightInfos = new List<LightGhostInfo>();
+        public List<FairingGhostInfo> fairingInfos = new List<FairingGhostInfo>();
+        public List<RcsGhostInfo> rcsInfos = new List<RcsGhostInfo>();
+        public List<RoboticGhostInfo> roboticInfos = new List<RoboticGhostInfo>();
+        public List<ColorChangerGhostInfo> colorChangerInfos = new List<ColorChangerGhostInfo>();
+        public List<CompoundPartGhostInfo> compoundPartInfos = new List<CompoundPartGhostInfo>();
+        public List<AudioGhostInfo> audioInfos = new List<AudioGhostInfo>();
+    }
+
     /// <summary>
     /// Bundles all output from BuildTimelineGhostFromSnapshot: the root GameObject
     /// plus per-module-type ghost info lists. Replaces the previous 10 out-parameters.

@@ -398,9 +398,9 @@ namespace Parsek
                 SurfacePosition terminalPose = rec.TerminalPosition.Value;
                 if (terminalPose.HasRecordedRotation)
                 {
-                    bodyName = !string.IsNullOrEmpty(terminalPose.body)
-                        ? terminalPose.body
-                        : RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
+                    bodyName = terminalPose.body;
+                    if (string.IsNullOrEmpty(bodyName))
+                        RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName);
                     if (!string.IsNullOrEmpty(bodyName))
                     {
                         surfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(terminalPose.rotation);
@@ -412,9 +412,9 @@ namespace Parsek
 
             if (fallbackPoint.HasValue)
             {
-                bodyName = !string.IsNullOrEmpty(fallbackPoint.Value.bodyName)
-                    ? fallbackPoint.Value.bodyName
-                    : RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
+                bodyName = fallbackPoint.Value.bodyName;
+                if (string.IsNullOrEmpty(bodyName))
+                    RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName);
                 if (!string.IsNullOrEmpty(bodyName))
                 {
                     surfaceRelativeRotation = TrajectoryMath.SanitizeQuaternion(fallbackPoint.Value.rotation);
@@ -490,7 +490,7 @@ namespace Parsek
             if (point.HasValue && !string.IsNullOrEmpty(point.Value.bodyName))
                 bodyName = point.Value.bodyName;
             if (string.IsNullOrEmpty(bodyName))
-                bodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
+                RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName);
 
             return string.IsNullOrEmpty(bodyName)
                 ? null
@@ -705,6 +705,7 @@ namespace Parsek
         public static void SpawnOrRecoverIfTooClose(Recording rec, int index)
         {
             const int maxSpawnAttempts = 3;
+            string logContext = $"recording #{index} ({rec?.VesselName ?? "(unknown)"})";
             if (rec.SpawnAttempts >= maxSpawnAttempts)
             {
                 ParsekLog.Verbose("Spawner",
@@ -717,7 +718,10 @@ namespace Parsek
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
                 LogSpawnContext(rec, double.MaxValue);
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
+                rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
+                    rec,
+                    logContext,
+                    excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
@@ -733,14 +737,22 @@ namespace Parsek
             double spawnLat, spawnLon, spawnAlt;
             ResolveSpawnPosition(rec, index, lastPt, out spawnLat, out spawnLon, out spawnAlt);
 
-            string spawnBodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(rec);
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == spawnBodyName);
+            CelestialBody body = null;
+            if (RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string spawnBodyName))
+                body = FlightGlobals.Bodies?.Find(b => b.name == spawnBodyName);
+
             if (body == null)
             {
-                ParsekLog.Info("Spawner", $"Body lookup failed for spawn: bodyName='{spawnBodyName}' not found — " +
-                    $"falling back to RespawnVessel without position");
+                string reason = string.IsNullOrEmpty(spawnBodyName)
+                    ? "no authoritative endpoint body"
+                    : $"bodyName='{spawnBodyName}' not found";
+                ParsekLog.Warn("Spawner", $"Spawn #{index} ({rec.VesselName}): {reason} — " +
+                    $"falling back to validated snapshot respawn");
                 LogSpawnContext(rec, double.MaxValue);
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
+                rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
+                    rec,
+                    logContext,
+                    excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
@@ -928,6 +940,16 @@ namespace Parsek
                 || isBreakupContinuous;
             if (routeThroughSpawnAtPosition)
             {
+                ConfigNode validatedSpawnSnapshot = BuildValidatedRespawnSnapshot(
+                    rec,
+                    spawnUT,
+                    $"{logContext} SpawnAtPosition");
+                if (validatedSpawnSnapshot == null)
+                {
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
+                    return;
+                }
+
                 Vector3d velocity = useRecordedTerminalOrbit
                     ? orbitalSpawnVelocity
                     : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
@@ -950,7 +972,7 @@ namespace Parsek
                 else pathLabel = "Orbital";
 
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
-                    rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                    validatedSpawnSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
                     terminalState: rec.TerminalStateValue,
                     surfaceRelativeRotation: surfaceRelativeRotationArg,
                     orbitOverride: orbitalSpawnOrbit);
@@ -972,10 +994,13 @@ namespace Parsek
                 // re-appear on frame 1 — acceptable for a degraded fallback).
                 ParsekLog.Warn("Spawner",
                     $"SpawnAtPosition returned 0 for #{index} ({rec.VesselName}) — " +
-                    $"falling through to RespawnVessel (degraded fallback)");
+                    $"falling through to validated snapshot respawn (degraded fallback)");
             }
 
-            rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
+            rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
+                rec,
+                logContext,
+                excludeCrew);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
             {
@@ -1301,7 +1326,7 @@ namespace Parsek
             TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
         {
             lat = 0; lon = 0; alt = 0;
-            string endpointBodyName = lastPt.bodyName ?? "Kerbin";
+            string endpointBodyName = lastPt.bodyName;
             double endpointLat = lastPt.latitude;
             double endpointLon = lastPt.longitude;
             double endpointAlt = lastPt.altitude;
@@ -1943,10 +1968,20 @@ namespace Parsek
                 return false;
 
             ApplySituationToNode(snapshot, corrected);
+            NormalizeCorrectedSituationLocationFields(snapshot);
             ParsekLog.Info("Spawner",
                 $"Corrected unsafe snapshot situation: {currentSit} -> {corrected} " +
                 $"(terminal={terminalState}) — prevents on-rails pressure destruction (#169)");
             return true;
+        }
+
+        private static void NormalizeCorrectedSituationLocationFields(ConfigNode snapshot)
+        {
+            if (snapshot == null)
+                return;
+
+            snapshot.SetValue("landedAt", string.Empty, true);
+            snapshot.SetValue("displaylandedAt", string.Empty, true);
         }
 
         /// <summary>
@@ -2573,6 +2608,215 @@ namespace Parsek
             return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
 
+        internal static bool TryGetSnapshotReferenceBodyName(ConfigNode snapshot, out string bodyName)
+        {
+            bodyName = null;
+            if (snapshot == null)
+                return false;
+
+            ConfigNode orbitNode = snapshot.GetNode("ORBIT");
+            if (orbitNode == null)
+                return false;
+
+            string rawRef = orbitNode.GetValue("REF");
+            if (!int.TryParse(rawRef, NumberStyles.Integer, CultureInfo.InvariantCulture, out int bodyIndex))
+                return false;
+
+            if (FlightGlobals.Bodies == null
+                || bodyIndex < 0
+                || bodyIndex >= FlightGlobals.Bodies.Count)
+            {
+                return false;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies[bodyIndex];
+            if (body == null || string.IsNullOrEmpty(body.name))
+                return false;
+
+            bodyName = body.name;
+            return true;
+        }
+
+        internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)
+        {
+            if (rec?.VesselSnapshot == null)
+            {
+                ParsekLog.Error("Spawner",
+                    $"BuildValidatedRespawnSnapshot: missing VesselSnapshot for {logContext ?? rec?.VesselName ?? "(unknown)"}");
+                return null;
+            }
+
+            ConfigNode snapshot = rec.VesselSnapshot.CreateCopy();
+            CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
+
+            if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, logContext))
+                return null;
+
+            return snapshot;
+        }
+
+        internal static uint RespawnValidatedRecording(
+            Recording rec,
+            string logContext,
+            HashSet<string> excludeCrew = null,
+            bool preserveIdentity = false,
+            double currentUT = double.NaN)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+            {
+                try
+                {
+                    currentUT = Planetarium.GetUniversalTime();
+                }
+                catch
+                {
+                    currentUT = 0.0;
+                }
+            }
+
+            ConfigNode snapshot = BuildValidatedRespawnSnapshot(rec, currentUT, logContext);
+            if (snapshot == null)
+            {
+                ParsekLog.Error("Spawner",
+                    $"RespawnValidatedRecording: refusing spawn for {logContext ?? rec?.VesselName ?? "(unknown)"}");
+                return 0;
+            }
+
+            return RespawnVessel(snapshot, excludeCrew, preserveIdentity);
+        }
+
+        private static bool TryRepairSnapshotBodyProvenance(
+            ConfigNode snapshot,
+            Recording rec,
+            double currentUT,
+            string logContext)
+        {
+            if (snapshot == null || rec == null)
+                return false;
+
+            bool hasSnapshotPos = TryGetSnapshotDouble(snapshot, "lat", out _)
+                && TryGetSnapshotDouble(snapshot, "lon", out _)
+                && TryGetSnapshotDouble(snapshot, "alt", out _);
+            bool hasSnapshotBody = TryGetSnapshotReferenceBodyName(snapshot, out string snapshotBodyName);
+            bool hasEndpointCoords = RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec,
+                out string endpointBodyNameFromCoords,
+                out double endpointLat,
+                out double endpointLon,
+                out double endpointAlt);
+            string endpointBodyName = endpointBodyNameFromCoords;
+            bool hasEndpointBody = hasEndpointCoords;
+            if (!hasEndpointBody)
+                hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBodyName);
+            bool bodyMismatch = hasEndpointBody
+                && hasSnapshotBody
+                && !string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal);
+            bool needsRepair = !hasSnapshotPos || !hasSnapshotBody || bodyMismatch;
+
+            if (!needsRepair)
+                return true;
+
+            if (!hasEndpointBody)
+            {
+                ParsekLog.Error("Spawner",
+                    $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                    $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) " +
+                    $"and no authoritative endpoint body is available");
+                return false;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == endpointBodyName);
+            if (body == null)
+            {
+                ParsekLog.Error("Spawner",
+                    $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                    $"endpoint body '{endpointBodyName}' was resolved but is not loaded");
+                return false;
+            }
+
+            bool landedLike = rec.TerminalStateValue == TerminalState.Landed
+                || rec.TerminalStateValue == TerminalState.Splashed
+                || IsLandedLikeSnapshot(snapshot);
+
+            if (landedLike && hasEndpointCoords)
+            {
+                OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
+                ApplySurfaceOrbitToSnapshot(snapshot, body);
+                ParsekLog.Warn("Spawner",
+                    $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                    $"using endpoint surface coordinates on body '{endpointBodyName}'");
+                return true;
+            }
+
+            if (TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, out Orbit endpointOrbit))
+            {
+                ReplaceSnapshotOrbitNode(snapshot, endpointOrbit, body);
+
+                Vector3d orbitPos = endpointOrbit.getPositionAtUT(currentUT);
+                if (!hasEndpointCoords && IsFinite(orbitPos))
+                {
+                    endpointLat = body.GetLatitude(orbitPos);
+                    endpointLon = body.GetLongitude(orbitPos);
+                    endpointAlt = body.GetAltitude(orbitPos);
+                    hasEndpointCoords = true;
+                }
+
+                if (hasEndpointCoords)
+                    OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
+
+                if (rec.TerminalStateValue == TerminalState.Orbiting
+                    || rec.TerminalStateValue == TerminalState.Docked)
+                {
+                    NormalizeOrbitalSpawnMetadata(snapshot, currentUT);
+                }
+
+                ParsekLog.Warn("Spawner",
+                    $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                    $"using endpoint-aligned orbit data on body '{endpointBodyName}'");
+                return true;
+            }
+
+            if (hasEndpointCoords)
+            {
+                OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
+
+                if (TryResolveEndpointStateVector(rec, endpointBodyName, out Vector3d velocity))
+                {
+                    Orbit orbit = new Orbit();
+                    Vector3d worldPos = body.GetWorldSurfacePosition(endpointLat, endpointLon, endpointAlt);
+                    orbit.UpdateFromStateVectors(worldPos, velocity, body, currentUT);
+                    ReplaceSnapshotOrbitNode(snapshot, orbit, body);
+                    ParsekLog.Warn("Spawner",
+                        $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                        $"using endpoint state vectors on body '{endpointBodyName}'");
+                    return true;
+                }
+            }
+
+            ParsekLog.Error("Spawner",
+                $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                $"snapshot provenance is malformed and endpoint data cannot reconstruct a usable orbit/body " +
+                $"(endpointBody={endpointBodyName}, endpointCoords={hasEndpointCoords}, landedLike={landedLike})");
+            return false;
+        }
+
+        private static bool TryResolveEndpointStateVector(
+            Recording rec,
+            string endpointBodyName,
+            out Vector3d velocity)
+        {
+            velocity = Vector3d.zero;
+            if (rec?.Points == null || rec.Points.Count == 0 || string.IsNullOrEmpty(endpointBodyName))
+                return false;
+
+            TrajectoryPoint point = rec.Points[rec.Points.Count - 1];
+            if (!string.Equals(point.bodyName, endpointBodyName, StringComparison.Ordinal))
+                return false;
+
+            velocity = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
+            return IsFinite(velocity);
+        }
+
         private static void SaveOrbitToNode(Orbit orbit, ConfigNode node, CelestialBody body)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -2584,6 +2828,39 @@ namespace Parsek
             node.AddValue("MNA", orbit.meanAnomalyAtEpoch.ToString("R", ic));
             node.AddValue("EPH", orbit.epoch.ToString("R", ic));
             node.AddValue("REF", FlightGlobals.Bodies.IndexOf(body).ToString(ic));
+        }
+
+        private static void ReplaceSnapshotOrbitNode(ConfigNode snapshot, Orbit orbit, CelestialBody body)
+        {
+            if (snapshot == null || orbit == null || body == null)
+                return;
+
+            snapshot.RemoveNode("ORBIT");
+            ConfigNode orbitNode = new ConfigNode("ORBIT");
+            SaveOrbitToNode(orbit, orbitNode, body);
+            snapshot.AddNode(orbitNode);
+        }
+
+        private static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
+        {
+            if (snapshot == null || body == null || FlightGlobals.Bodies == null)
+                return;
+
+            int bodyIndex = FlightGlobals.Bodies.IndexOf(body);
+            if (bodyIndex < 0)
+                return;
+
+            snapshot.RemoveNode("ORBIT");
+            ConfigNode orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "0");
+            orbitNode.AddValue("ECC", "1");
+            orbitNode.AddValue("INC", "0");
+            orbitNode.AddValue("LPE", "0");
+            orbitNode.AddValue("LAN", "0");
+            orbitNode.AddValue("MNA", "0");
+            orbitNode.AddValue("EPH", "0");
+            orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
+            snapshot.AddNode(orbitNode);
         }
 
         /// <summary>
@@ -2831,107 +3108,30 @@ namespace Parsek
             epoch = 0.0;
             bodyName = null;
 
-            if (rec == null)
-                return false;
-
-            if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody))
-            {
-                return TryGetPreferredRecordedOrbitSeedForSpawn(
-                    rec,
-                    out inclination,
-                    out eccentricity,
-                    out semiMajorAxis,
-                    out lan,
-                    out argumentOfPeriapsis,
-                    out meanAnomalyAtEpoch,
-                    out epoch,
-                    out bodyName);
-            }
-
-            bool endpointUsesOrbitSegment = RecordingEndpointResolver.ShouldUseOrbitEndpoint(rec);
-
-            bool TryGetLastMatchingSegment(out double segInclination,
-                out double segEccentricity,
-                out double segSemiMajorAxis,
-                out double segLan,
-                out double segArgumentOfPeriapsis,
-                out double segMeanAnomalyAtEpoch,
-                out double segEpoch,
-                out string segBodyName)
-            {
-                segInclination = 0.0;
-                segEccentricity = 0.0;
-                segSemiMajorAxis = 0.0;
-                segLan = 0.0;
-                segArgumentOfPeriapsis = 0.0;
-                segMeanAnomalyAtEpoch = 0.0;
-                segEpoch = 0.0;
-                segBodyName = null;
-
-                if (rec.OrbitSegments == null)
-                    return false;
-
-                for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
-                {
-                    OrbitSegment seg = rec.OrbitSegments[i];
-                    if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
-                        || seg.semiMajorAxis <= 0.0)
-                    {
-                        continue;
-                    }
-
-                    segInclination = seg.inclination;
-                    segEccentricity = seg.eccentricity;
-                    segSemiMajorAxis = seg.semiMajorAxis;
-                    segLan = seg.longitudeOfAscendingNode;
-                    segArgumentOfPeriapsis = seg.argumentOfPeriapsis;
-                    segMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
-                    segEpoch = seg.epoch;
-                    segBodyName = seg.bodyName;
-                    return true;
-                }
-
-                return false;
-            }
-
-            if (endpointUsesOrbitSegment
-                && TryGetLastMatchingSegment(
-                    out inclination,
-                    out eccentricity,
-                    out semiMajorAxis,
-                    out lan,
-                    out argumentOfPeriapsis,
-                    out meanAnomalyAtEpoch,
-                    out epoch,
-                    out bodyName))
+            if (RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                rec,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName))
             {
                 return true;
             }
 
-            if (HasRecordedTerminalOrbit(rec)
-                && string.Equals(rec.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
-            {
-                inclination = rec.TerminalOrbitInclination;
-                eccentricity = rec.TerminalOrbitEccentricity;
-                semiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
-                lan = rec.TerminalOrbitLAN;
-                argumentOfPeriapsis = rec.TerminalOrbitArgumentOfPeriapsis;
-                meanAnomalyAtEpoch = rec.TerminalOrbitMeanAnomalyAtEpoch;
-                epoch = rec.TerminalOrbitEpoch;
-                bodyName = rec.TerminalOrbitBody;
-                return true;
-            }
-
-            return !endpointUsesOrbitSegment
-                && TryGetLastMatchingSegment(
-                    out inclination,
-                    out eccentricity,
-                    out semiMajorAxis,
-                    out lan,
-                    out argumentOfPeriapsis,
-                    out meanAnomalyAtEpoch,
-                    out epoch,
-                    out bodyName);
+            return TryGetPreferredRecordedOrbitSeedForSpawn(
+                rec,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName);
         }
 
         internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)

@@ -57,6 +57,9 @@ namespace Parsek
         public bool deferVisibilityUntilPlaybackSync; // fresh/rebuilt ghost stays hidden until positioned and synced
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
+        public PendingGhostVisualBuild pendingVisualBuild; // bug #450 B2: multi-frame snapshot build in progress
+        public PendingSpawnLifecycle pendingSpawnLifecycle; // first-spawn / loop / overlap lifecycle event to fire when pending build completes
+        public TrajectoryPlaybackFlags pendingSpawnFlags; // persisted with the lifecycle so watch-forced completion still fires the correct event payload
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
@@ -102,6 +105,9 @@ namespace Parsek
             deferVisibilityUntilPlaybackSync = false;
             cameraPivot = null;
             horizonProxy = null;
+            pendingVisualBuild = null;
+            pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+            pendingSpawnFlags = default;
             hadVisibleRenderersLastFrame = false;
         }
 

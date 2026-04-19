@@ -42,6 +42,9 @@ namespace Parsek.InGameTests
         /// instance alive. Used by in-game tests to verify bridge survival (#269).
         /// </summary>
         internal static TestRunnerShortcut Instance => instance;
+        internal bool HasOpaqueStyleForTesting => opaqueStyle != null;
+        internal bool HasAllOpaqueStateBackgroundsForTesting => AreAllOpaqueStyleBackgroundsPresent(opaqueStyle);
+        internal Texture2D OpaqueWindowBackgroundForTesting => opaqueStyle?.normal.background;
 
         void Awake()
         {
@@ -105,19 +108,8 @@ namespace Parsek.InGameTests
             if (windowRect.width < 1f)
                 windowRect = new Rect(20, 60, DefaultWindowWidth, DefaultWindowHeight);
 
-            if (opaqueStyle == null)
-            {
-                // Match ParsekUI's opaque window style: copy KSP skin, force alpha to 1
-                opaqueStyle = new GUIStyle(GUI.skin.window);
-                opaqueStyle.normal.background = MakeOpaqueCopy(opaqueStyle.normal.background);
-                opaqueStyle.onNormal.background = MakeOpaqueCopy(opaqueStyle.onNormal.background);
-                opaqueStyle.focused.background = MakeOpaqueCopy(opaqueStyle.focused.background);
-                opaqueStyle.onFocused.background = MakeOpaqueCopy(opaqueStyle.onFocused.background);
-                opaqueStyle.active.background = MakeOpaqueCopy(opaqueStyle.active.background);
-                opaqueStyle.onActive.background = MakeOpaqueCopy(opaqueStyle.onActive.background);
-                opaqueStyle.hover.background = MakeOpaqueCopy(opaqueStyle.hover.background);
-                opaqueStyle.onHover.background = MakeOpaqueCopy(opaqueStyle.onHover.background);
-            }
+            if (!EnsureOpaqueStyle(GUI.skin))
+                return;
 
             windowRect = GUILayout.Window(
                 "ParsekTestRunnerGlobal".GetHashCode(),
@@ -154,6 +146,7 @@ namespace Parsek.InGameTests
                 instance = null;
                 GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
             }
+            ClearOpaqueStyle();
             if (windowHasInputLock)
                 InputLockManager.RemoveControlLock(InputLockId);
         }
@@ -161,15 +154,107 @@ namespace Parsek.InGameTests
         /// <summary>
         /// #269: Reset scene-scoped state on scene transition.
         /// InputLockManager locks are cleared by KSP, so our tracking flag must match.
-        /// opaqueStyle references GUI.skin textures that may not survive scene changes.
+        /// Opaque window textures are copied into owned Texture2D instances, so drop
+        /// and destroy them explicitly before the next scene rebuild.
         /// </summary>
         private void OnSceneChangeRequested(GameScenes scene)
         {
             windowHasInputLock = false;
-            opaqueStyle = null;
+            ClearOpaqueStyle();
             zeroHeightLabelStyle = null;
             wrappedErrorLabelStyle = null;
             wrappedTooltipStyle = null;
+        }
+
+        internal bool TryEnsureOpaqueStyleForTesting(GUISkin skin)
+        {
+            return EnsureOpaqueStyle(skin);
+        }
+
+        private bool EnsureOpaqueStyle(GUISkin skin)
+        {
+            if (opaqueStyle != null)
+                return true;
+
+            if (!IsOpaqueStyleSkinReady(skin))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "opaque-style-skin-not-ready",
+                    "Test runner: skin not ready, deferring opaque style rebuild", 1f);
+                return false;
+            }
+
+            opaqueStyle = BuildOpaqueStyle(skin.window);
+            return true;
+        }
+
+        private void ClearOpaqueStyle()
+        {
+            if (opaqueStyle == null)
+                return;
+
+            var destroyedBackgrounds = new HashSet<int>();
+            DestroyOpaqueBackground(opaqueStyle.normal.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.onNormal.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.focused.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.onFocused.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.active.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.onActive.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.hover.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueStyle.onHover.background, destroyedBackgrounds);
+            opaqueStyle = null;
+        }
+
+        private static bool IsOpaqueStyleSkinReady(GUISkin skin)
+        {
+            return skin != null
+                && skin.window != null
+                && skin.window.normal.background != null;
+        }
+
+        private static GUIStyle BuildOpaqueStyle(GUIStyle sourceStyle)
+        {
+            // Match ParsekUI's opaque window style: copy KSP skin, force alpha to 1.
+            // KSP can hydrate the normal window background a frame before the other
+            // state variants, so fall back to the ready normal texture for any state
+            // that is still null on this frame.
+            Texture2D normalSource = sourceStyle.normal.background;
+            var style = new GUIStyle(sourceStyle);
+            style.normal.background = MakeOpaqueCopy(normalSource);
+            style.onNormal.background = MakeOpaqueCopy(sourceStyle.onNormal.background ?? normalSource);
+            style.focused.background = MakeOpaqueCopy(sourceStyle.focused.background ?? normalSource);
+            style.onFocused.background = MakeOpaqueCopy(sourceStyle.onFocused.background ?? normalSource);
+            style.active.background = MakeOpaqueCopy(sourceStyle.active.background ?? normalSource);
+            style.onActive.background = MakeOpaqueCopy(sourceStyle.onActive.background ?? normalSource);
+            style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
+            style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
+            return style;
+        }
+
+        private static bool AreAllOpaqueStyleBackgroundsPresent(GUIStyle style)
+        {
+            return style != null
+                && style.normal.background != null
+                && style.onNormal.background != null
+                && style.focused.background != null
+                && style.onFocused.background != null
+                && style.active.background != null
+                && style.onActive.background != null
+                && style.hover.background != null
+                && style.onHover.background != null;
+        }
+
+        private static void DestroyOpaqueBackground(
+            Texture2D background,
+            HashSet<int> destroyedBackgrounds)
+        {
+            if (background == null)
+                return;
+
+            int id = background.GetInstanceID();
+            if (!destroyedBackgrounds.Add(id))
+                return;
+
+            Object.Destroy(background);
         }
 
         private void DrawWindow(int windowID)

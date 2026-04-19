@@ -214,7 +214,10 @@ namespace Parsek
                 vesselSnapshot, tipRecording, tipPoint, "Chain tip spawn");
 
             // Spawn with PID preservation for chain continuity
-            uint spawnedPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
+            uint spawnedPid = VesselSpawner.RespawnValidatedRecording(
+                tipRecording,
+                string.Format(ic, "chain tip '{0}'", tipId),
+                preserveIdentity: true);
 
             if (spawnedPid == 0)
             {
@@ -325,7 +328,11 @@ namespace Parsek
                 vesselSnapshot, tipRecording, tipPoint, "Blocked chain tip spawn");
 
             // Spawn with PID preservation
-            uint spawnedPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
+            uint spawnedPid = VesselSpawner.RespawnValidatedRecording(
+                tipRecording,
+                string.Format(ic, "blocked chain tip '{0}'", tipId),
+                preserveIdentity: true,
+                currentUT: currentUT);
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -360,28 +367,55 @@ namespace Parsek
             bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
                            && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
                            && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
+            bool hasEndpointCoords = RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                tipRecording,
+                out string endpointBodyName,
+                out double endpointLat,
+                out double endpointLon,
+                out double endpointAlt);
 
             if (hasSnapPos)
             {
-                string bodyName = RecordingEndpointResolver.GetPreferredEndpointBodyName(tipRecording);
-                CelestialBody snapBody = FlightGlobals.GetBodyByName(bodyName);
-                if (snapBody != null)
+                if (hasEndpointCoords
+                    && VesselSpawner.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotBodyName)
+                    && string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal))
                 {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "ResolveSpawnPosition: using snapshot pos lat={0} lon={1} alt={2} body={3}",
-                            snapLat.ToString("F4", ic), snapLon.ToString("F4", ic),
-                            snapAlt.ToString("F1", ic), bodyName));
-                    return snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt);
+                    CelestialBody snapBody = FlightGlobals.GetBodyByName(endpointBodyName);
+                    if (snapBody != null)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            string.Format(ic,
+                                "ResolveSpawnPosition: using snapshot pos lat={0} lon={1} alt={2} body={3}",
+                                snapLat.ToString("F4", ic), snapLon.ToString("F4", ic),
+                                snapAlt.ToString("F1", ic), endpointBodyName));
+                        return snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt);
+                    }
                 }
-                else
+
+                if (!hasEndpointCoords)
                 {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "ResolveSpawnPosition: body '{0}' not found — falling back to ComputeSpawnWorldPosition",
-                            bodyName));
-                    return ComputeSpawnWorldPosition(tipRecording);
+                    if (VesselSpawner.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotFallbackBodyName))
+                    {
+                        CelestialBody snapBody = FlightGlobals.GetBodyByName(snapshotFallbackBodyName);
+                        if (snapBody != null)
+                        {
+                            ParsekLog.Verbose(Tag,
+                                string.Format(ic,
+                                    "ResolveSpawnPosition: using snapshot pos lat={0} lon={1} alt={2} body={3}",
+                                    snapLat.ToString("F4", ic), snapLon.ToString("F4", ic),
+                                    snapAlt.ToString("F1", ic), snapshotFallbackBodyName));
+                            return snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt);
+                        }
+                    }
                 }
+
+                ParsekLog.Verbose(Tag,
+                    "ResolveSpawnPosition: snapshot coordinates lack authoritative body provenance — " +
+                    "falling back to recording endpoint");
+                return hasEndpointCoords
+                    ? FlightGlobals.GetBodyByName(endpointBodyName)?.GetWorldSurfacePosition(endpointLat, endpointLon, endpointAlt)
+                        ?? ComputeSpawnWorldPosition(tipRecording)
+                    : ComputeSpawnWorldPosition(tipRecording);
             }
             else
             {
@@ -442,7 +476,11 @@ namespace Parsek
                 VesselSpawner.TryApplyPreferredSpawnRotation(
                     vesselSnapshot, tipRecording, walkPt, "Chain tip walkback spawn");
 
-                uint walkbackPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
+                uint walkbackPid = VesselSpawner.RespawnValidatedRecording(
+                    tipRecording,
+                    string.Format(ic, "walkback chain tip '{0}'", tipRecording.RecordingId ?? tipRecording.VesselName),
+                    preserveIdentity: true,
+                    currentUT: tipRecording.Points[validIdx].ut);
                 if (walkbackPid != 0)
                 {
                     chain.SpawnBlocked = false;
@@ -524,23 +562,41 @@ namespace Parsek
             {
                 case GhostExtensionStrategy.Orbital:
                 {
-                    CelestialBody body = FlightGlobals.GetBodyByName(rec.TerminalOrbitBody);
+                    if (!TryResolvePropagatedOrbitSeed(
+                        rec,
+                        out double inclination,
+                        out double eccentricity,
+                        out double semiMajorAxis,
+                        out double lan,
+                        out double argumentOfPeriapsis,
+                        out double meanAnomalyAtEpoch,
+                        out double epoch,
+                        out string orbitBodyName))
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "ComputePropagatedPosition: no endpoint-aligned orbit seed for '{0}'",
+                                rec.VesselName ?? rec.RecordingId ?? "(unknown)"));
+                        return ComputeSpawnWorldPosition(rec);
+                    }
+
+                    CelestialBody body = FlightGlobals.GetBodyByName(orbitBodyName);
                     if (body == null)
                     {
                         ParsekLog.Warn(Tag,
                             string.Format(ic, "ComputePropagatedPosition: body '{0}' not found",
-                                rec.TerminalOrbitBody));
+                                orbitBodyName));
                         return ComputeSpawnWorldPosition(rec);
                     }
 
                     var (lat, lon, alt) = GhostExtender.PropagateOrbital(
-                        rec.TerminalOrbitInclination,
-                        rec.TerminalOrbitEccentricity,
-                        rec.TerminalOrbitSemiMajorAxis,
-                        rec.TerminalOrbitLAN,
-                        rec.TerminalOrbitArgumentOfPeriapsis,
-                        rec.TerminalOrbitMeanAnomalyAtEpoch,
-                        rec.TerminalOrbitEpoch,
+                        inclination,
+                        eccentricity,
+                        semiMajorAxis,
+                        lan,
+                        argumentOfPeriapsis,
+                        meanAnomalyAtEpoch,
+                        epoch,
                         body.Radius, body.gravParameter,
                         currentUT);
 
@@ -555,9 +611,12 @@ namespace Parsek
                 case GhostExtensionStrategy.Surface:
                 {
                     var (lat, lon, alt) = GhostExtender.PropagateSurface(rec);
-                    string bodyName = rec.TerminalPosition.HasValue
-                        ? rec.TerminalPosition.Value.body
-                        : "Kerbin";
+                    string bodyName = null;
+                    if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName)
+                        && rec.TerminalPosition.HasValue)
+                    {
+                        bodyName = rec.TerminalPosition.Value.body;
+                    }
                     CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
                     if (body == null)
                     {
@@ -580,6 +639,29 @@ namespace Parsek
                 default:
                     return ComputeSpawnWorldPosition(rec);
             }
+        }
+
+        internal static bool TryResolvePropagatedOrbitSeed(
+            Recording rec,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            return RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                rec,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName);
         }
 
         /// <summary>
