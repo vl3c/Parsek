@@ -7095,6 +7095,9 @@ namespace Parsek
                 return false;
             }
 
+            // Stock BackupVessel can lag one frame behind the live terminal transition and
+            // still emit sit=FLYING/SUB_ORBITAL for a vessel that has already settled.
+            VesselSpawner.CorrectUnsafeSnapshotSituation(freshSnapshot, ts);
             rec.VesselSnapshot = freshSnapshot;
             if (rec.GhostVisualSnapshot == null)
                 rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
