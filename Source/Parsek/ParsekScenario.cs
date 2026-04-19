@@ -153,6 +153,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Discards a pending tree after its live effects have already been allowed to stay
+        /// in KSP (for example while waiting on a merge/discard decision), then immediately
+        /// rebuilds state from the committed ledger.
+        /// </summary>
+        internal static void DiscardPendingTreeAndRecalculate(string reason)
+        {
+            if (!RecordingStore.HasPendingTree)
+                return;
+
+            ParsekLog.Verbose("Scenario", $"DiscardPendingTree recalc path: {reason}");
+            RecordingStore.DiscardPendingTree();
+            LedgerOrchestrator.RecalculateAndPatch();
+        }
+
+        /// <summary>
         /// #434 follow-up: dispatch-level guard that decides whether the OnLoad
         /// quickload-discard branch should fire. Pure function of the three
         /// classification bits so it can be unit-tested in isolation — the
@@ -1196,7 +1211,8 @@ namespace Parsek
                             if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
-                                RecordingStore.DiscardPendingTree();
+                                DiscardPendingTreeAndRecalculate(
+                                    "scene-exit idle-on-pad auto-discard");
                             }
 
                             bool anythingLeft = RecordingStore.HasPendingTree;
@@ -1366,7 +1382,8 @@ namespace Parsek
                     if (ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                     {
                         ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
-                        RecordingStore.DiscardPendingTree();
+                        DiscardPendingTreeAndRecalculate(
+                            "outside-flight idle-on-pad auto-discard");
                     }
 
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
@@ -2396,7 +2413,8 @@ namespace Parsek
             if (ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
             {
                 ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
-                RecordingStore.DiscardPendingTree();
+                DiscardPendingTreeAndRecalculate(
+                    "deferred merge dialog idle-on-pad auto-discard");
                 ScreenMessages.PostScreenMessage("Recording discarded - vessel idle on pad", 4f);
                 mergeDialogPending = false;
                 yield break;
