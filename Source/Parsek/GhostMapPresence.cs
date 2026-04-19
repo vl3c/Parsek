@@ -1235,27 +1235,68 @@ namespace Parsek
 
         private static Vessel BuildAndLoadGhostProtoVessel(IPlaybackTrajectory traj, string logContext)
         {
-            CelestialBody body = FindBodyByName(traj.TerminalOrbitBody);
+            if (!TryResolveGhostProtoOrbitSeed(
+                traj,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string orbitBodyName))
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "BuildAndLoadGhostProtoVessel: no endpoint-aligned orbit seed for {0}",
+                        logContext));
+                return null;
+            }
+
+            CelestialBody body = FindBodyByName(orbitBodyName);
             if (body == null)
             {
                 ParsekLog.Warn(Tag,
                     string.Format(ic,
                         "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
-                        traj.TerminalOrbitBody, logContext));
+                        orbitBodyName, logContext));
                 return null;
             }
 
             Orbit orbit = new Orbit(
-                traj.TerminalOrbitInclination,
-                traj.TerminalOrbitEccentricity,
-                traj.TerminalOrbitSemiMajorAxis,
-                traj.TerminalOrbitLAN,
-                traj.TerminalOrbitArgumentOfPeriapsis,
-                traj.TerminalOrbitMeanAnomalyAtEpoch,
-                traj.TerminalOrbitEpoch,
+                inclination,
+                eccentricity,
+                semiMajorAxis,
+                lan,
+                argumentOfPeriapsis,
+                meanAnomalyAtEpoch,
+                epoch,
                 body);
 
             return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+        }
+
+        internal static bool TryResolveGhostProtoOrbitSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            return RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName);
         }
 
         private static Vessel BuildAndLoadGhostProtoVesselCore(
