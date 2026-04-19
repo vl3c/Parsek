@@ -5594,16 +5594,14 @@ namespace Parsek
             MigrateLegacyLoopIntervalAfterHydration(rec);
             NormalizeDegenerateLoopInterval(rec);
 
-            // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
-            // the recording was loaded with empty cache fields. Without this, GhostMap
-            // and other consumers see an empty TerminalOrbit cache and fail to create
-            // map vessels for non-finalized recordings (forces the user to press W to
-            // build the icon via WatchModeController, which reads OrbitSegments directly).
-            if (string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                && rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            // #288/#475: eagerly populate TerminalOrbit from the last endpoint-aligned
+            // orbit segment when the cache is empty or obviously stale. Without this,
+            // GhostMap and spawn consumers can miss or mis-frame orbital end states.
+            if (ParsekFlight.ShouldPopulateTerminalOrbitFromLastSegment(rec))
             {
+                string bodyBeforePopulate = rec.TerminalOrbitBody;
                 ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
-                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal))
                 {
                     Log($"[Parsek] Eager-populated TerminalOrbit for {rec.RecordingId} from last orbit segment (body={rec.TerminalOrbitBody}, sma={rec.TerminalOrbitSemiMajorAxis:F0})");
                 }

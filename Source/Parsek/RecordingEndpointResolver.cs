@@ -4,6 +4,47 @@ namespace Parsek
     {
         private const double EndpointEpsilon = 1e-6;
 
+        internal static bool TryGetPreferredEndpointBodyName(Recording rec, out string bodyName)
+        {
+            bodyName = null;
+            if (rec == null)
+                return false;
+
+            if (rec.TerminalPosition.HasValue && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
+            {
+                bodyName = rec.TerminalPosition.Value.body;
+                return true;
+            }
+
+            if (ShouldUseOrbitEndpoint(rec))
+            {
+                string orbitBody = rec.OrbitSegments[rec.OrbitSegments.Count - 1].bodyName;
+                if (!string.IsNullOrEmpty(orbitBody))
+                {
+                    bodyName = orbitBody;
+                    return true;
+                }
+            }
+
+            if (rec.Points != null && rec.Points.Count > 0)
+            {
+                string pointBody = rec.Points[rec.Points.Count - 1].bodyName;
+                if (!string.IsNullOrEmpty(pointBody))
+                {
+                    bodyName = pointBody;
+                    return true;
+                }
+            }
+
+            if (rec.SurfacePos.HasValue && !string.IsNullOrEmpty(rec.SurfacePos.Value.body))
+            {
+                bodyName = rec.SurfacePos.Value.body;
+                return true;
+            }
+
+            return false;
+        }
+
         internal static bool ShouldUseOrbitEndpoint(IPlaybackTrajectory traj)
         {
             if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
@@ -116,30 +157,9 @@ namespace Parsek
 
         internal static string GetPreferredEndpointBodyName(Recording rec)
         {
-            if (rec == null)
-                return "Kerbin";
-
-            if (rec.TerminalPosition.HasValue && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
-                return rec.TerminalPosition.Value.body;
-
-            if (ShouldUseOrbitEndpoint(rec))
-            {
-                string orbitBody = rec.OrbitSegments[rec.OrbitSegments.Count - 1].bodyName;
-                if (!string.IsNullOrEmpty(orbitBody))
-                    return orbitBody;
-            }
-
-            if (rec.Points != null && rec.Points.Count > 0)
-            {
-                string pointBody = rec.Points[rec.Points.Count - 1].bodyName;
-                if (!string.IsNullOrEmpty(pointBody))
-                    return pointBody;
-            }
-
-            if (rec.SurfacePos.HasValue && !string.IsNullOrEmpty(rec.SurfacePos.Value.body))
-                return rec.SurfacePos.Value.body;
-
-            return "Kerbin";
+            return TryGetPreferredEndpointBodyName(rec, out string bodyName)
+                ? bodyName
+                : "Kerbin";
         }
     }
 }
