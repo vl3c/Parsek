@@ -298,6 +298,17 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]") && l.Contains("deferred KSP state patch"));
         }
 
+        [Fact]
+        public void DiscardPendingTreeAndRecalculate_WithoutPendingTree_IsSilentNoOp()
+        {
+            ParsekScenario.DiscardPendingTreeAndRecalculate("test helper no-op");
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("DiscardPendingTree recalc path"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
         // ================================================================
         // 5. Determination documented: no post-revert caller should land here
         //    (pinning test — asserts only one production call pattern exists)

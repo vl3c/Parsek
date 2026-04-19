@@ -159,11 +159,12 @@ namespace Parsek
         /// </summary>
         internal static void DiscardPendingTreeAndRecalculate(string reason)
         {
-            bool hadPendingTree = RecordingStore.HasPendingTree;
+            if (!RecordingStore.HasPendingTree)
+                return;
+
             ParsekLog.Verbose("Scenario", $"DiscardPendingTree recalc path: {reason}");
             RecordingStore.DiscardPendingTree();
-            if (hadPendingTree)
-                LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatch();
         }
 
         /// <summary>
@@ -1210,7 +1211,8 @@ namespace Parsek
                             if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
-                                RecordingStore.DiscardPendingTree();
+                                DiscardPendingTreeAndRecalculate(
+                                    "scene-exit idle-on-pad auto-discard");
                             }
 
                             bool anythingLeft = RecordingStore.HasPendingTree;
