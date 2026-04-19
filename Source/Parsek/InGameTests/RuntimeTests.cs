@@ -5580,6 +5580,169 @@ namespace Parsek.InGameTests
                 $"after-double={rec.PartEvents.Count} events");
         }
 
+        [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
+            Description = "Light part events flip ghost lights exactly at their authored UT boundaries")]
+        public void PartEventTiming_LightToggle_AppliesAtEventUt()
+        {
+            var ghostRoot = new GameObject("ParsekTest_LightTimingGhost");
+            runner.TrackForCleanup(ghostRoot);
+
+            var lightHost = new GameObject("ghost_part_101");
+            lightHost.transform.SetParent(ghostRoot.transform, false);
+            var light = lightHost.AddComponent<Light>();
+            light.enabled = false;
+
+            var rec = new Recording
+            {
+                VesselName = "LightTimingCanary",
+                PartEvents = new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 100.0,
+                        partPersistentId = 101u,
+                        eventType = PartEventType.LightOn
+                    },
+                    new PartEvent
+                    {
+                        ut = 110.0,
+                        partPersistentId = 101u,
+                        eventType = PartEventType.LightOff
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                lightInfos = new Dictionary<uint, LightGhostInfo>
+                {
+                    [101u] = new LightGhostInfo
+                    {
+                        partPersistentId = 101u,
+                        lights = new List<Light> { light }
+                    }
+                }
+            };
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 99.9, state);
+            InGameAssert.IsFalse(light.enabled,
+                "Light should stay off before the authored LightOn UT");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "Part-event cursor should not advance before the first light event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 100.0, state);
+            InGameAssert.IsTrue(light.enabled,
+                "Light should turn on exactly at the authored LightOn UT");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should advance after the LightOn event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 109.9, state);
+            InGameAssert.IsTrue(light.enabled,
+                "Light should remain on between the authored LightOn and LightOff events");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should not advance before the authored LightOff UT");
+
+            GhostPlaybackLogic.ApplyPartEvents(901, rec, 110.0, state);
+            InGameAssert.IsFalse(light.enabled,
+                "Light should turn off exactly at the authored LightOff UT");
+            InGameAssert.AreEqual(2, state.partEventIndex,
+                "Part-event cursor should advance after the LightOff event fires");
+        }
+
+        [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
+            Description = "Deployable part events swap ghost transforms exactly at their authored UT boundaries")]
+        public void PartEventTiming_DeployableTransition_AppliesAtEventUt()
+        {
+            var ghostRoot = new GameObject("ParsekTest_DeployableTimingGhost");
+            runner.TrackForCleanup(ghostRoot);
+
+            var deployableHost = new GameObject("ghost_part_202");
+            deployableHost.transform.SetParent(ghostRoot.transform, false);
+
+            DeployableTransformState deployableState = new DeployableTransformState
+            {
+                t = deployableHost.transform,
+                stowedPos = new Vector3(-1f, 0f, 0f),
+                stowedRot = Quaternion.Euler(0f, 0f, 0f),
+                stowedScale = new Vector3(1f, 1f, 1f),
+                deployedPos = new Vector3(2f, 3f, 4f),
+                deployedRot = Quaternion.Euler(0f, 90f, 0f),
+                deployedScale = new Vector3(1f, 2f, 1f)
+            };
+
+            deployableHost.transform.localPosition = deployableState.stowedPos;
+            deployableHost.transform.localRotation = deployableState.stowedRot;
+            deployableHost.transform.localScale = deployableState.stowedScale;
+
+            var rec = new Recording
+            {
+                VesselName = "DeployableTimingCanary",
+                PartEvents = new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 200.0,
+                        partPersistentId = 202u,
+                        eventType = PartEventType.DeployableExtended
+                    },
+                    new PartEvent
+                    {
+                        ut = 210.0,
+                        partPersistentId = 202u,
+                        eventType = PartEventType.DeployableRetracted
+                    }
+                }
+            };
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghostRoot,
+                deployableInfos = new Dictionary<uint, DeployableGhostInfo>
+                {
+                    [202u] = new DeployableGhostInfo
+                    {
+                        partPersistentId = 202u,
+                        transforms = new List<DeployableTransformState> { deployableState }
+                    }
+                }
+            };
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 199.9, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
+                "Deployable should stay stowed before the authored extend UT");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.stowedRot,
+                "Deployable rotation should stay stowed before the authored extend UT");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "Part-event cursor should not advance before the first deployable event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 200.0, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
+                "Deployable should extend exactly at the authored DeployableExtended UT");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.deployedRot,
+                "Deployable rotation should switch to the deployed pose at the authored extend UT");
+            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.deployedScale,
+                "Deployable scale should switch to the deployed pose at the authored extend UT");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should advance after the deployable extend event fires");
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 209.9, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
+                "Deployable should remain extended between the authored extend and retract events");
+            InGameAssert.AreEqual(1, state.partEventIndex,
+                "Part-event cursor should not advance before the authored retract UT");
+
+            GhostPlaybackLogic.ApplyPartEvents(902, rec, 210.0, state);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
+                "Deployable should retract exactly at the authored DeployableRetracted UT");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.stowedRot,
+                "Deployable rotation should switch back to the stowed pose at the authored retract UT");
+            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.stowedScale,
+                "Deployable scale should switch back to the stowed pose at the authored retract UT");
+            InGameAssert.AreEqual(2, state.partEventIndex,
+                "Part-event cursor should advance after the deployable retract event fires");
+        }
+
         // ======================= ResourceManifest (Phase 11) =======================
 
         [InGameTest(Category = "ResourceManifest", Scene = GameScenes.FLIGHT,
