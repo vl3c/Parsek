@@ -18,6 +18,49 @@ namespace Parsek
             return TryComputeEndpointDecisionFromData(rec, out _, out bodyName);
         }
 
+        internal static bool TryGetPreferredEndpointBodyName(IPlaybackTrajectory traj, out string bodyName)
+        {
+            bodyName = null;
+            if (traj == null)
+                return false;
+
+            if (TryGetPersistedEndpointDecision(traj, out _, out bodyName))
+                return true;
+
+            if (TryGetTerminalOrbitAlignedOrbitDecision(traj, out bodyName))
+                return true;
+
+            if (ShouldUseOrbitEndpointByHeuristic(traj)
+                && traj.OrbitSegments != null
+                && traj.OrbitSegments.Count > 0)
+            {
+                OrbitSegment lastSegment = traj.OrbitSegments[traj.OrbitSegments.Count - 1];
+                if (!string.IsNullOrEmpty(lastSegment.bodyName))
+                {
+                    bodyName = lastSegment.bodyName;
+                    return true;
+                }
+            }
+
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                string pointBody = traj.Points[traj.Points.Count - 1].bodyName;
+                if (!string.IsNullOrEmpty(pointBody))
+                {
+                    bodyName = pointBody;
+                    return true;
+                }
+            }
+
+            if (traj.SurfacePos.HasValue && !string.IsNullOrEmpty(traj.SurfacePos.Value.body))
+            {
+                bodyName = traj.SurfacePos.Value.body;
+                return true;
+            }
+
+            return false;
+        }
+
         internal static bool RefreshEndpointDecision(
             Recording rec,
             string context = null,
@@ -136,6 +179,119 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryGetEndpointAlignedOrbitSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+
+            if (traj == null)
+                return false;
+
+            if (!TryGetPreferredEndpointBodyName(traj, out string endpointBody))
+                return false;
+
+            bool endpointUsesOrbitSegment = ShouldUseOrbitEndpoint(traj);
+
+            bool TryGetLastMatchingSegment(out double segInclination,
+                out double segEccentricity,
+                out double segSemiMajorAxis,
+                out double segLan,
+                out double segArgumentOfPeriapsis,
+                out double segMeanAnomalyAtEpoch,
+                out double segEpoch,
+                out string segBodyName)
+            {
+                segInclination = 0.0;
+                segEccentricity = 0.0;
+                segSemiMajorAxis = 0.0;
+                segLan = 0.0;
+                segArgumentOfPeriapsis = 0.0;
+                segMeanAnomalyAtEpoch = 0.0;
+                segEpoch = 0.0;
+                segBodyName = null;
+
+                if (traj.OrbitSegments == null)
+                    return false;
+
+                for (int i = traj.OrbitSegments.Count - 1; i >= 0; i--)
+                {
+                    OrbitSegment seg = traj.OrbitSegments[i];
+                    if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
+                        || seg.semiMajorAxis <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    segInclination = seg.inclination;
+                    segEccentricity = seg.eccentricity;
+                    segSemiMajorAxis = seg.semiMajorAxis;
+                    segLan = seg.longitudeOfAscendingNode;
+                    segArgumentOfPeriapsis = seg.argumentOfPeriapsis;
+                    segMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
+                    segEpoch = seg.epoch;
+                    segBodyName = seg.bodyName;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (endpointUsesOrbitSegment
+                && TryGetLastMatchingSegment(
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName))
+            {
+                return true;
+            }
+
+            if (endpointUsesOrbitSegment
+                && HasRecordedTerminalOrbit(traj)
+                && string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            {
+                inclination = traj.TerminalOrbitInclination;
+                eccentricity = traj.TerminalOrbitEccentricity;
+                semiMajorAxis = traj.TerminalOrbitSemiMajorAxis;
+                lan = traj.TerminalOrbitLAN;
+                argumentOfPeriapsis = traj.TerminalOrbitArgumentOfPeriapsis;
+                meanAnomalyAtEpoch = traj.TerminalOrbitMeanAnomalyAtEpoch;
+                epoch = traj.TerminalOrbitEpoch;
+                bodyName = traj.TerminalOrbitBody;
+                return true;
+            }
+
+            return !endpointUsesOrbitSegment
+                && TryGetLastMatchingSegment(
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName);
+        }
+
         internal static bool TryGetOrbitEndpointCoordinates(
             IPlaybackTrajectory traj,
             out string bodyName,
@@ -163,7 +319,9 @@ namespace Parsek
 
             bodyName = !string.IsNullOrEmpty(segment.bodyName)
                 ? segment.bodyName
-                : !string.IsNullOrEmpty(persistedBody) ? persistedBody : "Kerbin";
+                : persistedBody;
+            if (string.IsNullOrEmpty(bodyName))
+                return false;
 
             CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
             if (body == null)
@@ -222,13 +380,6 @@ namespace Parsek
                     out latitude,
                     out longitude,
                     out altitude);
-        }
-
-        internal static string GetPreferredEndpointBodyName(Recording rec)
-        {
-            return TryGetPreferredEndpointBodyName(rec, out string bodyName)
-                ? bodyName
-                : "Kerbin";
         }
 
         internal static bool TryGetPersistedEndpointDecision(
@@ -331,7 +482,9 @@ namespace Parsek
                         var terminal = rec.TerminalPosition.Value;
                         bodyName = !string.IsNullOrEmpty(terminal.body)
                             ? terminal.body
-                            : string.IsNullOrEmpty(resolvedBodyName) ? "Kerbin" : resolvedBodyName;
+                            : resolvedBodyName;
+                        if (string.IsNullOrEmpty(bodyName))
+                            return false;
                         latitude = terminal.latitude;
                         longitude = terminal.longitude;
                         altitude = terminal.altitude;
@@ -350,7 +503,9 @@ namespace Parsek
                         var lastPoint = rec.Points[rec.Points.Count - 1];
                         bodyName = !string.IsNullOrEmpty(lastPoint.bodyName)
                             ? lastPoint.bodyName
-                            : string.IsNullOrEmpty(resolvedBodyName) ? "Kerbin" : resolvedBodyName;
+                            : resolvedBodyName;
+                        if (string.IsNullOrEmpty(bodyName))
+                            return false;
                         latitude = lastPoint.latitude;
                         longitude = lastPoint.longitude;
                         altitude = lastPoint.altitude;
@@ -364,7 +519,9 @@ namespace Parsek
                         var surface = rec.SurfacePos.Value;
                         bodyName = !string.IsNullOrEmpty(surface.body)
                             ? surface.body
-                            : string.IsNullOrEmpty(resolvedBodyName) ? "Kerbin" : resolvedBodyName;
+                            : resolvedBodyName;
+                        if (string.IsNullOrEmpty(bodyName))
+                            return false;
                         latitude = surface.latitude;
                         longitude = surface.longitude;
                         altitude = surface.altitude;
