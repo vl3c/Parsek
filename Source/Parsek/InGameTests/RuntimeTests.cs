@@ -4852,6 +4852,171 @@ namespace Parsek.InGameTests
                 "frameLazyReentryBuildCount must NOT bump on reuse itself (the NEXT frame's UpdateReentryFx may build, but that is the B3 path, not reuse)");
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#461: loop-cycle reuse clears deferVisibilityUntilPlaybackSync and re-activates the reused ghost on the same UpdatePlayback frame when the ghost stays visible")]
+        public void Bug406_ReuseClearsDeferVisOnSameFrame()
+        {
+            var state = RunBug406ReuseVisibilityScenario(
+                hiddenByZone: false,
+                out var originalGhost,
+                out var capturedLog);
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "test must cross a real loop-cycle boundary; otherwise the post-frame visibility assertion is meaningless");
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "cycle-boundary pass must reset playbackIndex before the new-cycle frame finishes");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "cycle-boundary pass must reset partEventIndex before the new-cycle frame finishes");
+            InGameAssert.IsFalse(state.deferVisibilityUntilPlaybackSync,
+                "visible same-frame path must clear deferVisibilityUntilPlaybackSync after reuse");
+            InGameAssert.IsNotNull(state.ghost,
+                "visible same-frame path must keep the reused ghost loaded");
+            InGameAssert.IsTrue(ReferenceEquals(originalGhost, state.ghost),
+                "full UpdatePlayback loop-cycle path must preserve the same ghost GameObject instance instead of rebuilding");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "visible same-frame path must re-activate the reused ghost before UpdatePlayback returns");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("ghost reused across loop cycle")),
+                "full-frame regression must prove UpdatePlayback took the reuse path instead of destroy+spawn");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("re-shown: entered visible distance tier")),
+                "zone rendering must NOT re-show a deferred ghost before ActivateGhostVisualsIfNeeded owns the same-frame activation");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#461: loop-cycle reuse leaves the ghost deferred/inactive when the same frame is hidden by zone rendering")]
+        public void Bug406_ReuseHiddenByZone_DoesNotActivateGhostOnSameFrame()
+        {
+            var state = RunBug406ReuseVisibilityScenario(
+                hiddenByZone: true,
+                out var originalGhost,
+                out var capturedLog);
+
+            InGameAssert.AreEqual(1L, state.loopCycleIndex,
+                "hidden-by-zone variant must still cross a real loop-cycle boundary");
+            InGameAssert.AreEqual(0, state.playbackIndex,
+                "hidden-by-zone variant must still rewind playbackIndex on the reused cycle");
+            InGameAssert.AreEqual(0, state.partEventIndex,
+                "hidden-by-zone variant must still rewind partEventIndex on the reused cycle");
+            InGameAssert.IsNotNull(state.ghost,
+                "hidden-tier prewarm should keep the reused ghost loaded while it remains invisible");
+            InGameAssert.IsTrue(ReferenceEquals(originalGhost, state.ghost),
+                "hidden-tier prewarm path must keep the same ghost GameObject instance loaded across the loop boundary");
+            InGameAssert.IsTrue(state.deferVisibilityUntilPlaybackSync,
+                "hidden-by-zone branch must preserve deferVisibilityUntilPlaybackSync for the next visible frame");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "hidden-by-zone branch must not activate the reused ghost on the cycle-boundary frame");
+            InGameAssert.IsTrue(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("ghost reused across loop cycle")),
+                "hidden-by-zone regression must prove UpdatePlayback took the reuse path instead of destroy+spawn");
+            InGameAssert.IsFalse(capturedLog.Any(l =>
+                    l.Contains("TestReuseVisibility")
+                    && l.Contains("re-shown: entered visible distance tier")),
+                "zone rendering must NOT re-show a deferred ghost while the loop frame is still hidden by zone policy");
+        }
+
+        private GhostPlaybackState RunBug406ReuseVisibilityScenario(
+            bool hiddenByZone, out GameObject originalGhost, out List<string> capturedLog)
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null)
+                InGameAssert.Skip("no ParsekFlight");
+
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            if (flight.WatchedRecordingIndex >= 0)
+                flight.ExitWatchMode(skipCameraRestore: true);
+
+            var engine = new GhostPlaybackEngine(flight);
+            double renderDistance = hiddenByZone ? 1.0e9 : 0.0;
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => renderDistance;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            originalGhost = new GameObject(
+                hiddenByZone ? "ParsekTestGhost_Bug406ReuseHiddenByZone" : "ParsekTestGhost_Bug406ReuseVisible");
+            runner.TrackForCleanup(originalGhost);
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(originalGhost.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "TestReuseVisibility",
+                ghost = originalGhost,
+                cameraPivot = cameraPivotObj.transform,
+                loopCycleIndex = 0,
+                playbackIndex = 7,
+                partEventIndex = 3,
+                flagEventIndex = 1,
+                explosionFired = true,
+                pauseHidden = true,
+                audioMuted = true,
+            };
+
+            engine.ghostStates[0] = state;
+            var traj = new TestLoopTrajectoryForBug461(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                addHiddenPrewarmEvent: hiddenByZone);
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = traj.EndUT,
+                    recordingId = traj.RecordingId,
+                    segmentLabel = traj.VesselName,
+                }
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 12.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+
+            var localLog = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line =>
+            {
+                localLog.Add(line);
+                priorSink?.Invoke(line);
+            };
+
+            try
+            {
+                engine.UpdatePlayback(
+                    new IPlaybackTrajectory[] { traj },
+                    flags,
+                    ctx);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+
+            capturedLog = localLog;
+            return state;
+        }
+
         #endregion
     }
 
@@ -4879,6 +5044,85 @@ namespace Parsek.InGameTests
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "TestReuse";
         public string RecordingId => "test-b406";
+        public bool LoopPlayback => true;
+        public double LoopIntervalSeconds => 10;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => false;
+        public int LoopSyncParentIdx { get; set; } = -1;
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+    }
+
+    internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
+    {
+        internal TestLoopTrajectoryForBug461(
+            string bodyName, double latitude, double longitude, double altitude,
+            bool addHiddenPrewarmEvent)
+        {
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0,
+                    latitude = latitude,
+                    longitude = longitude,
+                    altitude = altitude,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 5,
+                    latitude = latitude,
+                    longitude = longitude + 0.001,
+                    altitude = altitude + 10.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = bodyName,
+                },
+            };
+
+            PartEvents = addHiddenPrewarmEvent
+                ? new List<PartEvent>
+                {
+                    new PartEvent
+                    {
+                        ut = 3.0,
+                        partPersistentId = 1,
+                        partName = "prewarm",
+                        eventType = PartEventType.Decoupled,
+                    }
+                }
+                : new List<PartEvent>();
+        }
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+        public double StartUT => 0;
+        public double EndUT => 5;
+        public int RecordingFormatVersion => 0;
+        public List<PartEvent> PartEvents { get; }
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => "TestReuseVisibility";
+        public string RecordingId => "test-b461";
         public bool LoopPlayback => true;
         public double LoopIntervalSeconds => 10;
         public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;

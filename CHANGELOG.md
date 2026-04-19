@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#461` Added in-game loop-cycle reuse visibility regressions that drive the full `UpdatePlayback -> UpdateLoopingPlayback` boundary path, pinning both the same-frame visible reactivation case and the hidden-by-zone deferred/inactive case.
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
 - `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.
 - `#472` Added unit coverage for watch-camera retarget angle resolution so preserved pitch/heading stays pinned to the same world orbit direction across ghost handoffs.
