@@ -45,6 +45,8 @@ namespace Parsek
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private bool pauseMenuOpen;
+        internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
+        internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
 
         // Loop constants are in GhostPlaybackLogic
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
@@ -318,7 +320,7 @@ namespace Parsek
         void OnGamePause()
         {
             pauseMenuOpen = true;
-            ApplyAudioActionToActiveGhosts(GhostPlaybackLogic.PauseAllAudio, "OnGamePause");
+            ApplyAudioActionToActiveGhosts(PauseGhostAudioAction, "OnGamePause");
         }
 
         /// <summary>
@@ -327,7 +329,7 @@ namespace Parsek
         void OnGameUnpause()
         {
             pauseMenuOpen = false;
-            ApplyAudioActionToActiveGhosts(GhostPlaybackLogic.UnpauseAllAudio, "OnGameUnpause");
+            ApplyAudioActionToActiveGhosts(UnpauseGhostAudioAction, "OnGameUnpause");
         }
 
         /// <summary>

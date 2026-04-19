@@ -647,6 +647,91 @@ namespace Parsek.Tests
                 line.Contains("KSC pause-test: 1 primary + 1 overlap ghost(s)"));
         }
 
+        [Fact]
+        public void OnGamePause_WrapperLatchesPauseAndDispatches()
+        {
+            var host = (ParsekKSC)FormatterServices.GetUninitializedObject(typeof(ParsekKSC));
+            var primary = new GhostPlaybackState();
+            var overlap = new GhostPlaybackState();
+            var visited = new List<GhostPlaybackState>();
+            var pauseField = typeof(ParsekKSC)
+                .GetField("pauseMenuOpen", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var onGamePause = typeof(ParsekKSC)
+                .GetMethod("OnGamePause", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var previousPauseAction = ParsekKSC.PauseGhostAudioAction;
+
+            typeof(ParsekKSC)
+                .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .SetValue(host, new Dictionary<int, GhostPlaybackState> { [1] = primary });
+            typeof(ParsekKSC)
+                .GetField("kscOverlapGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .SetValue(host, new Dictionary<int, List<GhostPlaybackState>>
+                {
+                    [1] = new List<GhostPlaybackState> { overlap }
+                });
+
+            try
+            {
+                ParsekKSC.PauseGhostAudioAction = state => visited.Add(state);
+                onGamePause.Invoke(host, null);
+            }
+            finally
+            {
+                ParsekKSC.PauseGhostAudioAction = previousPauseAction;
+            }
+
+            Assert.True((bool)pauseField.GetValue(host));
+            Assert.Equal(2, visited.Count);
+            Assert.Contains(primary, visited);
+            Assert.Contains(overlap, visited);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC OnGamePause: 1 primary + 1 overlap ghost(s)"));
+        }
+
+        [Fact]
+        public void OnGameUnpause_WrapperClearsPauseAndDispatches()
+        {
+            var host = (ParsekKSC)FormatterServices.GetUninitializedObject(typeof(ParsekKSC));
+            var primary = new GhostPlaybackState();
+            var overlap = new GhostPlaybackState();
+            var visited = new List<GhostPlaybackState>();
+            var pauseField = typeof(ParsekKSC)
+                .GetField("pauseMenuOpen", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var onGameUnpause = typeof(ParsekKSC)
+                .GetMethod("OnGameUnpause", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var previousUnpauseAction = ParsekKSC.UnpauseGhostAudioAction;
+
+            typeof(ParsekKSC)
+                .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .SetValue(host, new Dictionary<int, GhostPlaybackState> { [1] = primary });
+            typeof(ParsekKSC)
+                .GetField("kscOverlapGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .SetValue(host, new Dictionary<int, List<GhostPlaybackState>>
+                {
+                    [1] = new List<GhostPlaybackState> { overlap }
+                });
+            pauseField.SetValue(host, true);
+
+            try
+            {
+                ParsekKSC.UnpauseGhostAudioAction = state => visited.Add(state);
+                onGameUnpause.Invoke(host, null);
+            }
+            finally
+            {
+                ParsekKSC.UnpauseGhostAudioAction = previousUnpauseAction;
+            }
+
+            Assert.False((bool)pauseField.GetValue(host));
+            Assert.Equal(2, visited.Count);
+            Assert.Contains(primary, visited);
+            Assert.Contains(overlap, visited);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC OnGameUnpause: 1 primary + 1 overlap ghost(s)"));
+        }
+
         #endregion
     }
 }
