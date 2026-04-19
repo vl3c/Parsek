@@ -207,6 +207,11 @@ namespace Parsek.Tests
             Assert.Equal(0.0, committed.LoopIntervalSeconds);
             Assert.Equal(LoopTimeUnit.Auto, committed.LoopTimeUnit);
             Assert.Contains(RecordingStore.GloopsGroupName, committed.RecordingGroups);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][INFO][Flight]") &&
+                line.Contains("GhostOnlyRecordingTests: Gloops recording committed") &&
+                line.Contains($"\"{committed.VesselName}\"") &&
+                line.Contains($"({committed.Points.Count} points, id={committed.RecordingId})"));
         }
     }
 }
