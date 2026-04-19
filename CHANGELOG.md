@@ -4,7 +4,7 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.8.2
+## 0.8.3
 
 ### Features
 
