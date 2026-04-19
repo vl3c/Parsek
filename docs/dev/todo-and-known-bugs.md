@@ -231,33 +231,13 @@ Third possibility (orbit-frame coupling): the terminal orbit fields themselves c
 
 ---
 
-## 474. Ghost audio sometimes plays in a single stereo channel instead of centered when the Watch button snaps the camera to the ghost
+## ~~474. Ghost audio sometimes plays in a single stereo channel instead of centered when the Watch button snaps the camera to the ghost~~
 
-**Source:** user playtest report — "when hitting watch button and the camera goes to the ghost, sometimes the sound is only audible in a single speaker instead of stereo."
+**Status:** DONE / closed 2026-04-19.
 
-**Concern:** ghost `AudioSource`s are built with `spatialBlend = 1f` (fully 3D) at `Source/Parsek/GhostVisualBuilder.cs:2410` (one-shot) and `:2426` (engine/RCS loops). In Unity, 3D-spatialised audio pans based on the source position relative to the active `AudioListener` and the listener's orientation. When the watch target is `horizonProxy` (or `cameraPivot`) — resolved in `WatchModeController.GetWatchTarget` (`:1936-1944`) — the camera frames the ghost, but the ghost's `AudioSource` components are attached to individual part GameObjects (engines on stages, one-shot on the root) that sit at whatever world offset the snapshot geometry implies. If the camera orbit resolves to an angle where the ghost root sits roughly in front of the listener but the engine part sits clearly left or right of the listener's forward axis, the engine loop pans almost entirely to one stereo channel.
+**Fix shipped:** fresh ghost builds now recalculate `cameraPivot` immediately instead of leaving the initial watch target at the raw root origin; ghost loop + one-shot `AudioSource`s are then re-anchored to that watch pivot, forced back to `panStereo = 0`, and run with `spatialBlend = 0.75f` instead of fully-3D `1.0f`. That keeps Watch-mode framing and the dominant ghost audio source aligned, so engine/explosion playback no longer hard-pans into one ear when the camera snaps to the ghost.
 
-Stock KSP vessels do not exhibit this because the `AudioListener` follows `InternalCamera` / `FlightCamera` tracking the real vessel's `ReferenceTransform` at a vessel-centric framing angle, which keeps engines roughly centered in the listener's forward cone. The watch-mode retarget (`HandleLoopCameraAction` / `HandleOverlapCameraAction` → `SetTargetTransform(GetWatchTarget(...))`, `WatchModeController.cs:711-740`) swaps the target transform but does not renormalise the listener framing to match where the ghost parts actually are.
-
-Symptom is probabilistic because it depends on (a) which ghost is being watched, (b) how the ghost orients at entry (ghost rotation at entry UT, snapshot root orientation), (c) the camera heading the watch mode lands on (which is either default or the remembered `WatchCameraTransitionState` — see #472). When it lines up unfavourably, the engine loop sits 60°+ off the listener's forward axis and Unity pans it hard to one side.
-
-**Fix:** two non-exclusive options to investigate in this order:
-
-1. **Pin the dominant engine `AudioSource`(s) to the ghost root (or cameraPivot) instead of the engine-part GameObject.** This moves the source to the ghost centroid so the listener framing keeps them centered. Downside: loses positional cues (stage audio separation), which may matter for multi-stage visuals. Easy win for the typical single-engine ghost.
-2. **Reduce `spatialBlend` on engine loops** from `1.0f` to something like `0.6f-0.8f` so partial stereo spread remains but extreme panning is dampened. This is the cheapest change and matches what KSP stock does for loud vessel loops (check by inspecting `ModuleEnginesFX` AudioSource config via `ilspycmd` on `Assembly-CSharp.dll` — if stock uses `<1.0`, match it).
-
-Secondary investigations worth running in the fix session:
-- Confirm the active `AudioListener` when watching a ghost: it should be on the `FlightCamera` as usual. If something in watch-mode setup leaves a stale listener elsewhere (e.g. an `InternalCamera` listener that survived), the pan would derive from the wrong transform.
-- Check `AudioSource.panStereo` is `0` on all ghost sources (`CreateGhostAudioSource` / `BuildOneShotAudioSource` never set it, so default `0` is expected — but assert in a log-capture test to pin it).
-- The one-shot source at `BuildOneShotAudioSource` uses `spatialBlend = 1f` even though it's parented to the ghost root; same recommendation applies if the user reports one-shots also panning (e.g. decouple clack only in one speaker).
-
-**Files:** `Source/Parsek/GhostVisualBuilder.cs:2410` / `:2426` (spatialBlend tweak), possibly `:2373` (engine source creation site — check where the source GameObject is parented) and `WatchModeController.cs` if the framing angle turns out to be the primary culprit. Test: in-game test that builds a single-engine ghost, enters watch mode, verifies the audio source's `panStereo` is 0 and checks framing angle between the `AudioListener.transform.forward` and the vector to the engine `AudioSource.transform.position` stays within ~45° for the default watch entry. xUnit cannot observe stereo mixing so the confirmation test has to be in-game.
-
-**Dependencies:** touches the same audio pipeline as #465 (pause handling) and the same retarget path as #472 (camera pitch/heading). Fixing #472 first may indirectly reduce the probability of the unfavourable framing that triggers this symptom.
-
-**Scope:** Small-to-medium. Option 2 (spatialBlend tuning) is a one-line change with an in-game test. Option 1 (reparent engine sources) is larger but structural.
-
-**Status:** TODO. Priority: medium — intermittent, not data-destructive, but jarring enough the user flagged it on first playtest.
+**Verification added:** runtime coverage now checks both invariants directly: `cameraPivot` recenters to the active-part midpoint on a fresh ghost, and re-anchored ghost audio sources land on `cameraPivot` with centered stereo defaults.
 
 ---
 
