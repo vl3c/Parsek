@@ -294,7 +294,7 @@ Edge case to confirm during fix: the `LegacyGloopsGroupName = "Gloops Flight Rec
 
 The existing loop-cycle-boundary code path (`CameraActionType.RetargetToNewGhost` inside `HandleLoopCameraAction`) has the same shape — if the bug reproduces at loop boundaries too, the fix covers both. Confirm during fix.
 
-**Fix landed (2026-04-19):** added a shared `ApplyRetargetPreservingCapturedWatchCameraState` / `TryResolveRetargetedWatchAngles` helper in `WatchModeController`. Every watch-mode ghost rebind that should preserve framing now captures the current watch camera state, primes the replacement ghost's `horizonProxy` before target selection when `HorizonLocked` is active, then re-targets and replays compensated pitch/heading in the new target basis instead of doing a raw `SetTargetTransform(...)`. Applied to:
+**Fix landed (2026-04-19):** centralized the retarget angle replay around `TryResolveRetargetedWatchAngles` inside `WatchModeController`'s watch-camera rebind path. Every watch-mode ghost rebind that should preserve framing now captures the current watch camera state, primes the replacement ghost's `horizonProxy` before target selection when `HorizonLocked` is active, then re-targets and replays compensated pitch/heading in the new target basis instead of doing a raw `SetTargetTransform(...)`. Applied to:
 
 - loop `RetargetToNewGhost`
 - overlap `RetargetToNewGhost`
@@ -315,7 +315,7 @@ Edge cases to cover in the test matrix:
 
 **Dependencies:** none.
 
-**Status:** DONE / closed for v0.8.3. Priority was medium — shipped as a targeted watch-camera retarget preservation pass.
+**Status:** Closed — shipped for v0.8.3 as a targeted watch-camera retarget preservation pass. Priority was medium.
 
 ---
 
