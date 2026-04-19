@@ -37,6 +37,8 @@ namespace Parsek
         private EnvironmentHysteresis environmentHysteresis;
         private TrackSection currentTrackSection;
         private bool trackSectionActive;
+        private bool pendingRestoreEnvironmentResync;
+        private SegmentEnvironment restoreEnvironmentResyncTarget;
 
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
@@ -228,6 +230,94 @@ namespace Parsek
             ParsekLog.Verbose("Recorder",
                 $"Start location restored: body={bodyName ?? "(null)"}, biome={biome ?? "(null)"}, " +
                 $"situation={situation ?? "(null)"}, launchSite={launchSite ?? "(null)"}");
+        }
+
+        internal void ArmRestoreEnvironmentResync(SegmentEnvironment target, string reason)
+        {
+            pendingRestoreEnvironmentResync = true;
+            restoreEnvironmentResyncTarget = target;
+            ParsekLog.Verbose("Recorder",
+                $"Restore environment resync armed: target={target} ({reason})");
+        }
+
+        internal bool TryApplyRestoreEnvironmentResync(SegmentEnvironment transitionedEnv, double ut)
+        {
+            if (!pendingRestoreEnvironmentResync)
+                return false;
+
+            pendingRestoreEnvironmentResync = false;
+            if (transitionedEnv != restoreEnvironmentResyncTarget || !trackSectionActive)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"Restore environment resync disarmed: transition={transitionedEnv} " +
+                    $"target={restoreEnvironmentResyncTarget} trackSectionActive={trackSectionActive}");
+                return false;
+            }
+
+            SegmentEnvironment previousEnv = currentTrackSection.environment;
+            currentTrackSection.environment = transitionedEnv;
+            ParsekLog.Info("Recorder",
+                $"Restore environment resync: {previousEnv} -> {transitionedEnv} " +
+                $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} treated as restored state");
+            return true;
+        }
+
+        private void PrepareQuickloadResumeStateIfNeeded()
+        {
+            pendingRestoreEnvironmentResync = false;
+
+            if (ActiveTree == null || string.IsNullOrEmpty(ActiveTree.Id))
+                return;
+
+            string activeRecId = ActiveTree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(activeRecId)
+                || !ParsekScenario.MatchesPendingQuickloadResumeContext(ActiveTree.Id))
+                return;
+
+            if (!ActiveTree.Recordings.TryGetValue(activeRecId, out Recording activeRec) || activeRec == null)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"Quickload resume prep skipped: active tree '{ActiveTree.TreeName}' " +
+                    $"missing activeRecId={activeRecId}");
+                ParsekScenario.ClearPendingQuickloadResumeContext();
+                return;
+            }
+
+            double resumeUT = Planetarium.GetUniversalTime();
+            double preTrimEndUT = activeRec.EndUT;
+            bool treeTrimmed = ParsekScenario.TrimRecordingTreePastUT(ActiveTree, resumeUT);
+            bool hasTailEnv = TryGetTailTrackSectionEnvironment(activeRec, out SegmentEnvironment tailEnv);
+            if (hasTailEnv)
+                ArmRestoreEnvironmentResync(tailEnv, "quickload-resume tail environment");
+
+            ParsekScenario.ClearPendingQuickloadResumeContext();
+            ParsekLog.Info("Recorder",
+                $"Quickload resume prep: activeRec='{activeRec.RecordingId}' " +
+                $"cutoffUT={resumeUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"preTrimEndUT={preTrimEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"treeTrimmed={treeTrimmed}" +
+                (hasTailEnv ? $" envResyncTarget={tailEnv}" : ""));
+        }
+
+        internal static bool TryGetTailTrackSectionEnvironment(Recording rec, out SegmentEnvironment env)
+        {
+            if (rec != null && rec.TrackSections != null)
+            {
+                for (int i = rec.TrackSections.Count - 1; i >= 0; i--)
+                {
+                    TrackSection section = rec.TrackSections[i];
+                    bool hasFrames = section.frames != null && section.frames.Count > 0;
+                    bool hasCheckpoints = section.checkpoints != null && section.checkpoints.Count > 0;
+                    if (hasFrames || hasCheckpoints || section.endUT > section.startUT)
+                    {
+                        env = section.environment;
+                        return true;
+                    }
+                }
+            }
+
+            env = default(SegmentEnvironment);
+            return false;
         }
 
         public double RewindReservedFunds { get; private set; }
@@ -4201,6 +4291,7 @@ namespace Parsek
             FlagEvents.Clear();
             SegmentEvents.Clear();
             ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
+            PrepareQuickloadResumeStateIfNeeded();
 
             LogVisualRecordingCoverage(v);
 
@@ -5311,8 +5402,12 @@ namespace Parsek
             if (environmentHysteresis != null)
             {
                 var rawEnv = ClassifyCurrentEnvironment(v);
-                if (environmentHysteresis.Update(rawEnv, Planetarium.GetUniversalTime()))
+                double currentUT = Planetarium.GetUniversalTime();
+                if (environmentHysteresis.Update(rawEnv, currentUT))
                 {
+                    if (TryApplyRestoreEnvironmentResync(environmentHysteresis.CurrentEnvironment, currentUT))
+                        return;
+
                     // Environment changed — close current section, start new one.
                     // Preserve current reference frame (RELATIVE stays RELATIVE).
                     // Sample boundary point BEFORE closing — adaptive sampler may have
@@ -5324,9 +5419,9 @@ namespace Parsek
                     TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
 
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    CloseCurrentTrackSection(currentUT);
                     StartNewTrackSection(environmentHysteresis.CurrentEnvironment, currentRef,
-                        Planetarium.GetUniversalTime());
+                        currentUT);
                     if (isRelativeMode)
                         currentTrackSection.anchorVesselId = currentAnchorPid;
 

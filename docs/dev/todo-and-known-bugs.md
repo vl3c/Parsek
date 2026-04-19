@@ -59,6 +59,15 @@ Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed 
 
 **Dependencies:** none. The `QuickloadResume` in-game test category (currently partially populated — several `(never run)` entries in the test report) is the right home for new regression coverage.
 
+**Update (2026-04-19):** Implementation landed on branch `bug/486-quicksave-runway-restore`.
+
+- The quickload-resume path now arms a restore-specific tree context, truncates every restored tree recording back to the current UT before sampling restarts, prunes future-only branch recordings / empty branch points left behind by that rewind, rebuilds `BackgroundMap`, and marks touched recordings dirty so stale future points / events / sections cannot survive into the resumed merge.
+- `FlightRecorder` now derives the restore-environment resync target from the post-trim tail of the recording that actually resumes, so the one-shot relabel still applies when EVA parent-fallback rewrites `ActiveRecordingId` between F5 and F9.
+- `SessionMerger` now labels overlap-derived active save/load seams as `cause=save-load-teleport` instead of falling through to the generic `sample-skip` bucket.
+- Added headless regression coverage for tree-wide trim, post-trim tail-environment selection, restore-environment resync, and the merger label heuristic.
+
+**Status:** Implementation complete for `0.8.3`, but leave this item open until the original runway F5/F9 repro is rerun in KSP on a machine that can build/run the `net472` test project. Local verification on this workstation is blocked by a missing `.NET Framework 4.7.2` targeting pack, so the code path was reviewed and covered in xUnit only.
+
 ---
 
 ## 485. `StrategyLifecycle` readiness probe throws `NullReferenceException` for every stock strategy on every poll — ~1980 `[Parsek][WARN][TestRunner]` lines in a single session
