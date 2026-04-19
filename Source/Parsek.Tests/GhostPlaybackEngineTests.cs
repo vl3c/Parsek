@@ -1150,7 +1150,7 @@ namespace Parsek.Tests
             Assert.Null(state.pendingSpawnFlags.recordingId);
         }
 
-        [Fact]
+        [Fact(Skip = "UpdateLoopingPlayback body references Unity GameObject.activeSelf / SetActive, which trip .NET 4.7.2 JIT verification (ECall must be in system module) even on the pending-cycle-boundary path. Pending-build cycle-advance invariant is instead covered by ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents (pure-logic) and by the in-game flow; do not re-enable without a Unity runtime harness.")]
         public void UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents()
         {
             // Bug #450 B2: a split first-spawn can still be pending when the next loop
@@ -1200,6 +1200,45 @@ namespace Parsek.Tests
             Assert.Equal(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle);
             Assert.Same(state, engine.ghostStates[4]);
             Assert.Equal(0, engine.FrameSpawnCountForTesting);
+        }
+
+        [Fact]
+        public void ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents()
+        {
+            // Bug #450 B2 (pure-logic replacement for the Unity-gated
+            // UpdateLoopingPlayback_PendingCycleBoundary_* test above): when the
+            // reuse path is entered on a state whose ghost has never materialised
+            // (pending split-build), it must advance loopCycleIndex and emit
+            // zero restart / camera events for a ghost that never spawned.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory
+            {
+                IsDebris = true,
+                VesselName = "PendingLoop",
+                RecordingId = "rec-loop",
+            }.WithTimeRange(100, 200).WithLoop(150);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "PendingLoop",
+                ghost = null,
+                loopCycleIndex = 0,
+                pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter,
+                pendingSpawnFlags = new TrajectoryPlaybackFlags { recordingId = "rec-loop" },
+            };
+
+            var cameraEvents = new List<CameraActionEvent>();
+            var restartedEvents = new List<LoopRestartedEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            engine.OnLoopRestarted += evt => restartedEvents.Add(evt);
+
+            engine.ReusePrimaryGhostAcrossCycle(
+                index: 4, traj, flags: default, state,
+                playbackUT: 160, newCycleIndex: 1);
+
+            Assert.Empty(cameraEvents);
+            Assert.Empty(restartedEvents);
+            Assert.Equal(1L, state.loopCycleIndex);
+            Assert.Equal(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle);
         }
 
         [Fact]
