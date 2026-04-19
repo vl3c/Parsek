@@ -77,5 +77,34 @@ namespace Parsek.Tests
             Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 0.6f, 88.8));
             Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 94.0));
         }
+
+        [Theory]
+        [InlineData("ScienceTransmission", true)]
+        [InlineData("VesselRecovery", true)]
+        [InlineData("Progression", false)]
+        [InlineData("ContractReward", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsScienceSubjectReasonKey_OnlySubjectScienceReasonsReturnTrue(
+            string reasonKey,
+            bool expected)
+        {
+            Assert.Equal(expected, GameStateRecorder.IsScienceSubjectReasonKey(reasonKey));
+        }
+
+        [Fact]
+        public void ShouldUseRecentScienceChangeCapture_UnrelatedPositiveScienceReason_ReturnsFalse()
+        {
+            var capture = new GameStateRecorder.RecentScienceChangeCapture
+            {
+                Ut = 88.7,
+                ReasonKey = "Progression",
+                Delta = 1.5f,
+                RecordingId = "",
+                Valid = true
+            };
+
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 88.8));
+        }
     }
 }

@@ -614,7 +614,16 @@ namespace Parsek
                 var action = effectiveScienceActions[i];
                 if (action == null)
                     continue;
-                if (evt.ut < action.StartUT || evt.ut > action.EndUT)
+                if (!TryGetPersistedScienceActionWindow(
+                        action,
+                        out double actionStartUt,
+                        out double actionEndUt,
+                        out bool ignoredCollapsedPersistedSpan))
+                {
+                    actionStartUt = action.StartUT;
+                    actionEndUt = action.EndUT;
+                }
+                if (evt.ut < actionStartUt || evt.ut > actionEndUt)
                     continue;
                 if (!string.Equals(
                         evt.key ?? "",
@@ -5013,11 +5022,15 @@ namespace Parsek
                 return;
             }
 
-            if (!TryGetScienceReconcileWindow(action, out double scienceStartUt, out double scienceEndUt))
+            if (!TryGetScienceReconcileWindow(
+                    action,
+                    out double scienceStartUt,
+                    out double scienceEndUt,
+                    out bool collapsedPersistedSpan))
                 return;
 
-            double startPad = GetScienceReconcileBoundaryPadding(scienceStartUt);
-            double endPad = GetScienceReconcileBoundaryPadding(scienceEndUt);
+            double startPad = collapsedPersistedSpan ? 0.0 : GetScienceReconcileBoundaryPadding(scienceStartUt);
+            double endPad = collapsedPersistedSpan ? 0.0 : GetScienceReconcileBoundaryPadding(scienceEndUt);
             startUt = scienceStartUt - epsilon - startPad;
             endUt = scienceEndUt + epsilon + endPad;
             label = FormatPostWalkObservedWindowLabel(action, leg, displayStartUt, displayEndUt);
@@ -5043,7 +5056,11 @@ namespace Parsek
                 return;
             }
 
-            if (!TryGetScienceReconcileWindow(action, out double scienceStartUt, out double scienceEndUt))
+            if (!TryGetScienceReconcileWindow(
+                    action,
+                    out double scienceStartUt,
+                    out double scienceEndUt,
+                    out bool ignoredCollapsedPersistedSpan))
                 return;
 
             startUt = scienceStartUt;
@@ -5054,20 +5071,21 @@ namespace Parsek
         private static bool TryGetScienceReconcileWindow(
             GameAction action,
             out double startUt,
-            out double endUt)
+            out double endUt,
+            out bool collapsedPersistedSpan)
         {
             startUt = 0.0;
             endUt = 0.0;
+            collapsedPersistedSpan = false;
 
             if (action == null)
                 return false;
 
-            if (!float.IsNaN(action.EndUT) && action.EndUT > action.StartUT)
-            {
-                startUt = action.StartUT;
-                endUt = action.EndUT;
-            }
-            else
+            if (!TryGetPersistedScienceActionWindow(
+                    action,
+                    out startUt,
+                    out endUt,
+                    out collapsedPersistedSpan))
             {
                 var rec = FindRecordingById(action.RecordingId);
                 if (rec == null)
@@ -5084,6 +5102,15 @@ namespace Parsek
                     $"falling back to recording {action.RecordingId ?? "(null)"} " +
                     $"[{startUt:F1},{endUt:F1}]");
             }
+            else if (collapsedPersistedSpan)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"post-walk-science-window-collapsed:{action.RecordingId}:{ActionIdForPostWalk(action)}",
+                    $"Post-walk science window: {ActionIdForPostWalk(action)} collapsed persisted span " +
+                    $"start={action.StartUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"end={action.EndUT.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                    $"reconstructed [{startUt:F3},{endUt:F3}]");
+            }
 
             // Only widen the observed-side window for the current end-anchored shape.
             // ScienceEarning spans are persisted through float fields, so at large UTs
@@ -5097,6 +5124,76 @@ namespace Parsek
         {
             double floatRoundTripLoss = Math.Abs((double)(float)actionUt - actionUt);
             return PostWalkReconcileEpsilonSeconds + floatRoundTripLoss;
+        }
+
+        private static bool TryGetPersistedScienceActionWindow(
+            GameAction action,
+            out double startUt,
+            out double endUt,
+            out bool collapsedPersistedSpan)
+        {
+            startUt = 0.0;
+            endUt = 0.0;
+            collapsedPersistedSpan = false;
+
+            if (action == null)
+                return false;
+            if (float.IsNaN(action.StartUT) || float.IsNaN(action.EndUT))
+                return false;
+
+            if (action.EndUT > action.StartUT)
+            {
+                startUt = action.StartUT;
+                endUt = action.EndUT;
+                return true;
+            }
+
+            if (action.EndUT == action.StartUT && action.EndUT > 0f)
+            {
+                collapsedPersistedSpan = true;
+                startUt = GetCollapsedScienceWindowStart(action.StartUT, action.UT);
+                endUt = action.UT;
+                if (endUt < startUt)
+                    endUt = startUt;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static double GetCollapsedScienceWindowStart(float collapsedStartUt, double actionUt)
+        {
+            double halfWidth = GetScienceReconcileCollapsedHalfWidth(collapsedStartUt);
+            double startUt = collapsedStartUt - halfWidth;
+            if (double.IsNaN(startUt) || double.IsInfinity(startUt))
+                startUt = collapsedStartUt;
+            if (actionUt < startUt)
+                startUt = actionUt;
+            return startUt;
+        }
+
+        private static double GetScienceReconcileCollapsedHalfWidth(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+                return 0.0;
+
+            int bits = BitConverter.ToInt32(BitConverter.GetBytes(value), 0);
+            float previous = BitConverter.ToSingle(BitConverter.GetBytes(bits - 1), 0);
+            float next = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
+            double lower = float.IsNaN(previous) || float.IsInfinity(previous)
+                ? 0.0
+                : Math.Abs((double)value - previous);
+            double upper = float.IsNaN(next) || float.IsInfinity(next)
+                ? 0.0
+                : Math.Abs(next - (double)value);
+
+            double width = 0.0;
+            if (lower > 0.0 && upper > 0.0)
+                width = Math.Min(lower, upper);
+            else
+                width = Math.Max(lower, upper);
+
+            return width * 0.5;
         }
 
         private static double GetScienceReconcileBoundaryPadding(double value)

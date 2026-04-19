@@ -911,12 +911,13 @@ namespace Parsek
             if (double.IsNaN(oldScience)) return;
             double delta = newScience - oldScience;
             double ut = Planetarium.GetUniversalTime();
-            if (delta > 0.0)
+            string reasonKey = reason.ToString();
+            if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
             {
                 latestScienceChangeCapture = new RecentScienceChangeCapture
                 {
                     Ut = ut,
-                    ReasonKey = reason.ToString(),
+                    ReasonKey = reasonKey,
                     Delta = (float)delta,
                     RecordingId = ResolveCurrentRecordingTag(),
                     Valid = true
@@ -938,7 +939,7 @@ namespace Parsek
             {
                 ut = ut,
                 eventType = GameStateEventType.ScienceChanged,
-                key = reason.ToString(),
+                key = reasonKey,
                 valueBefore = oldScience,
                 valueAfter = newScience
             };
@@ -989,6 +990,12 @@ namespace Parsek
             return Math.Abs(delta) < ScienceThreshold;
         }
 
+        internal static bool IsScienceSubjectReasonKey(string reasonKey)
+        {
+            return string.Equals(reasonKey, "ScienceTransmission", StringComparison.Ordinal) ||
+                   string.Equals(reasonKey, "VesselRecovery", StringComparison.Ordinal);
+        }
+
         internal static bool ShouldUseRecentScienceChangeCapture(
             RecentScienceChangeCapture capture,
             float amount,
@@ -997,6 +1004,8 @@ namespace Parsek
             if (!capture.Valid)
                 return false;
             if (capture.Delta <= 0f)
+                return false;
+            if (!IsScienceSubjectReasonKey(capture.ReasonKey ?? ""))
                 return false;
             if (currentUt < capture.Ut)
                 return false;
