@@ -43,6 +43,16 @@ namespace Parsek
         internal static bool HasLiveRecorderForTagging()
             => Instance != null && Instance.activeTree != null && Instance.recorder != null && Instance.recorder.IsRecording;
 
+        /// <summary>
+        /// #466: returns true whenever the flight scene is carrying an uncommitted tree,
+        /// including outsider-state restores where <see cref="recorder"/> is intentionally
+        /// null until the player returns to a tracked vessel.
+        /// </summary>
+        internal static bool HasUncommittedTreeForKspPatchDeferral()
+            => Instance != null
+                && Instance.activeTree != null
+                && !RecordingStore.CommittedTrees.Contains(Instance.activeTree);
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
