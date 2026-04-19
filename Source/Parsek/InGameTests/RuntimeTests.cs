@@ -515,7 +515,7 @@ namespace Parsek.InGameTests
             if (HighLogic.LoadedScene != GameScenes.FLIGHT
                 && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
             {
-                InGameAssert.Skip("requires FLIGHT or TRACKSTATION scene");
+                InGameAssert.Skip("test requires flight or tracking station scene");
                 return;
             }
 
