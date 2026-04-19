@@ -4175,6 +4175,114 @@ namespace Parsek.InGameTests
                 "restoringActiveTree must be false during normal flight");
         }
 
+        [InGameTest(Category = "PlaybackControl", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test commits a synthetic keep-vessel timeline recording, fast-forwards UT, and recovers the spawned vessel during cleanup.",
+            Description = "Synthetic Keep Vessel timeline fast-forward starts playback and spawns exactly once")]
+        public IEnumerator KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires idle flight — stop the active recording before running this test");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("requires an active vessel in FLIGHT");
+                yield break;
+            }
+            if (activeVessel.isEVA || activeVessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("active vessel has no main body");
+                yield break;
+            }
+            if (activeVessel.situation != Vessel.Situations.PRELAUNCH && !activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a landed/prelaunch vessel for a deterministic keep-vessel playback canary (situation={activeVessel.situation})");
+                yield break;
+            }
+
+            if (!TryBuildSyntheticKeepVesselTree(activeVessel, out RecordingTree tree,
+                out Recording recording, out string skipReason))
+            {
+                InGameAssert.Skip(skipReason ?? "failed to build synthetic keep-vessel recording");
+                yield break;
+            }
+
+            Vessel spawnedVessel = null;
+            uint spawnedPid = 0;
+
+            try
+            {
+                RecordingStore.CommitTree(tree);
+
+                int recordingIndex = FindCommittedRecordingIndex(recording.RecordingId);
+                InGameAssert.IsTrue(recordingIndex >= 0,
+                    "Synthetic keep-vessel recording should be present in CommittedRecordings");
+
+                flight.FastForwardToRecording(recording);
+
+                yield return WaitForActiveTimelineGhost(flight, recordingIndex, 4f);
+                yield return WaitForRecordingSpawn(recording, 10f);
+
+                spawnedPid = recording.SpawnedVesselPersistentId;
+                InGameAssert.IsGreaterThan((double)spawnedPid, 0.0,
+                    "SpawnedVesselPersistentId should be non-zero after keep-vessel playback");
+
+                spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Spawned vessel should be findable by persistentId after playback");
+
+                int pidMatchesBefore = CountLoadedVesselsByPid(spawnedPid);
+                InGameAssert.AreEqual(1, pidMatchesBefore,
+                    $"Expected exactly one loaded vessel with pid={spawnedPid} right after spawn, got {pidMatchesBefore}");
+
+                yield return new WaitForSeconds(2f);
+
+                InGameAssert.IsTrue(recording.VesselSpawned,
+                    "Recording should stay marked spawned after the initial vessel materializes");
+                InGameAssert.AreEqual((double)spawnedPid, (double)recording.SpawnedVesselPersistentId,
+                    "Keep-vessel playback should not replace the spawned vessel with a second pid");
+
+                int pidMatchesAfter = CountLoadedVesselsByPid(spawnedPid);
+                InGameAssert.AreEqual(1, pidMatchesAfter,
+                    $"Expected exactly one loaded vessel with pid={spawnedPid} after the duplicate-prevention wait, got {pidMatchesAfter}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Keep-vessel runtime: rec='{recording.RecordingId}' ghostIndex={recordingIndex} spawnedPid={spawnedPid}");
+            }
+            finally
+            {
+                if (spawnedVessel == null && spawnedPid != 0)
+                    spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"Keep-vessel runtime cleanup failed to recover pid={spawnedPid}: {ex.Message}");
+                    }
+                }
+
+                RemoveCommittedTreeByIdForPlaybackRuntimeTest(tree.Id);
+            }
+        }
+
         // ======================= GhostAudio (#265) =======================
 
         [InGameTest(Category = "GhostAudio",
@@ -4754,6 +4862,219 @@ namespace Parsek.InGameTests
             finally
             {
                 ParsekLog.TestObserverForTesting = prevObserver;
+            }
+        }
+
+        #endregion
+
+        #region PlaybackControl helpers
+
+        private static bool TryBuildSyntheticKeepVesselTree(
+            Vessel activeVessel,
+            out RecordingTree tree,
+            out Recording recording,
+            out string skipReason)
+        {
+            tree = null;
+            recording = null;
+            skipReason = null;
+
+            if (activeVessel == null)
+            {
+                skipReason = "active vessel is null";
+                return false;
+            }
+
+            CelestialBody body = activeVessel.mainBody;
+            if (body == null || body.Radius <= 0.0)
+            {
+                skipReason = "active vessel body is unavailable";
+                return false;
+            }
+
+            ConfigNode sourceSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
+            if (sourceSnapshot == null)
+            {
+                skipReason = "failed to snapshot active vessel";
+                return false;
+            }
+
+            ConfigNode vesselSnapshot = sourceSnapshot.CreateCopy();
+            ConfigNode ghostSnapshot = sourceSnapshot.CreateCopy();
+            double now = Planetarium.GetUniversalTime();
+            double metersPerDegree = 180.0 / (System.Math.PI * body.Radius);
+            double startOffsetMeters = 120.0;
+            double stepMeters = 10.0;
+            double startLat = activeVessel.latitude + startOffsetMeters * metersPerDegree;
+            double middleLat = activeVessel.latitude + (startOffsetMeters + stepMeters) * metersPerDegree;
+            double endLat = activeVessel.latitude + (startOffsetMeters + stepMeters * 2.0) * metersPerDegree;
+            double lon = activeVessel.longitude;
+
+            double startAlt = ResolvePlaybackSurfaceAltitude(body, startLat, lon);
+            double middleAlt = ResolvePlaybackSurfaceAltitude(body, middleLat, lon);
+            double endAlt = ResolvePlaybackSurfaceAltitude(body, endLat, lon);
+
+            string recordingId = "runtime-keep-vessel-" + System.DateTime.UtcNow.Ticks;
+            string treeId = "runtime-tree-keep-vessel-" + recordingId;
+            uint syntheticPid = activeVessel.persistentId ^ 0x5A5AA5A5u;
+            if (syntheticPid == 0 || syntheticPid == activeVessel.persistentId)
+                syntheticPid = 950001u;
+
+            recording = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = treeId,
+                VesselName = (activeVessel.vesselName ?? "Runtime Test Vessel") + " timeline",
+                VesselPersistentId = syntheticPid,
+                TerminalStateValue = TerminalState.Landed,
+                MaxDistanceFromLaunch = startOffsetMeters + stepMeters * 2.0,
+                VesselSnapshot = vesselSnapshot,
+                GhostVisualSnapshot = ghostSnapshot,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = now + 30.0,
+                        latitude = startLat,
+                        longitude = lon,
+                        altitude = startAlt,
+                        bodyName = body.name,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = now + 32.0,
+                        latitude = middleLat,
+                        longitude = lon,
+                        altitude = middleAlt,
+                        bodyName = body.name,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = now + 34.0,
+                        latitude = endLat,
+                        longitude = lon,
+                        altitude = endAlt,
+                        bodyName = body.name,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    }
+                }
+            };
+
+            tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Runtime Keep Vessel Playback",
+                RootRecordingId = recordingId,
+                ActiveRecordingId = recordingId
+            };
+            tree.Recordings[recordingId] = recording;
+            return true;
+        }
+
+        private static double ResolvePlaybackSurfaceAltitude(
+            CelestialBody body,
+            double latitude,
+            double longitude)
+        {
+            double terrainAlt = body.TerrainAltitude(latitude, longitude);
+            if (double.IsNaN(terrainAlt) || double.IsInfinity(terrainAlt))
+                terrainAlt = 0.0;
+            return terrainAlt + 2.0;
+        }
+
+        private static IEnumerator WaitForActiveTimelineGhost(
+            ParsekFlight flight,
+            int recordingIndex,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (flight != null && flight.Engine != null
+                    && flight.Engine.HasGhost(recordingIndex)
+                    && flight.Engine.HasActiveGhost(recordingIndex))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForActiveTimelineGhost timed out after {timeoutSeconds:F0}s (index={recordingIndex})");
+        }
+
+        private static IEnumerator WaitForRecordingSpawn(Recording recording, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (recording != null
+                    && recording.VesselSpawned
+                    && recording.SpawnedVesselPersistentId != 0)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForRecordingSpawn timed out after {timeoutSeconds:F0}s (rec='{recording?.RecordingId ?? "null"}')");
+        }
+
+        private static int CountLoadedVesselsByPid(uint persistentId)
+        {
+            if (persistentId == 0 || FlightGlobals.Vessels == null)
+                return 0;
+
+            int matches = 0;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                Vessel vessel = FlightGlobals.Vessels[i];
+                if (vessel != null && vessel.persistentId == persistentId)
+                    matches++;
+            }
+
+            return matches;
+        }
+
+        private static int FindCommittedRecordingIndex(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return -1;
+
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate != null && candidate.RecordingId == recordingId)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static void RemoveCommittedTreeByIdForPlaybackRuntimeTest(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                RecordingTree tree = committed[i];
+                if (tree == null || tree.Id != treeId)
+                    continue;
+
+                foreach (Recording rec in tree.Recordings.Values)
+                    RecordingStore.RemoveCommittedInternal(rec);
+                committed.RemoveAt(i);
             }
         }
 
