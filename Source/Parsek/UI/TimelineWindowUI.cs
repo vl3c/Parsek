@@ -13,6 +13,13 @@ namespace Parsek
     /// </summary>
     internal class TimelineWindowUI
     {
+        private enum TimelineTierFilterMode
+        {
+            Overview,
+            Details,
+            RewindOrFastForward
+        }
+
         private readonly ParsekUI parentUI;
 
         // Window state
@@ -27,8 +34,8 @@ namespace Parsek
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
 
-        // Shared width for all top filter/preset buttons (Overview, Details, Recordings,
-        // Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
+        // Shared width for all top filter/preset buttons (Overview, Details, Rewind/FF,
+        // Recordings, Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
         // Every button in the Timeline's top zone uses the same width so the rows align.
         private const float FilterButtonWidth = 93f;
 
@@ -37,7 +44,7 @@ namespace Parsek
         private bool timelineDirty = true;
 
         // Filter state
-        private bool showDetail = false;
+        private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
         private bool showRecordingEntries = true;
         private bool showActionEntries = true;
         private bool showEventEntries = true;
@@ -279,9 +286,15 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
 
-            // Stats footer — count only visible (filtered) entries
-            if (filterDirty || cachedStatsText == null)
+            // Stats footer — count only visible (filtered) entries. Rewind/FF mode
+            // depends on live currentUT, so its counts can change without any
+            // explicit filter toggle.
+            bool statsDependOnCurrentUT = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
+            if (filterDirty || cachedStatsText == null || statsDependOnCurrentUT)
             {
+                double currentUT = 0;
+                try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+
                 int recCount = 0;
                 int playerActionCount = 0;
                 int eventCount = 0;
@@ -290,7 +303,7 @@ namespace Parsek
                     for (int i = 0; i < cachedTimeline.Count; i++)
                     {
                         var e = cachedTimeline[i];
-                        if (!IsEntryVisible(e)) continue;
+                        if (!IsEntryVisible(e, currentUT)) continue;
                         if (e.Source == TimelineSource.Recording) recCount++;
                         else if (e.IsPlayerAction) playerActionCount++;
                         else eventCount++;
@@ -322,29 +335,28 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // Top-filter buttons sit at fixed column positions matching the preset
-            // row below: Overview=col1, Details=col2, (empty col3), Recordings=col4,
-            // Actions=col5, Events=col6. The empty column 3 is an explicit
-            // GUILayout.Space(btnW) so the source-group buttons are placed at
-            // sequential positions, not right-anchored — this keeps their columns
-            // locked to the preset row regardless of any future layout quirks.
+            // First-row buttons sit at fixed column positions matching the preset row
+            // below: Overview=col1, Details=col2, (empty col3), Recordings=col4,
+            // Actions=col5, Events=col6. The second row adds a lone Rewind/FF toggle
+            // directly under Overview using the same width, so it reads as a third
+            // mutually-exclusive tier preset instead of another source toggle.
             float btnW = GetResponsiveButtonWidth();
 
             GUILayout.BeginHorizontal();
 
             // Tier selector (columns 1-2).
-            bool overviewActive = !showDetail;
-            bool detailActive = showDetail;
+            bool overviewActive = tierFilterMode == TimelineTierFilterMode.Overview;
+            bool detailActive = tierFilterMode == TimelineTierFilterMode.Details;
 
             if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
-                showDetail = false;
+                tierFilterMode = TimelineTierFilterMode.Overview;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
             if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
-                showDetail = true;
+                tierFilterMode = TimelineTierFilterMode.Details;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
@@ -365,6 +377,10 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
+            bool rewindOrFastForwardMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
+
+            bool previousGuiEnabled = GUI.enabled;
+            GUI.enabled = !rewindOrFastForwardMode;
             bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
@@ -380,7 +396,19 @@ namespace Parsek
                 filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
             }
+            GUI.enabled = previousGuiEnabled;
 
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            bool rewindOrFastForwardActive = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
+            if (GUILayout.Toggle(rewindOrFastForwardActive, "Rewind/FF", toggleButtonStyle, GUILayout.Width(btnW)) &&
+                !rewindOrFastForwardActive)
+            {
+                tierFilterMode = TimelineTierFilterMode.RewindOrFastForward;
+                filterDirty = true;
+                ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
+            }
             GUILayout.EndHorizontal();
         }
 
@@ -554,7 +582,7 @@ namespace Parsek
                 for (int i = 0; i < cachedTimeline.Count; i++)
                 {
                     var e = cachedTimeline[i];
-                    if (!IsEntryVisible(e)) continue;
+                    if (!IsEntryVisible(e, currentUT)) continue;
                     if (e.Type == TimelineEntryType.RecordingStart &&
                         e.RecordingId == pendingScrollToRecordingId)
                     {
@@ -592,7 +620,7 @@ namespace Parsek
                 var entry = cachedTimeline[i];
 
                 // Visibility check
-                if (!IsEntryVisible(entry)) continue;
+                if (!IsEntryVisible(entry, currentUT)) continue;
 
                 // Draw divider before the first future entry
                 if (!dividerDrawn && entry.UT > currentUT)
@@ -615,9 +643,27 @@ namespace Parsek
             GUILayout.EndScrollView();
         }
 
-        private bool IsEntryVisible(TimelineEntry entry)
+        private bool IsEntryVisible(TimelineEntry entry, double currentUT)
         {
-            if (entry.Tier == SignificanceTier.T2 && !showDetail) return false;
+            if (tierFilterMode == TimelineTierFilterMode.RewindOrFastForward)
+            {
+                var rec = FindRecordingById(entry.RecordingId);
+                bool canFastForward = false;
+                if (ShouldShowFastForwardButton(rec, entry != null && entry.UT > currentUT))
+                    canFastForward = CanFastForwardAtCurrentUT(rec, currentUT);
+
+                bool canRewind = false;
+                if (ShouldShowRewindButton(rec, entry != null && entry.UT > currentUT))
+                    canRewind = CanRewindWithResolvedSaveState(rec);
+
+                if (!HasActionableRewindOrFastForwardButton(entry, rec, currentUT, canFastForward, canRewind))
+                    return false;
+            }
+            else if (entry.Tier == SignificanceTier.T2 && tierFilterMode == TimelineTierFilterMode.Overview)
+            {
+                return false;
+            }
+
             if (entry.Source == TimelineSource.Recording && !showRecordingEntries) return false;
             if (entry.Source == TimelineSource.GameAction || entry.Source == TimelineSource.Legacy)
             {
@@ -679,13 +725,14 @@ namespace Parsek
                 if (rec != null)
                 {
                     var tableUI = parentUI.GetRecordingsTableUI();
-                    bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+                    bool showFastForward = ShouldShowFastForwardButton(rec, isFuture);
+                    bool showRewind = ShouldShowRewindButton(rec, isFuture);
 
-                    if (isFuture)
+                    if (showFastForward)
                     {
                         // Future recording: FF button
                         string ffReason;
-                        bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
+                        bool canFF = CanFastForwardNow(rec, out ffReason);
                         GUI.enabled = canFF;
                         if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
                             GUILayout.Width(35)))
@@ -696,11 +743,11 @@ namespace Parsek
                         }
                         GUI.enabled = true;
                     }
-                    else if (!string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec)))
+                    else if (showRewind)
                     {
                         // Past/active recording: Rewind button
                         string rewindReason;
-                        bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
+                        bool canRewind = CanRewindWithResolvedSaveState(rec, out rewindReason);
                         GUI.enabled = canRewind;
                         if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
                             GUILayout.Width(25)))
@@ -747,11 +794,74 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        internal static bool ShouldShowFastForwardButton(Recording rec, bool isFuture)
+        {
+            return isFuture && rec != null;
+        }
+
+        internal static bool ShouldShowRewindButton(Recording rec, bool isFuture)
+        {
+            return !isFuture
+                && rec != null
+                && !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec));
+        }
+
+        internal static bool HasActionableRewindOrFastForwardButton(
+            TimelineEntry entry, Recording rec, double currentUT, bool canFastForward, bool canRewind)
+        {
+            if (entry == null || entry.Type != TimelineEntryType.RecordingStart)
+                return false;
+
+            bool isFuture = entry.UT > currentUT;
+            return (ShouldShowFastForwardButton(rec, isFuture) && canFastForward)
+                || (ShouldShowRewindButton(rec, isFuture) && canRewind);
+        }
+
         internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture)
         {
             return !isFuture
                 && rec != null
                 && (rec.LoopPlayback || Recording.IsLoopableRecording(rec));
+        }
+
+        private bool CanFastForwardAtCurrentUT(Recording rec, double currentUT)
+        {
+            string unusedReason;
+            return CanFastForwardAtCurrentUT(rec, currentUT, out unusedReason);
+        }
+
+        private bool CanFastForwardNow(Recording rec, out string reason)
+        {
+            double currentUT = 0;
+            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+            return CanFastForwardAtCurrentUT(rec, currentUT, out reason);
+        }
+
+        private bool CanFastForwardAtCurrentUT(Recording rec, double currentUT, out string reason)
+        {
+            bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+            return RecordingStore.CanFastForwardAtUT(rec, currentUT, out reason, isRecording: isRecording);
+        }
+
+        private bool CanRewindWithResolvedSaveState(Recording rec)
+        {
+            string unusedReason;
+            return CanRewindWithResolvedSaveState(rec, out unusedReason);
+        }
+
+        private bool CanRewindWithResolvedSaveState(Recording rec, out string reason)
+        {
+            bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+            string resolvedSave = RecordingStore.GetRewindSaveFileName(rec);
+            bool saveExists = false;
+            if (!string.IsNullOrEmpty(resolvedSave))
+            {
+                string savePath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
+                saveExists = !string.IsNullOrEmpty(savePath) && System.IO.File.Exists(savePath);
+            }
+            return RecordingStore.CanRewindWithResolvedSaveState(
+                resolvedSave, saveExists, out reason, isRecording: isRecording);
         }
 
         private GUIStyle GetStyleForColor(Color color)
