@@ -414,11 +414,12 @@ namespace Parsek.InGameTests
                     sawPauseProbeUnavailable = true;
             }
 
+            if (sawPauseProbeUnavailable)
+                return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
+
             return sawPositiveTimeScale
                 ? TimeScalePositiveProbeOutcome.Passed
-                : sawPauseProbeUnavailable
-                    ? TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable
-                    : TimeScalePositiveProbeOutcome.SkipStockPause;
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
         }
 
         internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)

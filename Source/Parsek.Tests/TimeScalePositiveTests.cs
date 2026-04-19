@@ -124,6 +124,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyTimeScalePositiveSamples_DoesNotPassWhenRecoveryFollowsUnavailablePauseState()
+        {
+            var outcome = RuntimeTests.ClassifyTimeScalePositiveSamples(
+                new List<RuntimeTests.TimeScalePositiveProbeSample>
+                {
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
+                        FlightDriverPause = null,
+                    },
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 1f,
+                        FlightDriverPause = false,
+                    },
+                });
+
+            Assert.Equal(
+                RuntimeTests.TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable,
+                outcome);
+        }
+
+        [Fact]
         public void FormatTimeScalePositiveProbeSummary_ContainsKeyDiagnosticFields()
         {
             string summary = RuntimeTests.FormatTimeScalePositiveProbeSummary(
