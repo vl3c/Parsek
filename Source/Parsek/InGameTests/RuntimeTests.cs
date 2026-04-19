@@ -3902,6 +3902,14 @@ namespace Parsek.InGameTests
             public bool HadProbeException;
         }
 
+        private sealed class StrategySelectionResult
+        {
+            public Strategies.Strategy Strategy;
+            public string ConfigName;
+            public string Diagnostic;
+            public bool SawProbeException;
+        }
+
         private static StrategyProbeResult ProbeActivatableStockStrategy()
         {
             var result = new StrategyProbeResult
@@ -4003,6 +4011,56 @@ namespace Parsek.InGameTests
             return result;
         }
 
+        private static IEnumerator WaitForStableActivatableStockStrategy(StrategySelectionResult result)
+        {
+            if (result == null)
+                throw new System.ArgumentNullException(nameof(result));
+
+            result.Strategy = null;
+            result.ConfigName = null;
+            result.Diagnostic = "no activatable stock strategy available";
+            result.SawProbeException = false;
+
+            for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
+                yield return null;
+
+            string stableConfigName = null;
+            int stableFrames = 0;
+            for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
+            {
+                var probe = ProbeActivatableStockStrategy();
+                result.Diagnostic = probe.Diagnostic;
+                result.SawProbeException |= probe.HadProbeException;
+                if (probe.Strategy != null)
+                {
+                    if (probe.ConfigName == stableConfigName)
+                        stableFrames++;
+                    else
+                    {
+                        stableConfigName = probe.ConfigName;
+                        stableFrames = 1;
+                    }
+
+                    result.Strategy = probe.Strategy;
+                    result.ConfigName = probe.ConfigName;
+                    if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                        yield break;
+
+                    yield return null;
+                    continue;
+                }
+
+                result.Strategy = null;
+                result.ConfigName = null;
+                stableConfigName = null;
+                stableFrames = 0;
+                if (!probe.ShouldRetry)
+                    yield break;
+
+                yield return null;
+            }
+        }
+
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
             Description = "#439 Phase A: StrategyLifecyclePatch postfixes emit StrategyActivated/StrategyDeactivated events into GameStateStore for a real Strategies.Strategy instance.")]
         public IEnumerator ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents()
@@ -4019,62 +4077,22 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            // Give StrategySystem a few frames to finish hydrating its stock entries.
-            // On some career-save SPACECENTER loads, probing immediately can hit a
-            // transient stock-strategy NullReferenceException inside CanBeActivated().
-            for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
-                yield return null;
-
             // Gate 2/3: wait briefly for StrategySystem hydration to stabilize, but
             // DO NOT silently convert persistent probe exceptions into a skip. If
             // readiness never settles after the retry window, fail with diagnostics.
-            Strategies.Strategy strategy = null;
-            string configName = null;
-            string strategyDiagnostic = null;
-            bool sawProbeException = false;
-            string stableConfigName = null;
-            int stableFrames = 0;
-            for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
-            {
-                var probe = ProbeActivatableStockStrategy();
-                strategyDiagnostic = probe.Diagnostic;
-                sawProbeException |= probe.HadProbeException;
-                if (probe.Strategy != null)
-                {
-                    if (probe.ConfigName == stableConfigName)
-                        stableFrames++;
-                    else
-                    {
-                        stableConfigName = probe.ConfigName;
-                        stableFrames = 1;
-                    }
-
-                    strategy = probe.Strategy;
-                    configName = probe.ConfigName;
-                    if (stableFrames >= StrategyLifecycleProbeStableFrames)
-                        break;
-
-                    yield return null;
-                    continue;
-                }
-
-                strategy = null;
-                configName = null;
-                stableConfigName = null;
-                stableFrames = 0;
-                if (!probe.ShouldRetry)
-                    break;
-                yield return null;
-            }
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (sawProbeException)
+                if (selection.SawProbeException)
                 {
-                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {strategyDiagnostic}");
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
                 }
-                InGameAssert.Skip(strategyDiagnostic);
+                InGameAssert.Skip(selection.Diagnostic);
                 yield break;
             }
 
@@ -4284,56 +4302,19 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
-                yield return null;
-
-            Strategies.Strategy strategy = null;
-            string configName = null;
-            string strategyDiagnostic = null;
-            bool sawProbeException = false;
-            string stableConfigName = null;
-            int stableFrames = 0;
-            for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
-            {
-                var probe = ProbeActivatableStockStrategy();
-                strategyDiagnostic = probe.Diagnostic;
-                sawProbeException |= probe.HadProbeException;
-                if (probe.Strategy != null)
-                {
-                    if (probe.ConfigName == stableConfigName)
-                        stableFrames++;
-                    else
-                    {
-                        stableConfigName = probe.ConfigName;
-                        stableFrames = 1;
-                    }
-
-                    strategy = probe.Strategy;
-                    configName = probe.ConfigName;
-                    if (stableFrames >= StrategyLifecycleProbeStableFrames)
-                        break;
-
-                    yield return null;
-                    continue;
-                }
-
-                strategy = null;
-                configName = null;
-                stableConfigName = null;
-                stableFrames = 0;
-                if (!probe.ShouldRetry)
-                    break;
-                yield return null;
-            }
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+            var strategy = selection.Strategy;
+            var configName = selection.ConfigName;
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (sawProbeException)
+                if (selection.SawProbeException)
                 {
-                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {strategyDiagnostic}");
+                    InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
                 }
-                InGameAssert.Skip(strategyDiagnostic);
+                InGameAssert.Skip(selection.Diagnostic);
                 yield break;
             }
 
