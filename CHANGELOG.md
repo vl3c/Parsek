@@ -24,6 +24,10 @@ All notable changes to Parsek are documented here.
 
 - `#473` The `Gloops - Ghosts Only` group is now treated as a permanent root group in the Recordings window: no disband `X`, stale parent assignments self-heal back to root, and the group stays pinned above every other root item whenever it has recordings.
 
+### Documentation
+
+- README now lists KSP Community Fixes in the Supported Mods table. KCF is fully compatible with Parsek; it replaces the body of `VesselPrecalculate.CalculatePhysicsStats` for performance, and Parsek's recording postfix on the same method composes cleanly.
+
 ### Bug Fixes
 
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.
