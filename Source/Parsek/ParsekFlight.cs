@@ -43,6 +43,16 @@ namespace Parsek
         internal static bool HasLiveRecorderForTagging()
             => Instance != null && Instance.activeTree != null && Instance.recorder != null && Instance.recorder.IsRecording;
 
+        /// <summary>
+        /// #466: returns true whenever the flight scene is carrying an uncommitted tree,
+        /// including outsider-state restores where <see cref="recorder"/> is intentionally
+        /// null until the player returns to a tracked vessel.
+        /// </summary>
+        internal static bool HasUncommittedTreeForKspPatchDeferral()
+            => Instance != null
+                && Instance.activeTree != null
+                && !RecordingStore.CommittedTrees.Contains(Instance.activeTree);
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
@@ -1546,27 +1556,16 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
 
+            string autoDiscardReason = null;
             // Auto-discard pad failures: if every recording in the tree is a pad failure
             // (< 10s duration AND < 30m from launch), discard the whole tree.
             // Also discard if every recording is idle-on-pad (< 30m, any duration).
             if (IsTreePadFailure(activeTree) || IsTreeIdleOnPad(activeTree))
             {
-                string reason = IsTreePadFailure(activeTree) ? "pad failure" : "idle on pad";
+                autoDiscardReason = IsTreePadFailure(activeTree) ? "pad failure" : "idle on pad";
                 ParsekLog.Info("Flight",
-                    $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
-                ScreenMessage($"Recording discarded - {reason}", 3f);
-                RecordingStore.DiscardPendingTree();
-                // Clean up flight state
-                recorder = null;
-                if (backgroundRecorder != null)
-                {
-                    backgroundRecorder.Shutdown();
-                    Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
-                    backgroundRecorder = null;
-                }
-                activeTree = null;
-                treeDestructionDialogPending = false;
-                yield break;
+                    $"ShowPostDestructionTreeMergeDialog: tree {autoDiscardReason} — auto-discarding");
+                ScreenMessage($"Recording discarded - {autoDiscardReason}", 3f);
             }
 
             // Clean up flight state
@@ -1579,6 +1578,13 @@ namespace Parsek
             }
             activeTree = null;
             treeDestructionDialogPending = false;
+
+            if (!string.IsNullOrEmpty(autoDiscardReason))
+            {
+                ParsekScenario.DiscardPendingTreeAndRecalculate(
+                    $"post-destruction {autoDiscardReason} auto-discard");
+                yield break;
+            }
 
             // #434: do NOT show the in-flight merge dialog or commit via auto-merge here.
             // The tree is stashed; the stock KSP crash report shows first (with Revert /
