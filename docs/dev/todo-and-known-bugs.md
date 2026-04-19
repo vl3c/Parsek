@@ -453,7 +453,7 @@ Similar care needed for `FundsThreshold = 100.0` and `ScienceThreshold = 1.0` �
 
 ---
 
-## 466. `RecalculateAndPatch` runs mid-flight with an incomplete ledger, patches funds DOWN to the pre-milestone target and destroys in-progress earnings
+## ~~466. `RecalculateAndPatch` runs mid-flight with an incomplete ledger, patches funds DOWN to the pre-milestone target and destroys in-progress earnings~~
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log:9993`.
 
@@ -470,12 +470,7 @@ A subsequent recalc at `:10134` with `actionsTotal=12` (post-commit) computes th
 
 **User-visible:** player earns milestones in flight (visible in game UI), then on scene transition / quickload the funds snap back to a lower value. This is the "ledger/resource recalculation did not really work correctly" the reporter is describing.
 
-**Fix:** two layered fixes, both probably needed:
-
-1. **Gate `RecalculateAndPatch` on "no mid-flight uncommitted tree"**. If a tree is actively accumulating but not yet committed, defer `PatchFunds` / `PatchScience` / `PatchReputation` until commit. Policy: recalc still walks the known-committed ledger (updates in-memory balances), but the KSP patch step is skipped with a VERBOSE log `Deferred patch: uncommitted tree active`. Alternative: include provisional/pending-tree actions in the walk so the target reflects the in-flight work.
-2. **Harden `IsSuspiciousDrawdown` into an abort, not just a log**. When the drawdown exceeds the threshold AND the ledger has a known uncommitted tree (or provisional FundsChanged events within the last recalc window), refuse to patch — no `AddFunds(-36800)` call, just a WARN. This keeps the design flexibility of patching down for legitimate revert/rewind paths (where a stale ledger is *supposed* to reset), but blocks the destructive case.
-
-Fix 1 is preferred — prevention over detection. Fix 2 is a safety net for paths that can't be gated cleanly (OnLoad from save, cross-session resume).
+**Fix:** shipped. `LedgerOrchestrator.RecalculateAndPatch` now still walks the committed ledger but defers the KSP write-back step whenever there is a live recorder or pending tree and the walk is a normal non-cutoff pass. That keeps in-flight / pending-tree earnings live in KSP until the tree is either committed or discarded, while rewind-style cutoff walks remain authoritative. `MergeDialog.MergeDiscard` and the deferred merge-dialog idle-on-pad auto-discard path now trigger an immediate recalculation after the pending tree is removed so a discard still cleanly tears those live effects back out.
 
 Add a cross-reference: `#439`, `#440`, `#448` and the already-archived post-#307 reconciliation work all touched adjacent logic. Re-read `done/todo-and-known-bugs-v3.md` entries for those before writing the fix — the reason several drawdown WARNs were *kept* log-only was a prior bug where aborting the patch masked a different class of problem. Don't regress that.
 
@@ -485,7 +480,7 @@ Add a cross-reference: `#439`, `#440`, `#448` and the already-archived post-#307
 
 **Dependencies:** read the #307/#439/#440 history first. Fix should land before / alongside #469 since the reconcile warnings mostly disappear once the patch gate prevents the stale-target state from ever being written.
 
-**Status:** TODO. Priority: **critical** — silently destroys earned player funds. Reproducible in ~3 minutes in career mode with any launch that completes milestones, as the collected log shows three occurrences in one 10-minute session.
+**Status:** Fixed in `0.8.3`. Priority was **critical** — now closed. The suspicious-drawdown WARN stays log-only for genuine rewind/reset paths, but the destructive "uncommitted tree patched back to committed-ledger funds" case is blocked at the orchestrator layer before `PatchFunds` runs.
 
 ---
 

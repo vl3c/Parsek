@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#466` `RecalculateAndPatch` now defers KSP state patching while a live or pending flight tree is still uncommitted, so mid-flight/load-time recalculations no longer snap funds back down to the committed-ledger target and discard paths now explicitly recalculate once the pending tree is gone.
+
+---
+
 ## 0.8.2
 
 ### Features

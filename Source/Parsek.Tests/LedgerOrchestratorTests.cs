@@ -20,6 +20,8 @@ namespace Parsek.Tests
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
+            GameStateRecorder.ResetForTesting();
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
         }
 
@@ -28,6 +30,8 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
+            RecordingStore.ResetForTesting();
+            GameStateRecorder.ResetForTesting();
             GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -209,6 +213,103 @@ namespace Parsek.Tests
             Assert.True(LedgerOrchestrator.IsInitialized);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("8 modules registered"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_WithoutUncommittedTree_DoesNotDeferPatch()
+        {
+            LedgerOrchestrator.Initialize();
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("deferred KSP state patch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_WithPendingTree_DefersKspStatePatch()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+
+            RecordingStore.StashPendingTree(new RecordingTree
+            {
+                Id = "tree-pending",
+                TreeName = "PendingTree",
+                RootRecordingId = "rec-pending",
+                ActiveRecordingId = "rec-pending"
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("deferred KSP state patch")
+                && l.Contains("PendingTree"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_WithLiveRecorder_DefersKspStatePatch()
+        {
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            GameStateRecorder.HasActiveUncommittedTreeProviderForTesting = () => true;
+            LedgerOrchestrator.Initialize();
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("deferred KSP state patch")
+                && l.Contains("live recorder active"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_WithActiveOutsiderTree_DefersKspStatePatch()
+        {
+            GameStateRecorder.HasActiveUncommittedTreeProviderForTesting = () => true;
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            LedgerOrchestrator.Initialize();
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("deferred KSP state patch")
+                && l.Contains("active uncommitted flight tree"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_WithUtCutoff_DoesNotDeferPatchForPendingTree()
+        {
+            LedgerOrchestrator.Initialize();
+            RecordingStore.StashPendingTree(new RecordingTree
+            {
+                Id = "tree-cutoff",
+                TreeName = "CutoffTree",
+                RootRecordingId = "rec-cutoff",
+                ActiveRecordingId = "rec-cutoff"
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch(100.0);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("deferred KSP state patch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
         }
 
         // ================================================================

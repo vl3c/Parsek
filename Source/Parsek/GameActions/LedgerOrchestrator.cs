@@ -995,15 +995,28 @@ namespace Parsek
             // EffectiveScience) are populated and before KSP state is patched.
             ReconcilePostWalk(GameStateStore.Events, actions, utCutoff);
 
-            // KSP state mutations (PostWalk already called by engine). Repeatable
-            // Records* nodes only rebuild strictly from ledger-backed thresholds on
-            // rewind-style cutoff walks; normal same-branch recalculations preserve the
-            // live in-tier best value because that finer-grained partial progress is not
-            // persisted in the ledger.
-            kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-            KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                milestonesModule, facilitiesModule, contractsModule,
-                authoritativeRepeatableRecordState: utCutoff.HasValue);
+            // #466: a live or pending tree means KSP's mutable state may already include
+            // uncommitted in-flight effects that the committed-only ledger cannot see yet.
+            // Walking the committed ledger is still useful, but writing that partial state
+            // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
+            string patchDeferralReason = GetKspPatchDeferralReason(utCutoff);
+            if (!string.IsNullOrEmpty(patchDeferralReason))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");
+            }
+            else
+            {
+                // KSP state mutations (PostWalk already called by engine). Repeatable
+                // Records* nodes only rebuild strictly from ledger-backed thresholds on
+                // rewind-style cutoff walks; normal same-branch recalculations preserve the
+                // live in-tier best value because that finer-grained partial progress is not
+                // persisted in the ledger.
+                kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+                KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
+                    milestonesModule, facilitiesModule, contractsModule,
+                    authoritativeRepeatableRecordState: utCutoff.HasValue);
+            }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
             // per-subject credits. This prunes stale entries left behind when a
@@ -1016,6 +1029,37 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        private static string GetKspPatchDeferralReason(double? utCutoff)
+        {
+            if (utCutoff.HasValue)
+                return null;
+
+            bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
+            bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
+            bool hasPendingTree = RecordingStore.HasPendingTree;
+            if (!hasActiveUncommittedTree && !hasPendingTree)
+                return null;
+
+            string reason = null;
+            if (hasLiveRecorder)
+                reason = "live recorder active";
+            else if (hasActiveUncommittedTree)
+                reason = "active uncommitted flight tree";
+
+            if (hasPendingTree)
+            {
+                string treeName = RecordingStore.PendingTree?.TreeName;
+                string pendingReason = string.IsNullOrEmpty(treeName)
+                    ? $"pending tree state={RecordingStore.PendingTreeStateValue}"
+                    : $"pending tree '{treeName}' state={RecordingStore.PendingTreeStateValue}";
+                reason = string.IsNullOrEmpty(reason)
+                    ? pendingReason
+                    : reason + "; " + pendingReason;
+            }
+
+            return reason;
         }
 
         /// <summary>
