@@ -31,6 +31,13 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
+        [ThreadStatic]
+        private static bool? fundsTrackedOverrideForTesting;
+        [ThreadStatic]
+        private static bool? scienceTrackedOverrideForTesting;
+        [ThreadStatic]
+        private static bool? repTrackedOverrideForTesting;
+        private const double OneShotReconcileSkipLogIntervalSeconds = 1e12;
 
         /// <summary>
         /// Set to <c>true</c> by <see cref="MigrateOldSaveEvents"/> when — and only when —
@@ -69,6 +76,21 @@ namespace Parsek
         internal static bool GetMigrateOldSaveEventsRanThisLoadForTesting()
         {
             return migrateOldSaveEventsRanThisLoad;
+        }
+
+        /// <summary>
+        /// Test-only override for resource tracker availability checks used by the
+        /// earnings reconciliation diagnostics. Null falls back to the live KSP
+        /// singleton availability.
+        /// </summary>
+        internal static void SetResourceTrackingAvailabilityForTesting(
+            bool? fundsTracked,
+            bool? scienceTracked,
+            bool? reputationTracked)
+        {
+            fundsTrackedOverrideForTesting = fundsTracked;
+            scienceTrackedOverrideForTesting = scienceTracked;
+            repTrackedOverrideForTesting = reputationTracked;
         }
 
         /// <summary>
@@ -293,6 +315,17 @@ namespace Parsek
             List<GameAction> newActions,
             double startUT, double endUT)
         {
+            GetResourceTrackingAvailability(
+                out bool fundsTracked,
+                out bool scienceTracked,
+                out bool repTracked);
+            if (!fundsTracked && !scienceTracked && !repTracked)
+            {
+                LogReconcileSkippedOnce("earnings-window", "Earnings reconcile",
+                    fundsTracked, scienceTracked, repTracked);
+                return;
+            }
+
             double droppedFundsDelta = 0;
             double droppedRepDelta = 0;
             double droppedSciDelta = 0;
@@ -430,21 +463,21 @@ namespace Parsek
             const double repTol = 0.1f;
             const double sciTol = 0.1f;
 
-            if (Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
+            if (fundsTracked && Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (funds): store delta={droppedFundsDelta:F1} vs " +
                     $"ledger emitted delta={emittedFundsDelta:F1} — missing earning channel? " +
                     $"window=[{startUT:F1},{endUT:F1}]");
             }
-            if (Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
+            if (repTracked && Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (rep): store delta={droppedRepDelta:F1} vs " +
                     $"ledger emitted delta={emittedRepDelta:F1} — missing earning channel? " +
                     $"window=[{startUT:F1},{endUT:F1}]");
             }
-            if (Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
+            if (scienceTracked && Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
             {
                 ParsekLog.Warn(Tag,
                     $"Earnings reconciliation (sci): store delta={droppedSciDelta:F1} vs " +
@@ -4171,6 +4204,17 @@ namespace Parsek
         {
             if (actions == null || actions.Count == 0) return;
 
+            GetResourceTrackingAvailability(
+                out bool fundsTracked,
+                out bool scienceTracked,
+                out bool repTracked);
+            if (!fundsTracked && !scienceTracked && !repTracked)
+            {
+                LogReconcileSkippedOnce("post-walk", "Post-walk reconcile",
+                    fundsTracked, scienceTracked, repTracked);
+                return;
+            }
+
             const double fundsTol = 1.0;
             const double repTol = 0.1;
             const double sciTol = 0.1;
@@ -4197,10 +4241,12 @@ namespace Parsek
 
                 var exp = ClassifyPostWalk(action);
                 if (!exp.Reconcile) continue;
+                if (!HasTrackedPostWalkLeg(exp, fundsTracked, scienceTracked, repTracked))
+                    continue;
                 walked++;
 
                 bool anyMismatch = false;
-                if (exp.Funds.Applies)
+                if (fundsTracked && exp.Funds.Applies)
                 {
                     if (!CompareLeg(action, "funds", exp.Funds, fundsTol, events, actions, utCutoff))
                     {
@@ -4208,7 +4254,7 @@ namespace Parsek
                         anyMismatch = true;
                     }
                 }
-                if (exp.Rep.Applies)
+                if (repTracked && exp.Rep.Applies)
                 {
                     if (!CompareLeg(action, "rep", exp.Rep, repTol, events, actions, utCutoff))
                     {
@@ -4216,7 +4262,7 @@ namespace Parsek
                         anyMismatch = true;
                     }
                 }
-                if (exp.Sci.Applies)
+                if (scienceTracked && exp.Sci.Applies)
                 {
                     if (!CompareLeg(action, "sci", exp.Sci, sciTol, events, actions, utCutoff))
                     {
@@ -4254,6 +4300,13 @@ namespace Parsek
             IReadOnlyList<GameAction> actions,
             double? utCutoff)
         {
+            GetResourceTrackingAvailability(
+                out bool fundsTracked,
+                out bool scienceTracked,
+                out bool repTracked);
+            if (!IsTrackedEventType(leg.EventType, fundsTracked, scienceTracked, repTracked))
+                return true;
+
             double summedExpected = SumExpectedPostWalkWindow(
                 action, leg, tolerance, actions, utCutoff);
 
@@ -4382,6 +4435,64 @@ namespace Parsek
             expectedCount++;
         }
 
+        private static bool HasTrackedPostWalkLeg(
+            PostWalkExpectation exp,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
+            return (fundsTracked && exp.Funds.Applies)
+                || (scienceTracked && exp.Sci.Applies)
+                || (repTracked && exp.Rep.Applies);
+        }
+
+        private static bool IsTrackedEventType(
+            GameStateEventType eventType,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
+            switch (eventType)
+            {
+                case GameStateEventType.FundsChanged:
+                    return fundsTracked;
+                case GameStateEventType.ScienceChanged:
+                    return scienceTracked;
+                case GameStateEventType.ReputationChanged:
+                    return repTracked;
+                default:
+                    return true;
+            }
+        }
+
+        private static void GetResourceTrackingAvailability(
+            out bool fundsTracked,
+            out bool scienceTracked,
+            out bool repTracked)
+        {
+            fundsTracked = fundsTrackedOverrideForTesting ?? Funding.Instance != null;
+            scienceTracked = scienceTrackedOverrideForTesting
+                ?? ResearchAndDevelopment.Instance != null;
+            repTracked = repTrackedOverrideForTesting ?? global::Reputation.Instance != null;
+        }
+
+        private static void LogReconcileSkippedOnce(
+            string scopeKey,
+            string scopeLabel,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                $"reconcile-skip:{scopeKey}:{fundsTracked}:{scienceTracked}:{repTracked}",
+                $"{scopeLabel} skipped: sandbox / tracker unavailable " +
+                $"(funds={fundsTracked.ToString().ToLowerInvariant()} " +
+                $"sci={scienceTracked.ToString().ToLowerInvariant()} " +
+                $"rep={repTracked.ToString().ToLowerInvariant()})",
+                OneShotReconcileSkipLogIntervalSeconds);
+        }
+
         /// <summary>Pure: best-effort identifier for post-walk log lines.</summary>
         private static string ActionIdForPostWalk(GameAction action)
         {
@@ -4488,6 +4599,9 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
+            fundsTrackedOverrideForTesting = null;
+            scienceTrackedOverrideForTesting = null;
+            repTrackedOverrideForTesting = null;
             migrateOldSaveEventsRanThisLoad = false;
             kscSequenceCounter = 0;
             consumedRecoveryEventKeys.Clear();

@@ -149,7 +149,7 @@ This supersedes / refines #462 (prior observation was "double-count for a single
 
 ---
 
-## 476. Post-walk reconciliation runs in sandbox mode (where KSP does not track funds/science/rep) and floods the log with "store delta=0.0" and "no matching event" false positives
+## ~~476. Post-walk reconciliation runs in sandbox mode (where KSP does not track funds/science/rep) and floods the log with "store delta=0.0" and "no matching event" false positives~~
 
 **Source:** `logs/2026-04-19_0117_thorough-check/KSP.log`. The session was sandbox mode (`Funding.Instance is null (sandbox mode) — skipping`, `ResearchAndDevelopment.Instance is null (sandbox mode) — skipping`, `Reputation.Instance is null (sandbox mode) — skipping`, all repeating throughout) yet:
 
@@ -184,7 +184,9 @@ Per-leg gating (not whole-sweep) is the correct granularity — a save that disa
 
 **Dependencies:** none. Independent of #477 — fixing this one also reduces the reproducibility noise around #477 and #469 since a sandbox session after this fix would emit zero reconciliation WARNs.
 
-**Status:** TODO. Priority: medium — pure log-hygiene, but the hygiene payoff is large (a sandbox session goes from ~700 WARNs to 0).
+**Resolution (2026-04-19):** Fixed in `fix-476-sandbox-postwalk`. `LedgerOrchestrator.ReconcileEarningsWindow` and `ReconcilePostWalk` now gate funds / science / reputation legs on live tracker availability, skip the whole sweep when all three trackers are unavailable, and emit a one-shot VERBOSE skip line instead of repeating WARNs every recalc. Added unit + integration coverage for both the all-trackers-missing sandbox shape and partial per-resource gating.
+
+**Status:** CLOSED. Priority was medium — pure log-hygiene, but the hygiene payoff was large (a sandbox session goes from ~700 WARNs to 0).
 
 ---
 

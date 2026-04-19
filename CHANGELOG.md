@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Tests
+
+- `#476` Added unit and integration coverage for tracker-unavailable post-walk/commit-time earnings reconciliation, including full sandbox-style skips and partial per-resource gating.
+
+### Bug Fixes
+
+- `#476` Post-walk and commit-time earnings reconciliation now skip sandbox / tracker-unavailable resource legs instead of comparing against zeroed stock stores. When funds, science, and reputation tracking are all unavailable, Parsek emits a one-shot VERBOSE skip line instead of flooding `KSP.log` with false `store delta=0.0` and `no matching event` WARNs.
+
 ## 0.8.2
 
 ### Features

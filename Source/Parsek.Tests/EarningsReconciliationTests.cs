@@ -29,10 +29,12 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             GameStateStore.SuppressLogging = true;
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
         }
 
         public void Dispose()
         {
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -135,6 +137,66 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("Earnings reconciliation (sci)"));
+        }
+
+        [Fact]
+        public void Reconcile_AllTrackersUnavailable_SkipsWarns_AndLogsOnce()
+        {
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, false, false);
+
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 0, 8000)
+            };
+            var newActions = new List<GameAction>();
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            int skipLogs = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("Earnings reconcile skipped: sandbox / tracker unavailable"))
+                    skipLogs++;
+            }
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation ("));
+            Assert.Equal(1, skipLogs);
+        }
+
+        [Fact]
+        public void Reconcile_FundsTrackerUnavailable_OnlyTrackedLegsWarn()
+        {
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, true, true);
+
+            var events = new List<GameStateEvent>
+            {
+                MakeFundsChanged(150, 0, 8000),
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ReputationChanged,
+                    valueBefore = 10,
+                    valueAfter = 35
+                },
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ScienceChanged,
+                    valueBefore = 0,
+                    valueAfter = 5
+                }
+            };
+            var newActions = new List<GameAction>();
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (funds)"));
+            Assert.Contains(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+            Assert.Contains(logLines, l => l.Contains("Earnings reconciliation (sci)"));
         }
 
         [Fact]
