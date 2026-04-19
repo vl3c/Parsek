@@ -7,7 +7,7 @@ namespace Parsek.Tests
     public class TimeScalePositiveTests
     {
         [Fact]
-        public void ClassifyTimeScalePositiveSamples_PassesWhenAnySampleRecovers()
+        public void ClassifyTimeScalePositiveSamples_PassesWhenRecoveryFollowsOnlyStockPauseSamples()
         {
             var outcome = RuntimeTests.ClassifyTimeScalePositiveSamples(
                 new List<RuntimeTests.TimeScalePositiveProbeSample>
@@ -15,7 +15,12 @@ namespace Parsek.Tests
                     new RuntimeTests.TimeScalePositiveProbeSample
                     {
                         TimeScale = 0f,
-                        FlightDriverPause = false,
+                        FlightDriverPause = true,
+                    },
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
+                        FlightDriverPause = true,
                     },
                     new RuntimeTests.TimeScalePositiveProbeSample
                     {
@@ -62,6 +67,32 @@ namespace Parsek.Tests
                     new RuntimeTests.TimeScalePositiveProbeSample
                     {
                         TimeScale = 0f,
+                        FlightDriverPause = false,
+                    },
+                });
+
+            Assert.Equal(RuntimeTests.TimeScalePositiveProbeOutcome.FailZeroWithoutPause, outcome);
+        }
+
+        [Fact]
+        public void ClassifyTimeScalePositiveSamples_FailsWhenTransientZeroWithoutPauseLaterRecovers()
+        {
+            var outcome = RuntimeTests.ClassifyTimeScalePositiveSamples(
+                new List<RuntimeTests.TimeScalePositiveProbeSample>
+                {
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
+                        FlightDriverPause = true,
+                    },
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
+                        FlightDriverPause = false,
+                    },
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 1f,
                         FlightDriverPause = false,
                     },
                 });

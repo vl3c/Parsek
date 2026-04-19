@@ -334,17 +334,28 @@ namespace Parsek.InGameTests
                 ParsekLog.Verbose("TestRunner",
                     "TimeScalePositive probe: " + FormatTimeScalePositiveProbeSample(sample));
 
-                if (sample.TimeScale > TimeScalePositiveThreshold)
+                TimeScalePositiveProbeOutcome partialOutcome =
+                    ClassifyTimeScalePositiveSamples(samples);
+                switch (partialOutcome)
                 {
-                    if (i > 0)
-                    {
-                        ParsekLog.Info("TestRunner",
-                            "TimeScalePositive recovered after " +
-                            (i + 1).ToString(CultureInfo.InvariantCulture) +
-                            " frame(s): " +
+                    case TimeScalePositiveProbeOutcome.Passed:
+                        if (i > 0)
+                        {
+                            ParsekLog.Info("TestRunner",
+                                "TimeScalePositive recovered after " +
+                                (i + 1).ToString(CultureInfo.InvariantCulture) +
+                                " frame(s): " +
+                                FormatTimeScalePositiveProbeSummary(samples));
+                        }
+                        yield break;
+
+                    case TimeScalePositiveProbeOutcome.FailZeroWithoutPause:
+                        InGameAssert.Fail(
+                            "Time.timeScale hit <= " +
+                            TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                            " outside stock pause during probe | " +
                             FormatTimeScalePositiveProbeSummary(samples));
-                    }
-                    yield break;
+                        yield break;
                 }
 
                 if (i < TimeScalePositiveProbeFrames - 1)
@@ -354,6 +365,9 @@ namespace Parsek.InGameTests
             string summary = FormatTimeScalePositiveProbeSummary(samples);
             switch (ClassifyTimeScalePositiveSamples(samples))
             {
+                case TimeScalePositiveProbeOutcome.Passed:
+                    yield break;
+
                 case TimeScalePositiveProbeOutcome.SkipStockPause:
                     InGameAssert.Skip(
                         "stock pause menu open; Time.timeScale=0 is expected while paused | " +
@@ -362,9 +376,9 @@ namespace Parsek.InGameTests
 
                 default:
                     InGameAssert.Fail(
-                        "Time.timeScale remained <= " +
+                        "Time.timeScale hit <= " +
                         TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
-                        " without stock pause | " +
+                        " outside stock pause during probe | " +
                         summary);
                     break;
             }
@@ -376,19 +390,22 @@ namespace Parsek.InGameTests
             if (samples == null || samples.Count == 0)
                 return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
 
+            bool sawPositiveTimeScale = false;
             for (int i = 0; i < samples.Count; i++)
             {
                 if (samples[i].TimeScale > TimeScalePositiveThreshold)
-                    return TimeScalePositiveProbeOutcome.Passed;
-            }
+                {
+                    sawPositiveTimeScale = true;
+                    continue;
+                }
 
-            for (int i = 0; i < samples.Count; i++)
-            {
                 if (!samples[i].FlightDriverPause)
                     return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
             }
 
-            return TimeScalePositiveProbeOutcome.SkipStockPause;
+            return sawPositiveTimeScale
+                ? TimeScalePositiveProbeOutcome.Passed
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
         }
 
         internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)

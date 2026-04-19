@@ -185,7 +185,7 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 - `Game Paused!` at `21:14:57.191`, then the test failed at `21:15:00.972`, then `Game Unpaused!` at `21:15:04.782`.
 - `Game Paused!` at `21:15:05.935`, then the test failed at `21:15:08.916`, then `Game Unpaused!` at `21:15:14.563`.
 
-The runtime test now instruments the probe instead of asserting on a single frame: it samples up to 8 frames, logs `Time.timeScale`, `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the test-runner coroutine state on each poll, passes as soon as the clock recovers, and skips with an explicit "stock pause menu open" reason if the whole probe window stays paused. The failing path is retained for the real bug shape: `timeScale` remains zero while stock pause is not active.
+The runtime test now instruments the probe instead of asserting on a single frame: it samples up to 8 frames, logs `Time.timeScale`, `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the test-runner coroutine state on each poll, and only treats recovery as a pass when every earlier zero-timescale sample was observed under stock pause. If the whole probe window stays paused it skips with an explicit "stock pause menu open" reason, and any zero-timescale sample observed while stock pause is inactive still fails even if a later frame recovers.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek.Tests/TimeScalePositiveTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`.
 
