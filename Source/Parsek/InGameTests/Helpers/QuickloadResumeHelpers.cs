@@ -25,7 +25,7 @@ namespace Parsek.InGameTests.Helpers
                 $"TriggerQuicksave failed for '{saveName}/{QuicksaveSlotName}'");
 
             string quicksavePath = GetQuicksavePath(saveName);
-            long quicksaveBytes = AssertQuicksaveFileReady(
+            long quicksaveBytes = EnsureQuicksaveFileReady(
                 quicksavePath, saveName, caller: "TriggerQuicksave");
             ParsekLog.Info("TestHelper",
                 $"TriggerQuicksave: saved to '{saveName}/{QuicksaveSlotName}' ({result}, {quicksaveBytes} bytes)");
