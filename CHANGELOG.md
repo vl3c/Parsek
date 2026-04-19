@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#464` Timeline Details no longer renders duplicate gray legacy milestone / strategy lifecycle rows when a matching ledger `GameAction` exists at the same UT and key; the view now keeps the richer action entry and suppresses only the redundant legacy shadow row.
+
+---
+
 ## 0.8.2
 
 ### Features
