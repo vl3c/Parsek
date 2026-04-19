@@ -539,6 +539,190 @@ namespace Parsek.Tests
             Assert.Empty(result);
         }
 
+        [Fact]
+        public void LegacyMilestoneAndStrategyDuplicates_AreFilteredWhenMatchingGameActionsExist()
+        {
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.MilestoneAchieved,
+                        key = "Kerbin/FirstLaunch"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 200,
+                        eventType = GameStateEventType.StrategyActivated,
+                        key = "UnpaidInterns",
+                        detail = "title=Unpaid Research Program"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 300,
+                        eventType = GameStateEventType.StrategyDeactivated,
+                        key = "UnpaidInterns",
+                        detail = "title=Unpaid Research Program"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 400,
+                        eventType = GameStateEventType.ContractCompleted,
+                        key = "keep-contract"
+                    }
+                }
+            };
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = true,
+                    MilestoneId = "Kerbin/FirstLaunch",
+                    MilestoneFundsAwarded = 960,
+                    MilestoneRepAwarded = 0.5f
+                },
+                new GameAction
+                {
+                    UT = 200,
+                    Type = GameActionType.StrategyActivate,
+                    Effective = true,
+                    StrategyId = "UnpaidInterns",
+                    Commitment = 0.15f,
+                    SourceResource = StrategyResource.Funds,
+                    TargetResource = StrategyResource.Reputation
+                },
+                new GameAction
+                {
+                    UT = 300,
+                    Type = GameActionType.StrategyDeactivate,
+                    Effective = true,
+                    StrategyId = "UnpaidInterns"
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone> { milestone },
+                0);
+
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.GameAction &&
+                e.Type == TimelineEntryType.MilestoneAchievement &&
+                e.DisplayText.Contains("Milestone: Kerbin -") &&
+                e.DisplayText.Contains("First Launch"));
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.GameAction &&
+                e.Type == TimelineEntryType.StrategyActivate &&
+                e.DisplayText.Contains("Activate: Unpaid Research Program"));
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.GameAction &&
+                e.Type == TimelineEntryType.StrategyDeactivate &&
+                e.DisplayText.Contains("Deactivate: Unpaid Research Program"));
+
+            Assert.DoesNotContain(result, e =>
+                e.Source == TimelineSource.Legacy &&
+                e.DisplayText.Contains("\"Kerbin/FirstLaunch\" achieved"));
+            Assert.DoesNotContain(result, e =>
+                e.Source == TimelineSource.Legacy &&
+                e.DisplayText.Contains("activated"));
+            Assert.DoesNotContain(result, e =>
+                e.Source == TimelineSource.Legacy &&
+                e.DisplayText.Contains("deactivated"));
+
+            var legacyEntries = result.Where(e => e.Source == TimelineSource.Legacy).ToList();
+            var legacy = Assert.Single(legacyEntries);
+            Assert.Equal(400, legacy.UT);
+            Assert.Contains("Contract:", legacy.DisplayText);
+        }
+
+        [Fact]
+        public void LegacyMilestoneAndStrategyEvents_AreNotFilteredForIneffectiveOrNonMatchingActions()
+        {
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.MilestoneAchieved,
+                        key = "Kerbin/FirstLaunch"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 200,
+                        eventType = GameStateEventType.StrategyActivated,
+                        key = "UnpaidInterns",
+                        detail = "title=Unpaid Research Program"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 300,
+                        eventType = GameStateEventType.StrategyDeactivated,
+                        key = "UnpaidInterns",
+                        detail = "title=Unpaid Research Program"
+                    }
+                }
+            };
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = false,
+                    MilestoneId = "Kerbin/FirstLaunch"
+                },
+                new GameAction
+                {
+                    UT = 201,
+                    Type = GameActionType.StrategyActivate,
+                    Effective = true,
+                    StrategyId = "UnpaidInterns",
+                    Commitment = 0.15f,
+                    SourceResource = StrategyResource.Funds,
+                    TargetResource = StrategyResource.Reputation
+                },
+                new GameAction
+                {
+                    UT = 300,
+                    Type = GameActionType.StrategyDeactivate,
+                    Effective = true,
+                    StrategyId = "OutreachProg"
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone> { milestone },
+                0);
+
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.Legacy &&
+                e.UT == 100 &&
+                e.DisplayText.Contains("\"Kerbin/FirstLaunch\" achieved"));
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.Legacy &&
+                e.UT == 200 &&
+                e.DisplayText.Contains("activated"));
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.Legacy &&
+                e.UT == 300 &&
+                e.DisplayText.Contains("deactivated"));
+        }
+
         // ================================================================
         // 19. GameAction RecordingId resolves vessel name
         // ================================================================

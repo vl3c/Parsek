@@ -468,7 +468,7 @@ Add a cross-reference: `#439`, `#440`, `#448` and the already-archived post-#307
 
 ---
 
-## 464. Timeline Details tab duplicates milestone / strategy entries — gray `GameStateEvent` line shadows the green `GameAction` reward line
+## 464. ~~Timeline Details tab duplicates milestone / strategy entries — gray `GameStateEvent` line shadows the green `GameAction` reward line~~
 
 **Source:** user playtest report. "From the Timeline Details tab list, remove the 'Milestone … achieved' messages and leave only the green ones, they're kind of duplicates; same for Strategy: activate / deactivate, duplicates."
 
@@ -492,7 +492,7 @@ Keep the gray rows emitted at the data layer — they're still useful for the ra
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low-medium — UI polish, no functional impact. Batch with any next UI pass.
+**Status:** ~~TODO~~ Fixed. `TimelineBuilder` now drops only duplicate legacy `MilestoneAchieved` / `StrategyActivated` / `StrategyDeactivated` rows when the timeline already contains the matching `GameAction` at the same UT + key, so the Details tab keeps the richer action row while leaving raw event capture untouched. Targeted verification: `Source/Parsek` + `Source/Parsek.Tests` build clean with `dotnet build --no-restore`; focused `TimelineBuilderTests` coverage was re-run in-process for `LegacyEvents_AppearAtT2`, `LegacyEvents_ResourceEventsFiltered`, and `LegacyMilestoneAndStrategyDuplicates_AreFilteredWhenMatchingGameActionsExist`.
 
 ---
 
