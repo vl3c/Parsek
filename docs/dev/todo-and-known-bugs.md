@@ -18,6 +18,179 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
+
+**Source:** `logs/2026-04-19_2126/KSP.log` + `saves/c2/persistent.sfs`. User reported: "There was a problem with the runway R0 recording — I did a save/load while on the runway and it caused problems — created two recordings (one landed, one in air) which looked weird."
+
+Reconstructed timeline for vessel `r0` (chainId `201ad985c4894c20a60cda3c4b878496`):
+
+1. 21:19:15 — launch from Runway; Parsek arms recording.
+2. ~21:20:00 — recording `ae5abeb1d4aa4ba8aafd46b68e74782d` opens (chainIndex=0, `segmentPhase=surface`).
+3. 21:20:09 — F5 quicksave while still landed; OnSave flushes the in-progress tree.
+4. 21:20:09 — F9 quickload; OnLoad detects UT-backwards (333.40 → 322.86) and calls `DiscardPendingTree`, then `RestoreActiveTreeFromPending` reopens the recording.
+5. Takeoff rolls, vessel transitions LANDED→FLYING.
+6. `FlightRecorder`'s environment-phase hysteresis fires `StopRecordingForChainBoundary` at the surface→atmo transition. New recording `05ddb2c3d11249f08da302012756ae67` opens (chainIndex=1, `segmentPhase=atmo`, pointCount=162, terminalState=4/destroyed).
+7. 21:21:12 — merge commits with two `MergeTree` WARNs on the same chain:
+
+```
+[WARN][Merger] MergeTree: boundary discontinuity=105.72m at section[1] ut=329.70 vessel='r0' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=Active dt=0.10s expectedFromVel=0.50m cause=sample-skip
+[WARN][Merger] MergeTree: boundary discontinuity=220.31m at section[2] ut=333.40 vessel='r0' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=Active dt=0.30s expectedFromVel=21.82m cause=sample-skip
+```
+
+The `ut=333.40` discontinuity coincides exactly with the quicksave UT — that's a ~220m position jump over a 0.3s stitch where the recorded velocity implied only ~22m of travel. The `ut=329.70` one is the surface→atmo phase boundary on a near-stationary vessel (expected 0.5m, saw 105m). Both are labelled `cause=sample-skip`, but neither was a legitimate sample gap — both are save/load teleports the merger is papering over.
+
+**Concern:** the user is seeing two effects stacked on one action:
+
+- (a) A zero-length-feel `surface` recording (~7 seconds, 22 points, ends mid-takeoff-roll) that by design is "correct" (every phase change opens a new segment since chain-phase split shipped), but because the user just did a quicksave/quickload, the segment's start and end positions don't agree with the atmo segment that follows — the visible playback glitches ~220m at the save boundary and ~105m at the phase boundary.
+- (b) The post-load recorder appears to append to the same recording id from before the save. OnLoad discards the *pending* tree metadata (`DiscardPendingTree`) but the `.prec` file on disk for `ae5abeb1…` is not truncated/replaced, so the 22 points retained may be an inconsistent mix of pre-save and post-load samples — which is what the `cause=sample-skip` masking is hiding at section[2] on the merge.
+
+This is the intended chain-segmentation design interacting badly with the quickload-rewind path: the environment-hysteresis state machine does not know it just crossed a scene reload, so it treats the UT-backwards post-load resume + natural LANDED→FLYING transition as a normal phase boundary when in fact the whole "landed" prefix should have been discarded (or never persisted).
+
+**Fix:** two independent issues stacked — fix both.
+
+- Truncate the pending recording's trajectory on quickload-rewind: when `DiscardPendingTree` (or its quickload-specific branch) fires, also truncate the `.prec` / in-memory sample buffer back to the post-rewind UT so post-load sampling does not produce a jagged prefix. Trace in `ParsekScenario.cs` OnLoad + the quickload-detection path that sets the UT-backwards flag; ensure the active-recording reopen in `RestoreActiveTreeFromPending` clears samples `> currentUT`.
+- Reset the environment-phase hysteresis on restore so the first post-load phase transition is recognized as "restored state, not a live crossing" — either by snapshotting `phase` into the scenario OnSave and restoring it in OnLoad, or by forcing a re-sync from the live vessel situation one physics frame after the reopen. `FlightRecorder.TraceEnvironmentTransitions` and its phase-tracking fields are the owner.
+
+Separately, the `MergeTree` "sample-skip" cause label is wrong for the observed shape: dt=0.30s with a 220m jump is not a skipped sample, it's a discontinuous sampling source. Make the merger distinguish `cause=save-load-teleport` from `cause=sample-skip` by cross-referencing `ParsekScenario.lastRestoreUT` (or add one if it doesn't exist) so future triage can tell the two apart at a glance.
+
+**Files:** `Source/Parsek/ParsekScenario.cs` (OnLoad quickload branch + `RestoreActiveTreeFromPending`), `Source/Parsek/FlightRecorder.cs` (`TraceEnvironmentTransitions`, hysteresis state fields, sample-truncation on rewind), `Source/Parsek/RecordingTree.cs` or wherever `MergeTree` lives for the cause-label improvement.
+
+**Scope:** Medium. Two related fixes; the sample-truncation is small, the hysteresis reset needs a reproducing test (in-game, because the UT rewind is what triggers it).
+
+**Dependencies:** none. The `QuickloadResume` in-game test category (currently partially populated — several `(never run)` entries in the test report) is the right home for new regression coverage.
+
+---
+
+## 485. `StrategyLifecycle` readiness probe throws `NullReferenceException` for every stock strategy on every poll — ~1980 `[Parsek][WARN][TestRunner]` lines in a single session
+
+**Source:** `logs/2026-04-19_2126/KSP.log` (≥ 1980 lines). Representative pair:
+
+```
+[WARN][TestRunner] StrategyLifecycle probe skipped strategy index 7 because readiness access threw: NullReferenceException: Object reference not set to an instance of an object
+...
+[WARN][TestRunner] FAILED: FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents - StrategyLifecycle readiness never stabilized: no CanBeActivated-true stock strategy available (count=11, null=0, active=0, configless=0, nameless=0, blocked=0, probeThrows=11, lastProbe='NullReferenceException: Object reference not set to an instance of an object')
+```
+
+Every readiness poll spins 11 strategy indices (0-10), each throwing the same NRE, emitting one WARN each — at ~11 polls per test invocation × N test runs per session the total dwarfs every other log source. The aggregated "`probeThrows=11`" in the final `FAILED:` line already captures the same information.
+
+**Concern:** two distinct problems:
+
+- (a) **Log volume regression.** PR #409 (fix for #480) added the per-index WARN to make failures legible, but every index in this career save throws, so the per-index lines are pure noise — the FAILED summary already tells you `probeThrows=11`. This violates the project's logging-efficiency principle (`VisualEfficiency`, CLAUDE.md "batch counting convention" — use aggregate summaries, not per-item). The spam also drowns out every other genuinely useful WARN during a test run.
+- (b) **The underlying NRE is not resolved.** #480 closed with "fails loudly if readiness never settles" but didn't fix the throw; the four test failures (`ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` × 4, `FailedActivation_DoesNotEmitEvent` × 4) in the report are all caused by this. The probe still touches a null field somewhere in `CanBeActivated` access for every stock strategy on this save. `#480` has this in the fix-plan notes (`strategy.Config.Name` null guard, `StrategyLifecyclePatch` throwing, or stock `Activate()` NREing) — that investigation did not happen before the PR shipped.
+
+**Fix:**
+
+- For (a): collapse the per-index loop in `InGameTests/RuntimeTests.cs` (the `StrategyLifecycle probe skipped` emit site) to a single summary line per poll — include total probe count and the first offending index/exception, drop the per-index WARN spam. Keep the per-index info at `Verbose` level for when needed.
+- For (b): first widen the FAIL log to include `ex.ToString()` (the stack trace) instead of `ex.Message`, as originally scoped in #480's notes. Once the stack lands in the next collected-logs run, root-cause the actual null field. Until then, #485 remains the parent item for both issues.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (probe loop WARN emit + FAIL log widening), possibly `Source/Parsek/Patches/StrategyLifecyclePatch.cs`.
+
+**Scope:** Small for (a), unknown for (b) until the stack trace lands.
+
+**Dependencies:** reopens follow-up work from #480 (closed in PR #409).
+
+---
+
+## 484. `FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` fails in FLIGHT — `PopulateTerminalOrbitFromLastSegment` overwrites an already-populated `TerminalOrbitBody` when the last segment's body disagrees
+
+**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:14-16` + `KSP.log`:
+
+```
+[WARN][Flight] PopulateTerminalOrbitFromLastSegment: overwrote mismatched body for 'c95578d708e649f29373e3416d2fec79' with endpoint-aligned segment body=Kerbin sma=700000.0
+[WARN][TestRunner] FAILED: FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite - Existing TerminalOrbitBody should not be overwritten
+[WARN][Flight] FinalizeTreeRecordings: leaf 'bug278-preserve-639122194081278693' has no playback data
+```
+
+Two identical failures observed (21:16:48 and 21:20:39), both caused by the same `PopulateTerminalOrbitFromLastSegment` path.
+
+**Concern:** the test's contract is "if `TerminalOrbitBody` is already populated, do not overwrite." The code explicitly does overwrite when the segment endpoint body disagrees with the existing field, and logs it as a WARN. So either the test is wrong (mismatch-overwrite is intentional and should be accepted) or the code is wrong (it should trust the already-populated value even when it disagrees with the segment). A decision is needed before either side is patched.
+
+The `leaf 'bug278-preserve-…' has no playback data` WARN that follows the overwrite is suspicious — the test builds that leaf specifically to exercise the preserve invariant; if the finalize path is walking it at all the invariant is being re-checked in a code path that shouldn't be re-checking it.
+
+**Fix:** decide the contract.
+
+- If mismatch-overwrite is the correct behaviour (the segment's endpoint is authoritative and an out-of-date `TerminalOrbitBody` from an earlier backfill is a bug to be corrected), update the test to assert the overwrite happens with the expected body/SMA, and keep the WARN as a diagnostic.
+- If the test is correct (preserve is preserve, even on mismatch), change `PopulateTerminalOrbitFromLastSegment` to short-circuit when `TerminalOrbitBody != null`, regardless of whether the segment agrees.
+
+Cross-reference `#289` (stable-terminal re-snapshot) and `#479` (stable-terminal sit refresh) — the `bug278-preserve-…` leaf name suggests this is covering the bug-278 preservation path specifically, which was supposed to be closed under #289. If the test was written to enforce a preserve invariant that the current code violates, #484 is a regression of the #289 fix, not a test-code issue.
+
+**Files:** `Source/Parsek/ParsekFlight.cs` (`PopulateTerminalOrbitFromLastSegment`), `Source/Parsek/InGameTests/RuntimeTests.cs` (`TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` assertion).
+
+**Scope:** Small. One decision + a 1-2 line change on whichever side loses.
+
+**Dependencies:** #289.
+
+---
+
+## 483. `ScienceTransmission` earnings reconciliation warns fire repeatedly for stock science transmitted from a flight that included a landed-at-launchpad prologue — `window=[100.3,248.8]` with `expected=11.0` / `store=7.7`
+
+**Source:** `logs/2026-04-19_2126/KSP.log` — ≥ 15 occurrences spread across 21:18:32..21:26:05. Representative pair:
+
+```
+[WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci): ScienceEarning ids=[mysteryGoo@KerbinSrfLandedLaunchPad, telemetryReport@KerbinSrfLandedLaunchPad, temperatureScan@KerbinSrfLandedLaunchPad, temperatureScan@KerbinFlyingLowShores, mysteryGoo@KerbinFlyingLow, telemetryReport@KerbinFlyingLow] across 6 action(s) expected=11.0 but no matching ScienceChanged event keyed 'ScienceTransmission' within recording window [100.3,248.8] for action ut=248.8 -- missing earning channel or stale event?
+[WARN][LedgerOrchestrator] Earnings reconciliation (sci): store delta=7.7 vs ledger emitted delta=11.0 — missing earning channel? window=[100.3,248.8]
+```
+
+The recording window `[100.3,248.8]` contains six separate `ScienceEarning` ids split between `KerbinSrfLandedLaunchPad` (prologue on the pad before launch) and `KerbinFlyingLow` / `KerbinFlyingLowShores` (main flight). The ledger emits an expected earning of 11.0 but the store only captures a delta of 7.7 — a stable 3.3 gap.
+
+**Concern:** post-fix regression of the #468 / #469 earning-channel family. #468 was about the `ScienceEarning` anchor UT being recovery-time while transmission events fire at transmission-time; #469 was about reconcile failing to find same-UT `FundsChanged` events. This new shape is specifically `ScienceTransmission` events firing on a flight that began with LaunchPad-situation experiments captured before takeoff, then transmitted after takeoff. The reconcile attempts to find the matching `ScienceChanged/ScienceTransmission` event for action ut=248.8 (recovery time) in window `[100.3, 248.8]` and fails — either the transmission event UT is outside that window, or the key dedup is dropping it.
+
+The repeated firing (15+ times over 8 minutes of play) suggests the reconcile path is being re-run on every `RecalculateAndPatch` call and keeps logging the same stale mismatch without converging. That matches the #466 symptom (mid-flight `RecalculateAndPatch` patching funds with an incomplete ledger), which was closed — so either #466's fix didn't cover the sci channel, or this is a different code path.
+
+**Fix:** trace the transmission-event emit site (`ScienceSubjectPatch` / `ScienceModule`) and dump the actual event UT + key for the six `ScienceEarning` ids in `window=[100.3,248.8]`. Compare to what `CompareLeg` / `AggregatePostWalkWindow` expects. Likely culprits: (1) transmission event keyed with a mixed-recording sibling so `#405`'s recordingId filter drops it; (2) event emitted at ut > 248.8 (post-recovery) and the recalc window does not extend past the recording's close.
+
+Before fixing, add one ERROR-level reconcile dump that logs: for each missing `ScienceChanged` event, the actual store events within `[window.start - 5, window.end + 5]` keyed `'ScienceTransmission'`, so the triage loop is: "run once, read dump, fix."
+
+Also: the repeat-log behaviour is itself a bug — if reconcile cannot converge, it should emit the warn once per window and suppress subsequent identical warns (per-action-ut dedup). At 15 repetitions per session this is approaching the `#160` log-spam class.
+
+**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (reconcile emit + dedup), `Source/Parsek/GameActions/ScienceModule.cs` (transmission event UT/key), `Source/Parsek/Patches/ScienceSubjectPatch.cs`.
+
+**Scope:** Medium. Includes the diagnostic dump and then the actual fix. The dedup suppression is a small change independently.
+
+**Dependencies:** #468, #469, #466, #405, #477 (all closed). This is the next link in that chain.
+
+---
+
+## 482. `Paths` security negative tests (`../etc/passwd`) log at WARN — 27+ lines per session from a tested-expected error path
+
+**Source:** `logs/2026-04-19_2126/KSP.log` — recurring:
+
+```
+[WARN][Paths] Recording id validation failed: id is null or empty
+[WARN][Paths] Recording id validation failed: id is null or empty
+[WARN][Paths] Recording id validation failed for '../etc/passwd': contains invalid path sequence
+```
+
+Fires three times per invocation of the `SerializationTests.RecordingPathsValidation` test (once per scene context, five scenes = 15 test runs = 45 WARN lines). Always triggered by the test itself, never by production code.
+
+**Concern:** `RecordingPaths.ValidateRecordingId` is correctly rejecting a path-traversal id fed by the security test, but the rejection is logged at WARN. Production code never calls `ValidateRecordingId` with a bad id (callers filter upstream), so any real-world hit to this WARN is either (a) a test poking the rejection path, or (b) a real security incident worth a loud log. Conflating the two makes the test-path noise drown out the real-incident signal and clutters every test-run KSP.log.
+
+**Fix:** move the rejection log from WARN to Verbose (one-shot) when called from the test generators; keep WARN-level for production paths. Easiest implementation: add an optional `string callerContext` arg to `ValidateRecordingId` and branch on it, or make the test generator wrap the call in `ParsekLog.SuppressWarn` for the duration of the negative-path assertions. The rejection is already caught and asserted by the caller, so logging at Verbose retains the information without polluting production log triage.
+
+**Files:** `Source/Parsek/Paths/RecordingPaths.cs` (or wherever `ValidateRecordingId` lives), `Source/Parsek/InGameTests/SerializationTests.cs` (or its xUnit twin in `Source/Parsek.Tests/`).
+
+**Scope:** Small. One log-level change; any test-side scope probably doesn't need changing.
+
+**Dependencies:** none.
+
+---
+
+## 481. `RuntimeTests.TimeScalePositive` intermittently fails in SPACECENTER — `Time.timeScale` observed as 0 during test execution, passes on retry
+
+**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:22` + `KSP.log` (three failure timestamps: 21:14:08.662, 21:15:00.972, 21:15:08.916). Passes in EDITOR / FLIGHT / MAINMENU / TRACKSTATION consistently, fails in SPACECENTER in three of eight observed runs (~37% flake rate).
+
+**Concern:** `Time.timeScale` is supposed to be > 0 outside the pause menu. A zero reading means either (a) stock KSP was actually pausing one frame around the test, and the test raced the unpause, or (b) Parsek (or a harmony patch) is briefly zeroing the timescale during some scene-transition code path. The test runs with `scene=SPACECENTER` but the timestamps cluster around test-runner invocations, so the most likely window is `SceneManager.LoadScene(SPACECENTER)` completing → OnSceneSwitch coroutines → first Update. If stock KSP holds `timeScale=0` for one frame during scene load, the test needs to wait-one-frame; if Parsek is holding it, that's a real regression.
+
+**Fix:** before any code change, instrument the test to log `Time.timeScale` along with `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the active coroutine list on each poll — three failure snapshots will distinguish (a) vs (b). Then either yield one physics frame at the top of the test (if (a)) or chase the real zeroer (if (b)).
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (`TimeScalePositive`).
+
+**Scope:** Small. Diagnostic first, fix later.
+
+**Dependencies:** none.
+
+---
+
 ## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
