@@ -18,7 +18,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
-## 480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy
+## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
 
@@ -47,7 +47,9 @@ Separately: the same save-state shape may make #439 Phase A behaviour unreliable
 
 **Dependencies:** none (the other StrategyLifecycle work is on main already).
 
-**Status:** TODO. Priority: medium — test regression on main, user-visible if the underlying NRE also fires during normal career play.
+**Resolution:** fixed in PR #409 (`issue-480-stock-strategy-lifecycle`). Root cause landed in the test harness: probing stock strategies on the first SPACECENTER frames could catch the strategy system mid-hydration, and the tests also lacked targeted diagnostics around stock `Activate()` itself. The fix adds a bounded readiness/stability probe, rejects nameless configs, and fails loudly if readiness never settles or activation still throws after stabilization.
+
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
@@ -80,7 +82,9 @@ Test should keep passing once the path writes a consistent `sit`; no other asser
 
 ---
 
-## 478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only
+## ~~478. `RuntimeTests.MapMarkerIconsMatchStockAtlas` runs in EDITOR / MAINMENU / SPACECENTER where `MapView.fetch` doesn't exist — should be scene-gated to FLIGHT + TRACKSTATION only~~
+
+**Closed:** 2026-04-19 in PR #406.
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt:15, 21, 24, 434-438`.
 
@@ -103,7 +107,7 @@ The `InGameTestAttribute` only supports a single `GameScenes` value; it can't ex
 
 Option 2 is the cheapest and matches what several other tests already do internally (see `StrategyLifecycle` tests at `:3915-3932` for the skip pattern). Option 1 is worth doing only if a batch of other tests would benefit.
 
-**Fix:** option 2 — add the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Optionally also audit other `Category = "MapView"` / `Category = "TrackingStation"` tests for the same scoping issue; grep `InGameTest\(Category = "\(MapView\|TrackingStation\)"` and verify each either sets `Scene = GameScenes.FLIGHT` / `TRACKSTATION` or skips internally.
+**Fix:** implemented option 2 — added the scene skip at the top of `MapMarkerIconsMatchStockAtlas`. Audited other `Category = "MapView"` / `Category = "TrackingStation"` tests; no other exposed `AnyScene` cases found.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs:513` (add skip), optionally `Source/Parsek/InGameTests/InGameTestAttribute.cs` if option 1 is chosen.
 
@@ -111,7 +115,7 @@ Option 2 is the cheapest and matches what several other tests already do interna
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure test hygiene, no user-visible impact. But 3 false FAILs per test run drowns the signal in the report and should be closed.
+**Status:** CLOSED. Priority: low — fixed in PR #406. Unsupported scenes now skip instead of failing, so the per-scene report no longer shows three false FAILs for this test.
 
 ---
 
@@ -261,7 +265,7 @@ Secondary investigations worth running in the fix session:
 
 ---
 
-## 473. Gloops group in the Recordings window should be treated as a permanent root group — no `X` disband button, and pinned to the top of the list
+## ~~473. Gloops group in the Recordings window should be treated as a permanent root group — no `X` disband button, and pinned to the top of the list~~
 
 **Source:** user playtest request.
 
@@ -269,20 +273,17 @@ Secondary investigations worth running in the fix session:
 
 Separately, root-group ordering is decided by `GetGroupSortKey` + the column's sort predicate in `RecordingsTableUI.cs:1077-1079`. The Gloops group ends up wherever its sort key lands among the user's trees/chains, which is inconsistent frame-to-frame as the user sorts by different columns.
 
-**Fix:** two adjacent changes in `RecordingsTableUI.cs`:
+**Fix:** DONE. Added `RecordingStore.IsPermanentGroup` / `IsPermanentRootGroup`, switched the Recordings-table disband gate to the permanent-group predicate, and moved root-item sorting behind a dedicated comparator that pins the Gloops group above every other root item regardless of sort column or ascending/descending state. Also hardened `GroupHierarchyStore.SetGroupParent` so `Gloops - Ghosts Only` cannot be nested under another group, and `BuildGroupTreeData` now self-heals any stale permanent-root hierarchy mapping back to root on first draw rather than only papering over one saved-parent case.
 
-1. **Hide the X for Gloops.** The cleanest option is to introduce a `RecordingStore.IsPermanentGroup(groupName)` predicate that returns true for both auto-generated tree groups and the Gloops group, then use that predicate at `:1725` instead of `IsAutoGeneratedTreeGroup`. Keeps the semantic ("this group is system-owned; do not offer disband") local to one place. Update `ShowDisbandGroupConfirmation` callers to not even receive a click for permanent groups (the `X` is simply absent, so this is already the case if the gate is fixed).
-2. **Pin to top.** After the `rootItems` list is built (`:1055-…`), re-order so any item whose group name equals `GloopsGroupName` is moved to index 0 before the sort-column comparator is applied. Equivalent: inject a sentinel sort-key (e.g. always compare-first regardless of column) inside `GetGroupSortKey` when `groupName == GloopsGroupName`. Either works; the second is less code but less visible. Preserve the "top" position across all sort columns (date, status, duration, etc.) — Gloops sits above every other root even when the user sorts descending.
+**Edge case checked:** the legacy rename path still runs in `RecordingTree.LoadRecordingFrom` before UI grouping/sorting sees the loaded recording groups, so pre-rename saves normalize to the modern `Gloops - Ghosts Only` name before the permanent-group rules apply.
 
-Edge case to confirm during fix: the `LegacyGloopsGroupName = "Gloops Flight Recordings - Ghosts Only"` rename path at `RecordingStore.cs:71` — make sure the rename happens on load before any UI sort/permanent-group check, so a legacy save does not briefly show a second "permanent" group.
+**Files:** `Source/Parsek/UI/RecordingsTableUI.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/GroupHierarchyStore.cs`, plus xUnit coverage in `Source/Parsek.Tests/GroupManagementTests.cs`, `Source/Parsek.Tests/GroupTreeDataTests.cs`, and `Source/Parsek.Tests/RecordingsTableUITests.cs`.
 
-**Files:** `Source/Parsek/UI/RecordingsTableUI.cs` (`:1725`, `:1055-1079`), `Source/Parsek/RecordingStore.cs` (new `IsPermanentGroup` helper next to `IsAutoGeneratedTreeGroup` at `:615`). Test: xUnit building a `rootGrps` list containing user groups + the Gloops group under every supported sort column, asserts Gloops is always the first element; separate test on `IsPermanentGroup` returns true for both Gloops and auto-tree groups.
-
-**Scope:** Small. ~20 lines across two files + two tests.
+**Scope:** Small. Slightly larger than the original estimate because the final fix also closes the parent-assignment side door and auto-heals old hierarchy state.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low-medium — UI polish, no data-correctness impact. Batch with #471 (Gloops loop-default fix) since both touch the Gloops commit/display path.
+**Status:** ~~DONE~~. Priority was low-medium — UI polish, but now shipped independently of #471 because the root-group semantics were self-contained and low-risk.
 
 ---
 
@@ -339,7 +340,7 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 ---
 
-## 470. `Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)
+## 470. ~~`Funds` subsystem logs `FundsSpending: -0, source=Other` hundreds of times per session (134 lines in one 15-minute career run)~~ CLOSED 2026-04-19
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log`. Top-of-list pattern in the deduplicated WARN/VERBOSE counts:
 
@@ -349,15 +350,15 @@ No schema change needed — existing recordings with `LoopPlayback=true` are not
 
 **Concern:** every `RecalculateAndPatch` sweep (33 of them in this session) fans out to the per-module replay, and each module emits a `FundsSpending: -0` line for zero-delta entries inside the "Other" source bucket. Zero-delta spendings convey nothing a reader would ever act on, and at 4 per recalc × 33 recalcs = 132 lines, they bury the real entries. Adjacent modules already early-return on zero-delta (see the verbose threshold filters in `GameStateRecorder.cs`), so this one is the odd one out.
 
-**Fix:** in the `Funds` subsystem's spending emit path, skip the log entirely when `Math.Abs(delta) < 0.5` (or exact zero — the threshold just needs to exclude `-0` / `+0`). Keep the event itself if any downstream consumer cares about zero-delta entries; only suppress the VERBOSE log. Grep for the `FundsSpending: ` format string in `Source/Parsek/GameActions/` to locate the emit site (most likely `FundsModule.cs` or similar).
+**Fix shipped (2026-04-19):** `Source/Parsek/GameActions/FundsModule.cs` now suppresses the success VERBOSE log when `FundsSpent == 0`, which is enough to eliminate the `FundsSpending: -0` replay spam without hiding any real low-value spendings. The action still flows through affordability and running-balance updates unchanged.
 
-**Files:** likely `Source/Parsek/GameActions/FundsModule.cs` (or whichever `.cs` owns the `[Funds]` subsystem tag). Test: log-assertion xUnit that submits a zero-delta spending, asserts no VERBOSE line hits the sink.
+**Files:** `Source/Parsek/GameActions/FundsModule.cs`, `Source/Parsek.Tests/FundsModuleTests.cs`. Added `FundsSpending_ZeroCost_DoesNotLogVerboseSpend`, which submits a zero-cost `FundsSpending(Other)` action, asserts the action remains affordable with no balance change, and confirms the log sink stays silent.
 
 **Scope:** Trivial. One-line guard + one test.
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: low — pure log-hygiene. Bundle with any touch of the Funds module.
+**Status:** CLOSED 2026-04-19. Priority: low — pure log-hygiene. Ready to ship with the targeted regression coverage above.
 
 ---
 
