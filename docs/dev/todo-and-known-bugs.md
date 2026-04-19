@@ -578,7 +578,9 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 ---
 
-## 450. Per-spawn time budgeting / coroutine split — #414 follow-up for bimodal single-spawn cost
+## ~~450. Per-spawn time budgeting / coroutine split — #414 follow-up for bimodal single-spawn cost~~
+
+**Resolution (2026-04-19):** CLOSED. Phase B2 shipped for v0.8.3. `GhostVisualBuilder.BuildTimelineGhostFromSnapshot` now advances the expensive snapshot-part instantiation loop across multiple `UpdatePlayback` ticks via persisted `PendingGhostVisualBuild` state instead of monopolizing one frame. `GhostPlaybackEngine` gives each pending ghost a bounded per-frame timeline budget, preserves the correct first-spawn / loop / overlap lifecycle event until the build actually completes, and still forces immediate completion for explicit watch-mode loads. Unload / destroy paths now clear pending split-build state, and the overlap-primary path no longer allows hidden-tier prewarm to consume a second advance in the same frame. Coverage added: xUnit guard for pending-state cleanup plus an in-game regression that the incremental builder yields mid-build, resumes, and completes cleanly.
 
 **Source:** smoke-test bundle `logs/2026-04-18_0221_v0.8.2-smoke/KSP.log:11489`. One-shot #414 breakdown line (first exceeded frame in the session):
 
@@ -614,15 +616,17 @@ Timeline dominates (65.7 %) and reentry is a significant secondary contributor (
 
 **Phase B3 (shipped):** lazy reentry FX pre-warm. Defers `GhostVisualBuilder.TryBuildReentryFx` from spawn time to the first frame the ghost is actually inside a body's atmosphere. `MaxLazyReentryBuildsPerFrame = 2` per-frame cap mirrors `MaxSpawnsPerFrame`. See `docs/dev/plan-450-b3-lazy-reentry.md`.
 
-**Phase B2 (next):** coroutine split of `BuildTimelineGhostFromSnapshot`. Targets the dominant 15.90 ms timeline bucket. Post-B3 playtest (`logs/2026-04-18_1947_450-b3-playtest/KSP.log:14474`) confirmed the gating: heaviestSpawn reentry dropped to `0.00 ms`, timeline now 93 % of the single-spawn cost (`17.59 / 18.91 ms`), and the diagnostics health line reports `deferred 4 buildsAvoided 3` — three trajectories saved the full build entirely by never entering atmosphere. Ready to be planned and implemented.
+**Phase B2 (shipped):** coroutine split of `BuildTimelineGhostFromSnapshot`. Targets the dominant 15.90 ms timeline bucket that remained after B3. The snapshot-part loop now resumes from a persisted `PendingGhostVisualBuild` on later frames, with the dominant timeline work budgeted per advance instead of landing as one 15-18 ms single-spawn spike. Direct watch-mode loads still bypass the budget and complete synchronously on demand.
 
 **Phase B1 (not planned):** the 15 ms latch threshold means #450's diagnostic only fires on bimodal cases, so the "spread across many spawns" case B1 targets is structurally out of scope of the evidence. #414's count cap already covers that pattern.
 
-**Scope:** Phase B2 = Medium (coroutine split, new invariants).
+**Scope:** Phase B2 shipped as Medium (coroutine split, new invariants).
 
 **Dependencies:** #414 shipped, Phase A shipped, Phase B3 shipped.
 
-**Status:** Phase A + Phase B3 shipped. Phase B2 TODO — gating confirmed by the 2026-04-18_1947 playtest; ready to plan. Priority: medium. Not release-blocking for v0.8.2 but should not survive the v0.8.3 cycle.
+**Status:** CLOSED. Phase A, Phase B3, and Phase B2 shipped for v0.8.3. Priority was medium. The remaining bimodal single-spawn timeline cost is now spread across multiple frames instead of monopolizing one `UpdatePlayback` tick.
+
+**Follow-up note:** B2 intentionally changes the diagnostics shape: the old `spawnMax >= 15 ms` one-shot WARN now sees several smaller per-advance samples instead of one large single-spawn spike. Re-validate that gate on the next post-B2 playtest so future heavy snapshot builds do not disappear from the WARN signal purely because the work is now chunked.
 
 ---
 

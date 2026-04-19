@@ -1329,6 +1329,80 @@ namespace Parsek.InGameTests
                 $"(of {recordings.Count} recordings)");
         }
 
+        [InGameTest(Category = "GhostVisuals", Scene = GameScenes.FLIGHT,
+            Description = "Bug #450 B2: incremental snapshot build yields after one part and completes across subsequent advances")]
+        public IEnumerator IncrementalSnapshotBuild_YieldsThenCompletes()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            Recording withMultipartSnapshot = recordings.FirstOrDefault(rec =>
+            {
+                ConfigNode snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                return snapshot != null && snapshot.GetNodes("PART").Length >= 2;
+            });
+
+            if (withMultipartSnapshot == null)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "No committed recording with a multipart snapshot — skipping incremental build test");
+                yield break;
+            }
+
+            ConfigNode snapshotNode = GhostVisualBuilder.GetGhostSnapshot(withMultipartSnapshot);
+            PendingGhostVisualBuild build = GhostVisualBuilder.TryBeginTimelineGhostBuild(
+                withMultipartSnapshot,
+                snapshotNode,
+                "ParsekTest_SplitAdvance",
+                withMultipartSnapshot.GhostVisualSnapshot != null
+                    ? HeaviestSpawnBuildType.RecordingStartSnapshot
+                    : HeaviestSpawnBuildType.VesselSnapshot);
+
+            InGameAssert.IsNotNull(build, "TryBeginTimelineGhostBuild should succeed for a multipart snapshot");
+
+            GameObject cleanupRoot = build.root;
+            GhostBuildResult result = null;
+            try
+            {
+                // `maxTicks: 0` is the deliberate "one part, then yield if work remains"
+                // seam from AdvanceTimelineGhostBuild. This keeps the test deterministic:
+                // we assert the split-build path itself, not a stopwatch-dependent budget.
+                bool completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
+                InGameAssert.IsFalse(completed,
+                    $"AdvanceTimelineGhostBuild(0) should yield for multipart snapshot '{withMultipartSnapshot.VesselName}'");
+                InGameAssert.IsTrue(build.nextPartIndex > 0 && build.nextPartIndex < build.partNodes.Length,
+                    $"First incremental advance should process at least one part and leave work remaining, got nextPartIndex={build.nextPartIndex} of {build.partNodes.Length}");
+
+                int advances = 1;
+                while (!completed)
+                {
+                    yield return null;
+                    completed = GhostVisualBuilder.AdvanceTimelineGhostBuild(build, maxTicks: 0);
+                    advances++;
+                    InGameAssert.IsTrue(advances <= build.partNodes.Length + 1,
+                        $"Incremental build should complete within one advance per part, got advances={advances} parts={build.partNodes.Length}");
+                }
+
+                InGameAssert.IsTrue(build.nextPartIndex == build.partNodes.Length,
+                    $"Completed incremental build should consume every snapshot part, got {build.nextPartIndex}/{build.partNodes.Length}");
+
+                result = GhostVisualBuilder.CompleteTimelineGhostBuild(build, withMultipartSnapshot);
+                InGameAssert.IsNotNull(result, "CompleteTimelineGhostBuild should return a result after all parts are advanced");
+                InGameAssert.IsNotNull(result.root, "Incremental build result should keep the ghost root");
+
+                cleanupRoot = result.root;
+                InGameAssert.IsGreaterThan(result.root.transform.childCount, 0,
+                    $"Incremental ghost root should contain built children for '{withMultipartSnapshot.VesselName}'");
+
+                ParsekLog.Verbose("TestRunner",
+                    $"Incremental ghost build completed for '{withMultipartSnapshot.VesselName}' in {advances} advances " +
+                    $"({build.partNodes.Length} snapshot parts)");
+            }
+            finally
+            {
+                if (cleanupRoot != null)
+                    runner.TrackForCleanup(cleanupRoot);
+            }
+        }
+
         [InGameTest(Category = "GhostVisuals",
             Description = "All snapshot PART names resolve in PartLoader (catches underscore→dot bugs)")]
         public void AllSnapshotPartNamesResolve()
