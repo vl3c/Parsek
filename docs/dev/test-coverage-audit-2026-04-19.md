@@ -484,7 +484,11 @@ The direct live `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun
 - the validated run chose an off-pad synthetic endpoint (`padDist≈240m`), reached ghost playback end, executed the deferred landed spawn, and logged `Vessel spawn for #2 ... sit=LANDED`
 - the final `Keep-vessel runtime: ... spawnedPid=...` line and `PASSED:` row confirm the single-spawn assertion held after the cleanup wait, so the manual-only playback-control canary is now backed by live KSP evidence rather than only compile validation
 
-This worktree now also has a new manual-only stock revert canary in code: it starts a real recording, stages the active vessel, calls stock `FlightDriver.RevertToLaunch`, and asserts the shipped #434 behavior (`pending tree soft-unstashed, no Parsek merge dialog, no timeline commit`). That scenario still needs live KSP validation.
+The later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:57` closes that revert gap too:
+
+- `parsek-test-results.txt` now records `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` as `FLIGHT PASSED (7318.7ms)`
+- `KSP.log` shows the expected #434 sequence in one live run: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then the final `Revert flow runtime: ... committedBefore=2 committedAfter=2` assertion log and `PASSED:` line
+- there is no `ParsekMerge` popup line in the validated revert window, and the test confirms the reverted mission did not increase either `CommittedRecordings` or `CommittedTrees`
 
 ### Recommended next sequence
 
@@ -492,22 +496,18 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Live-validate the stock revert soft-unstash flow**
-   The next runtime canary in this worktree no longer assumes a revert-time merge dialog. It starts a real recording, crosses the actual stock `Revert to Launch` boundary, and asserts the shipped `soft-unstash / no merge / no commit` semantics in live KSP.
-3. **Then add the non-revert scene-exit merge flow**
+2. **Add the non-revert scene-exit merge flow**
    The remaining merge-dialog gap is now the real non-revert exit path: `record -> leave flight without revert -> deferred merge dialog -> commit/discard`. That is the user-facing route that still owns merge UI after #434.
-4. **After that, add part-event timing scenarios**
+3. **After that, add part-event timing scenarios**
    These are still valuable, but the repo already has stronger structural coverage here than it does for auto-record and merge/revert.
 
 ### Scenario promotion shortlist
 
 The first scripted runtime scenarios I would add are:
 
-1. **Stock revert soft-unstash / no-merge flow**
-   Add or validate one runtime scenario that starts from a real recording, crosses the actual `Revert to Launch` scene boundary, and proves the pending tree is soft-unstashed without a merge popup or timeline commit.
-2. **Non-revert scene-exit deferred merge flow**
+1. **Non-revert scene-exit deferred merge flow**
    Add one runtime scenario that starts from a real recording, exits flight without revert, waits for the deferred merge dialog in the destination scene, and then commits or discards through the real UI.
-3. **Part-event timing showcase**
+2. **Part-event timing showcase**
    Reuse the existing synthetic showcase content to assert at least one live timing-sensitive transition end-to-end: e.g. lights toggle, gear deploys, fairing disappears, or RCS FX emits near the authored timestamps.
 
 That sequence matches the actual current gap profile better than the older "quickload/revert first" assumption. Quickload, scene-exit finalize, crew replacement placement, ghost visual buildability, and part-event FX presence already have materially more automated coverage than the historical audits implied, and `#488` now has live validation rather than being an open blocker.

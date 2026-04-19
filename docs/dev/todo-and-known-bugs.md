@@ -39,11 +39,11 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 ---
 
-## 490. Manual-only stock `Revert to Launch` runtime coverage now exists locally, but still needs live KSP validation
+## ~~490. Manual-only stock `Revert to Launch` runtime coverage existed locally; it now has live KSP validation~~
 
 **Source:** follow-up audit work after closing `#489`, aligned with shipped #434 behavior and the current user guide text.
 
-**What landed already:** `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` now exists in `Source/Parsek/InGameTests/RuntimeTests.cs`. It starts a real recording on a prelaunch vessel, stages the active vessel, drives stock `FlightDriver.RevertToLaunch`, waits for the fresh FLIGHT scene, asserts that:
+**What landed already:** `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` now exists in `Source/Parsek/InGameTests/RuntimeTests.cs`. It starts a real recording on a prelaunch vessel, stages the active vessel, drives stock `FlightDriver.RevertToLaunch`, waits for the fresh FLIGHT scene, and asserts that:
 
 - the reverted mission did not commit into `RecordingStore.CommittedRecordings` / `CommittedTrees`
 - no Parsek `ParsekMerge` popup appears after the revert
@@ -52,11 +52,27 @@ The next runtime scenario worth adding is no longer these synthetic canaries. It
 
 **Why this matters:** the audit roadmap used to describe the next gap as `record -> revert -> merge`, but that is no longer the shipped product contract. The current documented behavior is: revert soft-unstashes; if the player wants the merge dialog they take a non-revert exit such as `Space Center`. This runtime canary is the missing end-to-end proof for the actual shipped revert path.
 
-**Next validation step:** build `Source/Parsek/Parsek.csproj` from the audit worktree, load a disposable save with a simple vessel on the pad, and run `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` from the row `▶` in the FLIGHT in-game runner. Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt`.
+**Resolution:** the direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:57` now closes this. `parsek-test-results.txt` records `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` as `FLIGHT PASSED (7318.7ms)`. `KSP.log` contains the full shipped #434 revert sequence in one live pass: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then `Revert flow runtime: ... committedBefore=2 committedAfter=2`, and finally the `PASSED:` row. That means the canary now has real evidence for the current product contract: stock revert soft-unstashes, does not open the Parsek merge dialog, and does not commit the reverted mission into the timeline.
 
 **Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
-**Status:** OPEN. Implemented locally; live KSP validation still needed.
+**Status:** CLOSED. Fixed for the audit branch; the next open runtime player-flow gap is the non-revert scene-exit deferred merge path.
+
+---
+
+## 491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path
+
+**Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
+
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). What it still does not have is one true end-to-end scenario for the user-facing merge route after #434: start a real recording, leave flight without revert, wait for the deferred merge dialog in the destination scene, and then commit or discard through the real UI.
+
+**Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
+
+**Proposed next step:** add one manual-only runtime canary that starts from a real flight recording, exits via a non-revert path such as `Space Center`, waits for the deferred merge dialog outside FLIGHT, and asserts either the commit or discard branch end-to-end with real `KSP.log` / `parsek-test-results.txt` evidence.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN.
 
 ---
 
