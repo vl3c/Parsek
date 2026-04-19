@@ -119,7 +119,9 @@ Option 2 is the cheapest and matches what several other tests already do interna
 
 ---
 
-## 477. Ledger walk over-counts milestone rewards — post-walk reconciliation `expected` sum is a 2× / 3× multiple of the actual stock enrichment
+## 477. ~~Ledger walk over-counts milestone rewards — post-walk reconciliation `expected` sum is a 2× / 3× multiple of the actual stock enrichment~~
+
+**Resolution (2026-04-19):** CLOSED. Re-investigation showed the ledger walk was not duplicate-crediting milestone rewards into career state. The real bug sat in `LedgerOrchestrator.ReconcilePostWalk`: it intentionally aggregated same-window `Progression` legs so one coalesced stock delta could match multiple milestone actions at the same UT, but it logged that aggregate under each individual `MilestoneAchievement id=...`. That made `expected=` look 2× / 3× too large whenever two milestones shared the window (for example `Mun/Flyby` + `Kerbin/Escape`, or the `RecordsAltitude` / `RecordsSpeed` bursts), and the missing-event path emitted one WARN per action instead of one WARN per coalesced window. The fix now compares/logs once per coalesced window, reports grouped ids/counts for shared funds/rep legs, and keeps single-contributor legs (such as `Kerbin/Escape` science) attributed to the single action. Regression tests cover both the aggregate-match path and the missing-event path.
 
 **Source:** `logs/2026-04-19_0117_thorough-check/KSP.log`. Worked example for one Mun/Flyby milestone:
 
@@ -149,7 +151,7 @@ This supersedes / refines #462 (prior observation was "double-count for a single
 
 **Dependencies:** read `#307 / #439 / #440 / #448` notes in `done/todo-and-known-bugs-v3.md` first — those touched the earnings-reconciliation path and clarify which side of the dedup is the correct place to land the fix.
 
-**Status:** TODO. Priority: **high** — every career/science session produces 500+ false-positive WARNs that obscure real reconciliation signals. Blocks any improvement to the signal/noise ratio of `[LedgerOrchestrator]` logs.
+**Status:** CLOSED. Was high priority because the false-positive WARN volume obscured real reconciliation signals.
 
 ---
 
@@ -558,7 +560,7 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 ---
 
-## 462. LedgerOrchestrator earnings reconciliation: MilestoneAchievement double-count vs FundsChanged
+## 462. ~~LedgerOrchestrator earnings reconciliation: MilestoneAchievement double-count vs FundsChanged~~
 
 **Source:** `logs/2026-04-19_0014_investigate/KSP.log` (48 WARN lines across one session). Representative pair:
 
@@ -577,11 +579,11 @@ User-visible symptom: a flag planted during an EVA disappears from the world whe
 
 **Dependencies:** none.
 
-**Status:** TODO. Priority: medium-to-high — real data correctness bug with no user-facing symptom today except the WARNs, but compounds over long saves.
+**Status:** CLOSED by #477. The apparent `MilestoneAchievement` "double-count" shape was the same coalesced-window attribution bug in post-walk reconciliation, not duplicate milestone credit landing in the ledger.
 
-**Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. The root cause is duplicate `MilestoneAchievement` action emissions (not a double-count at the event-store side). See #477 for the general case — fixing #477 is expected to resolve #462 simultaneously; close this entry only after verifying the reconcile WARN disappears for `Kerbin/SurfaceEVA` specifically.
+**Update (superseded by #477):** re-investigation in `logs/2026-04-19_0117_thorough-check/` showed the 2× / 3× / spurious-sci pattern is general across every milestone, not specific to `Kerbin/SurfaceEVA`. Final fix: not duplicate `MilestoneAchievement` action emission, but per-action attribution of a coalesced post-walk reward window. `ReconcilePostWalk` now compares/logs once per window and reports grouped ids, which closes the `Kerbin/SurfaceEVA` / `Records*` false-positive shape as well.
 
-**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `SumExpectedPostWalkWindow` (post-walk) by `recordingId`. This closes the "2 events keyed 'Progression'" shape when the two events belong to sibling recordings at the same UT, but does NOT address #477's duplicate-emission cause. Re-run the thorough-check log pass after #477 ships to confirm whether `Kerbin/SurfaceEVA` is now silent.
+**Update (PR #405):** partial fix shipped — cross-recording `Progression` (and other keyed) events are now filtered out of both `ReconcileEarningsWindow` (commit path) and `CompareLeg` / `AggregatePostWalkWindow` (post-walk) by `recordingId`. The #477 fix completed the remaining same-window attribution issue.
 
 ---
 
