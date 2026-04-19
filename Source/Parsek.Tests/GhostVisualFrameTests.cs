@@ -140,6 +140,7 @@ namespace Parsek.Tests
             bool resolved = rec.TryGetGhostActivationStartUT(out double activationStartUT);
 
             Assert.True(resolved);
+            Assert.Equal(19.72, rec.StartUT, 2);
             Assert.Equal(20.26, activationStartUT, 2);
         }
 
@@ -158,7 +159,32 @@ namespace Parsek.Tests
 
             double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
 
+            Assert.Equal(27.58, rec.StartUT, 2);
             Assert.Equal(28.12, activationStartUT, 2);
+        }
+
+        [Fact]
+        public void ResolveGhostActivationStartUT_FallsBackToSemanticStartWhenNoPlayablePayloadExists()
+        {
+            IPlaybackTrajectory traj = new MockTrajectory
+            {
+                StartUTOverride = 27.58,
+                EndUTOverride = 40.00,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 28.10,
+                        endUT = 32.56,
+                        frames = new List<TrajectoryPoint>()
+                    }
+                }
+            };
+
+            double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(traj);
+
+            Assert.Equal(27.58, activationStartUT, 2);
         }
 
         [Fact]

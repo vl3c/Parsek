@@ -4,6 +4,14 @@ namespace Parsek
 {
     internal static class PlaybackTrajectoryBoundsResolver
     {
+        internal static bool HasPlayablePayload(TrackSection section)
+        {
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                return section.checkpoints != null && section.checkpoints.Count > 0;
+
+            return section.frames != null && section.frames.Count > 0;
+        }
+
         internal static bool TryGetGhostPlayablePayloadBounds(
             IPlaybackTrajectory traj, out double startUT, out double endUT)
         {
@@ -50,6 +58,10 @@ namespace Parsek
             if (traj == null)
                 return 0.0;
 
+            // Activation tracks the first playable payload sample when one exists.
+            // The StartUT fallback is the trajectory's outer semantic boundary:
+            // Recording widens that via ExplicitStartUT, but never shrinks inside the
+            // playable payload window, so StartUT remains ordered at-or-before payload start.
             if (TryGetGhostPlayablePayloadBounds(traj, out double activationStartUT, out _))
                 return activationStartUT;
 
@@ -92,14 +104,6 @@ namespace Parsek
             }
 
             return found;
-        }
-
-        private static bool HasPlayablePayload(TrackSection section)
-        {
-            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-                return section.checkpoints != null && section.checkpoints.Count > 0;
-
-            return section.frames != null && section.frames.Count > 0;
         }
     }
 }

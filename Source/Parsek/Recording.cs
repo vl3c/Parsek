@@ -194,9 +194,14 @@ namespace Parsek
         public string ParentBranchPointId;             // null for root recording
         public string ChildBranchPointId;              // null for leaf recordings
 
-        // Explicit UT range for recordings that may have no trajectory points
-        // (background-only recordings). When Points.Count > 0, these are ignored
-        // in favor of Points[0].ut / Points[last].ut.
+        // Explicit UT range for the recording's outer semantic boundary
+        // (background-only recordings, split/merge boundaries, etc.).
+        // These values may extend the computed payload bounds, but must never shrink them:
+        // StartUT only uses ExplicitStartUT when it is earlier than the actual trajectory
+        // start, and EndUT only uses ExplicitEndUT when it is later than the actual
+        // trajectory end. Ghost activation-start resolution depends on that ordering:
+        // it probes first playable payload separately and falls back to StartUT only
+        // when no playable payload exists at all.
         // Default is double.NaN (not set). 0.0 is a valid KSP UT.
         public double ExplicitStartUT = double.NaN;
         public double ExplicitEndUT = double.NaN;
@@ -332,7 +337,7 @@ namespace Parsek
             int firstPlayable = -1;
             for (int i = 0; i < TrackSections.Count; i++)
             {
-                if (HasPlayablePayload(TrackSections[i]))
+                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(TrackSections[i]))
                 {
                     firstPlayable = i;
                     break;
@@ -345,7 +350,7 @@ namespace Parsek
             int lastPlayable = -1;
             for (int i = TrackSections.Count - 1; i >= firstPlayable; i--)
             {
-                if (HasPlayablePayload(TrackSections[i]))
+                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(TrackSections[i]))
                 {
                     lastPlayable = i;
                     break;
@@ -358,14 +363,6 @@ namespace Parsek
             startUT = TrackSections[firstPlayable].startUT;
             endUT = TrackSections[lastPlayable].endUT;
             return true;
-        }
-
-        private static bool HasPlayablePayload(TrackSection section)
-        {
-            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-                return section.checkpoints != null && section.checkpoints.Count > 0;
-
-            return section.frames != null && section.frames.Count > 0;
         }
 
         /// <summary>

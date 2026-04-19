@@ -7,14 +7,13 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Core ghost playback engine. Manages ghost GameObjects, per-frame positioning,
-    /// part event application, loop/overlap playback, zone transitions, and soft caps.
+    /// Core ghost playback engine.
+    /// Consumes <see cref="IPlaybackTrajectory"/> data plus rendering collaborators to manage
+    /// ghost visuals, per-frame positioning, part-event playback, loop/overlap playback,
+    /// zone transitions, and soft caps.
     ///
-    /// This class has no knowledge of Recording, RecordingTree, BranchPoint, chain IDs,
-    /// resource deltas, vessel spawning, or any Parsek-specific concept. It renders
-    /// trajectories as visual ghosts and nothing more.
-    ///
-    /// Future: this class becomes the core of the standalone ghost playback mod.
+    /// Concrete recording/tree policy stays outside this class; trajectory knowledge crosses
+    /// this boundary only through the interface surface.
     /// </summary>
     internal class GhostPlaybackEngine
     {
