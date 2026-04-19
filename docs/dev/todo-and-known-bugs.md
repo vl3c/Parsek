@@ -175,19 +175,21 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 
 ---
 
-## 481. `RuntimeTests.TimeScalePositive` intermittently fails in SPACECENTER — `Time.timeScale` observed as 0 during test execution, passes on retry
+## ~~481. `RuntimeTests.TimeScalePositive` intermittently fails in SPACECENTER — `Time.timeScale` observed as 0 during test execution, passes on retry~~
 
-**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:22` + `KSP.log` (three failure timestamps: 21:14:08.662, 21:15:00.972, 21:15:08.916). Passes in EDITOR / FLIGHT / MAINMENU / TRACKSTATION consistently, fails in SPACECENTER in three of eight observed runs (~37% flake rate).
+**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:22` + `KSP.log` (three failure timestamps: 21:14:08.662, 21:15:00.972, 21:15:08.916). Passes in EDITOR / FLIGHT / MAINMENU / TRACKSTATION consistently, failed in SPACECENTER in three of eight observed runs (~37% flake rate).
 
-**Concern:** `Time.timeScale` is supposed to be > 0 outside the pause menu. A zero reading means either (a) stock KSP was actually pausing one frame around the test, and the test raced the unpause, or (b) Parsek (or a harmony patch) is briefly zeroing the timescale during some scene-transition code path. The test runs with `scene=SPACECENTER` but the timestamps cluster around test-runner invocations, so the most likely window is `SceneManager.LoadScene(SPACECENTER)` completing → OnSceneSwitch coroutines → first Update. If stock KSP holds `timeScale=0` for one frame during scene load, the test needs to wait-one-frame; if Parsek is holding it, that's a real regression.
+**Resolution (2026-04-19):** fixed in `0.8.3`. The investigation showed this was not a Parsek `Time.timeScale` regression and not a one-frame scene-load race. All three failures happened entirely inside real stock pause windows:
 
-**Fix:** before any code change, instrument the test to log `Time.timeScale` along with `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the active coroutine list on each poll — three failure snapshots will distinguish (a) vs (b). Then either yield one physics frame at the top of the test (if (a)) or chase the real zeroer (if (b)).
+- `Game Paused!` at `21:14:03.736`, then `RuntimeTests.TimeScalePositive` failed at `21:14:08.662`, then `Game Unpaused!` at `21:14:12.622`.
+- `Game Paused!` at `21:14:57.191`, then the test failed at `21:15:00.972`, then `Game Unpaused!` at `21:15:04.782`.
+- `Game Paused!` at `21:15:05.935`, then the test failed at `21:15:08.916`, then `Game Unpaused!` at `21:15:14.563`.
 
-**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (`TimeScalePositive`).
+The runtime test now instruments the probe instead of asserting on a single frame: it samples up to 8 frames, logs `Time.timeScale`, `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the test-runner coroutine state on each poll, passes as soon as the clock recovers, and skips with an explicit "stock pause menu open" reason if the whole probe window stays paused. The failing path is retained for the real bug shape: `timeScale` remains zero while stock pause is not active.
 
-**Scope:** Small. Diagnostic first, fix later.
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek.Tests/TimeScalePositiveTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`.
 
-**Dependencies:** none.
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
