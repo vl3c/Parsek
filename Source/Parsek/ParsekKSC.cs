@@ -44,6 +44,7 @@ namespace Parsek
 
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
+        private bool pauseMenuOpen;
 
         // Loop constants are in GhostPlaybackLogic
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
@@ -65,6 +66,8 @@ namespace Parsek
             ParsekLog.Info("KSC", "ParsekKSC starting in Space Center scene");
 
             ui = new ParsekUI(UIMode.KSC);
+            GameEvents.onGamePause.Add(OnGamePause);
+            GameEvents.onGameUnpause.Add(OnGameUnpause);
 
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
@@ -250,6 +253,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Applies a ghost-audio action to all active KSC ghost states.
+        /// Shared by the pause-menu handlers and unit-testable without Unity audio.
+        /// </summary>
+        internal static (int primaryCount, int overlapCount) ApplyAudioActionToGhostSet(
+            Dictionary<int, GhostPlaybackState> primaryGhosts,
+            Dictionary<int, List<GhostPlaybackState>> overlapGhosts,
+            Action<GhostPlaybackState> applyAudioAction)
+        {
+            if (applyAudioAction == null)
+                throw new ArgumentNullException(nameof(applyAudioAction));
+
+            int primaryCount = 0;
+            if (primaryGhosts != null)
+            {
+                foreach (var kvp in primaryGhosts)
+                {
+                    applyAudioAction(kvp.Value);
+                    primaryCount++;
+                }
+            }
+
+            int overlapCount = 0;
+            if (overlapGhosts != null)
+            {
+                foreach (var kvp in overlapGhosts)
+                {
+                    if (kvp.Value == null) continue;
+                    for (int i = 0; i < kvp.Value.Count; i++)
+                    {
+                        applyAudioAction(kvp.Value[i]);
+                        overlapCount++;
+                    }
+                }
+            }
+
+            return (primaryCount, overlapCount);
+        }
+
+        internal (int primaryCount, int overlapCount) ApplyAudioActionToActiveGhosts(
+            Action<GhostPlaybackState> applyAudioAction,
+            string actionLabel)
+        {
+            var counts = ApplyAudioActionToGhostSet(kscGhosts, kscOverlapGhosts, applyAudioAction);
+            ParsekLog.Verbose("GhostAudio",
+                $"KSC {actionLabel}: {counts.primaryCount} primary + {counts.overlapCount} overlap ghost(s)");
+            return counts;
+        }
+
+        internal static bool ShouldApplyRuntimeGhostEvents(bool pauseMenuOpen, bool inCullRange)
+        {
+            return !pauseMenuOpen && inCullRange;
+        }
+
+        void PauseGhostAudioIfMenuOpen(GhostPlaybackState state)
+        {
+            if (!pauseMenuOpen) return;
+            GhostPlaybackLogic.PauseAllAudio(state);
+        }
+
+        /// <summary>
+        /// Pauses all KSC ghost audio when the stock pause menu opens.
+        /// </summary>
+        void OnGamePause()
+        {
+            pauseMenuOpen = true;
+            ApplyAudioActionToActiveGhosts(GhostPlaybackLogic.PauseAllAudio, "OnGamePause");
+        }
+
+        /// <summary>
+        /// Resumes all KSC ghost audio when the stock pause menu closes.
+        /// </summary>
+        void OnGameUnpause()
+        {
+            pauseMenuOpen = false;
+            ApplyAudioActionToActiveGhosts(GhostPlaybackLogic.UnpauseAllAudio, "OnGameUnpause");
+        }
+
+        /// <summary>
         /// Emits exactly one INFO per (recordingIndex, userPeriod,
         /// effectiveCadence, duration) tuple for the KSC overlap path.
         /// Re-emits only when one of the inputs changes. Steady-state silent.
@@ -315,6 +396,7 @@ namespace Parsek
                     if (state == null) return;
                     state.loopCycleIndex = cycleIndex;
                     kscGhosts[recIdx] = state;
+                    PauseGhostAudioIfMenuOpen(state);
                     if (loggedGhostSpawn.Add(recIdx))
                         ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} \"{rec.VesselName}\" entered range: " +
@@ -335,7 +417,7 @@ namespace Parsek
                     ref state.playbackIndex, targetUT);
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
-                if (IsGhostInCullRange(state.ghost))
+                if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost)))
                 {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
                     GhostPlaybackLogic.ApplyFlagEvents(state, rec, targetUT);
@@ -455,6 +537,7 @@ namespace Parsek
                 if (primaryState == null) return;
                 primaryState.loopCycleIndex = lastCycle;
                 kscGhosts[recIdx] = primaryState;
+                PauseGhostAudioIfMenuOpen(primaryState);
                 ParsekLog.Verbose("KSCGhost",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" overlap spawn cycle={lastCycle}");
             }
@@ -470,7 +553,7 @@ namespace Parsek
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
                     ref primaryState.playbackIndex, loopUT);
 
-                if (IsGhostInCullRange(primaryState.ghost))
+                if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(primaryState.ghost)))
                 {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                     GhostPlaybackLogic.ApplyFlagEvents(primaryState, rec, loopUT);
@@ -522,7 +605,7 @@ namespace Parsek
                 InterpolateAndPositionKsc(ovState.ghost, rec.Points,
                     ref ovState.playbackIndex, loopUT);
 
-                if (IsGhostInCullRange(ovState.ghost))
+                if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(ovState.ghost)))
                 {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
                     GhostPlaybackLogic.ApplyFlagEvents(ovState, rec, loopUT);
@@ -1020,6 +1103,9 @@ namespace Parsek
 
         void OnDestroy()
         {
+            GameEvents.onGamePause.Remove(OnGamePause);
+            GameEvents.onGameUnpause.Remove(OnGameUnpause);
+
             // Clean up all KSC ghosts (primary + overlap)
             int primaryCount = kscGhosts.Count;
             foreach (var kv in kscGhosts)

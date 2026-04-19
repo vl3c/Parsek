@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Bug Fixes
+
+- `#465` KSC ghost engine/RCS audio now pauses with the stock ESC menu and resumes on unpause. `ParsekKSC` now subscribes to the pause/unpause game events and applies the audio action across its own primary + overlap ghost state sets; tracking-station ghosts were checked and remain map-only (no `AudioSource`s there to pause).
+
 ## 0.8.2
 
 ### Features

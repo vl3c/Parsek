@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using UnityEngine;
 using Xunit;
 
@@ -570,6 +571,80 @@ namespace Parsek.Tests
             Assert.False(inPauseWindow);
             Assert.Equal(30, cycleIndex);
             Assert.Equal(100, loopUT, 3);
+        }
+
+        #endregion
+
+        #region Pause Menu Audio
+
+        [Fact]
+        public void ApplyAudioActionToGhostSet_VisitsPrimaryAndOverlapGhosts()
+        {
+            var primary0 = new GhostPlaybackState();
+            var primary1 = new GhostPlaybackState();
+            var overlap0 = new GhostPlaybackState();
+            var overlap1 = new GhostPlaybackState();
+            var visited = new List<GhostPlaybackState>();
+
+            var counts = ParsekKSC.ApplyAudioActionToGhostSet(
+                new Dictionary<int, GhostPlaybackState>
+                {
+                    [1] = primary0,
+                    [2] = primary1,
+                },
+                new Dictionary<int, List<GhostPlaybackState>>
+                {
+                    [1] = new List<GhostPlaybackState> { overlap0, overlap1 }
+                },
+                state => visited.Add(state));
+
+            Assert.Equal((2, 2), counts);
+            Assert.Equal(4, visited.Count);
+            Assert.Contains(primary0, visited);
+            Assert.Contains(primary1, visited);
+            Assert.Contains(overlap0, visited);
+            Assert.Contains(overlap1, visited);
+        }
+
+        [Theory]
+        [InlineData(false, true, true)]
+        [InlineData(true, true, false)]
+        [InlineData(false, false, false)]
+        [InlineData(true, false, false)]
+        public void ShouldApplyRuntimeGhostEvents_RespectsPauseLatch(
+            bool pauseMenuOpen, bool inCullRange, bool expected)
+        {
+            Assert.Equal(expected,
+                ParsekKSC.ShouldApplyRuntimeGhostEvents(pauseMenuOpen, inCullRange));
+        }
+
+        [Fact]
+        public void ApplyAudioActionToActiveGhosts_LogsVisitedCounts()
+        {
+            var host = (ParsekKSC)FormatterServices.GetUninitializedObject(typeof(ParsekKSC));
+            var primary = new GhostPlaybackState();
+            var overlap = new GhostPlaybackState();
+            var visited = new List<GhostPlaybackState>();
+
+            typeof(ParsekKSC)
+                .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .SetValue(host, new Dictionary<int, GhostPlaybackState> { [7] = primary });
+            typeof(ParsekKSC)
+                .GetField("kscOverlapGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .SetValue(host, new Dictionary<int, List<GhostPlaybackState>>
+                {
+                    [7] = new List<GhostPlaybackState> { overlap }
+                });
+
+            var counts = host.ApplyAudioActionToActiveGhosts(
+                state => visited.Add(state),
+                "pause-test");
+
+            Assert.Equal((1, 1), counts);
+            Assert.Equal(new[] { primary, overlap }, visited);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC pause-test: 1 primary + 1 overlap ghost(s)"));
         }
 
         #endregion
