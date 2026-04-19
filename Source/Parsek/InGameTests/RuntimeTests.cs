@@ -1026,8 +1026,16 @@ namespace Parsek.InGameTests
             string treeId = "runtime-tree-" + suffix;
             string recordingId = "runtime-rec-" + suffix;
             double startUt = Planetarium.GetUniversalTime();
-            string vesselName = FlightGlobals.ActiveVessel?.vesselName ?? "Runtime Test Vessel";
-            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.bodyName ?? "Kerbin";
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            string vesselName = activeVessel?.vesselName ?? "Runtime Test Vessel";
+            CelestialBody body = activeVessel?.mainBody;
+            string bodyName = body?.bodyName ?? "Kerbin";
+            double baseLatitude = activeVessel != null ? activeVessel.latitude : 0.0;
+            double baseLongitude = activeVessel != null ? activeVessel.longitude : 0.0;
+            double bodyRadius = body != null && body.Radius > 0.0 ? body.Radius : 600000.0;
+            double degreesPerMeter = 180.0 / (System.Math.PI * bodyRadius);
+            double firstLatitude = baseLatitude + 40.0 * degreesPerMeter;
+            double secondLatitude = baseLatitude + 80.0 * degreesPerMeter;
 
             var rec = new Recording
             {
@@ -1039,8 +1047,22 @@ namespace Parsek.InGameTests
                 MaxDistanceFromLaunch = 100.0,
                 Points = new List<TrajectoryPoint>
                 {
-                    new TrajectoryPoint { ut = startUt, bodyName = bodyName, altitude = 10.0 },
-                    new TrajectoryPoint { ut = startUt + 5.0, bodyName = bodyName, altitude = 12.0 }
+                    new TrajectoryPoint
+                    {
+                        ut = startUt,
+                        bodyName = bodyName,
+                        latitude = firstLatitude,
+                        longitude = baseLongitude,
+                        altitude = 10.0
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = startUt + 5.0,
+                        bodyName = bodyName,
+                        latitude = secondLatitude,
+                        longitude = baseLongitude,
+                        altitude = 12.0
+                    }
                 }
             };
 
