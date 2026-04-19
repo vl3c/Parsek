@@ -7731,7 +7731,7 @@ namespace Parsek
 
         /// <summary>
         /// Stops the Gloops recorder, builds a Recording, and commits it as ghost-only
-        /// with looping enabled by default.
+        /// with looping off by default and the loop period initialized to auto.
         /// </summary>
         internal void StopGloopsRecording()
         {
@@ -7765,14 +7765,28 @@ namespace Parsek
 
         /// <summary>
         /// Shared commit path for Gloops recordings: builds a Recording from the
-        /// FlightRecorder's buffers, sets ghost-only + looping, and commits.
+        /// FlightRecorder's buffers, marks it ghost-only, defaults looping off,
+        /// initializes the period to auto, and commits.
         /// Used by both manual StopGloopsRecording and vessel-switch auto-commit.
         /// </summary>
+        private static string GetActiveVesselNameOrDefault(string fallbackName)
+        {
+            try
+            {
+                return Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel?.vesselName)
+                    ?? fallbackName;
+            }
+            catch (TypeInitializationException)
+            {
+                return fallbackName;
+            }
+        }
+
         private void CommitGloopsRecorderData(string logTag)
         {
             Recording rec = RecordingStore.CreateRecordingFromFlightData(
                 gloopsRecorder.Recording,
-                FlightGlobals.ActiveVessel?.vesselName ?? "Gloops Recording",
+                GetActiveVesselNameOrDefault("Gloops Recording"),
                 gloopsRecorder.OrbitSegments,
                 partEvents: gloopsRecorder.PartEvents,
                 flagEvents: gloopsRecorder.FlagEvents,
@@ -7788,7 +7802,9 @@ namespace Parsek
             }
 
             rec.IsGhostOnly = true;
-            rec.LoopPlayback = true;
+            rec.LoopPlayback = false;
+            rec.LoopIntervalSeconds = 0;
+            rec.LoopTimeUnit = LoopTimeUnit.Auto;
 
             // Apply snapshots
             rec.GhostVisualSnapshot = gloopsRecorder.GloopsGhostVisualSnapshot;
