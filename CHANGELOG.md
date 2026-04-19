@@ -38,6 +38,7 @@ All notable changes to Parsek are documented here.
 - `#475` Mun-end ghost spawns now use endpoint-aligned body/orbit data after rewind, and load heals stale cached terminal orbit bodies from older saves.
 - `#476` Post-walk and commit-time earnings reconciliation now skip sandbox / tracker-unavailable resource legs instead of comparing against zeroed stock stores. When funds, science, and reputation tracking are all unavailable, Parsek emits a one-shot VERBOSE skip line instead of flooding `KSP.log` with false `store delta=0.0` and `no matching event` WARNs.
 - `#477` Post-walk milestone reconciliation now compares coalesced `Progression` bursts once per window instead of attributing the summed funds/rep delta to each individual `MilestoneAchievement`. Same-UT milestone bursts now log grouped ids/counts, eliminating the misleading 2× / 3× `expected=` warnings while preserving correct aggregate matching.
+- `#468` Post-walk science reconciliation now matches `ScienceTransmission` across the owning recording span for end-anchored committed `ScienceEarning` rows.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
 
 ---

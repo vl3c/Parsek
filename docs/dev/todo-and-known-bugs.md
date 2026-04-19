@@ -339,7 +339,7 @@ Once root cause is known, fix is local to `CompareLeg` or its call site. Test: x
 
 ---
 
-## 468. `ScienceEarning` reconcile anchor UT is vessel-recovery-time, but `ScienceChanged 'ScienceTransmission'` events are emitted at transmission-time earlier in the flight — the 0.1s window can never match
+## ~~468. `ScienceEarning` reconcile anchor UT is vessel-recovery-time, but `ScienceChanged 'ScienceTransmission'` events are emitted at transmission-time earlier in the flight — the 0.1s window can never match~~
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log:10410-10415`.
 
@@ -372,7 +372,7 @@ Option 1 is cleaner but touches the emit path; option 2 is localised to `Compare
 
 **Dependencies:** surface with #469 during the same investigation — root-cause signal will tell which option is right.
 
-**Status:** TODO. Priority: medium. Currently produces 126+ WARNs per launch session.
+**Status:** DONE/CLOSED (2026-04-19). `CompareLeg` now widens the observed-side `ScienceTransmission` match window to the owning recording span only for end-anchored `ScienceEarning` actions, and new science actions persist `StartUT`/`EndUT` so reloads keep the same reconcile context. `#469` remains separate: it is the same-UT false-negative path, not this earlier-transmission window mismatch.
 
 ---
 
