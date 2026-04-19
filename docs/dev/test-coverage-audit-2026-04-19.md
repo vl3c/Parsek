@@ -454,8 +454,9 @@ The later `logs/2026-04-19_2228` bundle closes the auto-record validation gap:
 
 - `parsek-test-results.txt` captured exactly the two single-run `AutoRecord` tests in `FLIGHT`, and both passed: `AutoRecordOnLaunch_StartsExactlyOnce` and `AutoRecordOnEvaFromPad_StartsExactlyOnce`
 - both `KSP.log` and `Player.log` show the real row-play execution and `PASSED` lines for those two tests, so the launch-from-pad and deferred EVA-from-pad paths now have live runtime evidence rather than only xUnit seam coverage
-- that same bundle also exposed a separate observability issue: `log-validation.txt` failed `REC-001` because the live validator still requires a Recorder line beginning with `Recording started`, while this session emitted `TrackSection started ...` plus valid `Recording stopped` lines but no top-level `Recording started` line
-- that validator failure is not a failure of the new auto-record scenarios themselves, but it does mean the repo's current live log contract no longer matches what the recorder writes during these sessions
+- that same bundle also exposed a separate observability issue: `log-validation.txt` failed `REC-001` because the latest-session validator did not see any Recorder line beginning with `Recording started`
+- the root cause was not the recorder contract itself but the in-game assertion hook: those runtime tests were installing `ParsekLog.TestSinkForTesting`, which short-circuits `Debug.Log` and therefore swallowed the live recorder start line out of `KSP.log` / `Player.log` while still letting the tests assert on the captured line in-process
+- this worktree now fixes that by adding a tee-style `ParsekLog.TestObserverForTesting` hook and moving the in-game log-capture sites to it, so live KSP logging should remain intact while runtime tests still capture lines for assertions; compile validation passed, but a fresh KSP run is still needed to confirm `REC-001` is gone in practice
 
 ### Recommended next sequence
 
@@ -463,8 +464,8 @@ From here, I would continue with one structural pass, but with a tighter order t
 
 1. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-2. **Fix the live log-validation contract mismatch**
-   The auto-record scenarios are now runtime-validated, but `REC-001` is stale against the current recorder output. The next useful change is either to restore an explicit `Recording started ...` Recorder log at real recording start or to broaden the validator so it accepts the newer recorder start contract intentionally.
+2. **Re-run the single-run auto-record scenarios once to validate the observer fix**
+   The logger/test-hook fix is in place locally. The next useful evidence is one fresh `KSP.log` / `Player.log` / `log-validation.txt` bundle that proves `REC-001` now passes when the same `AutoRecord` tests are launched individually.
 3. **Promote one real merge/revert UI flow**
    The dialog itself now has a runtime discard smoke test. The missing confidence is the full revert path where a pending tree survives the transition into FLIGHT and the `Merge to Timeline` branch does the right thing in-scene.
 4. **Then add one playback-control scenario**
