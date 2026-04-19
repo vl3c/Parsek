@@ -101,7 +101,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyTimeScalePositiveSamples_SkipsWhenPauseStateIsUnavailable()
+        public void ClassifyTimeScalePositiveSamples_ReturnsPauseProbeUnavailableWhenPauseStateIsUnavailable()
         {
             var outcome = RuntimeTests.ClassifyTimeScalePositiveSamples(
                 new List<RuntimeTests.TimeScalePositiveProbeSample>
@@ -109,11 +109,18 @@ namespace Parsek.Tests
                     new RuntimeTests.TimeScalePositiveProbeSample
                     {
                         TimeScale = 0f,
+                        FlightDriverPause = true,
+                    },
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
                         FlightDriverPause = null,
                     },
                 });
 
-            Assert.Equal(RuntimeTests.TimeScalePositiveProbeOutcome.SkipStockPause, outcome);
+            Assert.Equal(
+                RuntimeTests.TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable,
+                outcome);
         }
 
         [Fact]

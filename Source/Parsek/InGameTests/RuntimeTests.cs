@@ -21,6 +21,7 @@ namespace Parsek.InGameTests
         {
             Passed,
             SkipStockPause,
+            SkipPauseProbeUnavailable,
             FailZeroWithoutPause,
         }
 
@@ -374,6 +375,12 @@ namespace Parsek.InGameTests
                         summary);
                     break;
 
+                case TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable:
+                    InGameAssert.Skip(
+                        "FlightDriver.Pause unavailable; cannot confirm stock pause state | " +
+                        summary);
+                    break;
+
                 default:
                     InGameAssert.Fail(
                         "Time.timeScale hit <= " +
@@ -391,6 +398,7 @@ namespace Parsek.InGameTests
                 return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
 
             bool sawPositiveTimeScale = false;
+            bool sawPauseProbeUnavailable = false;
             for (int i = 0; i < samples.Count; i++)
             {
                 if (samples[i].TimeScale > TimeScalePositiveThreshold)
@@ -401,11 +409,16 @@ namespace Parsek.InGameTests
 
                 if (samples[i].FlightDriverPause == false)
                     return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+                if (!samples[i].FlightDriverPause.HasValue)
+                    sawPauseProbeUnavailable = true;
             }
 
             return sawPositiveTimeScale
                 ? TimeScalePositiveProbeOutcome.Passed
-                : TimeScalePositiveProbeOutcome.SkipStockPause;
+                : sawPauseProbeUnavailable
+                    ? TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
         }
 
         internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)
