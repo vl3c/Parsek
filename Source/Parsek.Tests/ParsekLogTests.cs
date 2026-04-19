@@ -25,6 +25,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Warn_UsesStructuredFormat()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+
+            ParsekLog.Warn("UnitTest", "careful");
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][WARN][UnitTest] careful", lines[0]);
+        }
+
+        [Fact]
+        public void Info_NullInputs_UseSafeFallbacks()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+
+            ParsekLog.Info(null, null);
+
+            Assert.Single(lines);
+            Assert.Equal("[Parsek][INFO][General] (empty)", lines[0]);
+        }
+
+        [Fact]
         public void Verbose_SuppressedWhenVerboseDisabled()
         {
             var lines = new List<string>();
@@ -61,6 +85,28 @@ namespace Parsek.Tests
             Assert.Equal(2, lines.Count);
             Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[0]);
             Assert.Equal("[Parsek][VERBOSE][UnitTest] tick | suppressed=2", lines[1]);
+        }
+
+        [Fact]
+        public void ResetRateLimitsForTesting_AllowsImmediateReemit()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+
+            double now = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", "tick", 2.0);
+            now = 1000.5;
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", "tick", 2.0);
+
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", "tick", 2.0);
+
+            Assert.Equal(2, lines.Count);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[1]);
         }
 
         [Fact]

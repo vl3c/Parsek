@@ -500,6 +500,114 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region AutoRecord
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test stages and launches the active vessel to verify launch auto-record in a disposable FLIGHT session.",
+            Description = "Launch auto-record starts exactly once when a PRELAUNCH vessel leaves the pad")]
+        public IEnumerator AutoRecordOnLaunch_StartsExactlyOnce()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                InGameAssert.Skip(
+                    $"requires a PRELAUNCH active vessel, got {vessel.situation}");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current.autoRecordOnLaunch;
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+
+            try
+            {
+                ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.TestSinkForTesting = line => { captured.Add(line); priorSink?.Invoke(line); };
+
+                FlightInputHandler.state.mainThrottle = 1f;
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                yield return WaitForLaunchAutoRecordStart(10f);
+                yield return new WaitForSeconds(0.5f);
+
+                int autoStartCount = captured.Count(
+                    l => l.Contains("[Flight]") && l.Contains("Auto-record started ("));
+                InGameAssert.AreEqual(1, autoStartCount,
+                    $"Expected exactly one launch auto-record log line, got {autoStartCount}");
+
+                string activeRecId = ParsekFlight.Instance?.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set after launch auto-record starts");
+
+                ParsekLog.Info("TestRunner",
+                    $"AutoRecord launch: vessel='{FlightGlobals.ActiveVessel?.vesselName}' " +
+                    $"situation={FlightGlobals.ActiveVessel?.situation} activeRecId={activeRecId} " +
+                    $"autoStartCount={autoStartCount}");
+            }
+            finally
+            {
+                FlightInputHandler.state.mainThrottle = originalThrottle;
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+        }
+
+        private static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.situation != Vessel.Situations.PRELAUNCH)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForLaunchAutoRecordStart timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
+        }
+
+        #endregion
+
         #region MapView icons (#387)
 
         // Verify that MapMarkerRenderer's per-type icon entries match the live

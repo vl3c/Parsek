@@ -23,6 +23,17 @@ namespace Parsek
             DecoupleCreatedVessel
         }
 
+        internal enum AutoRecordLaunchDecision
+        {
+            SkipAlreadyRecording,
+            SkipInactiveVessel,
+            SkipBounce,
+            SkipNotLaunchTransition,
+            SkipDisabled,
+            StartFromPrelaunch,
+            StartFromSettledLanded
+        }
+
         internal static ParsekFlight Instance { get; private set; }
 
         /// <summary>
@@ -3833,48 +3844,50 @@ namespace Parsek
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
             if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            double currentUT = Planetarium.GetUniversalTime();
 
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
                 (data.to == Vessel.Situations.LANDED || data.to == Vessel.Situations.SPLASHED))
             {
-                lastLandedUT = Planetarium.GetUniversalTime();
+                lastLandedUT = currentUT;
             }
 
-            if (IsRecording) return;
-            if (data.host != FlightGlobals.ActiveVessel)
-            {
-                ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
-                    $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
-                return;
-            }
+            var launchDecision = EvaluateAutoRecordLaunchDecision(
+                isRecording: IsRecording,
+                isActiveVessel: data.host == FlightGlobals.ActiveVessel,
+                fromSituation: data.from,
+                autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
+                lastLandedUt: lastLandedUT,
+                currentUt: currentUT,
+                landedSettleThreshold: LandedSettleThreshold);
 
-            bool isPrelaunch = data.from == Vessel.Situations.PRELAUNCH;
-            bool isSettledLaunch = false;
-            if (!isPrelaunch && data.from == Vessel.Situations.LANDED)
+            switch (launchDecision)
             {
-                double settledTime = lastLandedUT >= 0
-                    ? Planetarium.GetUniversalTime() - lastLandedUT
-                    : 0;
-                isSettledLaunch = settledTime >= LandedSettleThreshold;
-                if (!isSettledLaunch)
-                {
+                case AutoRecordLaunchDecision.SkipAlreadyRecording:
+                    return;
+
+                case AutoRecordLaunchDecision.SkipInactiveVessel:
+                    ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
+                        $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
+                    return;
+
+                case AutoRecordLaunchDecision.SkipBounce:
+                    double settledTime = lastLandedUT >= 0
+                        ? currentUT - lastLandedUT
+                        : 0;
                     ParsekLog.VerboseRateLimited("Flight", "sit-change-bounce",
                         $"OnVesselSituationChange: LANDED → {data.to} after {settledTime:F1}s (< {LandedSettleThreshold}s settle threshold)");
-                }
-            }
+                    return;
 
-            if (!isPrelaunch && !isSettledLaunch)
-            {
-                if (data.from != Vessel.Situations.LANDED) // already logged above for LANDED bounces
+                case AutoRecordLaunchDecision.SkipNotLaunchTransition:
                     ParsekLog.VerboseRateLimited("Flight", "sit-change-not-launch",
                         $"OnVesselSituationChange: not a launch transition ({data.from} → {data.to})");
-                return;
-            }
-            if (ParsekSettings.Current?.autoRecordOnLaunch == false)
-            {
-                ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
-                return;
+                    return;
+
+                case AutoRecordLaunchDecision.SkipDisabled:
+                    ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
+                    return;
             }
 
             StartRecording();
@@ -3940,14 +3953,15 @@ namespace Parsek
                 return;
             }
 
-            if (data.from?.vessel == null)
+            bool hasSourceVessel = data.from?.vessel != null;
+            if (!ShouldQueueAutoRecordOnEva(
+                hasSourceVessel,
+                autoRecordOnEvaEnabled: ParsekSettings.Current?.autoRecordOnEva != false))
             {
-                ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
-                return;
-            }
-            if (ParsekSettings.Current?.autoRecordOnEva == false)
-            {
-                ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
+                if (!hasSourceVessel)
+                    ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
+                else
+                    ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
                 return;
             }
 
@@ -3963,6 +3977,60 @@ namespace Parsek
             if (crew != null && crew.Count > 0) return crew[0].name;
             if (data.to.vessel != null) return data.to.vessel.vesselName;
             return null;
+        }
+
+        internal static AutoRecordLaunchDecision EvaluateAutoRecordLaunchDecision(
+            bool isRecording,
+            bool isActiveVessel,
+            Vessel.Situations fromSituation,
+            bool autoRecordOnLaunchEnabled,
+            double lastLandedUt,
+            double currentUt,
+            double landedSettleThreshold)
+        {
+            if (isRecording)
+                return AutoRecordLaunchDecision.SkipAlreadyRecording;
+
+            if (!isActiveVessel)
+                return AutoRecordLaunchDecision.SkipInactiveVessel;
+
+            if (fromSituation == Vessel.Situations.PRELAUNCH)
+            {
+                return autoRecordOnLaunchEnabled
+                    ? AutoRecordLaunchDecision.StartFromPrelaunch
+                    : AutoRecordLaunchDecision.SkipDisabled;
+            }
+
+            if (fromSituation == Vessel.Situations.LANDED)
+            {
+                double settledTime = lastLandedUt >= 0
+                    ? currentUt - lastLandedUt
+                    : 0;
+                if (settledTime < landedSettleThreshold)
+                    return AutoRecordLaunchDecision.SkipBounce;
+
+                return autoRecordOnLaunchEnabled
+                    ? AutoRecordLaunchDecision.StartFromSettledLanded
+                    : AutoRecordLaunchDecision.SkipDisabled;
+            }
+
+            return AutoRecordLaunchDecision.SkipNotLaunchTransition;
+        }
+
+        internal static bool ShouldQueueAutoRecordOnEva(
+            bool hasSourceVessel,
+            bool autoRecordOnEvaEnabled)
+        {
+            return hasSourceVessel && autoRecordOnEvaEnabled;
+        }
+
+        internal static bool ShouldStartDeferredAutoRecordEva(
+            bool pendingAutoRecord,
+            bool isRecording,
+            bool hasActiveVessel,
+            bool activeVesselIsEva)
+        {
+            return pendingAutoRecord && !isRecording && hasActiveVessel && activeVesselIsEva;
         }
 
         void OnVesselGoOnRails(Vessel v)
@@ -4389,16 +4457,20 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(placedBy) || recordedVessel == null) return false;
 
-            // Check crew roster — works for both EVA kerbals and crewed vessels
-            var crew = recordedVessel.GetVesselCrew();
-            if (crew != null)
+            return CrewContainsKerbalNamed(recordedVessel.GetVesselCrew(), placedBy);
+        }
+
+        internal static bool CrewContainsKerbalNamed(List<ProtoCrewMember> crew, string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName) || crew == null)
+                return false;
+
+            for (int i = 0; i < crew.Count; i++)
             {
-                for (int i = 0; i < crew.Count; i++)
-                {
-                    if (crew[i].name == placedBy)
-                        return true;
-                }
+                if (crew[i]?.name == kerbalName)
+                    return true;
             }
+
             return false;
         }
 
@@ -5435,8 +5507,12 @@ namespace Parsek
         /// </summary>
         private void HandleDeferredAutoRecordEva()
         {
-            if (!pendingAutoRecord || IsRecording ||
-                FlightGlobals.ActiveVessel == null || !FlightGlobals.ActiveVessel.isEVA)
+            bool hasActiveVessel = FlightGlobals.ActiveVessel != null;
+            if (!ShouldStartDeferredAutoRecordEva(
+                pendingAutoRecord,
+                IsRecording,
+                hasActiveVessel,
+                activeVesselIsEva: hasActiveVessel && FlightGlobals.ActiveVessel.isEVA))
                 return;
 
             StartRecording();
