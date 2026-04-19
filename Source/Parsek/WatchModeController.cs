@@ -711,7 +711,9 @@ namespace Parsek
                 case CameraActionType.RetargetToNewGhost:
                     if (watchedOverlapCycleIndex == -1 && evt.GhostPivot != null && FlightCamera.fetch != null)
                     {
-                        FlightCamera.fetch.SetTargetTransform(GetWatchTarget(evt.GhostPivot));
+                        TryRetargetWatchCameraPreservingState(
+                            FindGhostStateByCameraPivot(evt.GhostPivot),
+                            evt.GhostPivot);
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
                         // Clean up the bridge anchor now that camera is on the new ghost
                         DestroyOverlapCameraAnchor();
@@ -731,7 +733,9 @@ namespace Parsek
                 case CameraActionType.RetargetToNewGhost:
                     if (watchedOverlapCycleIndex == -1 && evt.GhostPivot != null && FlightCamera.fetch != null)
                     {
-                        FlightCamera.fetch.SetTargetTransform(GetWatchTarget(evt.GhostPivot));
+                        TryRetargetWatchCameraPreservingState(
+                            FindGhostStateByCameraPivot(evt.GhostPivot),
+                            evt.GhostPivot);
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
                         DestroyOverlapCameraAnchor();
                         ParsekLog.Info("CameraFollow",
@@ -1246,6 +1250,112 @@ namespace Parsek
                     heading);
 
             return true;
+        }
+
+        internal static bool ApplyRetargetPreservingCapturedWatchCameraState(
+            bool hasCapturedState,
+            WatchCameraTransitionState cameraState,
+            Transform newTarget,
+            Action<Transform> setTargetTransform,
+            Action<float, float> applyAnglesInDegrees)
+        {
+            if (newTarget == null || setTargetTransform == null)
+                return false;
+
+            setTargetTransform(newTarget);
+            if (applyAnglesInDegrees == null)
+                return true;
+
+            if (TryResolveRetargetedWatchAngles(
+                    hasCapturedState,
+                    cameraState,
+                    newTarget.rotation,
+                    out var pitch,
+                    out var heading))
+            {
+                applyAnglesInDegrees(pitch, heading);
+            }
+            return true;
+        }
+
+        internal static bool TryResolveRetargetedWatchAngles(
+            bool hasCapturedState,
+            WatchCameraTransitionState cameraState,
+            Quaternion newTargetRotation,
+            out float pitch,
+            out float heading)
+        {
+            pitch = cameraState.Pitch;
+            heading = cameraState.Heading;
+            if (!hasCapturedState)
+                return false;
+
+            (pitch, heading) = CompensateTransferredWatchAngles(cameraState, newTargetRotation);
+            return true;
+        }
+
+        private bool TryRetargetWatchCameraPreservingState(Transform newTarget)
+        {
+            FlightCamera flightCamera = FlightCamera.fetch;
+            if (flightCamera == null || newTarget == null)
+                return false;
+
+            bool hasCapturedState = TryCaptureActiveWatchCameraState(out var cameraState);
+            return ApplyRetargetPreservingCapturedWatchCameraState(
+                hasCapturedState,
+                cameraState,
+                newTarget,
+                flightCamera.SetTargetTransform,
+                (pitchDeg, headingDeg) =>
+                {
+                    flightCamera.camPitch = pitchDeg * Mathf.Deg2Rad;
+                    flightCamera.camHdg = headingDeg * Mathf.Deg2Rad;
+                });
+        }
+
+        private bool TryRetargetWatchCameraPreservingState(
+            GhostPlaybackState state,
+            Transform fallbackTarget = null)
+        {
+            if (state != null)
+            {
+                // HorizonLocked mode targets horizonProxy, whose rotation is only valid
+                // after we prime the replacement ghost for the current frame.
+                PrimeWatchTargetOrientation(state);
+                Transform target = GetWatchTarget(state.cameraPivot) ?? state.ghost?.transform;
+                if (TryRetargetWatchCameraPreservingState(target))
+                    return true;
+            }
+
+            return TryRetargetWatchCameraPreservingState(fallbackTarget);
+        }
+
+        private GhostPlaybackState FindGhostStateByCameraPivot(Transform ghostPivot)
+        {
+            if (ghostPivot == null)
+                return null;
+
+            var ghostStates = host.Engine.ghostStates;
+            GhostPlaybackState primary;
+            if (ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                && primary != null
+                && primary.cameraPivot == ghostPivot)
+            {
+                return primary;
+            }
+
+            List<GhostPlaybackState> overlaps;
+            if (host.Engine.TryGetOverlapGhosts(watchedRecordingIndex, out overlaps) && overlaps != null)
+            {
+                for (int i = 0; i < overlaps.Count; i++)
+                {
+                    GhostPlaybackState overlap = overlaps[i];
+                    if (overlap != null && overlap.cameraPivot == ghostPivot)
+                        return overlap;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -2566,7 +2676,7 @@ namespace Parsek
                         state = primary;
                         watchedOverlapCycleIndex = primary.loopCycleIndex;
                         if (FlightCamera.fetch != null)
-                            FlightCamera.fetch.SetTargetTransform(GetWatchTarget(primary.cameraPivot));
+                            TryRetargetWatchCameraPreservingState(primary);
                         ParsekLog.Info("CameraFollow",
                             $"Watched cycle lost \u2014 falling back to primary cycle={primary.loopCycleIndex}");
                         LogWatchFocusStateChanged(primary, force: true, context: "cycle-fallback");
@@ -2607,8 +2717,7 @@ namespace Parsek
                     && primaryReady
                     && primary != null && primary.ghost != null)
                 {
-                    var target = GetWatchTarget(primary.cameraPivot) ?? primary.ghost.transform;
-                    FlightCamera.fetch.SetTargetTransform(target);
+                    TryRetargetWatchCameraPreservingState(primary);
                     watchedOverlapCycleIndex = primary.loopCycleIndex;
                     watchNoTargetFrames = 0;
                     ParsekLog.Info("CameraFollow",
@@ -2713,9 +2822,7 @@ namespace Parsek
                 {
                     try
                     {
-                        var target = GetWatchTarget(primary.cameraPivot) ?? primary.ghost.transform;
-                        if (target != null)
-                            flightCamera.SetTargetTransform(target);
+                        TryRetargetWatchCameraPreservingState(primary);
                     }
                     catch (System.Security.SecurityException)
                     {
@@ -3004,7 +3111,7 @@ namespace Parsek
             if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
             {
                 var target = GetWatchTarget(ws.cameraPivot) ?? ws.ghost.transform;
-                FlightCamera.fetch.SetTargetTransform(target);
+                TryRetargetWatchCameraPreservingState(ws, target);
                 ParsekLog.Info("CameraFollow",
                     $"onVesselChange re-target: ghost #{watchedRecordingIndex}" +
                     $" target='{target.name}' localPos=({target.localPosition.x:F2},{target.localPosition.y:F2},{target.localPosition.z:F2})" +

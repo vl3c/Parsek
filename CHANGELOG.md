@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.3
+
+### Tests
+
+- `#472` Added unit coverage for watch-camera retarget angle resolution so preserved pitch/heading stays pinned to the same world orbit direction across ghost handoffs.
+
+### Bug Fixes
+
+- `#472` Watch-mode camera retargets now preserve the current pitch/heading when follow rebinds to a replacement ghost, eliminating the visible camera jerk on loop/overlap handoffs, quiet-expiry primary rebinds, and stock vessel-switch re-targets.
+
+---
+
 ## 0.8.2
 
 ### Features
