@@ -4200,9 +4200,7 @@ namespace Parsek.InGameTests
                 result.Diagnostic = globalReadinessReason;
                 result.ShouldRetry = true;
                 result.HadRetryableReadinessBlock = true;
-                ParsekLog.VerboseRateLimited("TestRunner",
-                    "StrategyLifecycle-readiness",
-                    $"StrategyLifecycle readiness waiting: {globalReadinessReason}");
+                StrategyLifecycleProbeSupport.LogReadinessWaiting(globalReadinessReason);
                 return result;
             }
 
@@ -4277,12 +4275,11 @@ namespace Parsek.InGameTests
 
             if (probeThrows > 0)
             {
-                ParsekLog.Warn("TestRunner",
-                    StrategyLifecycleProbeSupport.BuildPollExceptionSummary(
-                        list.Count,
-                        probeThrows,
-                        firstProbeFailureIndex,
-                        firstProbeFailureSummary));
+                StrategyLifecycleProbeSupport.LogPollExceptions(
+                    list.Count,
+                    probeThrows,
+                    firstProbeFailureIndex,
+                    firstProbeFailureSummary);
             }
 
             result.Diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(

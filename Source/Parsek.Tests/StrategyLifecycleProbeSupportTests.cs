@@ -130,6 +130,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LogReadinessWaiting_EmitsVerboseRateLimitedLine()
+        {
+            StrategyLifecycleProbeSupport.LogReadinessWaiting(
+                StrategyLifecycleProbeSupport.AdministrationNotReadyReason);
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][VERBOSE][TestRunner] StrategyLifecycle readiness waiting: " +
+                StrategyLifecycleProbeSupport.AdministrationNotReadyReason,
+                logLines[0]);
+        }
+
+        [Fact]
         public void LogReadinessTimeout_EmitsWarnWithAttemptCount()
         {
             StrategyLifecycleProbeSupport.LogReadinessTimeout(
@@ -141,6 +154,21 @@ namespace Parsek.Tests
             Assert.Equal(
                 "[Parsek][WARN][TestRunner] StrategyLifecycle readiness timed out after 30/30 attempts: " +
                 StrategyLifecycleProbeSupport.AdministrationNotReadyReason,
+                logLines[0]);
+        }
+
+        [Fact]
+        public void LogPollExceptions_EmitsWarnUsingPollSummary()
+        {
+            StrategyLifecycleProbeSupport.LogPollExceptions(
+                strategyCount: 11,
+                probeThrows: 11,
+                firstThrowIndex: 0,
+                firstThrowSummary: "NullReferenceException: boom");
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][WARN][TestRunner] StrategyLifecycle readiness probe saw 11/11 CanBeActivated exception(s) in this poll; firstIndex=0; firstException='NullReferenceException: boom'",
                 logLines[0]);
         }
 

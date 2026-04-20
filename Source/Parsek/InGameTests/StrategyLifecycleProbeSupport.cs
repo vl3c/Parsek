@@ -70,6 +70,11 @@ namespace Parsek.InGameTests
             return sb.ToString();
         }
 
+        internal static string BuildReadinessWaitingSummary(string readinessReason)
+        {
+            return $"StrategyLifecycle readiness waiting: {NormalizeDiagnostic(readinessReason)}";
+        }
+
         internal static string BuildProbeDiagnostic(
             int strategyCount,
             int nullEntries,
@@ -139,6 +144,29 @@ namespace Parsek.InGameTests
         {
             ParsekLog.Warn("TestRunner",
                 BuildReadinessTimeoutSummary(attemptCount, maxAttempts, diagnostic));
+        }
+
+        internal static void LogReadinessWaiting(string readinessReason)
+        {
+            ParsekLog.VerboseRateLimited(
+                "TestRunner",
+                "StrategyLifecycle-readiness",
+                BuildReadinessWaitingSummary(readinessReason));
+        }
+
+        internal static void LogPollExceptions(
+            int strategyCount,
+            int probeThrows,
+            int firstThrowIndex,
+            string firstThrowSummary)
+        {
+            ParsekLog.Warn(
+                "TestRunner",
+                BuildPollExceptionSummary(
+                    strategyCount,
+                    probeThrows,
+                    firstThrowIndex,
+                    firstThrowSummary));
         }
 
         internal static bool ShouldFailUnavailableSelection(
