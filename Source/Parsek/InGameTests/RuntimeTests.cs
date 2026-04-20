@@ -4614,6 +4614,7 @@ namespace Parsek.InGameTests
             public string Diagnostic;
             public bool ShouldRetry;
             public bool HadProbeException;
+            public bool HadRetryableReadinessBlock;
         }
 
         private sealed class StrategySelectionResult
@@ -4621,7 +4622,8 @@ namespace Parsek.InGameTests
             public Strategies.Strategy Strategy;
             public string ConfigName;
             public string Diagnostic;
-            public bool SawProbeException;
+            public bool FinalProbeHadException;
+            public bool FinalProbeHadRetryableReadinessBlock;
         }
 
         private static StrategyProbeResult ProbeActivatableStockStrategy()
@@ -4630,21 +4632,20 @@ namespace Parsek.InGameTests
             {
                 Diagnostic = "no activatable stock strategy available",
                 ShouldRetry = false,
-                HadProbeException = false
+                HadProbeException = false,
+                HadRetryableReadinessBlock = false
             };
 
             var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            var list = system?.Strategies;
+            string globalReadinessReason =
+                StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(system, list);
+            if (!string.IsNullOrEmpty(globalReadinessReason))
             {
-                result.Diagnostic = "StrategySystem.Instance is null";
+                result.Diagnostic = globalReadinessReason;
                 result.ShouldRetry = true;
-                return result;
-            }
-            var list = system.Strategies;
-            if (list == null)
-            {
-                result.Diagnostic = "StrategySystem.Strategies is null";
-                result.ShouldRetry = true;
+                result.HadRetryableReadinessBlock = true;
+                StrategyLifecycleProbeSupport.LogReadinessWaiting(globalReadinessReason);
                 return result;
             }
 
@@ -4654,7 +4655,9 @@ namespace Parsek.InGameTests
             int namelessEntries = 0;
             int blockedEntries = 0;
             int probeThrows = 0;
-            string lastProbeFailure = null;
+            int firstProbeFailureIndex = -1;
+            string firstProbeFailureSummary = null;
+            string firstProbeFailureDetail = null;
             for (int i = 0; i < list.Count; i++)
             {
                 var s = list[i];
@@ -4666,6 +4669,7 @@ namespace Parsek.InGameTests
 
                 try
                 {
+                    string probeConfigName = null;
                     if (s.IsActive)
                     {
                         activeEntries++;
@@ -4679,8 +4683,8 @@ namespace Parsek.InGameTests
                         continue;
                     }
 
-                    string configName = config.Name;
-                    if (string.IsNullOrEmpty(configName))
+                    probeConfigName = config.Name;
+                    if (string.IsNullOrEmpty(probeConfigName))
                     {
                         namelessEntries++;
                         continue;
@@ -4694,32 +4698,48 @@ namespace Parsek.InGameTests
                     }
 
                     result.Strategy = s;
-                    result.ConfigName = configName;
-                    result.Diagnostic = $"selected activatable strategy '{configName}'";
+                    result.ConfigName = probeConfigName;
+                    result.Diagnostic = $"selected activatable strategy '{probeConfigName}'";
                     return result;
                 }
                 catch (System.Exception ex)
                 {
                     probeThrows++;
                     result.HadProbeException = true;
-                    lastProbeFailure = $"{ex.GetType().Name}: {ex.Message}";
-                    ParsekLog.Warn("TestRunner",
-                        $"StrategyLifecycle probe skipped strategy index {i} because readiness access threw: {lastProbeFailure}");
+                    if (firstProbeFailureSummary == null)
+                    {
+                        firstProbeFailureIndex = i;
+                        firstProbeFailureSummary =
+                            StrategyLifecycleProbeSupport.FormatExceptionSummary(ex);
+                        firstProbeFailureDetail = ex.ToString();
+                    }
+                    ParsekLog.Verbose("TestRunner",
+                        $"StrategyLifecycle probe exception: index={i} {ex}");
                 }
             }
 
-            result.Diagnostic =
-                $"no CanBeActivated-true stock strategy available (count={list.Count}, null={nullEntries}, " +
-                $"active={activeEntries}, configless={configlessEntries}, nameless={namelessEntries}, " +
-                $"blocked={blockedEntries}, " +
-                $"probeThrows={probeThrows}" +
-                (string.IsNullOrEmpty(lastProbeFailure)
-                    ? ")"
-                    : $", lastProbe='{lastProbeFailure}')");
+            if (probeThrows > 0)
+            {
+                StrategyLifecycleProbeSupport.LogPollExceptions(
+                    list.Count,
+                    probeThrows,
+                    firstProbeFailureIndex,
+                    firstProbeFailureSummary);
+            }
+
+            result.Diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(
+                list.Count,
+                nullEntries,
+                activeEntries,
+                configlessEntries,
+                namelessEntries,
+                blockedEntries,
+                probeThrows,
+                firstProbeFailureIndex,
+                firstProbeFailureSummary,
+                firstProbeFailureDetail);
             result.ShouldRetry =
-                system == null
-                || list == null
-                || configlessEntries > 0
+                configlessEntries > 0
                 || namelessEntries > 0
                 || probeThrows > 0;
             return result;
@@ -4733,18 +4753,23 @@ namespace Parsek.InGameTests
             result.Strategy = null;
             result.ConfigName = null;
             result.Diagnostic = "no activatable stock strategy available";
-            result.SawProbeException = false;
+            result.FinalProbeHadException = false;
+            result.FinalProbeHadRetryableReadinessBlock = false;
 
             for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
                 yield return null;
 
             string stableConfigName = null;
             int stableFrames = 0;
+            bool sawRetryableDelay = false;
             for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
             {
                 var probe = ProbeActivatableStockStrategy();
                 result.Diagnostic = probe.Diagnostic;
-                result.SawProbeException |= probe.HadProbeException;
+                // Track only the final retryable state. Early hydration waits or probe
+                // exceptions that later clear must not poison a later legitimate skip.
+                result.FinalProbeHadException = probe.HadProbeException;
+                result.FinalProbeHadRetryableReadinessBlock = probe.HadRetryableReadinessBlock;
                 if (probe.Strategy != null)
                 {
                     if (probe.ConfigName == stableConfigName)
@@ -4758,7 +4783,16 @@ namespace Parsek.InGameTests
                     result.Strategy = probe.Strategy;
                     result.ConfigName = probe.ConfigName;
                     if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                    {
+                        if (sawRetryableDelay)
+                        {
+                            StrategyLifecycleProbeSupport.LogReadinessSettled(
+                                attempt + 1,
+                                StrategyLifecycleProbeRetryFrames,
+                                result.Diagnostic);
+                        }
                         yield break;
+                    }
 
                     yield return null;
                     continue;
@@ -4771,7 +4805,16 @@ namespace Parsek.InGameTests
                 if (!probe.ShouldRetry)
                     yield break;
 
+                sawRetryableDelay = true;
                 yield return null;
+            }
+
+            if (sawRetryableDelay && (result.Strategy == null || string.IsNullOrEmpty(result.ConfigName)))
+            {
+                StrategyLifecycleProbeSupport.LogReadinessTimeout(
+                    StrategyLifecycleProbeRetryFrames,
+                    StrategyLifecycleProbeRetryFrames,
+                    result.Diagnostic);
             }
         }
 
@@ -4801,7 +4844,9 @@ namespace Parsek.InGameTests
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (selection.SawProbeException)
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
@@ -4856,7 +4901,7 @@ namespace Parsek.InGameTests
             catch (System.Exception ex)
             {
                 InGameAssert.Fail(
-                    $"Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                    $"Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                 yield break;
             }
             yield return null;
@@ -4932,7 +4977,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception innerEx)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
+                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx}");
                     }
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
@@ -4987,7 +5032,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
+                            $"StrategyLifecycle deactivate-phase teardown threw: {ex}");
                     }
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
@@ -5023,7 +5068,9 @@ namespace Parsek.InGameTests
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (selection.SawProbeException)
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
@@ -5063,7 +5110,7 @@ namespace Parsek.InGameTests
                 catch (System.Exception ex)
                 {
                     InGameAssert.Fail(
-                        $"Initial Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                     yield break;
                 }
                 if (!firstActivate)
@@ -5084,7 +5131,7 @@ namespace Parsek.InGameTests
                 catch (System.Exception ex)
                 {
                     InGameAssert.Fail(
-                        $"Second Strategy.Activate threw {ex.GetType().Name} for already-active key='{configName}': {ex.Message}");
+                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
                     yield break;
                 }
                 InGameAssert.IsFalse(ok,
@@ -5116,7 +5163,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex.Message}");
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
                     }
                 }
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
