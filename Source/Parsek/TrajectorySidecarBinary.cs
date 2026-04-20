@@ -160,10 +160,14 @@ namespace Parsek
             if (!RecordingStore.SuppressLogging)
             {
                 int nonDefaultSectionSources = CountNonDefaultSectionSources(rec.TrackSections);
+                int predictedCheckpointCount;
+                int predictedOrbitSegmentCount = RecordingStore.CountPredictedOrbitSegments(
+                    rec, out predictedCheckpointCount);
                 ParsekLog.Verbose("RecordingStore",
                     $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={binaryVersion} " +
                     $"sectionAuthoritative={sectionAuthoritative} strings={table.Strings.Count} " +
                     $"points={(sectionAuthoritative ? 0 : rec.Points.Count)} orbitSegments={(sectionAuthoritative ? 0 : rec.OrbitSegments.Count)} " +
+                    $"predictedOrbitSegments={predictedOrbitSegmentCount} predictedCheckpoints={predictedCheckpointCount} " +
                     $"trackSections={rec.TrackSections?.Count ?? 0} nonDefaultSectionSources={nonDefaultSectionSources} " +
                     $"sparsePointLists={stats.SparsePointLists} sparsePoints={stats.SparsePoints} " +
                     $"omittedBody={stats.OmittedBody} omittedFunds={stats.OmittedFunds} " +

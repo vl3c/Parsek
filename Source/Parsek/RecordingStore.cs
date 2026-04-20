@@ -5302,26 +5302,42 @@ namespace Parsek
         {
             if (rec == null
                 || rec.RecordingFormatVersion < 2
-                || rec.RecordingFormatVersion >= PredictedOrbitSegmentFormatVersion
-                || !HasPredictedOrbitSegments(rec))
+                || rec.RecordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
                 return;
 
+            int predictedCheckpointCount;
+            int predictedOrbitSegmentCount = CountPredictedOrbitSegments(rec, out predictedCheckpointCount);
+            if (predictedOrbitSegmentCount == 0 && predictedCheckpointCount == 0)
+                return;
+
+            int originalVersion = rec.RecordingFormatVersion;
             rec.RecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
+            if (!SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"NormalizeRecordingFormatVersionForPredictedSegments: recording={rec.RecordingId} " +
+                    $"version={originalVersion}->{rec.RecordingFormatVersion} " +
+                    $"predictedOrbitSegments={predictedOrbitSegmentCount} " +
+                    $"predictedCheckpoints={predictedCheckpointCount}");
+            }
         }
 
-        private static bool HasPredictedOrbitSegments(Recording rec)
+        internal static int CountPredictedOrbitSegments(Recording rec, out int predictedCheckpointCount)
         {
+            int predictedOrbitSegmentCount = 0;
+            predictedCheckpointCount = 0;
+
             if (rec?.OrbitSegments != null)
             {
                 for (int i = 0; i < rec.OrbitSegments.Count; i++)
                 {
                     if (rec.OrbitSegments[i].isPredicted)
-                        return true;
+                        predictedOrbitSegmentCount++;
                 }
             }
 
             if (rec?.TrackSections == null)
-                return false;
+                return predictedOrbitSegmentCount;
 
             for (int i = 0; i < rec.TrackSections.Count; i++)
             {
@@ -5332,11 +5348,11 @@ namespace Parsek
                 for (int j = 0; j < checkpoints.Count; j++)
                 {
                     if (checkpoints[j].isPredicted)
-                        return true;
+                        predictedCheckpointCount++;
                 }
             }
 
-            return false;
+            return predictedOrbitSegmentCount;
         }
 
         internal static bool ShouldWriteReadableSidecarMirrors()

@@ -327,7 +327,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("WriteBinaryTrajectoryFile") &&
-                l.Contains("sectionAuthoritative=True"));
+                l.Contains("sectionAuthoritative=True") &&
+                l.Contains("predictedOrbitSegments=1") &&
+                l.Contains("predictedCheckpoints=1"));
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
@@ -391,6 +393,7 @@ namespace Parsek.Tests
             legacy.OrbitSegments.Add(MakeOrbitSegment(100.0, 220.0, isPredicted: true));
 
             string path = Path.Combine(tempDir, "legacy-v4-predicted.prec");
+            logLines.Clear();
             RecordingStore.WriteTrajectorySidecar(path, legacy, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
@@ -398,6 +401,19 @@ namespace Parsek.Tests
             Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, legacy.RecordingFormatVersion);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("NormalizeRecordingFormatVersionForPredictedSegments") &&
+                l.Contains("recording=legacy-v4-predicted") &&
+                l.Contains("version=4->5") &&
+                l.Contains("predictedOrbitSegments=1") &&
+                l.Contains("predictedCheckpoints=0"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("predictedOrbitSegments=1") &&
+                l.Contains("predictedCheckpoints=0"));
 
             var restored = new Recording { RecordingId = legacy.RecordingId };
             RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
