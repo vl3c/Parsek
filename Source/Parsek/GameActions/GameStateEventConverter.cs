@@ -179,7 +179,7 @@ namespace Parsek
         /// <summary>
         /// Converts a list of PendingScienceSubjects into ScienceEarning GameActions.
         /// Each subject becomes a ScienceEarning action anchored at commit/end UT while
-        /// also carrying the owning recording span for post-walk reconciliation.
+        /// also carrying the subject's observed science window for reconciliation.
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
@@ -228,8 +228,9 @@ namespace Parsek
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
                     ScienceAwarded = subj.science,
+                    Method = ResolveScienceMethod(subj.reasonKey),
                     SubjectMaxValue = subj.subjectMaxValue,
-                    StartUT = (float)startUT,
+                    StartUT = (float)ResolveScienceWindowStart(subj, recordingId, startUT, endUT),
                     EndUT = (float)endUT,
                     Sequence = sequence++
                 });
@@ -240,6 +241,39 @@ namespace Parsek
                 $"recordingId={recordingId ?? "(none)"}");
 
             return result;
+        }
+
+        private static double ResolveScienceWindowStart(
+            PendingScienceSubject subject,
+            string recordingId,
+            double defaultStartUT,
+            double endUT)
+        {
+            if (!string.Equals(
+                    subject.recordingId ?? "",
+                    recordingId ?? "",
+                    StringComparison.Ordinal))
+                return defaultStartUT;
+
+            double captureUt = subject.captureUT;
+            if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
+                return defaultStartUT;
+            if (captureUt < 0.0)
+                return defaultStartUT;
+            if (captureUt == 0.0 && defaultStartUT > 0.0)
+                return defaultStartUT;
+            if (captureUt > endUT)
+                return defaultStartUT;
+
+            return captureUt;
+        }
+
+        private static ScienceMethod ResolveScienceMethod(string reasonKey)
+        {
+            if (string.Equals(reasonKey, "VesselRecovery", StringComparison.Ordinal))
+                return ScienceMethod.Recovered;
+
+            return ScienceMethod.Transmitted;
         }
 
         // ================================================================
