@@ -390,31 +390,37 @@ Load each and verify finalization produces the expected terminal state and arc c
 
 - Format version bump; no migration (per `Format v0 reset` policy).
 - Existing recordings without `ExtrapolatedArcs` load fine; playback falls back to the current "spawn at last frame" behaviour — no regression for legacy data.
-- Recordings created after this change that have `TerminalState == Destroyed` cannot be "spawned" via Real Spawn Warp — RSW UI must check and surface that state explicitly ("Ghost destroyed; no spawn available").
+- Recordings with `TerminalState == Destroyed` are already filtered out of Real Spawn Control by the existing `ShouldSpawnAtRecordingEnd` gate — no RSW UI work needed.
 
-## Open Questions
+## Locked Decisions (from design discussion 2026-04-20)
 
-1. Should `Destroyed` ghosts be visible in Tracking Station / map view during their extrapolated arc? Current ghost-map-presence system creates ProtoVessels — worth deciding whether a transient "about to be destroyed" ghost warrants that overhead.
-2. Should background-recorder integration be scoped in this plan or deferred? Current text treats background data as a pre-extrapolation source but does not modify background-recorder code. Recommend deferring.
-3. How visible should the atmo-entry moment be? Optional: trigger stock re-entry FX at the destruction UT as a visual cue. Nice-to-have, not required.
-4. Tunable thresholds in `ShouldExtrapolate` — expose in settings window or keep as compile-time constants? Recommend constants until user feedback indicates otherwise.
+- **Q1 maneuver nodes**: snapshot walks `nextPatch` only up to (and not including) the first patch whose `patchEndTransition == MANEUVER`. Chain is pure coast by construction; no node mutation, no restore logic.
+- **Q2 tracking-station / map presence for `Destroyed`**: treat as any other ghost with a shorter lifetime. `GhostMapPresence` creates the ProtoVessel at spawn, removes it at `terminalUT`. Targeting works until then.
+- **Q3 RSW visibility**: no work needed. `TerminalState.Destroyed` already exists and is already in the spawn-eligibility blocklist at `GhostPlaybackLogic.cs:3636`.
+- **Q4 deferred spawn queue**: no changes. Queue entry is gated by `ShouldSpawnAtRecordingEnd`, which rejects all non-stable terminal states before they reach the queue.
+- **Q5 crew semantics**: Parsek never marks kerbals dead based on extrapolation. Crew state follows the real (stock KSP) vessel's fate via existing reservation reconciliation. Extrapolation is visual-only.
+- **Q6 mid-recording patch refresh**: scene-exit snapshot only. No refresh on SOI change or maneuver-node edit during recording — the prediction chain has no rendering role until the recording ends.
+
+## Open Questions (deferrable / calibration)
+
+1. Should background-recorder integration be scoped in this plan or deferred? Current text treats background data as a pre-extrapolation source but does not modify background-recorder code. Recommend deferring.
+2. How visible should the atmo-entry moment be? Optional: trigger stock re-entry FX at the destruction UT as a visual cue. Nice-to-have, not required.
+3. Tunable thresholds in `ShouldExtrapolate` — expose in settings window or keep as compile-time constants? Recommend constants until user feedback indicates otherwise.
 5. `maxHorizonYears = 50` is a guess. Calibrate against the longest realistic interplanetary missions before shipping.
 
 ## Work Breakdown
 
 Rough phases; each lands as its own PR.
 
-1. **Patched-conic snapshot** — `SnapshotPatchedConicChain` + `OrbitSegment.isPredicted` + unit / in-game tests. Lands first because it's the cheapest real improvement and unblocks everything else.
+1. **Patched-conic snapshot** — `SnapshotPatchedConicChain` (scene-exit only, walk until first `MANEUVER` transition) + `OrbitSegment.isPredicted` + unit / in-game tests. Lands first because it's the cheapest real improvement and unblocks everything else.
 2. `BallisticExtrapolator` module + unit tests (no integration).
 3. `ExtrapolatedArcs` storage in recording + ConfigNode round-trip tests.
 4. Finalization integration (hook into `FinalizeIndividualRecording`, wire snapshot → extrapolator pickup, assign `TerminalState.Destroyed` on atmo/ground hit).
 5. Playback integration (arc rendering during `[lastCoveredUT, terminalUT]`, ghost despawn at `terminalUT`).
-6. Spawn-queue awareness of `Destroyed` in `ParsekPlaybackPolicy`.
-7. In-game tests + synthetic recordings.
-8. Threshold calibration pass after first real-use feedback.
-9. (Deferred) Mid-recording refresh of the patched snapshot on SOI change / node edit.
+6. In-game tests + synthetic recordings.
+7. Threshold calibration pass after first real-use feedback.
 
-Note: RSW visibility needs no changes — `Destroyed` is already blocked by `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` at `GhostPlaybackLogic.cs:3636`.
+Note: no RSW, spawn-queue, or crew-reservation work needed — existing systems already handle `Destroyed` correctly via the `ShouldSpawnAtRecordingEnd` gate and via stock KSP crew-death events.
 
 ## References
 
