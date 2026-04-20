@@ -14,6 +14,10 @@ The current fallback cascade is:
 
 Stock KSP destroys unloaded vessels on atmosphere entry. Ghost playback should match that semantic and show the continuation arc up to the destruction moment.
 
+## Core principle
+
+**Only stable terminal states spawn.** The existing gate in `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) already rejects every non-stable state (SubOrbital, Destroyed, Docked, Boarded, Recovered) from both RSW and the deferred spawn queue. This plan does not change that gate — it only changes what terminal state the recording ends up with after extrapolation. If the extrapolated arc terminates at atmo/ground → `Destroyed` (blocked). If it terminates at horizon in a stable orbit → `Orbiting` (spawns normally). Same rule, new inputs.
+
 ## Scope
 
 This plan covers **only the uncovered tail** of an incomplete recording where no recorded data and no background-recorder data cover the interval `[lastCoveredUT, terminalUT]`. It does not replace, rewrite, or overlap recorded frames. Precedence:
