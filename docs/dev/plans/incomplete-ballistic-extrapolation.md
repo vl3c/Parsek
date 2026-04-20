@@ -2,489 +2,455 @@
 
 ## Problem
 
-When a player exits the flight scene (to Space Center, Tracking Station, main menu, etc.) mid-flight, the recording is truncated at scene-exit UT. `FinalizeIndividualRecording(isSceneExit:true)` in `ParsekFlight.cs:6788` closes the recording off with whatever last frame was captured. On the next playback, `PositionGhostAtRecordingEndpoint` in `GhostPlaybackEngine.cs:1561` picks where to render the ghost.
+A player launches a crewed capsule on a suborbital arc and, mid-flight, decides to leave — to the Space Center, Tracking Station, or main menu. Today, the ghost replay of that flight freezes in mid-air at the moment the player exited: a plane at 3 km hangs motionless in the sky; a missile near apoapsis stops as if time stopped; a hyperbolic probe halts at the moment of departure instead of continuing toward its target. The player returns later, watches the ghost play back, and sees a broken illusion.
 
-The current fallback cascade is:
+Stock KSP handles the equivalent "unloaded vessel" case by destroying the real vessel on atmosphere entry (for atmo bodies) or preserving it on rails (for orbiting / above-atmo). Parsek's ghost playback should match this mental model — the ghost should visibly follow its natural trajectory forward until it either lands in a stable orbit, impacts the atmosphere/ground of some body (and visibly disappears), or flies off into deep space.
 
-1. `RecordingEndpointResolver.TryGetOrbitEndpointUT` — if an orbit segment extends past the last trajectory point, propagate that orbit via `GhostExtender.PropagateOrbital`.
-2. Otherwise, spawn at the last recorded trajectory point.
-3. Otherwise, surface / last segment fallbacks.
+## Terminology
 
-**The gap:** `GhostExtender.PropagateOrbital` (`GhostExtender.cs:96-128`) bails at `ecc >= 1.0` and is only reached when the recording happens to carry an orbit segment whose `endUT` extends past the last trajectory point. For the common cases — physics-only recordings of suborbital/ballistic arcs, planes abandoned mid-air, or hyperbolic ejection trajectories — the ghost **freezes at the last recorded frame** (often mid-atmosphere). A plane at 3 km stops dead in the air. A ballistic missile at apoapsis hangs in space. A craft on a Jool-intercept trajectory spawns at the inner-Kerbol last frame rather than near Jool.
+- **Recording** — a stored timeline for one vessel: trajectory points, orbit segments, events, a terminal state, etc.
+- **OrbitSegment** — one coast arc expressed as Kepler elements (sma/ecc/inc/argPe/lan/mna/epoch) in a body's frame, valid over `[startUT, endUT]`. Already in the codebase.
+- **Predicted segment** — an `OrbitSegment` captured from `vessel.patchedConicSolver` at scene exit rather than from traversed flight. Flagged by a new `isPredicted: true`.
+- **Extrapolated arc** — a Kepler arc computed by this plan's `BallisticExtrapolator` when the patched-conic chain does not reach a natural terminus. Stored in a new `ExtrapolatedArcs` list.
+- **Last covered UT** — the UT at the end of the latest source in the precedence stack (recorded frames → patched chain). Extrapolation starts here.
+- **Terminal UT (`TerminalUT`)** — the UT at which the ghost's visual lifetime ends. For `Destroyed` recordings it is the atmo/ground contact UT. For `Orbiting` recordings it is either the recording's nominal end UT (stock case) or the horizon-cap UT.
+- **Cutoff altitude** — body-dependent altitude at which extrapolation terminates. Has atmosphere → `body.atmosphereDepth`. No atmosphere → terrain altitude at projected lat/lon (with sea-level fallback).
+- **Current SOI** — the body whose sphere of influence contains the ghost's position at playback UT.
 
-Stock KSP destroys unloaded vessels on atmosphere entry. Ghost playback should match that semantic and show the continuation arc up to the destruction moment.
+## Mental Model
 
-## Core principles
+A recording's trajectory timeline is a stack of sources, earliest first:
 
-**Ghosts are real vessels in the player's mind.** They are on real trajectories at real times, and the player expects to see where they are going — not just fragments.
+```
+      live flight                scene exit                              terminalUT
+          │                          │                                        │
+          ▼                          ▼                                        ▼
+ ┌─ recorded frames ──┐ ┌─ KSP patched-conic chain ──┐ ┌─ extrapolated arcs ──┐
+ │                    │ │                              │ │                     │
+ │ (actual traversed) │ │ (predicted by solver at      │ │ (Kepler, drag-free, │
+ │                    │ │  scene exit, pure coast)     │ │  chained across     │
+ │                    │ │                              │ │  SOIs)              │
+ └────────────────────┘ └──────────────────────────────┘ └─────────────────────┘
+                                                                              │
+                                                                              ▼
+                                                                    destroyed / orbiting
+                                                                    (one of the stable
+                                                                     or non-stable
+                                                                     terminal states)
+```
 
-**Current-SOI-only map rendering.** At any playback UT, a ghost has one "current SOI" (the body whose sphere contains it). Draw the ghost's orbit lines for **every future coast segment in the ghost's current SOI** — that is, all chain segments with `bodyName == currentSOI.bodyName` and `endUT > playbackUT`. Segments in other SOIs (past or future) are hidden; past segments in the current SOI are also hidden (clutter reduction, already current behaviour). When the ghost crosses an SOI boundary during playback, the drawn set switches to all future coast segments in the new SOI. This is an extension of the existing system: today it shows the immediate current-SOI segment up to the next SOI transition; this plan adds any **further** coast segments in the same SOI later in the chain (e.g. a post-flyby return-to-Kerbin orbit after a Mun excursion). Map camera focus is irrelevant — rendering is driven by the ghost's SOI, not the camera. This is simpler than stock's active-vessel patched-conic display (which also shows the foreign-SOI flyby arcs simultaneously), and is the right trade-off for ghosts, since the player is watching rather than planning.
+At playback, the ghost reads position from the appropriate source for the current UT. The transition between sources is invisible to the player — the ghost just keeps moving.
 
-**Only stable terminal states spawn.** The existing gate in `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) already rejects every non-stable state (SubOrbital, Destroyed, Docked, Boarded, Recovered) from both RSW and the deferred spawn queue. This plan does not change that gate — it only changes what terminal state the recording ends up with after extrapolation. If the extrapolated arc terminates at atmo/ground → `Destroyed` (blocked). If it terminates at horizon in a stable orbit → `Orbiting` (spawns normally). Same rule, new inputs.
+The extrapolator's only job is to choose the terminal bucket (`Destroyed` vs `Orbiting`) and produce the arcs covering `[endOfPatchedChain, terminalUT]`. The existing spawn gate (`ShouldSpawnAtRecordingEnd`) handles everything downstream: `Destroyed` is blocked from spawn and RSW; `Orbiting` spawns normally.
+
+Map view renders the ghost's future coast segments **in the camera's focused-body frame**, and only when the focused body is the ghost's current SOI or an ancestor in the SOI hierarchy. A ghost in Kerbin SOI about to fly past Mun and return, with the camera focused on Kerbin: pre-Mun, flyby (transformed into Kerbin frame through Mun's time-varying world position), and post-Mun — all drawn as a continuous Kerbin-frame line. Same ghost, camera switched to Mun: the flyby shows as the tight Mun-frame arc only while the ghost is actually in Mun SOI. Camera focused on Mun while the ghost is still in Kerbin → nothing drawn for that ghost (Mun is a descendant of Kerbin, not an ancestor; the ghost is "above" the focused view).
+
+## Core Principles
+
+**Ghosts are real vessels in the player's mind.** They are on real trajectories at real times, and the player expects to see where they are going.
+
+**Only stable terminal states spawn.** The existing gate in `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) rejects every non-stable state (`SubOrbital`, `Destroyed`, `Docked`, `Boarded`, `Recovered`) from both RSW and the deferred spawn queue. This plan does not touch the gate — it only changes what terminal state a recording ends up with after extrapolation.
+
+**Recordings capture actual paths, never hypotheticals.** An abandoned ghost executes zero planned burns. The patched-conic chain we snapshot must reflect pure coast; maneuver-node deltas are excluded by construction (walk only up to the first `MANEUVER` transition).
+
+**Stock KSP is the arbiter of reality.** `Vessel.Situations` is the authoritative classification for whether extrapolation should run. Stock events drive crew-reservation state. Parsek mirrors; it does not invent outcomes.
+
+**Frame-of-rendering follows camera focus; visibility follows SOI containment.** At each playback UT, the ghost has one current SOI and the camera has one focused body `F`. For any future coast segment to draw, `F` must be the ghost's current SOI or an ancestor in the SOI hierarchy (i.e. camera is at or above the ghost's level). When that condition holds, every future coast segment in the chain is rendered in `F`'s frame — natively if the segment's body is `F`, or transformed through the parent chain if the segment's body is a descendant of `F`. When the condition fails (camera focused on a body unrelated to or below the ghost's current SOI), nothing is drawn. Past segments are always hidden (clutter reduction, already current behaviour). This is simpler than stock's active-vessel patched-conic display — appropriate because the player is watching, not planning.
 
 ## Scope
 
-This plan covers **only the uncovered tail** of an incomplete recording where no recorded data and no background-recorder data cover the interval `[lastCoveredUT, terminalUT]`. It does not replace, rewrite, or overlap recorded frames. Precedence:
+**In scope:** the uncovered tail `[lastCoveredUT, terminalUT]` of an incomplete recording at scene exit. Snapshot KSP's patched-conic chain first; extrapolate only past the end of that chain.
 
-1. Recorded flight frames (highest). Covers whatever the in-flight recorder captured — either the main active vessel or any tree child handled by `BackgroundRecorder` while flight was active.
-2. **KSP patched-conic snapshot** — `vessel.patchedConicSolver`'s pre-computed chain of future patches captured at scene exit (flyby deflections, SOI captures).
-3. Kepler extrapolation (this plan) for intervals past the end of the patched chain.
+**Out of scope:**
+- Replacing or overlapping recorded frames.
+- Continuing to record an unloaded vessel across scenes (Parsek's `BackgroundRecorder` is an in-flight multi-vessel system; there is no cross-scene background recorder to integrate with).
+- Mid-recording refresh of the patched snapshot on SOI change or node edit (possible future work).
+- Drag modelling in atmosphere. Extrapolation is drag-free by design — a deliberate simplification accepted in discussion (overshoot = "observer assumes residual thrust").
+- Changes to RSW, deferred spawn queue, or crew reservations. Existing gates and stock events already handle `Destroyed` correctly.
 
-Parsek's `BackgroundRecorder` is an in-flight multi-vessel recorder (tree children during active flight), not a cross-scene background system. It stops when flight ends. Recordings produced by it are treated exactly the same as the main recording — a `BackgroundRecorder`-produced child recording that ends incomplete at scene exit gets the same snapshot + extrapolation treatment.
+**Precedence stack** (highest to lowest):
 
-Rationale for (2): KSP's solver already computes flyby deflections and SOI captures using its authoritative patched-conics algorithm. Snapshotting that chain at scene exit gives the ghost a trajectory in map view that matches what the player saw, avoids us re-implementing flyby detection in §5 for cases where KSP already did the work, and produces stable multi-link chains. Extrapolation (3) only fires past the end of the snapshotted chain — typically for short-horizon solver cases or when the chain stops before a natural terminus.
+1. Recorded flight frames — whatever the in-flight recorder captured (main vessel or any tree child handled by `BackgroundRecorder`).
+2. Patched-conic snapshot — `vessel.patchedConicSolver`'s pre-computed chain captured at scene exit.
+3. Kepler extrapolation — this plan, for intervals past the end of the snapshotted chain.
 
-## Solution
+## Data Model
 
-Introduce a unified "drag-free extrapolation" pass at recording finalization (`isSceneExit:true` path) that computes the natural terminal state and a continuation trajectory from the last covered UT forward. The continuation is a chain of Kepler arcs across SOIs, terminated at the first atmo/ground contact or at a bounded horizon if none occurs.
+### Existing types (modified)
 
-### Single propagation model
-
-Drag-free Kepler propagation applies identically at all altitudes — an in-atmosphere plane arc at constant-g is just the low-altitude limit of a Kepler arc. One propagator, two cutoff rules:
-
-- `body.atmosphere == true` → cutoff = first altitude crossing of `body.atmosphereDepth`.
-- `body.atmosphere == false` → cutoff = first altitude crossing of terrain (or sea level if PQS unavailable).
-
-Regime is chosen from the last-frame **state** (altitude, velocity, body), not from vessel type. A spaceplane at 65 km uses above-atmo Kepler; a rocket on final approach uses in-atmo Kepler. Same code path.
-
-### Extrapolation outcomes
-
-| Outcome | Trigger | Terminal State | Spawn Behavior |
-|---|---|---|---|
-| **Atmo entry** | Arc crosses `atmosphereDepth` on an atmospheric body | `Destroyed` (new) | Ghost plays extrapolated arc, despawns at atmo-entry UT |
-| **Ground impact** | Arc crosses terrain/sea-level on a non-atmo body | `Destroyed` (new) | Ghost plays extrapolated arc, despawns at impact UT |
-| **Stable orbit** | Arc circularises in a body's SOI without atmo/ground contact | `Orbiting` | Ghost spawns normally at terminal orbit |
-| **Chained encounter** | Arc exits current SOI, re-enters a downstream SOI, eventually hits atmo/ground | `Destroyed` | Ghost plays chained arcs, despawns at terminal atmo/ground contact |
-| **Unbounded / horizon-cap** | Arc never re-encounters a body within N years / M SOI transitions | `Orbiting` (at horizon state) | Ghost spawns normally at horizon state |
-
-## Detailed Design
-
-### 0. Snapshot the KSP patched-conic chain at scene exit
-
-Parsek today captures only the vessel's **current** orbit in `FlightRecorder.CreateOrbitSegmentFromVessel` (`FlightRecorder.cs:2247-2261`). There are zero references to `patchedConicSolver`, `nextPatch`, or `maxGeometryPatches` in the codebase — KSP's pre-computed flyby / capture chain is completely ignored. This plan changes that.
-
-**Trigger points for snapshot:**
-
-- Primary: scene-exit finalization (`FinalizeRecordingState` → new `SnapshotPatchedConicChain` call before `OrbitSegments.Add`).
-- Also useful: on SOI change (`OnVesselSOIChanged`) to refresh the chain, since the newly-entered SOI re-plans downstream patches.
-- Also useful: on manoeuvre node add/edit/delete, since these re-plan the chain. Cheapest observation hook is `GameEvents.onManeuverAdded` / `onManeuverRemoved` / `onManeuverNodeSelected` equivalent.
-
-Start with scene-exit only (smallest surface area, covers the user's motivating case); add mid-recording refresh hooks in a follow-up once the storage layer is stable.
-
-**Chain walk:**
+`OrbitSegment` gains one field:
 
 ```csharp
-internal static List<OrbitSegment> SnapshotPatchedConicChain(Vessel v, int maxPatches)
+public bool isPredicted;  // true for segments captured from patchedConicSolver at scene exit
+                          // false for segments traversed during live flight
+                          // defaults to false; legacy recordings load with isPredicted = false
+```
+
+`Recording` gains two fields:
+
+```csharp
+public double TerminalUT;                // UT at which the ghost's visual lifetime ends
+                                         // = recording's nominal EndUT when terminal = Orbiting / Landed / etc.
+                                         // = atmo/ground contact UT when terminal = Destroyed (extrapolated)
+                                         // = horizon-cap UT when terminal = Orbiting at horizon
+
+public List<OrbitArc> ExtrapolatedArcs;  // chain of Kepler arcs produced by BallisticExtrapolator
+                                         // empty for recordings that never triggered extrapolation
+                                         // persisted in .prec sidecar, not .sfs
+```
+
+### New types
+
+```csharp
+public struct OrbitArc
 {
-    var result = new List<OrbitSegment>();
-    var solver = v.patchedConicSolver;
-    if (solver == null) return result;  // no chain available (on rails / no CommNet-equivalent check)
+    public string bodyName;      // central body frame
+    public double startUT, endUT;
+    public double sma, ecc, inc, argPe, lan, mna, epoch;  // Kepler elements
+}
 
-    // Ensure solver has computed enough patches. `maxGeometryPatches` defaults to
-    // whatever the player set in settings; temporarily raise for capture.
-    int savedLimit = solver.maxGeometryPatches;
-    try
-    {
-        solver.maxGeometryPatches = Math.Max(savedLimit, maxPatches);
-        solver.Update();  // re-plan with the new limit
+internal struct ExtrapolationResult
+{
+    public TerminalState terminalState;   // Destroyed or Orbiting
+    public double terminalUT;
+    public string terminalBodyName;
+    public Vector3d terminalPosition;
+    public Vector3d terminalVelocity;
+    public List<OrbitArc> arcs;
+    public ExtrapolationFailureReason failureReason;  // none / degenerate-ecc / pqs-unavailable / ...
+}
 
-        var patch = v.orbit;
-        int guard = 0;
-        while (patch != null && guard++ < maxPatches)
-        {
-            result.Add(new OrbitSegment {
-                bodyName = patch.referenceBody.bodyName,
-                startUT = patch.StartUT,
-                endUT = patch.EndUT,
-                semiMajorAxis = patch.semiMajorAxis,
-                eccentricity = patch.eccentricity,
-                inclination = patch.inclination,
-                longitudeOfAscendingNode = patch.LAN,
-                argumentOfPeriapsis = patch.argumentOfPeriapsis,
-                meanAnomalyAtEpoch = patch.meanAnomalyAtEpoch,
-                epoch = patch.epoch,
-                isPredicted = true,  // new field
-            });
-            patch = patch.nextPatch;
-        }
-    }
-    finally
-    {
-        solver.maxGeometryPatches = savedLimit;
-    }
-    return result;
+internal struct ExtrapolationLimits
+{
+    public double maxHorizonYears;     // default 50
+    public int maxSoiTransitions;      // default 8
+    public double soiSampleStep;       // default 3600 s (coarse SOI-encounter scan)
+    public static ExtrapolationLimits Default => new ExtrapolationLimits { ... };
 }
 ```
 
-**Settings interaction:**
-
-- Parsek **overrides** `maxGeometryPatches` at capture time (temporarily) rather than respecting the player's display setting. The player's setting controls map-view clutter, not what's useful to snapshot. Capture target: `PatchedConicSolverCaptureLimit = 8` (tunable constant; generous enough for Kerbol → Eve → Kerbin chain returns, bounded to prevent runaway on chaotic arcs).
-- Override is restored in a `finally` so an exception during `solver.Update()` can't leave the player's setting wrong.
-- If in future we want a user-facing setting, expose `PatchedConicSolverCaptureLimit` in the Settings window under Recording. Not in scope now.
-
-**Maneuver nodes — hard rule:**
-
-Recordings capture actual traversed trajectories, never hypotheticals. An abandoned ghost executes no planned burns. The captured chain must reflect pure-coast continuation from the current state — no manoeuvre-node deltas.
-
-Simplest implementation: walk `nextPatch` only up to (and not including) the first patch whose `patchEndTransition == Orbit.PatchTransitionType.MANEUVER`. The resulting chain is pure coast by construction. No node mutation, no restore logic, no risk of touching live player state.
-
-If a later need arises to capture post-burn predictions (e.g. a user-opt-in "show planned path" overlay), build it as a separate capture path — do not conflate with this one.
-
-**Concurrency / state safety:**
-
-`solver.Update()` is synchronous and normally safe at scene-exit time (player is in flight scene, physics still running). Verify no reentrancy hazard by checking call order in `FinalizeRecordingState` — this runs during `OnSceneChangeRequested` before the scene tears down, so the solver is still valid.
-
-### 1. Terminal state: `TerminalState.Destroyed` (existing)
-
-`TerminalState.Destroyed` already exists in `TerminalState.cs:9` and is already gated out of the Real Spawn Control candidate list by `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) alongside `Recovered`, `Docked`, `Boarded`, `SubOrbital`. This plan reuses the existing state — no enum change needed.
-
-Semantically for this plan: "the vessel would not exist at the recording's nominal end UT because extrapolation predicts destruction before that UT." Assigned when an extrapolated arc crosses the body's atmosphere or ground.
-
-**Ghost spawn behaviour for `Destroyed`:** already handled — `ShouldSpawnAtRecordingEnd` returns `(false, "terminal state Destroyed")`. The ghost is visible during `[lastCoveredUT, destructionUT]` while playing the extrapolated arc, then is removed from the scene. It never appears in Real Spawn Control, never triggers RSW spawn.
-
-### 2. New module: `BallisticExtrapolator`
-
-Location: `Source/Parsek/Source/Parsek/BallisticExtrapolator.cs`.
-
-Pure static methods, no ParsekFlight/GhostPlaybackEngine references — testable in isolation. Operates on state vectors `(position, velocity, UT, bodyName)` only.
+### Constants
 
 ```csharp
-internal static class BallisticExtrapolator
-{
-    internal struct ExtrapolationResult
-    {
-        public TerminalState terminalState;      // Destroyed / Orbiting
-        public double terminalUT;                // atmo/ground contact UT, or horizon UT
-        public string terminalBodyName;          // body at terminal UT
-        public Vector3d terminalPosition;        // body-fixed at terminalUT (for spawn)
-        public Vector3d terminalVelocity;        // body-fixed at terminalUT
-        public List<OrbitArc> arcs;              // one arc per SOI traversed (for playback rendering)
-        public ExtrapolationFailureReason failureReason;  // none/degenerate/pqs-unavailable/etc.
-    }
-
-    internal struct OrbitArc
-    {
-        public string bodyName;
-        public double startUT;
-        public double endUT;
-        public double sma, ecc, inc, argPe, lan, mna, epoch;  // Kepler elements
-        public Vector3d startPos, startVel, endPos, endVel;
-    }
-
-    internal static ExtrapolationResult Extrapolate(
-        Vector3d position,         // body-fixed position at lastCoveredUT
-        Vector3d velocity,         // body-inertial velocity at lastCoveredUT
-        double lastCoveredUT,
-        string bodyName,
-        ExtrapolationLimits limits);  // horizon-years, max-soi-transitions, threshold epsilons
-
-    internal static bool ShouldExtrapolate(
-        double altitude, double speed, double verticalSpeed,
-        TerminalState? inferredState);  // the "don't launch parked craft" guard
-}
+internal const int PatchedConicSolverCaptureLimit = 8;   // max patches walked from vessel.orbit.nextPatch
 ```
 
-### 3. `ShouldExtrapolate` guard — driven by `vessel.situation`
+### `TerminalState` enum
 
-Stock KSP already classifies each vessel's current situation, and its own unload-time behaviour matches what Parsek wants the ghost to do. Mirror it: drive the extrapolation decision from `vessel.situation` (captured at scene exit), not from altitude/speed heuristics.
+No change. `Destroyed` already exists (`TerminalState.cs:9`) and is already blocked by `ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) alongside `Recovered`, `Docked`, `Boarded`, `SubOrbital`.
 
-| `Vessel.Situations` value | Extrapolate? | Rationale |
-|---|---|---|
-| `LANDED` | No | Stock holds position on unload; ghost stays put. |
-| `SPLASHED` | No | Stock holds position on unload; ghost stays put. |
-| `PRELAUNCH` | No | On the pad; no motion. |
-| `DOCKED` | No | Different lifecycle; docked to another vessel. |
-| `FLYING` | Yes | In-atmo plane or ballistic — cutoff = first atmo boundary (going up) or ground (going down). |
-| `SUB_ORBITAL` | Yes | Above-atmo ballistic — cutoff = first atmo boundary. |
-| `ORBITING` | Conditional | Extrapolate only if the orbit geometrically intersects atmo/ground (rare); otherwise stable, no extrapolation needed. |
-| `ESCAPING` | Yes | Hyperbolic — SOI handoff to parent body per §5. |
+### ConfigNode keys (`.prec` sidecar)
 
-Implementation:
-
-```csharp
-internal static bool ShouldExtrapolate(Vessel.Situations situation, Orbit orbit, CelestialBody body)
+```
+RECORDING
 {
-    switch (situation)
+    ...existing fields...
+    TerminalUT = 12345.6789
+    EXTRAPOLATED_ARCS
     {
-        case Vessel.Situations.LANDED:
-        case Vessel.Situations.SPLASHED:
-        case Vessel.Situations.PRELAUNCH:
-        case Vessel.Situations.DOCKED:
-            return false;
-        case Vessel.Situations.FLYING:
-        case Vessel.Situations.SUB_ORBITAL:
-        case Vessel.Situations.ESCAPING:
-            return true;
-        case Vessel.Situations.ORBITING:
-            return OrbitIntersectsCutoffSurface(orbit, body);  // periapsis <= atmo/ground
-        default:
-            return false;
+        ARC { bodyName = Kerbin; startUT = ...; endUT = ...; sma = ...; ecc = ...; ... }
+        ARC { bodyName = Kerbol; startUT = ...; endUT = ...; sma = ...; ecc = ...; ... }
+        ...
+    }
+    ORBIT_SEGMENTS
+    {
+        SEGMENT { ...existing fields...; isPredicted = False }
+        SEGMENT { ...existing fields...; isPredicted = True }   // new field
+        ...
     }
 }
 ```
 
-Decision and input values logged at `[Extrapolator]` tag for debugging. No tunable thresholds.
+All doubles serialised via `ToString("R", CultureInfo.InvariantCulture)` per project convention. `isPredicted` defaults to `False` for legacy load compatibility.
 
-### 4. Propagator core
+## Behavior
 
-Given the start state in body-inertial frame:
+### Scene-exit finalization
 
-1. Compute Kepler elements `(sma, ecc, inc, argPe, lan, mna, epoch)` from the state vector relative to the body.
-2. Decide cutoff altitude from `body.atmosphere` and terrain sampling (§6).
-3. Check geometric intersections **before** iterating:
-   - If `periapsis <= cutoffAltitude + bodyRadius` → orbit geometrically intersects cutoff surface; solve for true anomaly at cutoff altitude; convert to UT.
-   - Else if orbit is closed (`ecc < 1.0`) and `periapsis > cutoffAltitude + bodyRadius` → never intersects; craft remains in this SOI — check SOI escape (§5).
-   - Else (hyperbolic and no cutoff intersection) → escape SOI; proceed to §5.
-4. Solve `M(t) = E - e sin E` for cutoff crossing analytically (closed form from true anomaly).
-5. Compute `(position, velocity)` at that UT for the terminal state.
+Triggered by `FlightRecorder.FinalizeRecordingState(isSceneExit: true)`. Runs during `OnSceneChangeRequested` before the scene tears down. Steps:
 
-All math operates in body-inertial frame (the frame the Kepler elements are computed in). Surface position (lat/lon) at terminal UT is derived by `body.transform.InverseTransformPoint` at terminal UT — the body rotates on its own based on UT, so the landing point is correct as the ground rotates underneath the arc.
+1. **Snapshot patched chain.** Call `SnapshotPatchedConicChain(vessel, PatchedConicSolverCaptureLimit)`. Append resulting `OrbitSegment`s (each with `isPredicted = true`) to `recording.OrbitSegments`.
+2. **Decide if extrapolation is warranted.** `ShouldExtrapolate(vessel.situation, lastOrbit, lastBody)` returns bool.
+3. **Run extrapolator if warranted.** Start state = state vector at end of patched chain (or last recorded frame if chain is empty). Produces `ExtrapolationResult`.
+4. **Assign outputs.** Set `recording.TerminalStateValue`, `recording.TerminalUT`, `recording.ExtrapolatedArcs`, and terminal-orbit fields as appropriate.
+5. **Short-circuit for solver-predicted impact.** If the patched chain's last patch ends with closest-approach altitude below cutoff on its body, set `TerminalState.Destroyed` directly at that UT without invoking the extrapolator.
 
-### 5. SOI handoff (patched conics)
+### Playback rendering
 
-For hyperbolic/escape arcs and for arcs whose apoapsis crosses the SOI of a sibling or parent body:
+During `[startUT, terminalUT]`:
 
-1. Compute SOI exit UT for the current body: solve for `|r| = body.sphereOfInfluence`.
-2. Transform `(position, velocity)` at SOI-exit UT into the parent body's frame (`position += body.orbit.getTruePositionAtUT(t)`, same for velocity with `orbit.GetFrameVel`).
-3. Continue extrapolation with the parent body as the new central body — recursive call.
-4. For each body the arc passes near, test SOI entry by checking distance to the body's position at each UT of the arc's parent-frame traversal. Coarse sampling (every T_sample) + bisection for refinement.
-5. On SOI entry, transform into child body's frame and continue.
+- **Position resolution** (each frame): evaluate whichever source covers the current UT. Recorded frames where they exist; predicted-segment Kepler evaluation for patched-chain UTs; `ExtrapolatedArcResolver.ResolveAt(ut, arcs)` for extrapolated-arc UTs.
+- **Orientation during extrapolation:** reuse the last captured `srfRelRotation`. No tumble simulation.
+- **Map-view lines** (per ghost, per frame):
+  1. Let `F` = camera's focused body; let `S` = ghost's current SOI body (the body whose sphere contains the ghost's position at `playbackUT`).
+  2. If `F != S` and `F` is not an ancestor of `S` in the SOI hierarchy → hide all lines for this ghost, done.
+  3. Otherwise, for every segment in `OrbitSegments ∪ ExtrapolatedArcs` with `endUT > playbackUT`:
+     - If `segment.body == F` → render the segment directly using its Kepler elements in `F`'s frame.
+     - If `segment.body` is a descendant of `F` → evaluate the segment in its native body's frame at sampled UTs, then transform each position through the ancestor-chain body positions to produce a polyline in `F`'s frame.
+     - If `segment.body` is NOT `F` and NOT a descendant of `F` → hide (e.g., a Kerbol-frame segment when `F = Kerbin`).
+  4. The segment containing `playbackUT` is drawn from `playbackUT` forward; fully-future segments are drawn in full.
+- **Map-view line visibility:** suppressed during thrust segments (ghost rendered as icon only, no line). Transition is automatic as playback head moves between coast and thrust segments.
 
-**Bounds** (via `ExtrapolationLimits`):
-- `maxHorizonYears = 50` (game-UT cap; arcs that never re-encounter a body get terminated at horizon).
-- `maxSoiTransitions = 8` (prevents chaotic chain explosions).
-- `soiSampleStep = 3600 s` (coarse scan for SOI encounters — refined by bisection on candidate hits).
+### Ghost despawn
 
-On horizon-cap: terminal state = `Orbiting`, terminal body = whatever body we're in at horizon UT, terminal position/velocity = state at horizon UT. Ghost spawns normally.
+At `playbackUT >= terminalUT` for a `Destroyed` recording:
 
-### 6. Terrain sampling (Option B with fallback)
+- Ghost icon disappears silently (no FX in v1).
+- `GhostMapPresence` ProtoVessel (if created) is removed.
+- Spawn path never fires — `ShouldSpawnAtRecordingEnd` returns `(false, "terminal state Destroyed")`.
 
-For non-atmo bodies:
+For `Orbiting` recordings (including horizon-capped extrapolation):
 
-```csharp
-double ResolveGroundAltitude(CelestialBody body, double lat, double lon)
-{
-    if (body.pqsController == null || !body.pqsController.isBuilt)
-        return 0.0;  // sea-level fallback
-    return body.TerrainAltitude(lat, lon);  // handles PQS internally
-}
-```
-
-Two-pass solve:
-
-1. Solve Kepler for `altitude = 0` → get candidate `(lat0, lon0, UT0)`.
-2. Sample terrain at `(lat0, lon0)` → `h`.
-3. Re-solve Kepler for `altitude = h` → final `(lat, lon, UT)`.
-
-Single PQS lookup per extrapolation. Fallback to sea level silently if PQS is unavailable (unfocused body). Log `[Extrapolator] terrain lookup PQS-unavailable for {body}, falling back to sea level` when it happens.
-
-### 7. Integration with finalization
-
-In `ParsekFlight.FinalizeIndividualRecording(isSceneExit:true)`:
-
-Order matters — snapshot first, extrapolate only past the end of the snapshot:
-
-```csharp
-// Step 1: snapshot KSP's patched-conic chain.
-var predicted = SnapshotPatchedConicChain(vessel, PatchedConicSolverCaptureLimit);
-recording.OrbitSegments.AddRange(predicted);
-
-// Step 2: compute the start state for extrapolation.
-// If the patched chain exists, extrapolation starts at the LAST patch's endUT
-// with the state vector at that UT. Otherwise start from the last recorded frame.
-(Vector3d startPos, Vector3d startVel, double startUT, string startBody) =
-    predicted.Count > 0
-        ? StateAtPatchChainEnd(predicted)
-        : StateAtLastRecordedFrame(recording);
-
-// Step 3: decide whether extrapolation is warranted.
-if (ShouldExtrapolate(startAlt, startSpeed, startVertSpeed, inferredState))
-{
-    var result = BallisticExtrapolator.Extrapolate(
-        startPos, startVel, startUT, startBody, ExtrapolationLimits.Default);
-
-    if (result.terminalState == TerminalState.Destroyed)
-    {
-        recording.TerminalStateValue = TerminalState.Destroyed;
-        recording.TerminalUT = result.terminalUT;
-        recording.ExtrapolatedArcs = result.arcs;  // new field
-    }
-    else if (result.terminalState == TerminalState.Orbiting)
-    {
-        recording.TerminalStateValue = TerminalState.Orbiting;
-        recording.TerminalUT = result.terminalUT;
-        recording.ExtrapolatedArcs = result.arcs;
-        // TerminalOrbit* fields populated from final arc
-    }
-}
-```
-
-If the patched-conic snapshot already terminates at atmo/ground on a body (e.g. KSP's solver predicted a Mun impact), skip extrapolation entirely — set `TerminalState.Destroyed` and `TerminalUT = lastPatch.EndUT` directly.
-
-### 8. Integration with playback
-
-Three touchpoints in `GhostPlaybackEngine.cs`:
-
-1. **Extrapolated-arc rendering (ghost position).** During `[lastCoveredUT, terminalUT]`, ghost position comes from `ExtrapolatedArcs` via a new method `ExtrapolatedArcResolver.ResolveAt(double ut, List<OrbitArc> arcs)` that picks the right arc and evaluates Kepler at `ut`. This slots into the existing trajectory-evaluation fallback chain after recorded points exhaust.
-
-2. **Destroyed-state spawn suppression.** If `terminalState == Destroyed`, the ghost's visual lifetime ends at `terminalUT` and the existing spawn gate (`ShouldSpawnAtRecordingEnd`) already blocks spawn. No new suppression code needed.
-
-3. **Map-view rendering of predicted segments — current-SOI chain.** At each playback UT, identify the ghost's current SOI body. Among all `OrbitSegments` (recorded + `isPredicted`) and all `ExtrapolatedArcs`, draw **every segment whose `bodyName` matches the current SOI and whose `endUT > playbackUT`** — the immediate one (partial, from playback head forward to its `endUT`) plus any fully-future same-SOI segments later in the chain. Hide everything else for this ghost: segments in other SOIs (past or future), and past same-SOI segments whose `endUT <= playbackUT`.
-
-   This extends the current system, which draws only the single current same-SOI segment up to the next SOI transition. Post-flyby return-to-same-SOI segments (e.g. post-Mun return to Kerbin orbit) are now also drawn, as multiple disjoint arcs in the same body's frame. The Mun flyby arc itself is not drawn (different SOI).
-
-   On top of that, apply the coast-vs-thrust visibility rule: only draw the line when the playback head is on a coast segment (Kepler orbit line is cheap); during a thrust segment the ghost renders as icon only and no line is drawn — point-based custom-curve reconstruction is too expensive to render continuously per-frame per-ghost.
-
-   When the ghost crosses an SOI boundary during playback, the drawn set switches from all same-old-SOI future segments to all same-new-SOI future segments automatically. Map camera focus does not affect the rendering — only the ghost's current SOI does.
-
-### 9. Attitude during extrapolation
-
-Freeze last captured orientation. No tumble simulation. Simple, and reads to the observer as "abandoned" rather than "physically simulated." Implement by reusing the last recorded `srfRelRotation` for all frames in `[lastCoveredUT, terminalUT]`.
-
-### 10. New serialised fields
-
-In the recording format:
-
-- `TerminalUT` (double) — when the recording's ghost lifetime ends (atmo/ground contact or horizon).
-- `ExtrapolatedArcs` (list of `OrbitArc`) — serialise as child ConfigNodes in the `.prec` sidecar.
-- `OrbitSegment.isPredicted` (bool) — marks segments captured from `patchedConicSolver` at scene exit vs segments traversed during recording. Used by playback to style/log them differently and by mid-recording refresh logic to know which segments are safe to discard when re-snapshotting.
-
-`TerminalState` enum already has `Destroyed` — no enum change. Format version bumps for the new serialised fields; no legacy migration per the `Format v0 reset` policy in memory.
+- Normal spawn path runs at `EndUT` (or nominal recording end) via existing gates. No behavioural change from today.
 
 ## Edge Cases
 
-- **Hyperbolic escape to Kerbol**: SOI handoff places the ghost in Kerbol orbit. If that orbit never re-encounters a body within horizon, terminal state = `Orbiting` at horizon, spawns normally. Covered by §5.
-- **Atmo re-entry from above (e.g. stable orbit decayed by drag-free extrapolation — won't happen since drag is ignored)**: not a concern. Drag-free arcs don't decay. Only relevant for arcs that were already on a descending trajectory when the recording ended.
-- **Re-entry from a high Kepler arc**: if the arc dips back into atmo, cutoff fires at atmo-entry UT, terminal state = `Destroyed`. No special case.
-- **Gas giants (Jool)**: `body.atmosphere == true` → cutoff at atmo boundary. No solid-surface handling needed; atmo destruction always fires first.
-- **Long-range interplanetary direct impact (inner-Kerbol → Jool)**: patched-conics chain via §5 reaches Jool SOI, enters Jool frame, crosses atmo boundary, terminates with `Destroyed`. One-time cost at finalization; acceptable.
-- **Never-impacts trajectory**: bounded horizon produces `Orbiting` at horizon; ghost spawns at horizon state. No runaway compute.
-- **Parked plane or rover on runway**: `vessel.situation == LANDED` → skip extrapolation; recording terminates in `Landed` as today.
-- **Rover mid-drive at scene exit**: `vessel.situation == LANDED` → skip extrapolation. Mirrors stock behaviour, which holds the rover in place on unload.
-- **Plane abandoned at altitude**: `vessel.situation == FLYING` → extrapolate with in-atmo cutoff (ground or first atmo-boundary crossing, whichever comes first).
-- **Mountain impact / sea impact**: terrain sampling handles plain terrain within tens of metres; cliffs may clip briefly before despawn — accepted cosmetic per earlier discussion.
-- **Body rotation during long falls**: propagation in body-inertial frame + lat/lon derivation at terminal UT handles this correctly without special casing.
-- **Horizontal overshoot on plane-drop**: ghost continues arc for kilometres past realistic impact — accepted ("observer assumes residual thrust").
-- **PQS unavailable for target body**: sea-level fallback; logged.
-- **Recording that spans multiple bodies already (via existing orbit segments)**: extrapolation starts from the **last covered** state — whatever body and UT that was — and chains forward. Existing recorded content is untouched.
-- **Very short extrapolation intervals**: rare. If `vessel.situation` is FLYING but arc trivially intersects ground within a second, extrapolator runs and produces a tiny arc — acceptable.
-- **Player has `maxGeometryPatches` set low for performance**: snapshot override temporarily raises it, captures the chain, restores. Player's map-view experience unaffected.
-- **Maneuver nodes present at scene exit**: `patchedConicSolver.Update()` re-plans through manoeuvre nodes, so the captured chain reflects the player's planned burns. The ghost's future trajectory matches what the player set up — good.
-- **Player deletes/edits nodes after recording**: irrelevant; the snapshot was taken at scene exit and is immutable. Re-recording or mid-recording refresh (future work) would update.
-- **Patched-conic chain terminates mid-space (solver ran out of patches)**: extrapolation picks up at the last patch's `endUT` and chains further via §5 until atmo/ground/horizon. Fills in where KSP's solver stopped.
-- **Patched-conic chain terminates with an impact predicted by the solver**: detect via final patch's closest-approach altitude; short-circuit to `Destroyed` at that UT without running §5.
+Numbered for reference. Each marked v1 (handled now) or Future (deferred).
 
-## Testing Strategy
+1. **(v1) Hyperbolic escape to Kerbol.** SOI handoff places the ghost in Kerbol frame. If the resulting Kerbol orbit never re-encounters a body within horizon, terminal = `Orbiting` at horizon, spawns normally.
+2. **(v1) Re-entry from a high Kepler arc.** Arc dips back into atmo; cutoff fires at atmo-entry UT; terminal = `Destroyed`. No special case.
+3. **(v1) Gas giants (Jool).** `body.atmosphere == true` → cutoff at atmo boundary. Atmo destruction always fires before "surface" contact; no special case for bodies without solid surface.
+4. **(v1) Long-range interplanetary direct impact (inner-Kerbol → Jool).** Patched-conic chain captures whatever the solver precomputed; extrapolator chains further via SOI handoff to Jool SOI; crosses atmo boundary; terminates `Destroyed`. One-time cost at finalization.
+5. **(v1) Never-impacts trajectory.** Bounded horizon (50 years) / SOI-transitions (8) produces `Orbiting` at horizon; ghost spawns at horizon state. No runaway compute.
+6. **(v1) Parked craft / taxiing rover at scene exit.** `vessel.situation == LANDED` → skip extrapolation. Recording terminates in `Landed` as today. Mirrors stock unload behaviour.
+7. **(v1) Rover mid-drive.** Same as parked — `LANDED` → skip. Does not "launch" the rover visually.
+8. **(v1) Plane abandoned at altitude.** `vessel.situation == FLYING` → extrapolate. Cutoff rule: first altitude crossing of atmo boundary going DOWN, or first ground contact if the whole arc stays below atmo depth. For a low-altitude plane that stays below `atmosphereDepth`, cutoff = ground.
+9. **(v1) Mountain vs. sea impact on non-atmo body.** Terrain sampling (Option B with one PQS lookup) handles flat terrain within tens of metres. Cliffs / steep ridges may cause a brief pre-despawn clipping — accepted cosmetic limitation.
+10. **(v1) PQS unavailable for target body (unfocused).** Sea-level fallback. Logged. Accepted limitation; ghost may impact slightly below true terrain.
+11. **(v1) Body rotation during long falls.** Propagation in body-inertial frame; lat/lon derived at terminal UT using `body.transform.InverseTransformPoint`. Surface rotates correctly underneath.
+12. **(v1) Horizontal overshoot on plane-drop.** Ghost continues no-drag arc past where a real plane would stop. Accepted per discussion ("observer assumes residual thrust").
+13. **(v1) Recording spans multiple bodies already.** Extrapolation starts from whatever body/UT the last-covered state was in. Existing content untouched.
+14. **(v1) Very short extrapolation intervals.** Tiny arcs that terminate within seconds are produced and used as-is.
+15. **(v1) Player `maxGeometryPatches` set low.** Snapshot temporarily overrides in a `try/finally`; player's map-view setting is restored before scene change completes.
+16. **(v1) Maneuver nodes present at scene exit.** Walk `nextPatch` only up to (not including) first patch where `patchEndTransition == MANEUVER`. Chain is pure coast; no node mutation; no restore logic.
+17. **(v1) Player edits/deletes nodes after scene exit.** Irrelevant — snapshot is immutable.
+18. **(v1) Patched-conic chain terminates mid-space.** Extrapolator picks up at last patch's `endUT` and chains via SOI handoff to atmo/ground/horizon.
+19. **(v1) Patched-conic chain already predicts impact.** Short-circuit: set `Destroyed`, `TerminalUT = lastPatch.EndUT`, skip extrapolator.
+20. **(v1) Player exits mid-thrust-burn.** `vessel.situation` is likely `FLYING` or `SUB_ORBITAL` → extrapolate. Start state = current state vector; extrapolation is pure coast from that state forward (matches "abandoned, no further thrust" semantics).
+21. **(v1) Player exits with no orbit and no maneuver (pre-launch, on pad).** `vessel.situation == PRELAUNCH` → skip. Stays on the pad.
+22. **(v1) Ghost with `Destroyed` state in Real Spawn Control list.** Already filtered out by `ShouldSpawnAtRecordingEnd`. No row shown, no "warp to spawn" offered.
+23. **(v1) Ghost with `Destroyed` in deferred spawn queue during warp.** Can't enter — same gate blocks queue entry. No queue changes needed.
+24. **(v1) Crew aboard at scene exit of a `Destroyed`-bound ghost.** Crew state is driven by stock KSP events on the real unloaded vessel, not by extrapolation. If stock destroys the real vessel, Jeb dies via stock; if stock preserves it, Jeb lives. Parsek reconciles from stock events as today.
+25. **(v1) Reverting a flight mid-playback.** Existing revert infrastructure discards in-progress recordings. New fields (`TerminalUT`, `ExtrapolatedArcs`) ride along; nothing special required.
+26. **(v1) Camera focused on a body unrelated to ghost's SOI chain.** E.g., focused Eve while a ghost is in Kerbin SOI, Eve not being an ancestor of Kerbin. Hide all segments for that ghost. Player sees Eve-relative stuff only, ghost's line is absent — matches the "ghost is elsewhere, nothing to show here" intuition.
+27. **(v1) Camera focused on Kerbol with ghosts throughout the Kerbol system.** Kerbol is the universal ancestor — every ghost's SOI chain reaches Kerbol. All ghosts render in Kerbol frame via chain-transform. Many short polylines near various bodies. Potential clutter; accepted for v1.
+28. **(v1) Player changes camera focus mid-playback.** Rendering re-evaluates on every frame based on current focus; switching focus produces an immediate visibility change (no transition animation). Logged for diagnostics.
+29. **(Future) Mid-recording refresh of patched chain on SOI change / node edit.** Scene-exit-only capture is v1. Mid-recording refresh would update the stored predictions as the player re-plans, but has no rendering role until the recording actually ends. Defer.
+30. **(Future) Background-recorder continuation across scenes.** No such system exists today. If one is added later, it inserts between (1) and (2) in the precedence stack with per-sub-interval gap filling.
+31. **(Future) Atmospheric drag during extrapolation.** Drag-free is v1. A drag model would affect in-atmo plane-drop overshoot, but introduces calibration complexity and per-vessel drag data we don't store. Defer.
+32. **(Future) Re-entry FX at destruction moment.** Silent disappear is v1. Could trigger stock heat FX for 2–3 s as a visual cue; adds polish, not required.
+33. **(Future) Player-exposed sliders for horizon cap or capture limit.** Compile-time constants are v1. Expose later only if playtests reveal a concrete need.
 
-### Unit tests (xUnit)
+## What Doesn't Change
 
-`Source/Parsek.Tests/BallisticExtrapolatorTests.cs`:
+Explicit list of systems NOT affected by this plan:
 
-- `ShouldExtrapolate_Landed_ReturnsFalse`
-- `ShouldExtrapolate_Splashed_ReturnsFalse`
-- `ShouldExtrapolate_Prelaunch_ReturnsFalse`
-- `ShouldExtrapolate_Docked_ReturnsFalse`
-- `ShouldExtrapolate_Flying_ReturnsTrue`
-- `ShouldExtrapolate_SubOrbital_ReturnsTrue`
-- `ShouldExtrapolate_Escaping_ReturnsTrue`
-- `ShouldExtrapolate_OrbitingStable_ReturnsFalse` (periapsis above atmo)
-- `ShouldExtrapolate_OrbitingDecayingIntoAtmo_ReturnsTrue` (periapsis below atmo)
-- `Extrapolate_InAtmoPlaneArc_TerminatesAtGroundImpact` (Kerbin, atmo → atmo boundary crossing fires first? No — in-atmo start, cutoff is atmo boundary which is above start altitude. Actually in-atmo start on an atmo body: the arc needs to cross `atmosphereDepth` going up — if it does, fine; but in-atmo plane at low altitude with no climb energy stays in atmo, eventually hits ground. So we need: for an atmo body, if the starting altitude < atmosphereDepth AND the arc's apoapsis is also < atmosphereDepth, cutoff = ground (sea level / terrain), because atmo-boundary cutoff cannot fire. The rule in §3 needs revision: cutoff is "first altitude crossing of atmoDepth going DOWN from above" OR "first ground contact if the whole arc stays below atmoDepth." Clarify in the implementation.)
-- `Extrapolate_SuborbitalBallistic_TerminatesAtAtmoEntry` (Kerbin suborbital arc above atmosphere, descending back down)
-- `Extrapolate_HyperbolicFromKerbin_HandsOffToKerbol` (ecc > 1 trajectory, verifies SOI handoff)
-- `Extrapolate_StableOrbit_TerminatesAsOrbiting` (ecc < 1, periapsis > atmo: never crosses cutoff, stable-orbit outcome within horizon)
-- `Extrapolate_NeverImpacts_HitsHorizonCap` (escape trajectory that never re-encounters a body)
-- `Extrapolate_InterplanetaryJoolIntercept_ChainsToJoolAtmo` (set up a state vector in Kerbol frame on a Jool-intercept trajectory; verify terminal = Destroyed in Jool SOI)
-- `Extrapolate_NonAtmoBody_TerminatesAtGround` (Mun suborbital → ground impact)
-- `Extrapolate_NonAtmoBody_PQSUnavailable_UsesSeaLevel` (mock PQS-null; verify fallback + log)
+- `TerminalState` enum values — `Destroyed` already exists; no additions.
+- `ShouldSpawnAtRecordingEnd` — no changes. Existing blocklist handles `Destroyed`.
+- RSW / `SelectiveSpawnUI` / `SpawnControlUI` — no UI changes.
+- `ParsekPlaybackPolicy` deferred spawn queue — no changes.
+- `CrewReservationManager` — no changes.
+- `GhostMapPresence` ProtoVessel lifecycle — continues to create at spawn and remove at terminal UT; terminal UT is simply earlier for `Destroyed` recordings.
+- Chain / loop systems — `ChainSegmentManager`, loop playback, overlap handling. A `Destroyed` recording's extrapolated arc plays within its single loop cycle; next cycle re-runs from the start identically.
+- Save-file main layout (`.sfs`) — new fields live in `.prec` sidecar only.
+- `FlightCamera` / watch-mode systems — no changes.
+- Existing `OrbitSegment` rendering pipeline — extended (more segments drawable); not rewritten.
+- In-flight multi-vessel recording via `BackgroundRecorder` — no changes.
+- Thrust-segment icon-only rendering — no changes; applies equally to extrapolation intervals (extrapolated arcs are coast by definition, so they draw orbit lines; any recorded thrust segment before extrapolation starts continues to behave as today).
 
-Correction to §3: the cutoff rule is "the first altitude-boundary crossing the arc makes in the direction of decreasing altitude, where boundary is atmoDepth on atmo bodies and terrain/sea-level on non-atmo." Starting in-atmo on an atmo body → boundary is still atmoDepth but we're below it; arc either ascends through it and eventually descends back (terminate on descent crossing) or never reaches it (terminate on ground). The geometric test in §4 needs both surfaces checked for atmo bodies. Update implementation.
+## Backward Compatibility
 
-### Patched-conic snapshot tests
+- Format version bumps to accommodate `TerminalUT`, `ExtrapolatedArcs`, and `OrbitSegment.isPredicted`. No automated migration — per `Format v0 reset` policy, old recordings load with defaults (`TerminalUT = EndUT`, `ExtrapolatedArcs = empty`, `isPredicted = false`).
+- Legacy recordings play identically to today: extrapolation never triggered (empty arcs), spawn behaviour driven by the existing terminal state.
+- Recordings written by this feature load cleanly in older Parsek builds IF the new fields are ignored gracefully. If strict-parsing is in play, a guard/opt-in load path may be needed; verify during Phase 3 by round-tripping through the oldest supported `.prec` format.
 
-`Source/Parsek.Tests/PatchedConicSnapshotTests.cs`:
+## Diagnostic Logging
 
-- `Snapshot_SingleOrbitVessel_CapturesOneSegment`
-- `Snapshot_FlybyPredicted_CapturesPreAndPostFlybyPatches` (mock a solver with two patches across SOI transition)
-- `Snapshot_NullSolver_ReturnsEmptyList` (on-rails / invalid state)
-- `Snapshot_RestoresPlayerLimit` (verify `maxGeometryPatches` is restored even if Update() throws)
-- `Snapshot_ImpactPredictedByKSP_TerminalStateIsDestroyed`
-- `Snapshot_IsolatesPredictedFromTraversed` (verify `isPredicted = true` on captured segments)
+Every decision point logs. All lines under `[Parsek][LEVEL][Subsystem]` format via `ParsekLog`. Subsystem tags used: `PatchedSnapshot`, `Extrapolator`, `Playback`, `MapRender`.
 
-KSP's `PatchedConicSolver` and `Orbit` are non-trivial to mock — consider a thin `IPatchedConicSource` interface over them for testability, or run these primarily as in-game tests. Decide during implementation.
+### Patched-conic snapshot (`[PatchedSnapshot]`)
+
+- Scene-exit entry: `Info` — vessel name, situation, saved `maxGeometryPatches`, target capture limit.
+- Solver null / unavailable: `Warn` — vessel name, reason (e.g., "on rails", "solver disposed"). Short-circuits to no-op.
+- Solver.Update() exception: `Error` — exception type + message; confirmation that `maxGeometryPatches` was restored.
+- Walk complete: `Verbose` — N patches captured, M patches truncated due to MANEUVER transition, terminal body of last captured patch.
+- Short-circuit to `Destroyed`: `Info` — last patch's body, closest-approach altitude, target cutoff altitude, chosen `TerminalUT`.
+
+### Extrapolation guard (`[Extrapolator]`)
+
+- `ShouldExtrapolate` decision: `Verbose` — situation enum value, orbit ecc/peri (if `ORBITING`), decision (true/false), one-word reason ("stable-orbit", "surface-held", "needs-atmo-cutoff", etc.).
+- Start state selection: `Verbose` — "from patched-chain-end" or "from last recorded frame", UT, body, altitude.
+
+### Propagator core (`[Extrapolator]`)
+
+- Arc-start: `Verbose` — body, start UT, Kepler elements (sma, ecc, inc).
+- Cutoff test: `Verbose` — atmoDepth / terrain altitude, periapsis, decision (intersects / escapes / stays).
+- Arc-end (cutoff crossing): `Info` — terminal UT, altitude at crossing, terminal body.
+- Arc-end (SOI escape): `Verbose` — SOI exit UT, new parent body, re-entry distance.
+- Horizon-cap reached: `Warn` — years elapsed, SOI-transition count, final body, terminal state set to `Orbiting`.
+- Degenerate state (zero-speed, parallel vectors, etc.): `Error` — inputs causing degeneracy; fallback to "no extrapolation" with terminal state unchanged.
+
+### Terrain sampling (`[Extrapolator]`)
+
+- Single PQS lookup: `Verbose` — body, lat, lon, altitude returned.
+- PQS unavailable: `Warn` — body, reason; fallback to sea level.
+
+### Playback (`[Playback]`)
+
+- Ghost position resolves from `ExtrapolatedArcs`: `VerboseRateLimited` (one shared key per-recording) — recording id, arc index, UT.
+- Ghost despawn at `terminalUT`: `Info` — recording id, terminal state, terminal UT, actual playback UT.
+
+### Map-view rendering (`[MapRender]`)
+
+- Per-ghost segment selection: `VerboseRateLimited` (one shared key for the pass) — ghost id, current SOI body, camera focused body, ancestor-check result, N segments selected (native vs transformed breakdown).
+- SOI crossing during playback: `Info` — recording id, old body → new body, UT.
+- Camera focus change: `Verbose` — new focused body; triggers a re-evaluation of which ghosts become visible/hidden.
+
+### Finalization summary
+
+After scene-exit finalization, emit one `Info` line at `[Extrapolator]` summarising: recording id, patched-patches captured, extrapolation triggered (yes/no), terminal state, terminal UT, elapsed ms. One line per finalized recording — enables quick scan of KSP.log for missed / stuck cases.
+
+## Test Plan
+
+Every test includes a "what makes it fail" justification. Tests without a concrete regression they guard against do not ship.
+
+### Unit tests (xUnit) — `Source/Parsek.Tests/BallisticExtrapolatorTests.cs`
+
+**`ShouldExtrapolate` switch:**
+
+- `Landed_ReturnsFalse` — fails if guard tries to extrapolate a landed rover, "launching" parked craft.
+- `Splashed_ReturnsFalse` — fails if guard extrapolates a splashed craft, producing ballistic arcs from ocean surface.
+- `Prelaunch_ReturnsFalse` — fails if guard extrapolates PRELAUNCH → ghost takes off from the pad on its own.
+- `Docked_ReturnsFalse` — fails if guard extrapolates docked vessel, ignoring its parent vessel's physics.
+- `Flying_ReturnsTrue` — fails if in-atmo planes get no extrapolation, regressing to the "ghost frozen mid-air" bug this plan solves.
+- `SubOrbital_ReturnsTrue` — fails if above-atmo ballistic arcs get no extrapolation, regressing to mid-arc freeze.
+- `Escaping_ReturnsTrue` — fails if hyperbolic arcs get no extrapolation, ghost stuck at ejection point.
+- `OrbitingStable_ReturnsFalse` — fails if stable orbits unnecessarily get extrapolation work done.
+- `OrbitingDecayingIntoAtmo_ReturnsTrue` — fails if orbit-intersects-atmo case is missed; ghost never gets `Destroyed`.
+
+**Propagator correctness:**
+
+- `Extrapolate_SuborbitalKerbin_TerminatesAtAtmoEntry` — fails on off-by-one at atmo boundary, sign errors in altitude, or if the cutoff is checked only on the ascending side.
+- `Extrapolate_InAtmoPlaneArc_TerminatesAtGround` — fails if atmo-bounded arcs (apoapsis below `atmosphereDepth`) incorrectly wait for atmo-boundary cutoff that never fires.
+- `Extrapolate_HyperbolicFromKerbin_HandsOffToKerbol` — fails if the old `ecc >= 1.0` bail survives, or if SOI handoff math leaves position/velocity in the wrong frame.
+- `Extrapolate_StableOrbit_TerminatesAsOrbiting` — fails if stable orbits get labelled `Destroyed`, blocking spawn incorrectly.
+- `Extrapolate_NeverImpacts_HitsHorizonCap` — fails if propagator loops forever on escape trajectories (no horizon guard).
+- `Extrapolate_InterplanetaryJoolIntercept_ChainsToJoolAtmo` — fails if SOI chain stops after one transition, missing downstream encounters.
+- `Extrapolate_NonAtmoBody_TerminatesAtGround` — fails if atmo cutoff is applied to non-atmo bodies; ghost never despawns.
+- `Extrapolate_NonAtmoBody_PQSUnavailable_UsesSeaLevel` — fails if PQS-null causes NRE instead of sea-level fallback.
+- `Extrapolate_TerrainAltitude_SingleLookup_LandingAtActualSurface` — fails if terrain sampling is skipped on non-atmo or if lookup uses wrong lat/lon frame.
+
+**Limits and safety:**
+
+- `Extrapolate_MaxSoiTransitionsReached_TerminatesAsOrbiting` — fails if we keep chaining past the soft cap, risking pathological cases.
+- `Extrapolate_DegenerateStateVector_ReturnsFailureReason` — fails if zero-speed / parallel-vector inputs crash instead of returning a failure reason.
+
+### Patched-conic snapshot tests — `Source/Parsek.Tests/PatchedConicSnapshotTests.cs`
+
+Because `PatchedConicSolver` and `Orbit` are hard to mock, some tests wrap them behind a thin `IPatchedConicSource` interface; the rest run as in-game tests.
+
+- `Snapshot_SingleOrbitVessel_CapturesOneSegment` — fails if the walk doesn't terminate when `nextPatch == null`.
+- `Snapshot_FlybyPredicted_CapturesPreAndPostFlybyPatches` — fails if the walk stops at the first SOI transition, losing post-flyby predictions (the whole point of this capture).
+- `Snapshot_StopsAtManeuverTransition` — fails if a `MANEUVER` patchEndTransition is included; ghost would then show a trajectory that assumes the unexecuted burn.
+- `Snapshot_NullSolver_ReturnsEmptyList` — fails if on-rails or disposed-solver cases throw NRE.
+- `Snapshot_RestoresPlayerLimit` — fails if `maxGeometryPatches` override leaks, degrading the player's map view.
+- `Snapshot_RestoresLimitOnUpdateException` — fails if the `finally` block is missing; an exception during `Update()` would break the player's settings.
+- `Snapshot_SolverImpactPredicted_TerminalStateIsDestroyed` — fails if we miss the solver's own predicted impact and run the extrapolator unnecessarily (correct result, wasted compute).
+- `Snapshot_IsolatesPredictedFromTraversed` — fails if `isPredicted = true` is not set on captured segments, making them indistinguishable from traversed segments in later logic.
+
+### Serialization tests — `Source/Parsek.Tests/RecordingStorageRoundTripTests.cs` (extend existing)
+
+- `TerminalUT_RoundTrips` — fails if the double precision is lost through `ToString("R")`.
+- `ExtrapolatedArcs_RoundTrips` — fails if ARC ConfigNodes are written differently than they're read.
+- `OrbitSegment_IsPredicted_RoundTrips` — fails if the new boolean field is silently dropped on save or load.
+- `LegacyRecordingWithoutNewFields_LoadsWithDefaults` — fails if old `.prec` files fail to load or produce invalid state when the new fields are absent.
 
 ### Log-assertion tests
 
-Verify that each decision path logs at `[Extrapolator]` or `[PatchedSnapshot]` tag with expected data (inputs, chosen regime, terminal outcome, patch count captured).
+At least one test per subsystem tag that captures log output via `ParsekLog.TestSinkForTesting` and asserts the expected line was produced. This both verifies behavior and ensures diagnostic coverage survives refactoring.
 
-### In-game tests (`InGameTests/RuntimeTests.cs`)
+- `Extrapolator_Logs_StartState_OnEntry` — fails if the start-state verbose log disappears; diagnosing a misfire would require reading source.
+- `PatchedSnapshot_Logs_PatchCount_AtFinalize` — fails if the summary log disappears; debugging "why is the chain empty?" loses its first stop.
+- `Extrapolator_Logs_PQSUnavailable_Warning` — fails if terrain-fallback is silent; operators can't tell a sea-level landing from a terrain landing in the log.
+- `Extrapolator_Logs_HorizonCap_Warning` — fails if horizon-cap hits are silent; can't detect runaway trajectories or set sensible defaults for the cap.
 
-- `ExtrapolationIntegration_PlaneExitMidFlight_GhostFallsAndDespawns` — script a flight, exit at altitude, re-enter to Space Center, verify ghost is visible descending and despawns at impact UT.
-- `ExtrapolationIntegration_SuborbitalExitAtApoapsis_GhostFollowsArc` — suborbital launch, exit at apoapsis, verify ghost plays full descent to atmo entry.
-- `ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol` — ejection burn, exit before SOI transition, verify ghost appears in Kerbol orbit after transition.
-- `PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView` — set up a Mun flyby trajectory with no planned burns, exit flight before reaching Mun, verify ghost's map-view trajectory shows the same pre- and post-flyby patches the player saw.
-- `PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn` — player places a manoeuvre node, exits before executing; verify captured chain reflects the trajectory WITHOUT the burn (ghost is abandoned, cannot execute the burn).
+### In-game tests — `InGameTests/RuntimeTests.cs`
 
-### Synthetic recordings
+(Runnable via `Ctrl+Shift+T` in a live KSP session.)
 
-Add to `Tests/Generators/` fixtures:
+- `ExtrapolationIntegration_PlaneExitMidFlight_GhostFallsAndDespawns` — fails if the full pipeline from scene exit to ghost despawn is broken in live KSP.
+- `ExtrapolationIntegration_SuborbitalExitAtApoapsis_GhostFollowsArc` — fails if extrapolated arc playback doesn't drive the ghost's position in the live scene.
+- `ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol` — fails if patched-conics SOI handoff math diverges from stock KSP's frame conventions.
+- `PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView` — fails if the ghost's post-finalization trajectory lines in map view differ visibly from what the player saw during flight.
+- `PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn` — fails if a planned (but unexecuted) burn's delta-v contaminates the captured chain.
+- `MapRendering_FocusedKerbin_GhostInKerbinSOI_FlybyTransformed` — fails if the Mun-frame flyby segment is not chain-transformed into Kerbin frame while focused on Kerbin; the Kerbin-frame continuous line would show a gap.
+- `MapRendering_FocusedMun_GhostInKerbinSOI_HidesAll` — fails if Mun-frame segments are drawn while the ghost is above Mun in the SOI hierarchy (ghost in Kerbin, camera on Mun). Would show a predicted Mun flyby arc for a ghost that isn't at Mun yet.
+- `MapRendering_FocusedMun_GhostInMunSOI_NativeArc` — fails if the Mun-frame arc is incorrectly transformed through Kerbin when it should render natively. Would produce a far-away curve instead of the tight Mun-close arc.
+- `MapRendering_PostFlybyReturnSegment_Drawn` — fails if the chain walk stops at the first SOI transition, losing the post-flyby Kerbin-frame return segment.
 
-- Truncated plane recording (ends mid-cruise at 3 km).
-- Truncated suborbital recording (ends near apoapsis).
-- Truncated hyperbolic recording (ends pre-SOI-exit).
+### Synthetic recordings — `Tests/Generators/`
 
-Load each and verify finalization produces the expected terminal state and arc count.
+- Truncated plane recording (ends mid-cruise at 3 km altitude on Kerbin, `vessel.situation = FLYING`).
+- Truncated suborbital recording (ends near apoapsis above `atmosphereDepth` on Kerbin, `vessel.situation = SUB_ORBITAL`).
+- Truncated hyperbolic recording (ends pre-SOI-exit on a Kerbin-escape trajectory, `vessel.situation = ESCAPING`).
+- Truncated Mun-flyby recording (ends mid-Kerbin-SOI on a trajectory predicted by the solver to flyby Mun and return to Kerbin).
+- Truncated Mun-impact recording (ends mid-arc on a ballistic arc that will hit the Mun surface, no atmosphere).
 
-## Migration / Compatibility
-
-- Format version bump; no migration (per `Format v0 reset` policy).
-- Existing recordings without `ExtrapolatedArcs` load fine; playback falls back to the current "spawn at last frame" behaviour — no regression for legacy data.
-- Recordings with `TerminalState == Destroyed` are already filtered out of Real Spawn Control by the existing `ShouldSpawnAtRecordingEnd` gate — no RSW UI work needed.
+Each injectable via `dotnet test --filter InjectAllRecordings` and verified end-to-end via finalize + playback assertions.
 
 ## Locked Decisions (from design discussion 2026-04-20)
 
-- **Q1 maneuver nodes**: snapshot walks `nextPatch` only up to (and not including) the first patch whose `patchEndTransition == MANEUVER`. Chain is pure coast by construction; no node mutation, no restore logic.
-- **Q2 tracking-station / map presence for `Destroyed`**: treat as any other ghost with a shorter lifetime. `GhostMapPresence` creates the ProtoVessel at spawn, removes it at `terminalUT`. Targeting works until then.
-- **Q3 RSW visibility**: no work needed. `TerminalState.Destroyed` already exists and is already in the spawn-eligibility blocklist at `GhostPlaybackLogic.cs:3636`.
-- **Q4 deferred spawn queue**: no changes. Queue entry is gated by `ShouldSpawnAtRecordingEnd`, which rejects all non-stable terminal states before they reach the queue.
-- **Q5 crew semantics**: Parsek never marks kerbals dead based on extrapolation. Crew state follows the real (stock KSP) vessel's fate via existing reservation reconciliation. Extrapolation is visual-only.
-- **Q6 mid-recording patch refresh**: scene-exit snapshot only. No refresh on SOI change or maneuver-node edit during recording — the prediction chain has no rendering role until the recording ends.
+- **Q1 maneuver nodes:** walk `nextPatch` only up to (not including) first patch with `patchEndTransition == MANEUVER`. Chain is pure coast.
+- **Q2 map/tracking presence for `Destroyed`:** same treatment as any ghost, vanishes at `terminalUT`. Targeting works until then.
+- **Q3 RSW visibility:** no UI work. `TerminalState.Destroyed` already blocked by `ShouldSpawnAtRecordingEnd`.
+- **Q4 deferred spawn queue:** no changes. Queue entry is gated by the same block.
+- **Q5 crew semantics:** extrapolation never marks kerbals dead. Stock events drive reservation state.
+- **Q6 mid-recording snapshot refresh:** scene-exit only; no refresh on SOI change / node edit during recording.
+- **Q7 background-recorder integration:** n/a; no cross-scene system exists.
+- **Q8 destruction visual FX:** silent disappear. Re-entry FX is deferrable polish.
+- **Q9 `ShouldExtrapolate` guard:** switch on `vessel.situation`. No altitude/speed thresholds.
+- **Q10 map-view rendering:** current-SOI-only, every future coast segment in that SOI drawn simultaneously; foreign-SOI segments and past segments hidden.
 
-## Locked Decisions (continued)
+## Open Questions (deferrable)
 
-- **Q8 destruction visual FX**: Option A, silent disappear at atmo boundary. No FX in phase 1. Revisit only if players find the silent vanish confusing.
-- **Q9 `ShouldExtrapolate` guard**: no thresholds. Decision is a pure switch on `vessel.situation` (stock KSP enum) — mirrors stock's own unload behaviour. LANDED/SPLASHED/PRELAUNCH/DOCKED skip; FLYING/SUB_ORBITAL/ESCAPING extrapolate; ORBITING extrapolates only if the orbit geometrically intersects atmo/ground.
-
-## Open Questions (deferrable / calibration)
-
-1. `maxHorizonYears = 50` and `PatchedConicSolverCaptureLimit = 8` — initial defaults, calibrate from playtests once the feature is live.
-2. Map-view styling for `isPredicted = true` segments — dashed line, different colour, or identical to traversed? Recommend identical until there is a specific readability problem.
-5. `maxHorizonYears = 50` is a guess. Calibrate against the longest realistic interplanetary missions before shipping.
+1. `maxHorizonYears = 50`, `PatchedConicSolverCaptureLimit = 8`, `maxSoiTransitions = 8`, `soiSampleStep = 3600 s` — initial defaults; calibrate from playtests.
+2. Map-view styling for `isPredicted = true` segments — dashed / different colour / identical to traversed? Recommend identical until a readability problem surfaces.
+3. Mid-recording refresh of patched snapshot on SOI change / node edit (edge case 26) — defer.
+4. Background-recorder continuation across scenes (edge case 27) — defer; no such system today.
+5. Atmospheric drag during extrapolation (edge case 28) — defer.
+6. Re-entry FX at destruction (edge case 29) — defer.
+7. Player-exposed sliders for calibration constants (edge case 30) — defer.
 
 ## Work Breakdown
 
-Rough phases; each lands as its own PR.
+Each phase ships as its own PR, testable independently.
 
-1. **Patched-conic snapshot** — `SnapshotPatchedConicChain` (scene-exit only, walk until first `MANEUVER` transition) + `OrbitSegment.isPredicted` + unit / in-game tests. Lands first because it's the cheapest real improvement and unblocks everything else.
-2. `BallisticExtrapolator` module + unit tests (no integration).
-3. `ExtrapolatedArcs` storage in recording + ConfigNode round-trip tests.
-4. Finalization integration (hook into `FinalizeIndividualRecording`, wire snapshot → extrapolator pickup, assign `TerminalState.Destroyed` on atmo/ground hit).
-5. Playback integration (arc rendering during `[lastCoveredUT, terminalUT]`, ghost despawn at `terminalUT`).
-6. In-game tests + synthetic recordings.
-7. Threshold calibration pass after first real-use feedback.
+1. **Patched-conic snapshot + `isPredicted` field.** `SnapshotPatchedConicChain`, `OrbitSegment.isPredicted`, finalization hook, serialization round-trip tests, in-game test for Mun flyby. Cheapest concrete win; lands first. Eligible for isolated work — does not depend on extrapolator.
+2. **`BallisticExtrapolator` module, pure-static, no integration.** `ShouldExtrapolate` switch, single-body Kepler propagator, SOI handoff, terrain sampling, horizon caps. Unit tests only. No hooks into `ParsekFlight` yet.
+3. **Recording serialization for `TerminalUT` and `ExtrapolatedArcs`.** `.prec` sidecar round-trip tests. Legacy compatibility verified.
+4. **Finalization integration.** Hook `FinalizeRecordingState(isSceneExit: true)` → `SnapshotPatchedConicChain` → `BallisticExtrapolator.Extrapolate`. Assigns `TerminalState.Destroyed` or `Orbiting` plus fields. Log summary line per finalized recording.
+5. **Playback integration for extrapolated arcs.** `ExtrapolatedArcResolver.ResolveAt` for ghost positions during `[lastCoveredUT, terminalUT]`. Ghost despawn at `terminalUT` for `Destroyed`. Attitude frozen to last captured `srfRelRotation`.
+6. **Map-view rendering extension.** Two changes on top of existing rendering: (a) gate rendering by camera-focused body vs. ghost's current SOI (show only when focus is ghost's SOI or an ancestor); (b) for segments whose native body is a descendant of the focused body, sample in native frame and chain-transform positions to the focused body's frame. Past segments hidden per existing convention.
+7. **In-game integration tests + synthetic recordings.** Phase 7 is mostly testing, no new production code.
+8. **Calibration pass** after initial playtests — tune horizon years, capture limit, SOI-sample step if evidence warrants.
 
-Note: no RSW, spawn-queue, or crew-reservation work needed — existing systems already handle `Destroyed` correctly via the `ShouldSpawnAtRecordingEnd` gate and via stock KSP crew-death events.
+Phases 1–6 are production; 7–8 are verification and tuning.
+
+No RSW, spawn-queue, or crew-reservation work required — the existing gate and stock events handle `Destroyed` correctly.
 
 ## References
 
-- Investigation findings (this conversation, 2026-04-20): current freeze-at-last-frame behaviour for incomplete ballistic recordings; confirmed zero references to `patchedConicSolver` / `nextPatch` / `maxGeometryPatches` in the codebase today.
+- Prior investigation findings (conversation 2026-04-20): current freeze-at-last-frame behaviour; confirmed zero references to `patchedConicSolver` / `nextPatch` / `maxGeometryPatches` in the codebase today.
 - `ParsekFlight.cs:6788` — `FinalizeIndividualRecording`.
 - `ParsekFlight.cs:6983` — `InferTerminalStateFromTrajectory`.
 - `FlightRecorder.cs:2247-2261` — `CreateOrbitSegmentFromVessel` (current orbit-only capture; extended by this plan).
 - `FlightRecorder.cs:4683-4698` — `FinalizeRecordingState` (scene-exit entry point for snapshot).
+- `GhostPlaybackLogic.cs:3543-3668` — `ShouldSpawnAtRecordingEnd` (already handles `Destroyed`).
 - `GhostPlaybackEngine.cs:1561-1597` — `PositionGhostAtRecordingEndpoint`.
-- `GhostExtender.cs:96-128` — `PropagateOrbital` (current ecc < 1.0 limitation).
+- `GhostExtender.cs:96-128` — `PropagateOrbital` (current `ecc < 1.0` limitation that this plan supersedes).
 - `RecordingEndpointResolver.cs:61-105` — orbit-endpoint resolution.
-- `ParsekPlaybackPolicy.cs:140-270` — deferred spawn queue (impacted by `Destroyed` state).
-- `docs/dev/plans/rsw-departure-aware-spawn-warp.md` — prior plan on spawn-time state divergence; overlapping concerns.
-- KSP API: `PatchedConicSolver`, `Orbit.nextPatch`, `Orbit.patchEndTransition`, `ManeuverNode.RemoveSelf`.
+- `ParsekPlaybackPolicy.cs:140-270` — deferred spawn queue (not affected by this plan).
+- `TerminalState.cs` — enum values.
+- `docs/dev/development-workflow.md` — design-doc + plan/build/review workflow this document follows.
+- `docs/dev/plans/rsw-departure-aware-spawn-warp.md` — prior plan on spawn-time state divergence; similar structure.
+- KSP API: `PatchedConicSolver`, `Orbit.nextPatch`, `Orbit.patchEndTransition`, `Vessel.Situations`, `CelestialBody.TerrainAltitude`, `CelestialBody.pqsController`.
