@@ -441,14 +441,16 @@ namespace Parsek.Tests
                     subjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
                     science = 1.5f,
                     captureUT = 88.7,
-                    reasonKey = "ScienceTransmission"
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
                 },
                 new PendingScienceSubject
                 {
                     subjectId = "temperatureScan@KerbinSrfLandedLaunchPad",
                     science = 1.2f,
                     captureUT = 94.6,
-                    reasonKey = "VesselRecovery"
+                    reasonKey = "VesselRecovery",
+                    recordingId = "rec"
                 }
             };
 
@@ -460,6 +462,49 @@ namespace Parsek.Tests
             Assert.Equal(94.6f, actions[1].StartUT);
             Assert.Equal(ScienceMethod.Recovered, actions[1].Method);
             Assert.Equal(248.8f, actions[1].EndUT);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_CaptureBeforeRecordingStart_ClampsToRecordingStart()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = 88.7,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Single(actions);
+            Assert.Equal(100.3f, actions[0].StartUT);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_CrossRecordingCapture_FallsBackToRecordingStart()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "goo@LaunchPad",
+                    science = 1.5f,
+                    captureUT = 117.8,
+                    reasonKey = "VesselRecovery",
+                    recordingId = "rec-other"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
+
+            Assert.Single(actions);
+            Assert.Equal(100.3f, actions[0].StartUT);
+            Assert.Equal(ScienceMethod.Recovered, actions[0].Method);
         }
 
         [Fact]

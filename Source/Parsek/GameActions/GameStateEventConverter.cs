@@ -230,7 +230,7 @@ namespace Parsek
                     ScienceAwarded = subj.science,
                     Method = ResolveScienceMethod(subj.reasonKey),
                     SubjectMaxValue = subj.subjectMaxValue,
-                    StartUT = (float)ResolveScienceWindowStart(subj, startUT, endUT),
+                    StartUT = (float)ResolveScienceWindowStart(subj, recordingId, startUT, endUT),
                     EndUT = (float)endUT,
                     Sequence = sequence++
                 });
@@ -245,15 +245,24 @@ namespace Parsek
 
         private static double ResolveScienceWindowStart(
             PendingScienceSubject subject,
+            string recordingId,
             double defaultStartUT,
             double endUT)
         {
+            if (!string.Equals(
+                    subject.recordingId ?? "",
+                    recordingId ?? "",
+                    StringComparison.Ordinal))
+                return defaultStartUT;
+
             double captureUt = subject.captureUT;
             if (double.IsNaN(captureUt) || double.IsInfinity(captureUt))
                 return defaultStartUT;
             if (captureUt < 0.0)
                 return defaultStartUT;
             if (captureUt == 0.0 && defaultStartUT > 0.0)
+                return defaultStartUT;
+            if (captureUt < defaultStartUT)
                 return defaultStartUT;
             if (captureUt > endUT)
                 return defaultStartUT;

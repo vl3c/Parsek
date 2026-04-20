@@ -496,5 +496,6 @@ namespace Parsek
         public float subjectMaxValue;
         public double captureUT;
         public string reasonKey;
+        public string recordingId;
     }
 }

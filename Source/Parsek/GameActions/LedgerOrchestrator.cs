@@ -371,7 +371,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: skipped {scopeSkipped} event(s) tagged to other recordings " +
-                    $"(scope='{recordingId}', window=[{startUT:F1},{endUT:F1}])");
+                    $"(scope='{recordingId}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
             }
 
             double emittedFundsDelta = 0;
@@ -492,7 +492,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: summed {contractAcceptCount} ContractAccept, " +
                     $"{facilityUpgradeCount} FacilityUpgrade, {facilityRepairCount} FacilityRepair " +
-                    $"into emittedFundsDelta window=[{startUT:F1},{endUT:F1}]");
+                    $"into emittedFundsDelta window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
 
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding
@@ -502,23 +502,23 @@ namespace Parsek
             if (fundsTracked && Math.Abs(droppedFundsDelta - emittedFundsDelta) > fundsTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (funds): store delta={droppedFundsDelta:F1} vs " +
-                    $"ledger emitted delta={emittedFundsDelta:F1} — missing earning channel? " +
-                    $"window=[{startUT:F1},{endUT:F1}]");
+                    $"Earnings reconciliation (funds): store delta={FormatFixed1(droppedFundsDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedFundsDelta)} — missing earning channel? " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
             if (repTracked && Math.Abs(droppedRepDelta - emittedRepDelta) > repTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (rep): store delta={droppedRepDelta:F1} vs " +
-                    $"ledger emitted delta={emittedRepDelta:F1} — missing earning channel? " +
-                    $"window=[{startUT:F1},{endUT:F1}]");
+                    $"Earnings reconciliation (rep): store delta={FormatFixed1(droppedRepDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedRepDelta)} — missing earning channel? " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
             }
             if (scienceTracked && Math.Abs(droppedSciDelta - emittedSciDelta) > sciTol)
             {
                 string message =
-                    $"Earnings reconciliation (sci): store delta={droppedSciDelta:F1} vs " +
-                    $"ledger emitted delta={emittedSciDelta:F1} — missing earning channel? " +
-                    $"window=[{startUT:F1},{endUT:F1}]";
+                    $"Earnings reconciliation (sci): store delta={FormatFixed1(droppedSciDelta)} vs " +
+                    $"ledger emitted delta={FormatFixed1(emittedSciDelta)} — missing earning channel? " +
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]";
                 string warnKey = string.Format(
                     CultureInfo.InvariantCulture,
                     "commit:sci:{0}:{1:F3}:{2:F3}:{3:F3}:{4:F3}",
@@ -590,7 +590,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: extended science delta with {extendedCount} " +
                     $"including {widenedUntaggedCount} untagged pre-recording event(s) " +
-                    $"window=[{startUT:F1},{endUT:F1}] scope='{recordingId ?? "(none)"}'");
+                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] scope='{recordingId ?? "(none)"}'");
             }
 
             return matchedSciDelta;
@@ -697,7 +697,7 @@ namespace Parsek
                 ? "(no ScienceChanged events in dump window)"
                 : string.Join(" | ", lines.ToArray());
             ParsekLog.Error(Tag,
-                $"Science reconcile dump (commit): window=[{startUT:F1},{endUT:F1}] " +
+                $"Science reconcile dump (commit): window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] " +
                 $"scope='{recordingId ?? "(none)"}' events={detail}");
         }
 
@@ -5000,7 +5000,7 @@ namespace Parsek
             }
 
             ParsekLog.VerboseRateLimited(Tag,
-                $"post-walk-match:{action.Type}:{legTag}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                $"post-walk-match:{action.Type}:{legTag}:{action.RecordingId ?? ""}:{leg.ReasonKey ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
                 $"Post-walk match: {action.Type} {legTag} {aggregate.ContributorLabel} " +
                 $"expected={expectedLabel}, observed={observedLabel}, keyed '{leg.ReasonKey}' " +
                 $"{observedWindowLabel}");
@@ -5105,16 +5105,17 @@ namespace Parsek
                     $"post-walk-science-window-fallback:{action.RecordingId}:{ActionIdForPostWalk(action)}",
                     $"Post-walk science window: {ActionIdForPostWalk(action)} missing persisted span; " +
                     $"falling back to recording {action.RecordingId ?? "(null)"} " +
-                    $"[{startUt:F1},{endUt:F1}]");
+                    $"[{FormatFixed1(startUt)},{FormatFixed1(endUt)}]");
             }
             else if (collapsedPersistedSpan)
             {
                 ParsekLog.VerboseRateLimited(Tag,
                     $"post-walk-science-window-collapsed:{action.RecordingId}:{ActionIdForPostWalk(action)}",
                     $"Post-walk science window: {ActionIdForPostWalk(action)} collapsed persisted span " +
+                    $"recording={action.RecordingId ?? "(null)"} " +
                     $"start={action.StartUT.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"end={action.EndUT.ToString("R", CultureInfo.InvariantCulture)} -> " +
-                    $"reconstructed [{startUt:F3},{endUt:F3}]");
+                    $"reconstructed [{FormatFixed3(startUt)},{FormatFixed3(endUt)}]");
             }
 
             // Only widen the observed-side window for the current end-anchored shape.
@@ -5371,7 +5372,24 @@ namespace Parsek
                 action != null &&
                 action.Type == GameActionType.ScienceEarning)
             {
-                return DoesScienceEventMatchActionScope(evt, action, out bool _);
+                double actionStartUt = action.StartUT;
+                double actionEndUt = action.EndUT;
+                if (TryGetScienceReconcileWindow(
+                        action,
+                        out double reconstructedStartUt,
+                        out double reconstructedEndUt,
+                        out bool ignoredCollapsedPersistedSpan))
+                {
+                    actionStartUt = reconstructedStartUt;
+                    actionEndUt = reconstructedEndUt;
+                }
+
+                return DoesScienceEventMatchActionScope(
+                    evt,
+                    action,
+                    actionStartUt,
+                    actionEndUt,
+                    out bool _);
             }
 
             string eventRecordingId = evt.recordingId ?? "";
@@ -5441,10 +5459,10 @@ namespace Parsek
                 !string.IsNullOrEmpty(action.SubjectId) &&
                 !action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
             {
-                return $"within science window [{startUt:F1},{endUt:F1}] for action ut={action.UT:F1}";
+                return $"within science window [{FormatFixed1(startUt)},{FormatFixed1(endUt)}] for action ut={FormatFixed1(action.UT)}";
             }
 
-            return $"within {PostWalkReconcileEpsilonSeconds:F1}s of ut={action.UT:F1}";
+            return $"within {FormatFixed1(PostWalkReconcileEpsilonSeconds)}s of ut={FormatFixed1(action.UT)}";
         }
 
         private static void LogSciencePostWalkReconcileDumpOnce(
@@ -5484,7 +5502,7 @@ namespace Parsek
                 : string.Join(" | ", lines.ToArray());
             ParsekLog.Error(Tag,
                 $"Science reconcile dump (post-walk): action={ActionIdForPostWalk(action)} " +
-                $"reason='{leg.ReasonKey}' window=[{observedWindowStartUt:F1},{observedWindowEndUt:F1}] " +
+                $"reason='{leg.ReasonKey}' window=[{FormatFixed1(observedWindowStartUt)},{FormatFixed1(observedWindowEndUt)}] " +
                 $"events={detail}");
         }
 
@@ -5604,6 +5622,16 @@ namespace Parsek
             if (!string.IsNullOrEmpty(action.SubjectId)) return action.SubjectId;
             if (!string.IsNullOrEmpty(action.RecordingId)) return action.RecordingId;
             return "(none)";
+        }
+
+        private static string FormatFixed1(double value)
+        {
+            return value.ToString("F1", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatFixed3(double value)
+        {
+            return value.ToString("F3", CultureInfo.InvariantCulture);
         }
 
         /// <summary>

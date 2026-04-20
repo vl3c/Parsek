@@ -999,7 +999,8 @@ namespace Parsek
         internal static bool ShouldUseRecentScienceChangeCapture(
             RecentScienceChangeCapture capture,
             float amount,
-            double currentUt)
+            double currentUt,
+            string currentRecordingId)
         {
             if (!capture.Valid)
                 return false;
@@ -1010,6 +1011,11 @@ namespace Parsek
             if (currentUt < capture.Ut)
                 return false;
             if (currentUt - capture.Ut > ScienceCaptureMatchWindowSeconds)
+                return false;
+            if (!string.Equals(
+                    capture.RecordingId ?? "",
+                    currentRecordingId ?? "",
+                    StringComparison.Ordinal))
                 return false;
 
             return Math.Abs(capture.Delta - amount) <= ScienceCaptureMatchDeltaTolerance;
@@ -1044,13 +1050,32 @@ namespace Parsek
             }
 
             double captureUt = Planetarium.GetUniversalTime();
+            string currentRecordingId = ResolveCurrentRecordingTag() ?? "";
             string reasonKey = "";
-            if (ShouldUseRecentScienceChangeCapture(latestScienceChangeCapture, amount, captureUt))
+            string subjectRecordingId = currentRecordingId;
+            if (ShouldUseRecentScienceChangeCapture(
+                    latestScienceChangeCapture,
+                    amount,
+                    captureUt,
+                    currentRecordingId))
             {
                 captureUt = latestScienceChangeCapture.Ut;
                 reasonKey = latestScienceChangeCapture.ReasonKey ?? "";
+                subjectRecordingId = latestScienceChangeCapture.RecordingId ?? currentRecordingId;
             }
-            latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            else if (latestScienceChangeCapture.Valid &&
+                     (captureUt < latestScienceChangeCapture.Ut ||
+                      captureUt - latestScienceChangeCapture.Ut > ScienceCaptureMatchWindowSeconds ||
+                      !string.Equals(
+                          latestScienceChangeCapture.RecordingId ?? "",
+                          currentRecordingId,
+                          StringComparison.Ordinal)))
+            {
+                latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            }
+            // Keep a matched capture alive for the rest of the current stock reward burst.
+            // Vessel recovery and other multi-subject payouts can fire several
+            // OnScienceReceived callbacks after one ScienceChanged capture.
 
             // Record the cumulative science earned for this subject.
             // Note: subject.science may include Harmony-injected committed science
@@ -1063,7 +1088,8 @@ namespace Parsek
                 science = subject.science,
                 subjectMaxValue = subject.scienceCap,
                 captureUT = captureUt,
-                reasonKey = reasonKey
+                reasonKey = reasonKey,
+                recordingId = subjectRecordingId
             });
 
             ParsekLog.Info("GameStateRecorder",

@@ -59,7 +59,7 @@ namespace Parsek.Tests
                 Valid = true
             };
 
-            Assert.True(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 88.8));
+            Assert.True(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 88.8, ""));
         }
 
         [Fact]
@@ -74,8 +74,8 @@ namespace Parsek.Tests
                 Valid = true
             };
 
-            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 0.6f, 88.8));
-            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 94.0));
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 0.6f, 88.8, ""));
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 94.0, ""));
         }
 
         [Theory]
@@ -104,7 +104,26 @@ namespace Parsek.Tests
                 Valid = true
             };
 
-            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 88.8));
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(capture, 1.5f, 88.8, ""));
+        }
+
+        [Fact]
+        public void ShouldUseRecentScienceChangeCapture_OtherRecording_ReturnsFalse()
+        {
+            var capture = new GameStateRecorder.RecentScienceChangeCapture
+            {
+                Ut = 88.7,
+                ReasonKey = "VesselRecovery",
+                Delta = 1.5f,
+                RecordingId = "rec-old",
+                Valid = true
+            };
+
+            Assert.False(GameStateRecorder.ShouldUseRecentScienceChangeCapture(
+                capture,
+                1.5f,
+                88.8,
+                "rec-new"));
         }
     }
 }

@@ -2133,8 +2133,10 @@ namespace Parsek.Tests
                 Assert.Contains(logLines, l =>
                     l.Contains("Earnings reconciliation (post-walk, funds)") &&
                     l.Contains("FirstLaunch") &&
-                    l.Contains("expected=800.0"));
+                    l.Contains("expected=800.0") &&
+                    l.Contains("within 0.1s of ut=50.0"));
                 Assert.DoesNotContain(logLines, l => l.Contains("expected=800,0"));
+                Assert.DoesNotContain(logLines, l => l.Contains("within 0,1s of ut=50,0"));
             }
             finally
             {
@@ -2554,6 +2556,39 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("collapsed persisted span") &&
                 l.Contains("rec_sci_window_collapsed"));
+        }
+
+        [Fact]
+        public void PostWalk_ScienceEarning_CollapsedLargeUtPersistedSpan_UsesReconstructedScopeForUntaggedPreRecordingEvent()
+        {
+            const double actionUt = 10000000.4;
+
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedScienceChanged(10000000.35, 0.0, 2.5, "ScienceTransmission"),
+                MakeKeyedScienceChanged(10000000.38, 2.5, 5.5, "ScienceTransmission", recordingId: "rec_sci_window_collapsed_untagged")
+            };
+            var action = new GameAction
+            {
+                UT = actionUt,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_sci_window_collapsed_untagged",
+                SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
+                Effective = true,
+                ScienceAwarded = 5.5f,
+                EffectiveScience = 5.5f,
+                Method = ScienceMethod.Transmitted,
+                StartUT = (float)10000000.35,
+                EndUT = (float)actionUt
+            };
+            Assert.Equal(action.StartUT, action.EndUT);
+
+            LedgerOrchestrator.ReconcilePostWalk(events, new List<GameAction> { action }, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk, sci)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk match: ScienceEarning sci") &&
+                l.Contains("expected=5.5, observed=5.5"));
         }
 
         [Fact]
