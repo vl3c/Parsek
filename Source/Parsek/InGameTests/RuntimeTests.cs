@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -13,6 +14,29 @@ namespace Parsek.InGameTests
     /// </summary>
     public class RuntimeTests
     {
+        internal const float TimeScalePositiveThreshold = 0.01f;
+        internal const int TimeScalePositiveProbeFrames = 8;
+
+        internal enum TimeScalePositiveProbeOutcome
+        {
+            Passed,
+            SkipStockPause,
+            SkipPauseProbeUnavailable,
+            FailZeroWithoutPause,
+        }
+
+        internal struct TimeScalePositiveProbeSample
+        {
+            public int SampleIndex;
+            public int FrameCount;
+            public float RealtimeSinceStartup;
+            public float TimeScale;
+            public bool? FlightDriverPause;
+            public string KspLoaderLastUpdate;
+            public string RunnerCoroutineState;
+            public string SceneName;
+        }
+
         private readonly InGameTestRunner runner;
 
         public RuntimeTests(InGameTestRunner runner)
@@ -301,9 +325,221 @@ namespace Parsek.InGameTests
         #region Unity Environment
 
         [InGameTest(Category = "Unity", Description = "Time.timeScale is positive (game not frozen)")]
-        public void TimeScalePositive()
+        public IEnumerator TimeScalePositive()
         {
-            InGameAssert.IsGreaterThan(Time.timeScale, 0, "Time.timeScale should be > 0");
+            var samples = new List<TimeScalePositiveProbeSample>(TimeScalePositiveProbeFrames);
+            for (int i = 0; i < TimeScalePositiveProbeFrames; i++)
+            {
+                TimeScalePositiveProbeSample sample = CaptureTimeScalePositiveProbeSample(i);
+                samples.Add(sample);
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive probe: " + FormatTimeScalePositiveProbeSample(sample));
+
+                TimeScalePositiveProbeOutcome partialOutcome =
+                    ClassifyTimeScalePositiveSamples(samples);
+                switch (partialOutcome)
+                {
+                    case TimeScalePositiveProbeOutcome.Passed:
+                        if (i > 0)
+                        {
+                            ParsekLog.Info("TestRunner",
+                                "TimeScalePositive recovered after " +
+                                (i + 1).ToString(CultureInfo.InvariantCulture) +
+                                " frame(s): " +
+                                FormatTimeScalePositiveProbeSummary(samples));
+                        }
+                        yield break;
+
+                    case TimeScalePositiveProbeOutcome.FailZeroWithoutPause:
+                        InGameAssert.Fail(
+                            "Time.timeScale hit <= " +
+                            TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                            " outside stock pause during probe | " +
+                            FormatTimeScalePositiveProbeSummary(samples));
+                        yield break;
+                }
+
+                if (i < TimeScalePositiveProbeFrames - 1)
+                    yield return null;
+            }
+
+            string summary = FormatTimeScalePositiveProbeSummary(samples);
+            switch (ClassifyTimeScalePositiveSamples(samples))
+            {
+                case TimeScalePositiveProbeOutcome.Passed:
+                    yield break;
+
+                case TimeScalePositiveProbeOutcome.SkipStockPause:
+                    InGameAssert.Skip(
+                        "stock pause menu open; Time.timeScale=0 is expected while paused | " +
+                        summary);
+                    break;
+
+                case TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable:
+                    InGameAssert.Skip(
+                        "FlightDriver.Pause unavailable; cannot confirm stock pause state | " +
+                        summary);
+                    break;
+
+                default:
+                    InGameAssert.Fail(
+                        "Time.timeScale hit <= " +
+                        TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                        " outside stock pause during probe | " +
+                        summary);
+                    break;
+            }
+        }
+
+        internal static TimeScalePositiveProbeOutcome ClassifyTimeScalePositiveSamples(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+            bool sawPositiveTimeScale = false;
+            bool sawPauseProbeUnavailable = false;
+            bool sawConfirmedStockPause = false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].TimeScale > TimeScalePositiveThreshold)
+                {
+                    sawPositiveTimeScale = true;
+                    continue;
+                }
+
+                if (samples[i].FlightDriverPause == false)
+                    return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+                if (samples[i].FlightDriverPause == true)
+                    sawConfirmedStockPause = true;
+                else if (!samples[i].FlightDriverPause.HasValue)
+                    sawPauseProbeUnavailable = true;
+            }
+
+            if (sawConfirmedStockPause)
+                return sawPositiveTimeScale
+                    ? TimeScalePositiveProbeOutcome.Passed
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
+
+            if (sawPauseProbeUnavailable)
+                return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
+
+            return sawPositiveTimeScale
+                ? TimeScalePositiveProbeOutcome.Passed
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
+        }
+
+        internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)
+        {
+            return "sample=" + sample.SampleIndex.ToString(CultureInfo.InvariantCulture) +
+                   " frame=" + sample.FrameCount.ToString(CultureInfo.InvariantCulture) +
+                   " realtime=" + sample.RealtimeSinceStartup.ToString("F2", CultureInfo.InvariantCulture) +
+                   " timeScale=" + sample.TimeScale.ToString("F3", CultureInfo.InvariantCulture) +
+                   " FlightDriver.Pause=" + (sample.FlightDriverPause.HasValue
+                       ? sample.FlightDriverPause.Value.ToString()
+                       : "unavailable") +
+                   " KSPLoader.lastUpdate=" + (sample.KspLoaderLastUpdate ?? "null") +
+                   " runner=" + (sample.RunnerCoroutineState ?? "null") +
+                   " scene=" + (sample.SceneName ?? "null");
+        }
+
+        internal static string FormatTimeScalePositiveProbeSummary(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return "no samples";
+
+            return string.Join(
+                " | ",
+                samples.Select(FormatTimeScalePositiveProbeSample).ToArray());
+        }
+
+        private TimeScalePositiveProbeSample CaptureTimeScalePositiveProbeSample(int sampleIndex)
+        {
+            return new TimeScalePositiveProbeSample
+            {
+                SampleIndex = sampleIndex,
+                FrameCount = Time.frameCount,
+                RealtimeSinceStartup = Time.realtimeSinceStartup,
+                TimeScale = Time.timeScale,
+                FlightDriverPause = SafeReadFlightDriverPause(),
+                KspLoaderLastUpdate = DescribeKspLoaderLastUpdate(),
+                RunnerCoroutineState = runner != null ? runner.DescribeCoroutineState() : "runner=null",
+                SceneName = HighLogic.LoadedScene.ToString(),
+            };
+        }
+
+        private static bool? SafeReadFlightDriverPause()
+        {
+            try
+            {
+                return FlightDriver.Pause;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive: FlightDriver.Pause unavailable: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        private static string DescribeKspLoaderLastUpdate()
+        {
+            try
+            {
+                System.Type loaderType = ResolveKspLoaderType();
+                if (loaderType == null)
+                    return "type-missing";
+
+                FieldInfo field = loaderType.GetField(
+                    "lastUpdate",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field == null)
+                    return "field-missing";
+
+                object value = field.GetValue(null);
+                return value != null ? value.ToString() : "null";
+            }
+            catch (System.Exception ex)
+            {
+                return "error:" + ex.GetType().Name;
+            }
+        }
+
+        private static System.Type ResolveKspLoaderType()
+        {
+            System.Reflection.Assembly[] assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                System.Reflection.Assembly assembly = assemblies[i];
+                System.Type direct = assembly.GetType("KSPLoader", false);
+                if (direct != null)
+                    return direct;
+
+                try
+                {
+                    System.Type[] types = assembly.GetTypes();
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    System.Type[] types = ex.Types;
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+            }
+
+            return null;
         }
 
         [InGameTest(Category = "Unity", Description = "A scene camera is accessible")]
@@ -1274,12 +1510,19 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(RecordingPaths.ValidateRecordingId("abc-123"),
                 "Simple alphanumeric ID should be valid");
 
-            // Invalid IDs
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(null),
+            // Invalid IDs are intentionally exercised in the test-only logging context
+            // so expected security rejections stay visible without polluting WARN triage.
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    null,
+                    RecordingIdValidationLogContext.Test),
                 "null ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(""),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "",
+                    RecordingIdValidationLogContext.Test),
                 "empty ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId("../etc/passwd"),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "../etc/passwd",
+                    RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
         }
     }
@@ -3462,6 +3705,91 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 regression: scene reset must not cache a transparent opaque window
+        /// style while the destination scene skin is still bootstrapping.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Scene reset defers opaque window rebuild until a skin background exists")]
+        public void SceneReset_DefersOpaqueStyleUntilSkinReady()
+        {
+            var shortcut = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(shortcut, "TestRunnerShortcut.Instance must exist");
+
+            MethodInfo onSceneChange = typeof(TestRunnerShortcut).GetMethod(
+                "OnSceneChangeRequested",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(onSceneChange,
+                "Failed to reflect TestRunnerShortcut.OnSceneChangeRequested");
+
+            var readySkin = ScriptableObject.CreateInstance<GUISkin>();
+            var missingBackgroundSkin = ScriptableObject.CreateInstance<GUISkin>();
+            var sourceBackground = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+
+            try
+            {
+                sourceBackground.SetPixels(new[]
+                {
+                    new Color(0.18f, 0.24f, 0.31f, 0.35f),
+                    new Color(0.20f, 0.27f, 0.34f, 0.40f),
+                    new Color(0.22f, 0.29f, 0.36f, 0.45f),
+                    new Color(0.24f, 0.31f, 0.38f, 0.50f),
+                });
+                sourceBackground.Apply();
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Test must start from a cleared opaque-style cache");
+
+                readySkin.window = new GUIStyle();
+                readySkin.window.normal.background = sourceBackground;
+
+                missingBackgroundSkin.window = new GUIStyle();
+
+                bool builtBeforeReset = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtBeforeReset,
+                    "Opaque style should build when a window background exists");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Opaque style must be cached before the scene reset");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Opaque style cache must keep a non-null window background before reset");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Lagging hover/focus/active states must fall back to the ready normal background");
+                InGameAssert.AreNotEqual(sourceBackground.GetInstanceID(),
+                    shortcut.OpaqueWindowBackgroundForTesting.GetInstanceID(),
+                    "Opaque style must keep a copied background texture instead of the live skin texture");
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Scene reset should clear the cached opaque style before the next rebuild");
+
+                bool builtWithMissingBackground = shortcut.TryEnsureOpaqueStyleForTesting(missingBackgroundSkin);
+                InGameAssert.IsFalse(builtWithMissingBackground,
+                    "Opaque style rebuild must defer when the destination scene skin has no window background yet");
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Deferred rebuild must not cache an opaque style with null backgrounds");
+                InGameAssert.IsNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Deferred rebuild must leave the cached opaque background unset");
+
+                bool builtAfterSkinReady = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtAfterSkinReady,
+                    "Opaque style rebuild should succeed once the scene skin is ready");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Ready-skin rebuild must repopulate the cached opaque style");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Ready-skin rebuild must cache a non-null opaque background");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Ready-skin rebuild must populate every window state background");
+            }
+            finally
+            {
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                Object.Destroy(readySkin);
+                Object.Destroy(missingBackgroundSkin);
+                Object.Destroy(sourceBackground);
+            }
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// This also drives a real stock quickload, so it is intentionally single-run only.
@@ -5255,6 +5583,8 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
@@ -5334,5 +5664,7 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 }

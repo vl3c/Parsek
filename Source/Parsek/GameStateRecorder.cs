@@ -40,6 +40,15 @@ namespace Parsek
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
+        internal struct RecentScienceChangeCapture
+        {
+            public double Ut;
+            public string ReasonKey;
+            public float Delta;
+            public string RecordingId;
+            public bool Valid;
+        }
+
         /// <summary>
         /// #431: test hook. When non-null, <see cref="ResolveCurrentRecordingTag"/> returns its result
         /// instead of probing <see cref="ParsekFlight"/> / <see cref="RecordingStore"/>. Unit tests
@@ -231,6 +240,7 @@ namespace Parsek
             public ProtoCrewMember.RosterStatus to;
         }
         private Dictionary<string, PendingCrewEvent> pendingCrewEvents = new Dictionary<string, PendingCrewEvent>();
+        private RecentScienceChangeCapture latestScienceChangeCapture;
 
         // Resource tracking for threshold checks
         private double lastFunds = double.NaN;
@@ -238,7 +248,9 @@ namespace Parsek
         private float lastReputation = float.NaN;
 
         private const double FundsThreshold = 100.0;
-        private const double ScienceThreshold = 1.0;
+        private const double ScienceThreshold = 0.001;
+        private const double ScienceCaptureMatchWindowSeconds = 5.0;
+        private const float ScienceCaptureMatchDeltaTolerance = 0.05f;
         private const float ReputationThreshold = 1.0f;
         private const float ReputationThresholdEpsilon = 0.001f;
 
@@ -249,6 +261,7 @@ namespace Parsek
             if (subscribed) return;
             subscribed = true;
             pendingCrewEvents.Clear();
+            latestScienceChangeCapture = default(RecentScienceChangeCapture);
             ClearPendingMilestoneEvents("Subscribe");
 
             // Contracts
@@ -297,6 +310,7 @@ namespace Parsek
         {
             if (!subscribed) return;
             subscribed = false;
+            latestScienceChangeCapture = default(RecentScienceChangeCapture);
             ClearPendingMilestoneEvents("Unsubscribe");
 
             // Contracts
@@ -896,18 +910,36 @@ namespace Parsek
             }
             if (double.IsNaN(oldScience)) return;
             double delta = newScience - oldScience;
-            if (Math.Abs(delta) < ScienceThreshold)
+            double ut = Planetarium.GetUniversalTime();
+            string reasonKey = reason.ToString();
+            if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
+            {
+                latestScienceChangeCapture = new RecentScienceChangeCapture
+                {
+                    Ut = ut,
+                    ReasonKey = reasonKey,
+                    Delta = (float)delta,
+                    RecordingId = ResolveCurrentRecordingTag(),
+                    Valid = true
+                };
+            }
+            else
+            {
+                latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            }
+
+            if (IsScienceDeltaBelowThreshold(delta))
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
-                    $"Ignored ScienceChanged delta={delta:+0.0;-0.0} below threshold={ScienceThreshold:F1}", 5.0);
+                    $"Ignored ScienceChanged delta={delta:+0.000;-0.000} below threshold={ScienceThreshold:F3}", 5.0);
                 return;
             }
 
             var sciEvt = new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 eventType = GameStateEventType.ScienceChanged,
-                key = reason.ToString(),
+                key = reasonKey,
                 valueBefore = oldScience,
                 valueAfter = newScience
             };
@@ -953,6 +985,42 @@ namespace Parsek
             return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
         }
 
+        internal static bool IsScienceDeltaBelowThreshold(double delta)
+        {
+            return Math.Abs(delta) < ScienceThreshold;
+        }
+
+        internal static bool IsScienceSubjectReasonKey(string reasonKey)
+        {
+            return string.Equals(reasonKey, "ScienceTransmission", StringComparison.Ordinal) ||
+                   string.Equals(reasonKey, "VesselRecovery", StringComparison.Ordinal);
+        }
+
+        internal static bool ShouldUseRecentScienceChangeCapture(
+            RecentScienceChangeCapture capture,
+            float amount,
+            double currentUt,
+            string currentRecordingId)
+        {
+            if (!capture.Valid)
+                return false;
+            if (capture.Delta <= 0f)
+                return false;
+            if (!IsScienceSubjectReasonKey(capture.ReasonKey ?? ""))
+                return false;
+            if (currentUt < capture.Ut)
+                return false;
+            if (currentUt - capture.Ut > ScienceCaptureMatchWindowSeconds)
+                return false;
+            if (!string.Equals(
+                    capture.RecordingId ?? "",
+                    currentRecordingId ?? "",
+                    StringComparison.Ordinal))
+                return false;
+
+            return Math.Abs(capture.Delta - amount) <= ScienceCaptureMatchDeltaTolerance;
+        }
+
         #endregion
 
         #region Science Subject Tracking
@@ -981,6 +1049,34 @@ namespace Parsek
                 return;
             }
 
+            double captureUt = Planetarium.GetUniversalTime();
+            string currentRecordingId = ResolveCurrentRecordingTag() ?? "";
+            string reasonKey = "";
+            string subjectRecordingId = currentRecordingId;
+            if (ShouldUseRecentScienceChangeCapture(
+                    latestScienceChangeCapture,
+                    amount,
+                    captureUt,
+                    currentRecordingId))
+            {
+                captureUt = latestScienceChangeCapture.Ut;
+                reasonKey = latestScienceChangeCapture.ReasonKey ?? "";
+                subjectRecordingId = latestScienceChangeCapture.RecordingId ?? currentRecordingId;
+            }
+            else if (latestScienceChangeCapture.Valid &&
+                     (captureUt < latestScienceChangeCapture.Ut ||
+                      captureUt - latestScienceChangeCapture.Ut > ScienceCaptureMatchWindowSeconds ||
+                      !string.Equals(
+                          latestScienceChangeCapture.RecordingId ?? "",
+                          currentRecordingId,
+                          StringComparison.Ordinal)))
+            {
+                latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            }
+            // Keep a matched capture alive for the rest of the current stock reward burst.
+            // Vessel recovery and other multi-subject payouts can fire several
+            // OnScienceReceived callbacks after one ScienceChanged capture.
+
             // Record the cumulative science earned for this subject.
             // Note: subject.science may include Harmony-injected committed science
             // (from ScienceSubjectPatch) if this experiment was previously committed.
@@ -990,11 +1086,15 @@ namespace Parsek
             {
                 subjectId = subject.id,
                 science = subject.science,
-                subjectMaxValue = subject.scienceCap
+                subjectMaxValue = subject.scienceCap,
+                captureUT = captureUt,
+                reasonKey = reasonKey,
+                recordingId = subjectRecordingId
             });
 
             ParsekLog.Info("GameStateRecorder",
-                $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1}");
+                $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1} " +
+                $"reason='{reasonKey}' ut={captureUt:F1}");
         }
 
         #endregion

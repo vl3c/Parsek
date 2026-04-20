@@ -15,6 +15,8 @@ Prefer running these commands from the repo/worktree root so they behave the sam
 
 `dotnet test` only covers the headless xUnit suite. Runtime / in-game tests live under `Source/Parsek/InGameTests/` and must be run inside KSP via `Ctrl+Shift+T`; results export to `parsek-test-results.txt` in the KSP root.
 
+Tests marked `AllowBatchExecution = false` are single-run only. They do not execute under `Run All` / batch category runs and will show up as `(never run)` in `parsek-test-results.txt` until you launch them individually from the in-game test runner.
+
 If a machine-specific environment issue blocks `dotnet test` or `dotnet restore` (for example testhost socket startup or NuGet initialization), treat that as an environment blocker, not a repo failure. In that case, use:
 
 ```bash

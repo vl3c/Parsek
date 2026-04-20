@@ -6707,6 +6707,7 @@ namespace Parsek
             {
                 activeRec.TerminalStateValue =
                     RecordingTree.DetermineTerminalState((int)v.situation, v);
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.LiveNonLeaf");
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: set terminalState=" +
                     $"{activeRec.TerminalStateValue} on active recording " +
@@ -6728,6 +6729,7 @@ namespace Parsek
                     PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
                     TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
                 }
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeaf");
                 return;
             }
 
@@ -6778,6 +6780,7 @@ namespace Parsek
 
             CaptureTerminalOrbit(activeRec, activeVessel);
             CaptureTerminalPosition(activeRec, activeVessel);
+            RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.StableLeaf");
             TryRefreshStableTerminalSnapshot(
                 activeRec,
                 activeVessel,
@@ -6943,6 +6946,8 @@ namespace Parsek
                 }
             }
 
+            RecordingEndpointResolver.RefreshEndpointDecision(rec, "FinalizeIndividualRecording");
+
             // Bug #290d: backfill MaxDistanceFromLaunch if not yet computed.
             // Tree recordings reach finalization via ForceStop which skips BuildCaptureRecording
             // (where MaxDistanceFromLaunch is normally computed). Without this, all recordings
@@ -7039,6 +7044,7 @@ namespace Parsek
                 longitude = lastPt.longitude,
                 altitude = lastPt.altitude,
                 rotation = lastPt.rotation,
+                rotationRecorded = true,
                 situation = inferredState == TerminalState.Splashed
                     ? SurfaceSituation.Splashed
                     : SurfaceSituation.Landed
@@ -7417,8 +7423,25 @@ namespace Parsek
                         double spawnLat, spawnLon, spawnAlt;
                         VesselSpawner.ResolveSpawnPosition(leaf, -1, lastPt,
                             out spawnLat, out spawnLon, out spawnAlt);
-                        VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                            -1, leaf.VesselName, lastPt.rotation);
+                        if (VesselSpawner.TryResolvePreferredSpawnRotation(
+                            leaf, lastPt,
+                            out string rotationBodyName,
+                            out Quaternion rotationBodyRotation,
+                            out Quaternion surfaceRelativeRotation,
+                            out string rotationSource))
+                        {
+                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                                -1, leaf.VesselName,
+                                rotationBodyName,
+                                rotationBodyRotation,
+                                surfaceRelativeRotation,
+                                rotationSource);
+                        }
+                        else
+                        {
+                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                                -1, leaf.VesselName);
+                        }
                     }
 
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
@@ -7695,6 +7718,7 @@ namespace Parsek
                     longitude = vessel.longitude,
                     altitude = vessel.altitude,
                     rotation = vessel.srfRelRotation,
+                    rotationRecorded = true,
                     situation = sit == Vessel.Situations.SPLASHED
                         ? SurfaceSituation.Splashed
                         : SurfaceSituation.Landed
