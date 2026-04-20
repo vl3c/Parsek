@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
 - `#482` Added xUnit coverage for recording-path validation log routing, including the dedicated production-`WARN` branch and the explicit test-context `VERBOSE` branch (now including invalid file-name chars).
 - Added spawn-rotation regressions for the explicit format-v0 surface-relative reconstruction path, including SpawnAtPosition node-prep coverage for Kerbin/Mun fixtures, snapshot-override rotation rewrites, terminal-surface-pose precedence, and the surface-only fallback gate.
 - `#487` Added an in-game `TestRunner` regression that drives the scene-reset + missing-skin path, clears any preexisting cache before the initial build, and asserts lagging hover/focus/active states fall back to the ready normal window background instead of caching a transparent frame.
