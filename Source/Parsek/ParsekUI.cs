@@ -435,7 +435,7 @@ namespace Parsek
                 return false;
             }
 
-            opaqueWindowStyle = BuildOpaqueWindowStyle(skin.window);
+            opaqueWindowStyle = BuildOpaqueWindowStyleFromSource(skin.window);
 
             // Bigger title font + more breathing room above/below the title text so the
             // title bar is not cramped. Applied here because every Parsek window routes
@@ -471,7 +471,7 @@ namespace Parsek
                 && style.onHover.background != null;
         }
 
-        private static GUIStyle BuildOpaqueWindowStyle(GUIStyle sourceStyle)
+        internal static GUIStyle BuildOpaqueWindowStyleFromSource(GUIStyle sourceStyle)
         {
             Texture2D normalSource = sourceStyle.normal.background;
             var style = new GUIStyle(sourceStyle);
@@ -483,7 +483,55 @@ namespace Parsek
             style.onActive.background = MakeOpaqueCopy(sourceStyle.onActive.background ?? normalSource);
             style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
             style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
+            NormalizeOpaqueWindowTitleTextColors(style, sourceStyle);
             return style;
+        }
+
+        internal static void NormalizeOpaqueWindowTitleTextColors(
+            GUIStyle style,
+            GUIStyle sourceStyle)
+        {
+            if (style == null || sourceStyle == null)
+                return;
+
+            Color baseTextColor = ResolveReadableWindowTitleTextColor(
+                sourceStyle.normal.textColor,
+                sourceStyle.onNormal.textColor);
+            Color toggledTextColor = ResolveReadableWindowTitleTextColor(
+                sourceStyle.onNormal.textColor,
+                sourceStyle.normal.textColor);
+
+            style.normal.textColor = baseTextColor;
+            style.hover.textColor = baseTextColor;
+            style.focused.textColor = baseTextColor;
+            style.active.textColor = baseTextColor;
+
+            style.onNormal.textColor = toggledTextColor;
+            style.onHover.textColor = toggledTextColor;
+            style.onFocused.textColor = toggledTextColor;
+            style.onActive.textColor = toggledTextColor;
+        }
+
+        internal static Color ResolveReadableWindowTitleTextColor(
+            Color preferred,
+            Color fallback)
+        {
+            if (IsReadableWindowTitleTextColor(preferred))
+                return preferred;
+            if (IsReadableWindowTitleTextColor(fallback))
+                return fallback;
+            return Color.white;
+        }
+
+        internal static bool IsReadableWindowTitleTextColor(Color color)
+        {
+            if (color.a < 0.5f)
+                return false;
+
+            float luminance = 0.2126f * color.r
+                + 0.7152f * color.g
+                + 0.0722f * color.b;
+            return luminance >= 0.55f;
         }
 
         private void ClearOpaqueWindowStyle()
