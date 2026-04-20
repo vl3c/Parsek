@@ -228,6 +228,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_GhostOnlySnapshot_DoesNotSuppressLiveResnapshot()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 280.0,
+                        ghostVisualSnapshot = MakeSnapshot("ORBITING")
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-ghost-only",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            bool skipLiveResnapshot = ParsekFlight.FinalizeIndividualRecording(
+                rec, commitUT: 200.0, isSceneExit: true);
+
+            Assert.False(skipLiveResnapshot);
+            Assert.Null(rec.VesselSnapshot);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+        }
+
+        [Fact]
         public void RefreshActiveEffectiveLeafSnapshot_ExtendedLifetime_SkipsLiveResnapshot()
         {
             var tree = new RecordingTree

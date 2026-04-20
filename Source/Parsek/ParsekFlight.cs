@@ -6727,7 +6727,6 @@ namespace Parsek
             if (isSceneExit)
             {
                 ConfigNode vesselSnapshotBefore = activeRec.VesselSnapshot;
-                ConfigNode ghostVisualSnapshotBefore = activeRec.GhostVisualSnapshot;
                 sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
                     activeRec,
                     v,
@@ -6735,7 +6734,7 @@ namespace Parsek
                     "EnsureActiveRecordingTerminalState");
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
-                    || !ReferenceEquals(ghostVisualSnapshotBefore, activeRec.GhostVisualSnapshot);
+                    && activeRec.VesselSnapshot != null;
                 if (sceneExitLifetimeExtended)
                 {
                     if (activeRec.TerminalStateValue.HasValue
@@ -6882,7 +6881,6 @@ namespace Parsek
             if (isLeaf && isSceneExit && !rec.TerminalStateValue.HasValue)
             {
                 ConfigNode vesselSnapshotBefore = rec.VesselSnapshot;
-                ConfigNode ghostVisualSnapshotBefore = rec.GhostVisualSnapshot;
                 sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
                     rec,
                     finalizeVessel,
@@ -6890,7 +6888,7 @@ namespace Parsek
                     "FinalizeIndividualRecording");
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, rec.VesselSnapshot)
-                    || !ReferenceEquals(ghostVisualSnapshotBefore, rec.GhostVisualSnapshot);
+                    && rec.VesselSnapshot != null;
             }
 
             // Determine terminal state for recordings that don't have one yet
