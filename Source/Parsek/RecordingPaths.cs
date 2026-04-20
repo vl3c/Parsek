@@ -3,6 +3,12 @@ using System.IO;
 
 namespace Parsek
 {
+    internal enum RecordingIdValidationLogContext
+    {
+        Production,
+        Test,
+    }
+
     internal static class RecordingPaths
     {
         internal static string BuildTrajectoryRelativePath(string recordingId)
@@ -154,16 +160,22 @@ namespace Parsek
             return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "GameState"));
         }
 
-        internal static bool ValidateRecordingId(string id)
+        internal static bool ValidateRecordingId(
+            string id,
+            RecordingIdValidationLogContext logContext = RecordingIdValidationLogContext.Production)
         {
             if (string.IsNullOrEmpty(id))
             {
-                ParsekLog.Warn("Paths", "Recording id validation failed: id is null or empty");
+                LogRecordingIdValidationFailure(
+                    "Recording id validation failed: id is null or empty",
+                    logContext);
                 return false;
             }
             if (id.Contains("/") || id.Contains("\\") || id.Contains(".."))
             {
-                ParsekLog.Warn("Paths", $"Recording id validation failed for '{id}': contains invalid path sequence");
+                LogRecordingIdValidationFailure(
+                    $"Recording id validation failed for '{id}': contains invalid path sequence",
+                    logContext);
                 return false;
             }
             char[] invalidChars = Path.GetInvalidFileNameChars();
@@ -171,11 +183,26 @@ namespace Parsek
             {
                 if (Array.IndexOf(invalidChars, id[i]) >= 0)
                 {
-                    ParsekLog.Warn("Paths", $"Recording id validation failed for '{id}': contains invalid file-name char");
+                    LogRecordingIdValidationFailure(
+                        $"Recording id validation failed for '{id}': contains invalid file-name char",
+                        logContext);
                     return false;
                 }
             }
             return true;
+        }
+
+        private static void LogRecordingIdValidationFailure(
+            string message,
+            RecordingIdValidationLogContext logContext)
+        {
+            if (logContext == RecordingIdValidationLogContext.Test)
+            {
+                ParsekLog.Verbose("Paths", message);
+                return;
+            }
+
+            ParsekLog.Warn("Paths", message);
         }
     }
 }

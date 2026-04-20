@@ -18,6 +18,26 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~487. Test runner window (Ctrl+Shift+T) goes fully transparent after staying open across a scene transition~~
+
+**Source:** `logs/2026-04-19_2228/KSP.log:9075` plus local repro notes (`Flight pad -> Space Center -> Flight pad` with the runner left open the whole time).
+
+**Concern:** the runner's opaque window style is reset on `GameEvents.onGameSceneLoadRequested`, which fires before the destination scene's IMGUI skin is ready. The next `OnGUI` during the transition sees `opaqueStyle == null`, clones `GUI.skin.window` while `GUI.skin.window.normal.background` is still null/stale, and caches a non-null `GUIStyle` whose backgrounds are all null. From that point the frame renders fully transparent until another scene transition happens to rebuild it at a safer moment.
+
+**Fix:** keep the current scene-reset flow, but gate opaque-style rebuild on `GUI.skin.window.normal.background != null`; if the destination skin is not ready yet, `OnGUI` now returns early and retries on a later frame instead of caching a transparent style. When the normal background is ready but hover/focus/active variants are still null, the builder now falls those states back to the ready normal texture so the cache never freezes in a partially transparent state. Scene-reset cleanup explicitly destroys the copied opaque textures before dropping the cached style, and the new in-game `TestRunner` regression clears any preexisting cache, invokes the private scene-change handler directly, exercises both the missing-background and lagging-state paths, and asserts the cache stays empty until a ready skin is supplied.
+
+**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+
+**Scope:** Small. No scene-hook swap required; the fix is a guarded rebuild plus cache cleanup and regression coverage.
+
+**Dependencies:** none.
+
+**Resolution:** fixed on 2026-04-19 in `bug/487-test-runner-transparent`. The runner now logs a rate-limited `Test runner: skin not ready, deferring opaque style rebuild` message on the deferred path, so future log captures will show the race if it ever reappears.
+
+**Status:** CLOSED 2026-04-19. Fixed for v0.8.3.
+
+---
+
 ## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
 
 **Source:** `logs/2026-04-19_2126/KSP.log` + `saves/c2/persistent.sfs`. User reported: "There was a problem with the runway R0 recording — I did a save/load while on the runway and it caused problems — created two recordings (one landed, one in air) which looked weird."
@@ -94,38 +114,15 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 
 ---
 
-## 484. `FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` fails in FLIGHT — `PopulateTerminalOrbitFromLastSegment` overwrites an already-populated `TerminalOrbitBody` when the last segment's body disagrees
+## ~~484. `FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` fails in FLIGHT — `PopulateTerminalOrbitFromLastSegment` overwrites an already-populated `TerminalOrbitBody` when the last segment's body disagrees~~
 
-**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:14-16` + `KSP.log`:
+**Resolution (2026-04-19):** Closed on `bug/484-terminal-orbit-preserve`. Investigation confirmed the current code contract comes from `#475`, not `#289`: `TerminalOrbit*` is a healable cache, not immutable finalized metadata. `PopulateTerminalOrbitFromLastSegment` now preserves existing data only when the full cached terminal-orbit tuple already matches the endpoint-aligned last `OrbitSegment`; stale same-body tuples and stale different-body tuples both heal from that segment. The FLIGHT and xUnit regressions were tightened to pin all three cases explicitly: preserve-on-full-match, heal-on-stale-same-body, and heal-on-stale-different-body.
 
-```
-[WARN][Flight] PopulateTerminalOrbitFromLastSegment: overwrote mismatched body for 'c95578d708e649f29373e3416d2fec79' with endpoint-aligned segment body=Kerbin sma=700000.0
-[WARN][TestRunner] FAILED: FlightIntegrationTests.TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite - Existing TerminalOrbitBody should not be overwritten
-[WARN][Flight] FinalizeTreeRecordings: leaf 'bug278-preserve-639122194081278693' has no playback data
-```
-
-Two identical failures observed (21:16:48 and 21:20:39), both caused by the same `PopulateTerminalOrbitFromLastSegment` path.
-
-**Concern:** the test's contract is "if `TerminalOrbitBody` is already populated, do not overwrite." The code explicitly does overwrite when the segment endpoint body disagrees with the existing field, and logs it as a WARN. So either the test is wrong (mismatch-overwrite is intentional and should be accepted) or the code is wrong (it should trust the already-populated value even when it disagrees with the segment). A decision is needed before either side is patched.
-
-The `leaf 'bug278-preserve-…' has no playback data` WARN that follows the overwrite is suspicious — the test builds that leaf specifically to exercise the preserve invariant; if the finalize path is walking it at all the invariant is being re-checked in a code path that shouldn't be re-checking it.
-
-**Fix:** decide the contract.
-
-- If mismatch-overwrite is the correct behaviour (the segment's endpoint is authoritative and an out-of-date `TerminalOrbitBody` from an earlier backfill is a bug to be corrected), update the test to assert the overwrite happens with the expected body/SMA, and keep the WARN as a diagnostic.
-- If the test is correct (preserve is preserve, even on mismatch), change `PopulateTerminalOrbitFromLastSegment` to short-circuit when `TerminalOrbitBody != null`, regardless of whether the segment agrees.
-
-Cross-reference `#289` (stable-terminal re-snapshot) and `#479` (stable-terminal sit refresh) — the `bug278-preserve-…` leaf name suggests this is covering the bug-278 preservation path specifically, which was supposed to be closed under #289. If the test was written to enforce a preserve invariant that the current code violates, #484 is a regression of the #289 fix, not a test-code issue.
-
-**Files:** `Source/Parsek/ParsekFlight.cs` (`PopulateTerminalOrbitFromLastSegment`), `Source/Parsek/InGameTests/RuntimeTests.cs` (`TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite` assertion).
-
-**Scope:** Small. One decision + a 1-2 line change on whichever side loses.
-
-**Dependencies:** #289.
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
-## 483. `ScienceTransmission` earnings reconciliation warns fire repeatedly for stock science transmitted from a flight that included a landed-at-launchpad prologue — `window=[100.3,248.8]` with `expected=11.0` / `store=7.7`
+## ~~483. `ScienceTransmission` earnings reconciliation warns fire repeatedly for stock science transmitted from a flight that included a landed-at-launchpad prologue — `window=[100.3,248.8]` with `expected=11.0` / `store=7.7`~~
 
 **Source:** `logs/2026-04-19_2126/KSP.log` — ≥ 15 occurrences spread across 21:18:32..21:26:05. Representative pair:
 
@@ -140,21 +137,27 @@ The recording window `[100.3,248.8]` contains six separate `ScienceEarning` ids 
 
 The repeated firing (15+ times over 8 minutes of play) suggests the reconcile path is being re-run on every `RecalculateAndPatch` call and keeps logging the same stale mismatch without converging. That matches the #466 symptom (mid-flight `RecalculateAndPatch` patching funds with an incomplete ledger), which was closed — so either #466's fix didn't cover the sci channel, or this is a different code path.
 
-**Fix:** trace the transmission-event emit site (`ScienceSubjectPatch` / `ScienceModule`) and dump the actual event UT + key for the six `ScienceEarning` ids in `window=[100.3,248.8]`. Compare to what `CompareLeg` / `AggregatePostWalkWindow` expects. Likely culprits: (1) transmission event keyed with a mixed-recording sibling so `#405`'s recordingId filter drops it; (2) event emitted at ut > 248.8 (post-recovery) and the recalc window does not extend past the recording's close.
+**Resolution (2026-04-19, verified follow-up 2026-04-19):** CLOSED for v0.8.3. The one-shot ERROR dump was added first and showed the real store shape: the launchpad-prologue `ScienceChanged` events at UT `88.7` and `94.6` were untagged because the recording did not start until `100.3`, one real `+0.6` science delta never entered the store because `GameStateRecorder` still treated `ScienceThreshold = 1.0` as noise, and post-walk science reconciliation was still hardcoding every `ScienceEarning` leg to key `'ScienceTransmission'` even when the stock store event was actually `'VesselRecovery'`. Review follow-up then tightened two edges: collapsed large-UT persisted science spans are now reconstructed as bounded per-subject windows instead of silently widening back to the full recording span, and recorder-side science capture reuse is limited to real subject-science reasons so unrelated positive science rewards cannot be reused by `OnScienceReceived`.
 
-Before fixing, add one ERROR-level reconcile dump that logs: for each missing `ScienceChanged` event, the actual store events within `[window.start - 5, window.end + 5]` keyed `'ScienceTransmission'`, so the triage loop is: "run once, read dump, fix."
+The shipped fix does three things:
 
-Also: the repeat-log behaviour is itself a bug — if reconcile cannot converge, it should emit the warn once per window and suppress subsequent identical warns (per-action-ut dedup). At 15 repetitions per session this is approaching the `#160` log-spam class.
+1. `GameStateRecorder.OnScienceReceived` now captures the most recent positive subject-science `ScienceChanged` UT/reason and persists that onto each `PendingScienceSubject`, while the recorder-side science threshold is hardened down to real noise-only values (`0.001`) so legitimate sub-1.0 science awards are no longer dropped. Follow-up review also tightened that reuse to the same recording, so stale science metadata cannot leak across recording boundaries.
+2. `GameStateEventConverter.ConvertScienceSubjects` now carries that capture UT/reason forward into committed `ScienceEarning` actions (`StartUT` + `Method`), preserves same-recording launchpad-prologue capture windows before the official recording start, rejects stale cross-recording captures, and treats collapsed persisted large-UT spans as bounded float-bucket subject windows instead of widening back to the whole recording.
+3. `LedgerOrchestrator` now uses those persisted science windows/reason keys for commit/post-walk reconciliation, emits a one-shot ERROR dump of nearby `ScienceChanged` events when a science window still fails, and suppresses repeated identical science WARNs once per window instead of flooding every recalculation.
 
-**Files:** `Source/Parsek/GameActions/LedgerOrchestrator.cs` (reconcile emit + dedup), `Source/Parsek/GameActions/ScienceModule.cs` (transmission event UT/key), `Source/Parsek/Patches/ScienceSubjectPatch.cs`.
+**Files:** `Source/Parsek/GameStateRecorder.cs`, `Source/Parsek/GameStateEvent.cs`, `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, plus targeted coverage in `Source/Parsek.Tests/EarningsReconciliationTests.cs`, `Source/Parsek.Tests/GameStateEventConverterTests.cs`, and `Source/Parsek.Tests/GameStateRecorderResourceThresholdTests.cs`.
 
-**Scope:** Medium. Includes the diagnostic dump and then the actual fix. The dedup suppression is a small change independently.
+**Scope:** Medium. Landed as a recorder + converter + reconcile follow-up with targeted unit coverage, plus a narrow review follow-up for collapsed large-UT spans and capture-reuse eligibility.
 
-**Dependencies:** #468, #469, #466, #405, #477 (all closed). This is the next link in that chain.
+**Dependencies:** #468, #469, #466, #405, #477 (all closed). This was the next link in that chain and is now closed.
+
+**Status:** CLOSED (2026-04-19). Fixed for v0.8.3.
 
 ---
 
-## 482. `Paths` security negative tests (`../etc/passwd`) log at WARN — 27+ lines per session from a tested-expected error path
+## ~~482. `Paths` security negative tests (`../etc/passwd`) log at WARN — 27+ lines per session from a tested-expected error path~~ CLOSED 2026-04-19
+
+**Status:** CLOSED 2026-04-19. `RecordingPaths.ValidateRecordingId` now takes an explicit `RecordingIdValidationLogContext`; the runtime negative test and the existing acceptance-style xUnit invalid-id test pass `Test`, which demotes their expected rejection logs to `VERBOSE`, while production save/load/delete callers keep the default `WARN` behavior. Dedicated xUnit coverage intentionally keeps one production-context invalid-id path on `WARN` so the loud branch stays pinned too.
 
 **Source:** `logs/2026-04-19_2126/KSP.log` — recurring:
 
@@ -168,9 +171,9 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 
 **Concern:** `RecordingPaths.ValidateRecordingId` is correctly rejecting a path-traversal id fed by the security test, but the rejection is logged at WARN. Production code never calls `ValidateRecordingId` with a bad id (callers filter upstream), so any real-world hit to this WARN is either (a) a test poking the rejection path, or (b) a real security incident worth a loud log. Conflating the two makes the test-path noise drown out the real-incident signal and clutters every test-run KSP.log.
 
-**Fix:** move the rejection log from WARN to Verbose (one-shot) when called from the test generators; keep WARN-level for production paths. Easiest implementation: add an optional `string callerContext` arg to `ValidateRecordingId` and branch on it, or make the test generator wrap the call in `ParsekLog.SuppressWarn` for the duration of the negative-path assertions. The rejection is already caught and asserted by the caller, so logging at Verbose retains the information without polluting production log triage.
+**Fix:** implemented with an explicit `RecordingIdValidationLogContext` parameter on `ValidateRecordingId`. Expected negative-path runtime/acceptance tests opt into `Test`, which emits the existing rejection message at `VERBOSE`; production callers use the default `Production` context and keep the `WARN` signal for genuinely bad recording ids outside test code. Dedicated xUnit log assertions cover both the production `WARN` branch and the test-context `VERBOSE` branch, including the invalid-file-name-char rejection path.
 
-**Files:** `Source/Parsek/Paths/RecordingPaths.cs` (or wherever `ValidateRecordingId` lives), `Source/Parsek/InGameTests/SerializationTests.cs` (or its xUnit twin in `Source/Parsek.Tests/`).
+**Files:** `Source/Parsek/RecordingPaths.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/RecordingPathsLoggingTests.cs`, `Source/Parsek.Tests/SyntheticRecordingTests.cs`.
 
 **Scope:** Small. One log-level change; any test-side scope probably doesn't need changing.
 
@@ -178,19 +181,21 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 
 ---
 
-## 481. `RuntimeTests.TimeScalePositive` intermittently fails in SPACECENTER — `Time.timeScale` observed as 0 during test execution, passes on retry
+## ~~481. `RuntimeTests.TimeScalePositive` intermittently fails in SPACECENTER — `Time.timeScale` observed as 0 during test execution, passes on retry~~
 
-**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:22` + `KSP.log` (three failure timestamps: 21:14:08.662, 21:15:00.972, 21:15:08.916). Passes in EDITOR / FLIGHT / MAINMENU / TRACKSTATION consistently, fails in SPACECENTER in three of eight observed runs (~37% flake rate).
+**Source:** `logs/2026-04-19_2126/parsek-test-results.txt:22` + `KSP.log` (three failure timestamps: 21:14:08.662, 21:15:00.972, 21:15:08.916). Passes in EDITOR / FLIGHT / MAINMENU / TRACKSTATION consistently, failed in SPACECENTER in three of eight observed runs (~37% flake rate).
 
-**Concern:** `Time.timeScale` is supposed to be > 0 outside the pause menu. A zero reading means either (a) stock KSP was actually pausing one frame around the test, and the test raced the unpause, or (b) Parsek (or a harmony patch) is briefly zeroing the timescale during some scene-transition code path. The test runs with `scene=SPACECENTER` but the timestamps cluster around test-runner invocations, so the most likely window is `SceneManager.LoadScene(SPACECENTER)` completing → OnSceneSwitch coroutines → first Update. If stock KSP holds `timeScale=0` for one frame during scene load, the test needs to wait-one-frame; if Parsek is holding it, that's a real regression.
+**Resolution (2026-04-19):** fixed in `0.8.3`. The investigation showed this was not a Parsek `Time.timeScale` regression and not a one-frame scene-load race. All three failures happened entirely inside real stock pause windows:
 
-**Fix:** before any code change, instrument the test to log `Time.timeScale` along with `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the active coroutine list on each poll — three failure snapshots will distinguish (a) vs (b). Then either yield one physics frame at the top of the test (if (a)) or chase the real zeroer (if (b)).
+- `Game Paused!` at `21:14:03.736`, then `RuntimeTests.TimeScalePositive` failed at `21:14:08.662`, then `Game Unpaused!` at `21:14:12.622`.
+- `Game Paused!` at `21:14:57.191`, then the test failed at `21:15:00.972`, then `Game Unpaused!` at `21:15:04.782`.
+- `Game Paused!` at `21:15:05.935`, then the test failed at `21:15:08.916`, then `Game Unpaused!` at `21:15:14.563`.
 
-**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs` (`TimeScalePositive`).
+The runtime test now instruments the probe instead of asserting on a single frame: it samples up to 8 frames, logs `Time.timeScale`, `FlightDriver.Pause`, `KSPLoader.lastUpdate`, and the test-runner coroutine state on each poll, and only treats recovery as a pass when every earlier zero-timescale sample was observed under explicit stock pause. If any zero-timescale sample is explicitly stock-paused and none show an explicit `FlightDriver.Pause == false`, the result stays in the stock-pause bucket; only no-confirmation probes with at least one unavailable pause read skip with the distinct `FlightDriver.Pause unavailable` result. Any zero-timescale sample observed with an explicit `FlightDriver.Pause == false` still fails even if a later frame recovers.
 
-**Scope:** Small. Diagnostic first, fix later.
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek.Tests/TimeScalePositiveTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`.
 
-**Dependencies:** none.
+**Status:** CLOSED. Fixed for v0.8.3.
 
 ---
 
@@ -376,9 +381,9 @@ Per-leg gating (not whole-sweep) is the correct granularity — a save that disa
 
 **Source:** user playtest report — "when recording a trip that ends in Mun orbit, after rewind when watching the ghost in map view, the ghost gets to the Mun encounter but then instead of spawning in Mun orbit, it spawns in a Kerbin SOI eject trajectory."
 
-**Fix shipped:** terminal-orbit capture no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, finalization/load-time backfill only trusts a last `OrbitSegment` when that segment agrees with the recording endpoint body, and spawn-at-end now resolves the body from the actual endpoint before attempting any recorded-orbit propagation. If no endpoint-aligned orbital seed exists, spawn falls back to the endpoint state instead of constructing a wrong Kerbin-frame orbit.
+**Fix shipped:** finalize now persists an authoritative endpoint decision for each recording, so exact-boundary point-vs-orbit outcomes survive save/load without being re-inferred from the old epsilon-only winner check. Resolver/spawn code consumes that persisted decision when present; legacy recordings without the new fields self-heal on load by backfilling from terminal position, endpoint-aligned terminal-orbit data, the last trajectory point, or surface position. Terminal-orbit capture also no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, and orbit backfill only trusts a last segment when it agrees with the resolved endpoint body. This branch also closes the remaining spawn-correctness holes around that same bug shape: malformed snapshots are now repaired or refused instead of silently defaulting to Kerbin, chain-tip and ghost-map builders resolve orbit/body from the same endpoint-aligned contract as real-vessel spawn, and unsafe snapshot situation rewrites clear stale site labels along with the corrected `sit`.
 
-**Tests:** added xUnit coverage for endpoint-aligned terminal-orbit backfill and endpoint-aligned orbital spawn-seed selection across Kerbin → Mun end-state shapes.
+**Tests:** added xUnit coverage for persisted exact-boundary capture/escape endpoint decisions, legacy endpoint-decision backfill across Kerbin-to-Mun end-state shapes, malformed-snapshot refusal, remaining ghost-builder endpoint alignment, and stale site-label clearing after unsafe snapshot rewrites; #484 follow-up adds xUnit and runtime coverage for endpoint-aligned terminal-orbit backfill, preserve-vs-heal observability, invariant-culture tuple-heal logs, and endpoint-aligned orbital spawn-seed selection.
 
 **Status:** done/closed on this branch. Priority was high because the bad cached body could throw the spawned vessel onto a solar-escape path after rewind and effectively destroy the mission outcome.
 
@@ -813,6 +818,8 @@ Timeline dominates (65.7 %) and reentry is a significant secondary contributor (
 **Source:** world-model conversation on #432 (2026-04-17). The aspirational design for Gloops: when the player records a Gloops flight that stages or EVAs, the capture produces a **tree of ghost-only recordings** — main + debris children + crew children — all flagged `IsGhostOnly`, all grouped under a per-flight Gloops parent in the Recordings Manager, and none of them spawning a real vessel at ghost-end. Structurally the same as the normal Parsek recording tree (decouple → debris background recording, EVA → linked crew child), with the ghost-only flag applied uniformly and the vessel-spawn-at-end path skipped.
 
 **Guiding architectural principle:** per `docs/dev/gloops-recorder-design.md`, Gloops is on track to be extracted as a standalone mod on which Parsek will depend. Parsek's recorder and tree infrastructure will become the base that both Gloops and Parsek share — Gloops exposes the trajectory recorder + playback engine, Parsek layers the career-state / tree / DAG / world-presence envelope on top via the `IPlaybackTrajectory` boundary. Multi-recording Gloops must therefore **reuse Parsek's existing recorder, tree, and BackgroundRecorder infrastructure** rather than growing a parallel Gloops-flavored implementation. The ghost-only distinction is a per-recording flag on top of shared machinery, not a separate code path.
+
+**2026-04-19 boundary note:** `GhostPlaybackEngine.ResolveGhostActivationStartUT` no longer casts back to `Recording`; the engine now resolves activation start from playable payload bounds through `PlaybackTrajectoryBoundsResolver` over `IPlaybackTrajectory`. #435 remains otherwise unchanged, but this leak is no longer part of the extraction risk surface.
 
 **Current state (audited 2026-04-17):**
 

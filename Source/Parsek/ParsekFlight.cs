@@ -6707,6 +6707,7 @@ namespace Parsek
             {
                 activeRec.TerminalStateValue =
                     RecordingTree.DetermineTerminalState((int)v.situation, v);
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.LiveNonLeaf");
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: set terminalState=" +
                     $"{activeRec.TerminalStateValue} on active recording " +
@@ -6728,6 +6729,7 @@ namespace Parsek
                     PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
                     TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
                 }
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeaf");
                 return;
             }
 
@@ -6778,6 +6780,7 @@ namespace Parsek
 
             CaptureTerminalOrbit(activeRec, activeVessel);
             CaptureTerminalPosition(activeRec, activeVessel);
+            RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.StableLeaf");
             TryRefreshStableTerminalSnapshot(
                 activeRec,
                 activeVessel,
@@ -6899,8 +6902,9 @@ namespace Parsek
 
             // Refresh terminal orbit for orbital leaf recordings even if a body was
             // captured earlier. A mid-transition capture can stamp the wrong SOI body,
-            // so we re-read the live vessel here when available and only fall back to the
-            // last orbit segment when it matches the endpoint body. (#475)
+            // so we treat TerminalOrbit* as a healable cache: re-read the live vessel
+            // when available and only preserve cached orbit data when the full cached
+            // tuple already matches the endpoint-aligned last orbit segment. (#475/#484)
             if (isLeaf && rec.TerminalStateValue.HasValue
                 && (rec.TerminalStateValue.Value == TerminalState.Orbiting
                     || rec.TerminalStateValue.Value == TerminalState.SubOrbital
@@ -6941,6 +6945,8 @@ namespace Parsek
                         $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — TerminalOrbitBody remains empty");
                 }
             }
+
+            RecordingEndpointResolver.RefreshEndpointDecision(rec, "FinalizeIndividualRecording");
 
             // Bug #290d: backfill MaxDistanceFromLaunch if not yet computed.
             // Tree recordings reach finalization via ForceStop which skips BuildCaptureRecording
@@ -7038,6 +7044,7 @@ namespace Parsek
                 longitude = lastPt.longitude,
                 altitude = lastPt.altitude,
                 rotation = lastPt.rotation,
+                rotationRecorded = true,
                 situation = inferredState == TerminalState.Splashed
                     ? SurfaceSituation.Splashed
                     : SurfaceSituation.Landed
@@ -7416,8 +7423,25 @@ namespace Parsek
                         double spawnLat, spawnLon, spawnAlt;
                         VesselSpawner.ResolveSpawnPosition(leaf, -1, lastPt,
                             out spawnLat, out spawnLon, out spawnAlt);
-                        VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                            -1, leaf.VesselName, lastPt.rotation);
+                        if (VesselSpawner.TryResolvePreferredSpawnRotation(
+                            leaf, lastPt,
+                            out string rotationBodyName,
+                            out Quaternion rotationBodyRotation,
+                            out Quaternion surfaceRelativeRotation,
+                            out string rotationSource))
+                        {
+                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                                -1, leaf.VesselName,
+                                rotationBodyName,
+                                rotationBodyRotation,
+                                surfaceRelativeRotation,
+                                rotationSource);
+                        }
+                        else
+                        {
+                            VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                                -1, leaf.VesselName);
+                        }
                     }
 
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
@@ -7570,10 +7594,33 @@ namespace Parsek
             }
         }
 
+        private const double TerminalOrbitTupleMatchTolerance = 1e-6;
+
+        private static bool TerminalOrbitScalarMatches(double cachedValue, double segmentValue)
+            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitTupleMatchTolerance;
+
+        private static bool CachedTerminalOrbitMatchesSegment(Recording rec, OrbitSegment seg)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                return false;
+
+            return string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitInclination, seg.inclination)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitEccentricity, seg.eccentricity)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitSemiMajorAxis, seg.semiMajorAxis)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitLAN, seg.longitudeOfAscendingNode)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitArgumentOfPeriapsis, seg.argumentOfPeriapsis)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitMeanAnomalyAtEpoch, seg.meanAnomalyAtEpoch)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitEpoch, seg.epoch);
+        }
+
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
-        /// a stale cached TerminalOrbitBody on finalize/load. (#219/#475)
+        /// a stale cached terminal-orbit tuple on finalize/load. Already-populated
+        /// values are preserved only when the full cached tuple already matches the
+        /// endpoint-aligned segment.
+        /// (#219/#475/#484)
         /// </summary>
         internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
         {
@@ -7585,20 +7632,33 @@ namespace Parsek
                 return false;
 
             bool hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody);
+            bool endpointAligned = hasEndpointBody
+                && string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
             if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
             {
-                return !hasEndpointBody
-                    || string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
+                return !hasEndpointBody || endpointAligned;
             }
 
-            if (string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal))
+            bool cachedTupleMatchesLastSegment = CachedTerminalOrbitMatchesSegment(rec, seg);
+            if (cachedTupleMatchesLastSegment)
+            {
+                if (endpointAligned)
+                {
+                    ParsekLog.Info("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "ShouldPopulateTerminalOrbitFromLastSegment: preserved cached terminal orbit for '{0}' because cached tuple already matches endpoint-aligned segment body={1} sma={2:F1}",
+                            rec.RecordingId ?? "(null)",
+                            seg.bodyName,
+                            seg.semiMajorAxis));
+                }
+
                 return false;
+            }
 
             if (!hasEndpointBody)
                 return false;
 
-            return string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
-                && !string.Equals(rec.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+            return endpointAligned;
         }
 
         internal static void PopulateTerminalOrbitFromLastSegment(Recording rec)
@@ -7606,8 +7666,10 @@ namespace Parsek
             if (!ShouldPopulateTerminalOrbitFromLastSegment(rec)) return;
 
             var seg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-            bool overwritingMismatchedBody = !string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                && !string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal);
+            string previousBody = rec.TerminalOrbitBody;
+            double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
+            bool healingStaleCachedTuple = !string.IsNullOrEmpty(previousBody)
+                && !CachedTerminalOrbitMatchesSegment(rec, seg);
             rec.TerminalOrbitInclination = seg.inclination;
             rec.TerminalOrbitEccentricity = seg.eccentricity;
             rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
@@ -7617,17 +7679,25 @@ namespace Parsek
             rec.TerminalOrbitEpoch = seg.epoch;
             rec.TerminalOrbitBody = seg.bodyName;
 
-            if (overwritingMismatchedBody)
+            if (healingStaleCachedTuple)
             {
                 ParsekLog.Warn("Flight",
-                    $"PopulateTerminalOrbitFromLastSegment: overwrote mismatched body for '{rec.RecordingId}' " +
-                    $"with endpoint-aligned segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
+                    string.Format(CultureInfo.InvariantCulture,
+                        "PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit for '{0}' previousBody={1} previousSma={2:F1} newBody={3} newSma={4:F1}",
+                        rec.RecordingId ?? "(null)",
+                        previousBody ?? "(empty)",
+                        previousSemiMajorAxis,
+                        seg.bodyName,
+                        seg.semiMajorAxis));
                 return;
             }
 
             ParsekLog.Info("Flight",
-                $"PopulateTerminalOrbitFromLastSegment: recovered orbit for '{rec.RecordingId}' " +
-                $"from segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
+                string.Format(CultureInfo.InvariantCulture,
+                    "PopulateTerminalOrbitFromLastSegment: recovered orbit for '{0}' from segment body={1} sma={2:F1}",
+                    rec.RecordingId ?? "(null)",
+                    seg.bodyName,
+                    seg.semiMajorAxis));
         }
 
         /// <summary>
@@ -7648,6 +7718,7 @@ namespace Parsek
                     longitude = vessel.longitude,
                     altitude = vessel.altitude,
                     rotation = vessel.srfRelRotation,
+                    rotationRecorded = true,
                     situation = sit == Vessel.Situations.SPLASHED
                         ? SurfaceSituation.Splashed
                         : SurfaceSituation.Landed

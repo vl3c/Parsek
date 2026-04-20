@@ -13,6 +13,8 @@ namespace Parsek
         public double latitude;
         public double longitude;
         public double altitude;
+        // Format-v0 contract: recorded as surface-relative (v.srfRelRotation).
+        // Spawn/playback code must reconstruct world rotation explicitly.
         public Quaternion rotation;
         public Vector3 velocity;    // Playback velocity captured from KSP; not guaranteed surface-relative
         public string bodyName;     // Reference celestial body

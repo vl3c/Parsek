@@ -17,7 +17,13 @@ namespace Parsek
         public double longitude;
         public double altitude;
         public Quaternion rotation;
+        // Null means "not explicitly annotated". In that case infer from the quaternion itself:
+        // default(Quaternion) means "missing", while any concrete value (including identity)
+        // means the caller intentionally populated a recorded surface-frame rotation.
+        public bool? rotationRecorded;
         public SurfaceSituation situation;
+
+        public bool HasRecordedRotation => rotationRecorded ?? HasImplicitRecordedRotation(rotation);
 
         public override string ToString()
         {
@@ -36,6 +42,7 @@ namespace Parsek
             node.AddValue("rotY", pos.rotation.y.ToString("R", ic));
             node.AddValue("rotZ", pos.rotation.z.ToString("R", ic));
             node.AddValue("rotW", pos.rotation.w.ToString("R", ic));
+            node.AddValue("rotationRecorded", pos.HasRecordedRotation.ToString());
             node.AddValue("situation", ((int)pos.situation).ToString(ic));
         }
 
@@ -44,6 +51,10 @@ namespace Parsek
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
             var pos = new SurfacePosition();
+            bool hasRotationFields = node.HasValue("rotX")
+                || node.HasValue("rotY")
+                || node.HasValue("rotZ")
+                || node.HasValue("rotW");
             pos.body = node.GetValue("body") ?? "Kerbin";
             double.TryParse(node.GetValue("lat"), inv, ic, out pos.latitude);
             double.TryParse(node.GetValue("lon"), inv, ic, out pos.longitude);
@@ -55,11 +66,21 @@ namespace Parsek
             if (!float.TryParse(node.GetValue("rotW"), inv, ic, out rw))
                 rw = 1;  // preserve identity if only rotW fails to parse
             pos.rotation = new Quaternion(rx, ry, rz, rw);
+            bool rotationRecorded;
+            if (bool.TryParse(node.GetValue("rotationRecorded"), out rotationRecorded))
+                pos.rotationRecorded = rotationRecorded;
+            else
+                pos.rotationRecorded = hasRotationFields ? (bool?)true : false;
             int sitInt;
             if (int.TryParse(node.GetValue("situation"), NumberStyles.Integer, ic, out sitInt)
                 && Enum.IsDefined(typeof(SurfaceSituation), sitInt))
                 pos.situation = (SurfaceSituation)sitInt;
             return pos;
+        }
+
+        private static bool HasImplicitRecordedRotation(Quaternion rotation)
+        {
+            return rotation.x != 0f || rotation.y != 0f || rotation.z != 0f || rotation.w != 0f;
         }
     }
 }
