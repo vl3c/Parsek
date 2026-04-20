@@ -168,6 +168,9 @@ namespace Parsek
             double horizonUT = startState.ut + Math.Max(0.0, limits.maxHorizonYears) * SecondsPerYear;
             var currentState = startState;
             int soiTransitions = 0;
+            string suppressedImmediateChildEntryBodyName = null;
+            string suppressedImmediateParentExitBodyName = null;
+            double suppressedImmediateUT = double.NaN;
 
             ParsekLog.Info(LogTag, string.Format(
                 CultureInfo.InvariantCulture,
@@ -213,7 +216,9 @@ namespace Parsek
                     currentBody,
                     currentState.ut,
                     horizonUT,
-                    limits);
+                    limits,
+                    suppressedImmediateParentExitBodyName,
+                    suppressedImmediateUT);
 
                 double localCutoffSearchEndUT = horizonUT;
                 if (parentExit.HasValue)
@@ -240,7 +245,9 @@ namespace Parsek
                     bodies,
                     currentState.ut,
                     childSearchEndUT,
-                    limits);
+                    limits,
+                    suppressedImmediateChildEntryBodyName,
+                    suppressedImmediateUT);
 
                 EventCandidate chosen = ChooseEarliestEvent(
                     localCutoff,
@@ -357,6 +364,13 @@ namespace Parsek
                         position = chosen.Position + bodyPosition,
                         velocity = chosen.Velocity + bodyVelocity
                     };
+                    suppressedImmediateChildEntryBodyName = immediateSoiTransition
+                        ? currentBody.Name
+                        : null;
+                    suppressedImmediateParentExitBodyName = null;
+                    suppressedImmediateUT = immediateSoiTransition
+                        ? chosen.UT
+                        : double.NaN;
                     currentBody = parentBody;
                     continue;
                 }
@@ -378,6 +392,13 @@ namespace Parsek
                         position = chosen.Position - childPosition,
                         velocity = chosen.Velocity - childVelocity
                     };
+                    suppressedImmediateParentExitBodyName = immediateSoiTransition
+                        ? currentBody.Name
+                        : null;
+                    suppressedImmediateChildEntryBodyName = null;
+                    suppressedImmediateUT = immediateSoiTransition
+                        ? chosen.UT
+                        : double.NaN;
                     currentBody = chosen.ChildBody;
                     continue;
                 }
@@ -610,7 +631,9 @@ namespace Parsek
             ExtrapolationBody body,
             double startUT,
             double horizonUT,
-            ExtrapolationLimits limits)
+            ExtrapolationLimits limits,
+            string suppressedImmediateParentBodyName,
+            double suppressedImmediateUT)
         {
             if (string.IsNullOrEmpty(body.ParentBodyName) || body.SphereOfInfluence <= body.Radius)
                 return null;
@@ -628,7 +651,11 @@ namespace Parsek
             double previousUT = startUT;
             double startValue = Magnitude(orbit.GetPositionAtUT(startUT)) - body.SphereOfInfluence;
 
-            if (startValue > ImmediateEventEpsilon)
+            bool suppressImmediateStart =
+                !double.IsNaN(suppressedImmediateUT)
+                && Math.Abs(startUT - suppressedImmediateUT) <= ImmediateEventEpsilon
+                && string.Equals(body.ParentBodyName, suppressedImmediateParentBodyName, StringComparison.Ordinal);
+            if (startValue >= -ImmediateEventEpsilon && !suppressImmediateStart)
             {
                 orbit.GetStateAtUT(startUT, out Vector3d startPosition, out Vector3d startVelocity);
                 return new EventCandidate
@@ -676,7 +703,9 @@ namespace Parsek
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             double startUT,
             double endUT,
-            ExtrapolationLimits limits)
+            ExtrapolationLimits limits,
+            string suppressedImmediateChildBodyName,
+            double suppressedImmediateUT)
         {
             if (endUT <= startUT)
                 return null;
@@ -703,7 +732,9 @@ namespace Parsek
                     candidate,
                     startUT,
                     endUT,
-                    limits);
+                    limits,
+                    suppressedImmediateChildBodyName,
+                    suppressedImmediateUT);
 
                 if (!hit.HasValue)
                     continue;
@@ -720,13 +751,19 @@ namespace Parsek
             ExtrapolationBody childBody,
             double startUT,
             double endUT,
-            ExtrapolationLimits limits)
+            ExtrapolationLimits limits,
+            string suppressedImmediateChildBodyName,
+            double suppressedImmediateUT)
         {
             double step = ComputeStep(startUT, endUT, limits.soiSampleStep, MaxEncounterSamples);
             double previousUT = startUT;
             double startValue = GetRelativeDistanceToChild(orbit, childBody, startUT) - childBody.SphereOfInfluence;
 
-            if (startValue < -ImmediateEventEpsilon)
+            bool suppressImmediateStart =
+                !double.IsNaN(suppressedImmediateUT)
+                && Math.Abs(startUT - suppressedImmediateUT) <= ImmediateEventEpsilon
+                && string.Equals(childBody.Name, suppressedImmediateChildBodyName, StringComparison.Ordinal);
+            if (startValue <= ImmediateEventEpsilon && !suppressImmediateStart)
             {
                 orbit.GetStateAtUT(startUT, out Vector3d startPosition, out Vector3d startVelocity);
                 return new EventCandidate

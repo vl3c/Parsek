@@ -398,7 +398,7 @@ namespace Parsek.Tests
                 {
                     ut = 42.0,
                     bodyName = "Home",
-                    position = new Vector3d(KerbinSoi + 1000.0, 0.0, 0.0),
+                    position = new Vector3d(KerbinSoi + 0.0000005, 0.0, 0.0),
                     velocity = new Vector3d(0.0, 100.0, 0.0)
                 },
                 bodies,
