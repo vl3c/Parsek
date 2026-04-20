@@ -6728,6 +6728,8 @@ namespace Parsek
             if (isSceneExit)
             {
                 ConfigNode vesselSnapshotBefore = activeRec.VesselSnapshot;
+                TerminalOrbitMetadataSnapshot terminalOrbitBefore =
+                    CaptureTerminalOrbitMetadataSnapshot(activeRec);
                 sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
                     activeRec,
                     v,
@@ -6737,7 +6739,8 @@ namespace Parsek
                     !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
                     && activeRec.VesselSnapshot != null;
                 sceneExitSuppliedTerminalOrbit =
-                    sceneExitLifetimeExtended && HasAuthoritativeTerminalOrbitMetadata(activeRec);
+                    sceneExitLifetimeExtended
+                    && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, activeRec);
                 if (sceneExitLifetimeExtended)
                 {
                     if (activeRec.TerminalStateValue.HasValue
@@ -6899,6 +6902,8 @@ namespace Parsek
             if (isLeaf && isSceneExit && !rec.TerminalStateValue.HasValue)
             {
                 ConfigNode vesselSnapshotBefore = rec.VesselSnapshot;
+                TerminalOrbitMetadataSnapshot terminalOrbitBefore =
+                    CaptureTerminalOrbitMetadataSnapshot(rec);
                 sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
                     rec,
                     finalizeVessel,
@@ -6908,7 +6913,8 @@ namespace Parsek
                     !ReferenceEquals(vesselSnapshotBefore, rec.VesselSnapshot)
                     && rec.VesselSnapshot != null;
                 sceneExitSuppliedTerminalOrbit =
-                    sceneExitLifetimeExtended && HasAuthoritativeTerminalOrbitMetadata(rec);
+                    sceneExitLifetimeExtended
+                    && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
             }
 
             // Determine terminal state for recordings that don't have one yet
@@ -7183,11 +7189,54 @@ namespace Parsek
                 || state == TerminalState.Docked;
         }
 
-        private static bool HasAuthoritativeTerminalOrbitMetadata(Recording rec)
+        private struct TerminalOrbitMetadataSnapshot
         {
-            // Body presence is the minimum signal that the hook intentionally
-            // stamped a terminal-orbit tuple instead of leaving default-zero fields.
-            return rec != null && !string.IsNullOrEmpty(rec.TerminalOrbitBody);
+            public string body;
+            public double inclination;
+            public double eccentricity;
+            public double semiMajorAxis;
+            public double lan;
+            public double argumentOfPeriapsis;
+            public double meanAnomalyAtEpoch;
+            public double epoch;
+
+            public bool HasMetadata => !string.IsNullOrEmpty(body);
+        }
+
+        private static TerminalOrbitMetadataSnapshot CaptureTerminalOrbitMetadataSnapshot(Recording rec)
+        {
+            if (rec == null)
+                return default(TerminalOrbitMetadataSnapshot);
+
+            return new TerminalOrbitMetadataSnapshot
+            {
+                body = rec.TerminalOrbitBody,
+                inclination = rec.TerminalOrbitInclination,
+                eccentricity = rec.TerminalOrbitEccentricity,
+                semiMajorAxis = rec.TerminalOrbitSemiMajorAxis,
+                lan = rec.TerminalOrbitLAN,
+                argumentOfPeriapsis = rec.TerminalOrbitArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = rec.TerminalOrbitMeanAnomalyAtEpoch,
+                epoch = rec.TerminalOrbitEpoch
+            };
+        }
+
+        private static bool DidSceneExitUpdateTerminalOrbitMetadata(
+            TerminalOrbitMetadataSnapshot before,
+            Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                return false;
+
+            return !before.HasMetadata
+                || !string.Equals(before.body, rec.TerminalOrbitBody, StringComparison.Ordinal)
+                || before.inclination != rec.TerminalOrbitInclination
+                || before.eccentricity != rec.TerminalOrbitEccentricity
+                || before.semiMajorAxis != rec.TerminalOrbitSemiMajorAxis
+                || before.lan != rec.TerminalOrbitLAN
+                || before.argumentOfPeriapsis != rec.TerminalOrbitArgumentOfPeriapsis
+                || before.meanAnomalyAtEpoch != rec.TerminalOrbitMeanAnomalyAtEpoch
+                || before.epoch != rec.TerminalOrbitEpoch;
         }
 
         private static bool TryRefreshStableTerminalSnapshot(

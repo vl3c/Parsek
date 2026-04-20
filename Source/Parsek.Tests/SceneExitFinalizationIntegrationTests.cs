@@ -446,6 +446,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_SceneExitHook_DoesNotTreatStaleTerminalOrbitAsHookAuthored()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 350.0,
+                        vesselSnapshot = MakeSnapshot("ORBITING"),
+                        appendedOrbitSegments = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                bodyName = "Kerbin",
+                                startUT = 200.0,
+                                endUT = 350.0,
+                                semiMajorAxis = 725000.0,
+                                eccentricity = 0.03,
+                                inclination = 2.5
+                            }
+                        }
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-stale-orbit",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                TerminalOrbitBody = "Eve",
+                TerminalOrbitSemiMajorAxis = 999999.0,
+                TerminalOrbitEccentricity = 0.9,
+                TerminalOrbitInclination = 12.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.1,
+                inclination = 0.5
+            });
+
+            bool skipLiveResnapshot = ParsekFlight.FinalizeIndividualRecording(
+                rec, commitUT: 200.0, isSceneExit: true);
+
+            Assert.True(skipLiveResnapshot);
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(725000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(0.03, rec.TerminalOrbitEccentricity);
+            Assert.Equal(2.5, rec.TerminalOrbitInclination);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("preserving scene-exit terminal orbit") &&
+                l.Contains("scene-exit-stale-orbit"));
+            Assert.Contains(logLines, l =>
+                l.Contains("backfilled TerminalOrbitBody=Kerbin") &&
+                l.Contains("scene-exit-stale-orbit"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_GhostOnlySurfaceHook_PreservesExistingSurfaceMetadataAndLogs()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
