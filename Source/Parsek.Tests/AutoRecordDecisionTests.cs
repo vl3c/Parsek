@@ -177,5 +177,38 @@ namespace Parsek.Tests
 
             Assert.Equal(expected, result);
         }
+
+        [Fact]
+        public void ShouldIgnoreFlightReadyReset_LiveRecorderWithoutPendingRestore_ReturnsTrue()
+        {
+            bool result = ParsekFlight.ShouldIgnoreFlightReadyReset(
+                hasActiveRecorder: true,
+                hasActiveTree: true,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None);
+
+            Assert.True(result);
+        }
+
+        [Theory]
+        [InlineData(false, true, false, ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, false, false, ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, true, true, ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, true, false, ParsekScenario.ActiveTreeRestoreMode.Quickload)]
+        [InlineData(true, true, false, ParsekScenario.ActiveTreeRestoreMode.VesselSwitch)]
+        public void ShouldIgnoreFlightReadyReset_RestoreOrMissingLiveState_ReturnsFalse(
+            bool hasActiveRecorder,
+            bool hasActiveTree,
+            bool hasPendingTree,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode)
+        {
+            bool result = ParsekFlight.ShouldIgnoreFlightReadyReset(
+                hasActiveRecorder,
+                hasActiveTree,
+                hasPendingTree,
+                restoreMode);
+
+            Assert.False(result);
+        }
     }
 }

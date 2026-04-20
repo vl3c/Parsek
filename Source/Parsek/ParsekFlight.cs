@@ -4039,6 +4039,18 @@ namespace Parsek
             return pendingAutoRecord && !isRecording && hasActiveVessel && activeVesselIsEva;
         }
 
+        internal static bool ShouldIgnoreFlightReadyReset(
+            bool hasActiveRecorder,
+            bool hasActiveTree,
+            bool hasPendingTree,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode)
+        {
+            return hasActiveRecorder
+                && hasActiveTree
+                && !hasPendingTree
+                && restoreMode == ParsekScenario.ActiveTreeRestoreMode.None;
+        }
+
         void OnVesselGoOnRails(Vessel v)
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
@@ -4525,6 +4537,18 @@ namespace Parsek
                 return;
             }
 
+            var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
+            if (ShouldIgnoreFlightReadyReset(
+                hasActiveRecorder: recorder != null && recorder.IsRecording,
+                hasActiveTree: activeTree != null,
+                hasPendingTree: RecordingStore.HasPendingTree,
+                restoreMode: restoreMode))
+            {
+                ParsekLog.Info("Flight",
+                    "OnFlightReady: live recorder/tree already own the current flight — skipping reset");
+                return;
+            }
+
             // Reset scene-scoped state from the previous flight BEFORE the restore
             // coroutine runs. ResetFlightReadyState clears activeTree, backgroundRecorder,
             // chainManager, pendingSplitRecorder, etc. — all scene-scoped state that must
@@ -4546,7 +4570,6 @@ namespace Parsek
             //   - VesselSwitch (#266): tree was pre-transitioned at stash time, just
             //     reinstall it and (optionally) promote the new active vessel from
             //     BackgroundMap.
-            var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
             if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
             {
                 ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
@@ -5574,6 +5597,25 @@ namespace Parsek
 
         public void StartRecording()
         {
+            // Always-tree mode makes a chain continuation without a live tree impossible.
+            // If we reach StartRecording with orphaned chain/transient state, treat it as
+            // stale session residue and start a fresh tree-backed recording instead of
+            // silently creating a live recorder with no ActiveRecordingId.
+            if (activeTree == null
+                && (chainManager.ActiveTreeId != null
+                    || chainManager.ActiveChainId != null
+                    || chainManager.PendingContinuation
+                    || chainManager.PendingBoundaryAnchor.HasValue))
+            {
+                ParsekLog.Warn("Flight",
+                    $"StartRecording: clearing stale chain state without active tree " +
+                    $"(treeId={chainManager.ActiveTreeId ?? "null"}, " +
+                    $"chainId={chainManager.ActiveChainId ?? "null"}, " +
+                    $"pendingContinuation={chainManager.PendingContinuation}, " +
+                    $"hasBoundaryAnchor={chainManager.PendingBoundaryAnchor.HasValue})");
+                chainManager.ClearAll();
+            }
+
             // Chain continuations (atmosphere/SOI splits, dock/undock, boarding) are NOT
             // new launches — they must not capture a fresh rewind save.  The rewind save
             // belongs to the chain root only.  chainManager.ActiveChainId is set by
