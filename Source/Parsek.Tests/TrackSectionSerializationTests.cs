@@ -642,6 +642,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag()
+        {
+            var track = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 18000,
+                endUT = 19000,
+                checkpoints = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(18000, 19000, isPredicted: true)
+                },
+                frames = new List<TrajectoryPoint>()
+            };
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(
+                node,
+                new List<TrackSection> { track },
+                RecordingStore.LaunchToLaunchLoopIntervalFormatVersion);
+
+            ConfigNode tsNode = node.GetNode("TRACK_SECTION");
+            Assert.NotNull(tsNode);
+            ConfigNode checkpointNode = tsNode.GetNode("ORBIT_SEGMENT");
+            Assert.NotNull(checkpointNode);
+            Assert.Null(checkpointNode.GetValue("isPredicted"));
+        }
+
+        [Fact]
         public void AltitudeMetadata_LegacyMissing_DefaultsToNaN()
         {
             // Simulate a legacy TRACK_SECTION without minAlt/maxAlt

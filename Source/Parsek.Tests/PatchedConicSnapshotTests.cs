@@ -68,20 +68,44 @@ namespace Parsek.Tests
         [Fact]
         public void Snapshot_StopsAtManeuverTransition()
         {
-            var maneuverPatch = MakePatch(200, 260, transition: PatchedConicTransitionType.Maneuver);
-            var coastPatch = MakePatch(100, 200, transition: PatchedConicTransitionType.Encounter);
-            coastPatch.NextPatch = maneuverPatch;
+            var coastToNodePatch = MakePatch(100, 200, transition: PatchedConicTransitionType.Maneuver);
+            coastToNodePatch.NextPatch = MakePatch(200, 260);
 
             var source = new FakePatchedConicSnapshotSource(2)
             {
-                RootPatch = coastPatch
+                RootPatch = coastToNodePatch
             };
 
             PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
                 source, 120, 8, "Maneuver Vessel");
 
             Assert.Single(result.Segments);
+            Assert.Equal(120, result.Segments[0].startUT);
+            Assert.Equal(200, result.Segments[0].endUT);
             Assert.True(result.StoppedBeforeManeuver);
+            Assert.Equal(1, result.TruncatedPatchCount);
+        }
+
+        [Fact]
+        public void Snapshot_CaptureLimitReached_ReportsTruncation()
+        {
+            var thirdPatch = MakePatch(300, 400, body: "Mun");
+            var secondPatch = MakePatch(200, 300, body: "Kerbin", transition: PatchedConicTransitionType.Encounter);
+            secondPatch.NextPatch = thirdPatch;
+            var firstPatch = MakePatch(100, 200);
+            firstPatch.NextPatch = secondPatch;
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = firstPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 2, "Truncated Vessel");
+
+            Assert.Equal(2, result.CapturedPatchCount);
+            Assert.Equal(2, result.Segments.Count);
+            Assert.False(result.StoppedBeforeManeuver);
             Assert.Equal(1, result.TruncatedPatchCount);
         }
 
@@ -134,7 +158,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, line =>
                 line.Contains("[PatchedSnapshot]") &&
                 line.Contains("captured=1") &&
-                line.Contains("truncatedDueToManeuver=0"));
+                line.Contains("truncated=0") &&
+                line.Contains("stoppedBeforeManeuver=False"));
         }
 
         private static FakePatchedConicOrbitPatch MakePatch(

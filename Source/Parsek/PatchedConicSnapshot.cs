@@ -127,24 +127,30 @@ namespace Parsek
                 IPatchedConicOrbitPatch patch = source.RootPatch;
                 while (patch != null && result.CapturedPatchCount < normalizedLimit)
                 {
-                    if (patch.EndTransition == PatchedConicTransitionType.Maneuver)
+                    bool stopsBeforeManeuver = patch.EndTransition == PatchedConicTransitionType.Maneuver;
+                    result.Segments.Add(ToOrbitSegment(
+                        patch,
+                        result.CapturedPatchCount == 0 ? snapshotUT : double.NaN));
+                    result.LastCapturedBodyName = patch.BodyName;
+                    result.CapturedPatchCount++;
+
+                    if (stopsBeforeManeuver)
                     {
                         result.StoppedBeforeManeuver = true;
                         result.TruncatedPatchCount++;
                         break;
                     }
 
-                    result.Segments.Add(ToOrbitSegment(
-                        patch,
-                        result.CapturedPatchCount == 0 ? snapshotUT : double.NaN));
-                    result.LastCapturedBodyName = patch.BodyName;
-                    result.CapturedPatchCount++;
                     patch = patch.NextPatch;
                 }
 
+                if (!result.StoppedBeforeManeuver && patch != null && result.CapturedPatchCount >= normalizedLimit)
+                    result.TruncatedPatchCount++;
+
                 ParsekLog.Verbose("PatchedSnapshot",
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} captured={result.CapturedPatchCount} " +
-                    $"truncatedDueToManeuver={result.TruncatedPatchCount} lastBody={result.LastCapturedBodyName ?? "(none)"}");
+                    $"truncated={result.TruncatedPatchCount} stoppedBeforeManeuver={result.StoppedBeforeManeuver} " +
+                    $"lastBody={result.LastCapturedBodyName ?? "(none)"}");
             }
             catch (Exception ex)
             {

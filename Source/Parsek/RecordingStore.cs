@@ -3311,7 +3311,11 @@ namespace Parsek
             return pt;
         }
 
-        private static void SerializeOrbitSegment(ConfigNode parent, OrbitSegment seg, CultureInfo ic)
+        private static void SerializeOrbitSegment(
+            ConfigNode parent,
+            OrbitSegment seg,
+            CultureInfo ic,
+            int recordingFormatVersion = CurrentRecordingFormatVersion)
         {
             ConfigNode segNode = parent.AddNode("ORBIT_SEGMENT");
             segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
@@ -3324,7 +3328,8 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
-            segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
+            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
+                segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {
                 segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
@@ -4118,7 +4123,7 @@ namespace Parsek
                     SerializePoint(targetNode, rec.Points[i], ic);
 
                 for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic);
+                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic, rec.RecordingFormatVersion);
             }
             else
             {
@@ -4166,7 +4171,7 @@ namespace Parsek
 
             // Serialize track sections (new recording system)
             if (rec.TrackSections != null && rec.TrackSections.Count > 0)
-                SerializeTrackSections(targetNode, rec.TrackSections);
+                SerializeTrackSections(targetNode, rec.TrackSections, rec.RecordingFormatVersion);
 
             if (!useSectionAuthoritative && rec.RecordingFormatVersion >= 1)
             {
@@ -4434,7 +4439,10 @@ namespace Parsek
         /// Each section carries its own environment classification, reference frame, and nested
         /// trajectory data (POINT nodes for Absolute/Relative, ORBIT_SEGMENT nodes for OrbitalCheckpoint).
         /// </summary>
-        internal static void SerializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
+        internal static void SerializeTrackSections(
+            ConfigNode parent,
+            List<TrackSection> tracks,
+            int recordingFormatVersion = CurrentRecordingFormatVersion)
         {
             if (tracks == null || tracks.Count == 0)
             {
@@ -4492,7 +4500,7 @@ namespace Parsek
                     if (checkpoints != null)
                     {
                         for (int s = 0; s < checkpoints.Count; s++)
-                            SerializeOrbitSegment(tsNode, checkpoints[s], ic);
+                            SerializeOrbitSegment(tsNode, checkpoints[s], ic, recordingFormatVersion);
                     }
                 }
 
