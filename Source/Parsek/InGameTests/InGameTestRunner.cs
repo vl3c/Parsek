@@ -900,11 +900,12 @@ namespace Parsek.InGameTests
             {
                 var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
                     as ParsekScenario;
-                ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
-                    currentScenario != null
-                        ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
-                        : null);
-                stagedSnapshot.Activate();
+                ActivateStagedBatchFlightBaselineRestore(
+                    stagedSnapshot.Activate,
+                    () => ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
+                        currentScenario != null
+                            ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
+                            : null));
             }
             Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
             yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
@@ -913,6 +914,16 @@ namespace Parsek.InGameTests
             PerformBetweenRunCleanup(cleanupReason);
             if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
                 yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+        }
+
+        internal static void ActivateStagedBatchFlightBaselineRestore(
+            Action activateSnapshot,
+            Action prepareForRestore)
+        {
+            InGameAssert.IsNotNull(activateSnapshot,
+                "Automatic FLIGHT batch restore requires a staged snapshot activation callback.");
+            activateSnapshot();
+            prepareForRestore?.Invoke();
         }
 
         private void CleanupBatchFlightBaselineSave()

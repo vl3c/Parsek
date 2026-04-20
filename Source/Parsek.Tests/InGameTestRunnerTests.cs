@@ -231,6 +231,31 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void ActivateStagedBatchFlightBaselineRestore_PreparesOnlyAfterActivation()
+        {
+            var order = new List<string>();
+
+            InGameTestRunner.ActivateStagedBatchFlightBaselineRestore(
+                () => order.Add("activate"),
+                () => order.Add("prepare"));
+
+            Assert.Equal(new[] { "activate", "prepare" }, order);
+        }
+
+        [Fact]
+        public void ActivateStagedBatchFlightBaselineRestore_ActivationFailure_DoesNotPrepare()
+        {
+            bool prepared = false;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                InGameTestRunner.ActivateStagedBatchFlightBaselineRestore(
+                    () => throw new InvalidOperationException("boom"),
+                    () => prepared = true));
+
+            Assert.False(prepared);
+        }
+
         // ---- FormatResultsReport: multi-scene accumulation (per-scene history) ----
 
         private static InGameTestInfo MakeTest(string category, string name,
