@@ -153,6 +153,8 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Kerbals window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             kerbalsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekKerbals".GetHashCode(),
                 kerbalsWindowRect,

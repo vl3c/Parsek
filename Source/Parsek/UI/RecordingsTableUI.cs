@@ -356,6 +356,8 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Recordings window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekRecordings".GetHashCode(),
                 recordingsWindowRect,

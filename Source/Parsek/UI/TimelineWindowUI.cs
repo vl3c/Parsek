@@ -116,6 +116,8 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Timeline window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             timelineWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekTimeline".GetHashCode(),
                 timelineWindowRect,

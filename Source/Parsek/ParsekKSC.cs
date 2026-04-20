@@ -126,9 +126,13 @@ namespace Parsek
             if (!showUI) return;
 
             windowRect.height = 0f;
+            var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
+
             windowRect = ClickThruBlocker.GUILayoutWindow(
                 GetInstanceID(), windowRect, ui.DrawWindow,
-                "Parsek", ui.GetOpaqueWindowStyle(), GUILayout.Width(250));
+                "Parsek", opaqueWindowStyle, GUILayout.Width(250));
 
             ui.DrawRecordingsWindowIfOpen(windowRect);
             ui.DrawTimelineWindowIfOpen(windowRect);

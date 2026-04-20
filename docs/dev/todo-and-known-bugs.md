@@ -18,6 +18,20 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
+
+**Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
+
+**Fix:** opaque-window rebuilds are now gated on a ready normal background, lagging hover/focus/active states fall back to the ready normal texture instead of freezing a transparent cache, shared `ParsekUI` windows invalidate stale opaque styles across scene changes, and focused/active title-bar text colors are normalized so the opaque title bar stays readable after focus changes. The in-game regressions cover the missing-skin / lagging-state path, and the xUnit coverage now checks the readable title-text states too.
+
+**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek.Tests/ParsekUITests.cs`.
+
+**Resolution:** shortcut path fixed on 2026-04-19 in `bug/487-test-runner-transparent`; the shared `ParsekUI` follow-up landed on 2026-04-20 so the Settings-hosted Test Runner and the rest of the Parsek subwindows now use the same guarded opaque-style rebuild instead of bypassing the original fix. A later live repro confirmed the transparent background was gone, and the final follow-up normalized title-bar text colors when window focus changed.
+
+**Status:** CLOSED. Fixed for v0.8.3.
+
+---
+
 ## ~~489. Manual-only runtime coverage for deferred merge commit and `Keep Vessel` playback existed locally; both now have live KSP validation~~
 
 **Source:** local audit work on `audit-test-coverage-2026-04-19` after `#488` closed. New tests now exist in `Source/Parsek/InGameTests/RuntimeTests.cs`:
