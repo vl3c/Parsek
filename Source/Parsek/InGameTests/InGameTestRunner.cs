@@ -82,6 +82,7 @@ namespace Parsek.InGameTests
         private sealed class FlightBatchBaselineState
         {
             public string SlotName;
+            public string ParsekSaveSnapshotDirectory;
             public int CapturedFlightInstanceId;
             public Guid ActiveVesselId;
             public string ActiveVesselName;
@@ -542,10 +543,12 @@ namespace Parsek.InGameTests
 
             string slotName = CreateBatchFlightBaselineSlotName();
             Helpers.QuickloadResumeHelpers.TriggerQuicksave(slotName);
+            string parsekSnapshotDirectory = CaptureBatchFlightParsekSaveSnapshot(slotName);
 
             return new FlightBatchBaselineState
             {
                 SlotName = slotName,
+                ParsekSaveSnapshotDirectory = parsekSnapshotDirectory,
                 CapturedFlightInstanceId = ParsekFlight.Instance != null
                     ? ParsekFlight.Instance.GetInstanceID()
                     : 0,
@@ -561,6 +564,31 @@ namespace Parsek.InGameTests
                 + DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture)
                 + "-"
                 + Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        private static string CaptureBatchFlightParsekSaveSnapshot(string slotName)
+        {
+            string currentParsekSaveDirectory = RecordingPaths.ResolveSaveScopedPath("Parsek");
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(currentParsekSaveDirectory),
+                "Automatic FLIGHT batch restore requires a resolvable save-scoped Parsek directory.");
+
+            string snapshotDirectory = Path.Combine(
+                Path.GetDirectoryName(currentParsekSaveDirectory) ?? string.Empty,
+                slotName + "-parsek");
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(snapshotDirectory),
+                "Automatic FLIGHT batch restore failed: snapshot directory was null/empty.");
+
+            TryDeleteDirectoryRecursive(snapshotDirectory);
+            if (Directory.Exists(currentParsekSaveDirectory))
+            {
+                CopyDirectoryRecursive(currentParsekSaveDirectory, snapshotDirectory);
+            }
+            else
+            {
+                Directory.CreateDirectory(snapshotDirectory);
+            }
+
+            return snapshotDirectory;
         }
 
         private static List<InGameTestInfo> SkipBatchFlightRestoreTests(
@@ -764,6 +792,7 @@ namespace Parsek.InGameTests
         private IEnumerator RestoreBatchFlightBaselineCore(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
+            RestoreBatchFlightParsekSaveSnapshot(baseline);
             Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
             yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                 previousFlightInstanceId, timeoutSeconds: 15f);
@@ -779,6 +808,64 @@ namespace Parsek.InGameTests
                 return;
 
             Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(batchFlightBaseline.SlotName);
+            TryDeleteDirectoryRecursive(batchFlightBaseline.ParsekSaveSnapshotDirectory);
+        }
+
+        private static void RestoreBatchFlightParsekSaveSnapshot(FlightBatchBaselineState baseline)
+        {
+            if (baseline == null)
+                return;
+
+            string currentParsekSaveDirectory = RecordingPaths.ResolveSaveScopedPath("Parsek");
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(currentParsekSaveDirectory),
+                "Automatic FLIGHT batch restore requires a resolvable save-scoped Parsek directory.");
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(baseline.ParsekSaveSnapshotDirectory),
+                "Automatic FLIGHT batch restore requires a captured Parsek save snapshot directory.");
+            if (!Directory.Exists(baseline.ParsekSaveSnapshotDirectory))
+            {
+                InGameAssert.Skip(
+                    $"Automatic FLIGHT batch restore skipped: Parsek save snapshot '{baseline.ParsekSaveSnapshotDirectory}' was missing");
+            }
+
+            TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
+            CopyDirectoryRecursive(baseline.ParsekSaveSnapshotDirectory, currentParsekSaveDirectory);
+        }
+
+        private static void CopyDirectoryRecursive(string sourceDirectory, string destinationDirectory)
+        {
+            InGameAssert.IsTrue(Directory.Exists(sourceDirectory),
+                $"Automatic FLIGHT batch restore failed: source directory '{sourceDirectory}' did not exist");
+
+            Directory.CreateDirectory(destinationDirectory);
+
+            foreach (string directory in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+            {
+                string relative = directory.Substring(sourceDirectory.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                Directory.CreateDirectory(Path.Combine(destinationDirectory, relative));
+            }
+
+            foreach (string file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+            {
+                string relative = file.Substring(sourceDirectory.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string destinationFile = Path.Combine(destinationDirectory, relative);
+                string destinationParent = Path.GetDirectoryName(destinationFile);
+                if (!string.IsNullOrEmpty(destinationParent))
+                    Directory.CreateDirectory(destinationParent);
+                File.Copy(file, destinationFile, overwrite: true);
+            }
+        }
+
+        private static void TryDeleteDirectoryRecursive(string directoryPath)
+        {
+            if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
+                return;
+
+            foreach (string file in Directory.GetFiles(directoryPath, "*", SearchOption.AllDirectories))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+
+            Directory.Delete(directoryPath, recursive: true);
         }
 
         private static IEnumerator WaitForBatchBaselineVessel(
