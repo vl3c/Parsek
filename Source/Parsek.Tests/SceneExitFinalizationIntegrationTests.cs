@@ -269,6 +269,79 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryShortCircuitSolverPredictedImpact_AirlessBodyImpact_ReturnsDestroyedTerminalUt()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Mun"] = new ExtrapolationBody
+                {
+                    Name = "Mun",
+                    Radius = 200000.0,
+                    AtmosphereDepth = 0.0
+                }
+            };
+            var segments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    bodyName = "Mun",
+                    startUT = 150.0,
+                    endUT = 320.0,
+                    semiMajorAxis = 180000.0,
+                    eccentricity = 0.0
+                }
+            };
+
+            bool shortCircuited = IncompleteBallisticSceneExitFinalizer.TryShortCircuitSolverPredictedImpact(
+                "scene-exit-mun-impact",
+                segments,
+                bodies,
+                out double terminalUT);
+
+            Assert.True(shortCircuited);
+            Assert.Equal(320.0, terminalUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][PatchedSnapshot]") &&
+                l.Contains("scene-exit-mun-impact") &&
+                l.Contains("solver-predicted impact short-circuit"));
+        }
+
+        [Fact]
+        public void TryShortCircuitSolverPredictedImpact_AtmosphericBody_ReturnsFalse()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+            var segments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    bodyName = "Kerbin",
+                    startUT = 100.0,
+                    endUT = 240.0,
+                    semiMajorAxis = 650000.0,
+                    eccentricity = 0.2
+                }
+            };
+
+            bool shortCircuited = IncompleteBallisticSceneExitFinalizer.TryShortCircuitSolverPredictedImpact(
+                "scene-exit-kerbin-entry",
+                segments,
+                bodies,
+                out double terminalUT);
+
+            Assert.False(shortCircuited);
+            Assert.True(double.IsNaN(terminalUT));
+            Assert.DoesNotContain(logLines, l => l.Contains("scene-exit-kerbin-entry"));
+        }
+
+        [Fact]
         public void TryApply_HookDecline_LogsWhenUsingNonTestHook()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeHook =

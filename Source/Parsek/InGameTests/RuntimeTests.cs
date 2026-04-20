@@ -5218,4 +5218,399 @@ namespace Parsek.InGameTests
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
     }
+
+    public class IncompleteBallisticRuntimeTests
+    {
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Plane-exit extrapolation keeps producing a ballistic tail until the ghost would despawn")]
+        public void ExtrapolationIntegration_PlaneExitMidFlight_GhostFallsAndDespawns()
+        {
+            const double gravParameter = 3.5316e12;
+            const double radius = 600000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    gravParameter,
+                    radius,
+                    atmosphereDepth: 70000.0,
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            var start = new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(radius + 3000.0, 0.0, 0.0),
+                velocity = new Vector3d(0.0, 250.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, result.terminalState,
+                "low-altitude flying exit should terminate instead of orbit forever");
+            InGameAssert.IsTrue(result.terminalUT > start.ut,
+                "terminal UT should extend beyond the recorded exit");
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 0,
+                "plane exit should produce at least one extrapolated segment");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Suborbital apoapsis extrapolation keeps the ghost on an orbital arc before termination")]
+        public void ExtrapolationIntegration_SuborbitalExitAtApoapsis_GhostFollowsArc()
+        {
+            const double gravParameter = 3.5316e12;
+            const double radius = 600000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    gravParameter,
+                    radius,
+                    atmosphereDepth: 70000.0,
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            BallisticStateVector start = MakeApoapsisState(
+                "Kerbin",
+                gravParameter,
+                apoapsisRadius: radius + 70500.0,
+                periapsisRadius: radius + 15000.0);
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.AreEqual(TerminalState.Destroyed, result.terminalState,
+                "suborbital apoapsis should eventually terminate");
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 0,
+                "suborbital apoapsis should produce at least one extrapolated coast segment");
+            InGameAssert.AreEqual("Kerbin", result.segments[0].bodyName,
+                "the first extrapolated segment should stay on Kerbin");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Hyperbolic extrapolation crosses the child SOI and continues on the parent body")]
+        public void ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Sun"] = MakeBody("Sun", 1.1723328e18, 261600000.0, sphereOfInfluence: 1.0e30),
+                ["Kerbin"] = MakeBody(
+                    "Kerbin",
+                    3.5316e12,
+                    600000.0,
+                    atmosphereDepth: 0.0,
+                    sphereOfInfluence: 10000000.0,
+                    parentBodyName: "Sun",
+                    parentFrameState: FixedState(Vector3d.zero, new Vector3d(0.0, 9500.0, 0.0)),
+                    terrainAltitude: FlatTerrain,
+                    surfaceCoordinates: ZeroSurfaceCoordinates)
+            };
+
+            var start = new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(9500000.0, 0.0, 0.0),
+                velocity = new Vector3d(1400.0, 800.0, 0.0)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies);
+
+            InGameAssert.IsTrue(result.segments != null && result.segments.Count > 1,
+                "hyperbolic exit should produce more than one segment");
+            InGameAssert.IsTrue(result.segments.Any(seg => seg.bodyName == "Sun"),
+                "hyperbolic exit should hand off onto the parent-body frame");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Patched-conic flyby capture yields the same active body the map-view selector would draw")]
+        public void PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView()
+        {
+            var munPatch = MakePatch(200.0, 320.0, "Mun");
+            var kerbinPatch = MakePatch(100.0, 200.0, "Kerbin", PatchedConicTransitionType.Encounter);
+            kerbinPatch.NextPatch = munPatch;
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = kerbinPatch
+            };
+
+            PatchedConicSnapshotResult snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120.0, 8, "MunFlybyRuntime");
+
+            InGameAssert.AreEqual(2, snapshot.Segments.Count,
+                "flyby snapshot should capture the encounter and Mun leg");
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                snapshot.Segments,
+                250.0,
+                out OrbitSegment segment,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsTrue(visible, "Mun flyby segment should be selectable for map rendering");
+            InGameAssert.AreEqual("Mun", segment.bodyName,
+                "map selection should follow the captured Mun leg");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Patched-conic capture strips planned maneuver nodes from the ghost trajectory")]
+        public void PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn()
+        {
+            var maneuverPatch = MakePatch(100.0, 200.0, "Kerbin", PatchedConicTransitionType.Maneuver);
+            maneuverPatch.NextPatch = MakePatch(200.0, 260.0, "Mun");
+
+            var source = new FakePatchedConicSnapshotSource(2)
+            {
+                RootPatch = maneuverPatch
+            };
+
+            PatchedConicSnapshotResult snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120.0, 8, "ManeuverRuntime");
+
+            InGameAssert.AreEqual(1, snapshot.Segments.Count,
+                "capture should stop before the maneuver patch");
+            InGameAssert.IsTrue(snapshot.StoppedBeforeManeuver,
+                "snapshot should flag that it stopped before a maneuver");
+            InGameAssert.AreEqual("Kerbin", snapshot.Segments[0].bodyName,
+                "post-maneuver bodies should not leak into the captured chain");
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "The v1 map selector chooses the predicted/extrapolated segment after the recorded payload ends")]
+        public void MapRendering_V1_GhostDrawsLineFromExtrapolatedSegment()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false),
+                MakeOrbitSegment(200.0, 500.0, "Kerbin", isPredicted: true)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                350.0,
+                out OrbitSegment segment,
+                out _,
+                out double visibleEndUT,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsTrue(visible, "predicted tail should remain renderable after payload end");
+            InGameAssert.IsTrue(segment.isPredicted,
+                "map selection should choose the predicted tail segment after payload end");
+            InGameAssert.ApproxEqual(500.0, visibleEndUT, 0.001);
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "Equivalent same-body tails keep the v1 map line continuous across a recorded-data gap")]
+        public void MapRendering_V1_LineContinuesPastRecordedEnd()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false, sma: 700000.0, ecc: 0.01),
+                MakeOrbitSegment(300.0, 500.0, "Kerbin", isPredicted: true, sma: 700000.0, ecc: 0.01)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                250.0,
+                out OrbitSegment segment,
+                out double visibleStartUT,
+                out double visibleEndUT,
+                out _,
+                out _,
+                out bool carriedAcrossGap);
+
+            InGameAssert.IsTrue(visible, "equivalent predicted tail should bridge the recorded-data gap");
+            InGameAssert.IsTrue(carriedAcrossGap,
+                "equivalent predicted tail should be carried across the gap");
+            InGameAssert.AreEqual("Kerbin", segment.bodyName,
+                "gap-carry should keep the active body on the same SOI");
+            InGameAssert.ApproxEqual(100.0, visibleStartUT, 0.001);
+            InGameAssert.ApproxEqual(500.0, visibleEndUT, 0.001);
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "The v1 map selector does not bridge across foreign-SOI segments")]
+        public void MapRendering_V1_ForeignSOISegmentsNotRendered()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(100.0, 200.0, "Kerbin", isPredicted: false, sma: 700000.0, ecc: 0.01),
+                MakeOrbitSegment(300.0, 500.0, "Mun", isPredicted: true, sma: 250000.0, ecc: 0.01)
+            };
+
+            bool visible = TrajectoryMath.TryGetOrbitWindowForMapDisplay(
+                segments,
+                250.0,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            InGameAssert.IsFalse(visible,
+                "foreign-SOI segments should not render through a gap in the v1 selector");
+        }
+
+        private static BallisticStateVector MakeApoapsisState(
+            string bodyName,
+            double gravParameter,
+            double apoapsisRadius,
+            double periapsisRadius)
+        {
+            double semiMajorAxis = (apoapsisRadius + periapsisRadius) * 0.5;
+            double tangentialSpeed = System.Math.Sqrt(
+                gravParameter * ((2.0 / apoapsisRadius) - (1.0 / semiMajorAxis)));
+            return new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = bodyName,
+                position = new Vector3d(apoapsisRadius, 0.0, 0.0),
+                velocity = new Vector3d(0.0, tangentialSpeed, 0.0)
+            };
+        }
+
+        private static ExtrapolationBody MakeBody(
+            string name,
+            double gravParameter,
+            double radius,
+            double atmosphereDepth = 0.0,
+            double sphereOfInfluence = 0.0,
+            string parentBodyName = null,
+            TerrainAltitudeResolver terrainAltitude = null,
+            ParentFrameStateResolver parentFrameState = null,
+            SurfaceCoordinatesResolver surfaceCoordinates = null)
+        {
+            return new ExtrapolationBody
+            {
+                Name = name,
+                ParentBodyName = parentBodyName,
+                GravitationalParameter = gravParameter,
+                Radius = radius,
+                AtmosphereDepth = atmosphereDepth,
+                SphereOfInfluence = sphereOfInfluence,
+                TerrainAltitude = terrainAltitude,
+                ParentFrameState = parentFrameState,
+                SurfaceCoordinates = surfaceCoordinates
+            };
+        }
+
+        private static OrbitSegment MakeOrbitSegment(
+            double startUT,
+            double endUT,
+            string bodyName,
+            bool isPredicted,
+            double sma = 700000.0,
+            double ecc = 0.01)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = bodyName,
+                semiMajorAxis = sma,
+                eccentricity = ecc,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                isPredicted = isPredicted
+            };
+        }
+
+        private static ParentFrameStateResolver FixedState(Vector3d position, Vector3d velocity)
+        {
+            return (double ut, out Vector3d bodyPosition, out Vector3d bodyVelocity) =>
+            {
+                bodyPosition = position;
+                bodyVelocity = velocity;
+            };
+        }
+
+        private static bool FlatTerrain(double latitude, double longitude, out double altitude)
+        {
+            altitude = 0.0;
+            return true;
+        }
+
+        private static void ZeroSurfaceCoordinates(
+            double ut,
+            Vector3d position,
+            out double latitude,
+            out double longitude)
+        {
+            latitude = 0.0;
+            longitude = 0.0;
+        }
+
+        private static FakePatchedConicOrbitPatch MakePatch(
+            double startUT,
+            double endUT,
+            string bodyName,
+            PatchedConicTransitionType transition = PatchedConicTransitionType.Final)
+        {
+            return new FakePatchedConicOrbitPatch
+            {
+                StartUT = startUT,
+                EndUT = endUT,
+                BodyName = bodyName,
+                Inclination = 0.0,
+                Eccentricity = 0.01,
+                SemiMajorAxis = 700000.0,
+                LongitudeOfAscendingNode = 0.0,
+                ArgumentOfPeriapsis = 0.0,
+                MeanAnomalyAtEpoch = 0.0,
+                Epoch = startUT,
+                EndTransition = transition
+            };
+        }
+
+        private sealed class FakePatchedConicSnapshotSource : IPatchedConicSnapshotSource
+        {
+            private int patchLimit;
+
+            public FakePatchedConicSnapshotSource(int initialPatchLimit)
+            {
+                patchLimit = initialPatchLimit;
+            }
+
+            public string VesselName => "Runtime Fake Vessel";
+            public bool IsAvailable { get; set; } = true;
+            public bool HasPatchLimitAccess { get; set; } = true;
+            public IPatchedConicOrbitPatch RootPatch { get; set; }
+
+            public int PatchLimit
+            {
+                get => patchLimit;
+                set => patchLimit = value;
+            }
+
+            public void Update() { }
+        }
+
+        private sealed class FakePatchedConicOrbitPatch : IPatchedConicOrbitPatch
+        {
+            public double StartUT { get; set; }
+            public double EndUT { get; set; }
+            public double Inclination { get; set; }
+            public double Eccentricity { get; set; }
+            public double SemiMajorAxis { get; set; }
+            public double LongitudeOfAscendingNode { get; set; }
+            public double ArgumentOfPeriapsis { get; set; }
+            public double MeanAnomalyAtEpoch { get; set; }
+            public double Epoch { get; set; }
+            public string BodyName { get; set; }
+            public PatchedConicTransitionType EndTransition { get; set; }
+            public IPatchedConicOrbitPatch NextPatch { get; set; }
+        }
+    }
 }

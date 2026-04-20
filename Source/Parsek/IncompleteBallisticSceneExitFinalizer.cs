@@ -154,6 +154,18 @@ namespace Parsek
                 return true;
             }
 
+            if (TryShortCircuitSolverPredictedImpact(
+                recording.RecordingId,
+                appendedSegments,
+                bodies,
+                out double impactTerminalUT))
+            {
+                result.appendedOrbitSegments = appendedSegments;
+                result.terminalState = TerminalState.Destroyed;
+                result.terminalUT = impactTerminalUT;
+                return true;
+            }
+
             BallisticStateVector startState;
             if (appendedSegments.Count > 0)
             {
@@ -329,6 +341,49 @@ namespace Parsek
                 return false;
             }
 
+            return true;
+        }
+
+        internal static bool TryShortCircuitSolverPredictedImpact(
+            string recordingId,
+            IList<OrbitSegment> appendedSegments,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            out double terminalUT)
+        {
+            terminalUT = double.NaN;
+
+            if (appendedSegments == null || appendedSegments.Count == 0 || bodies == null)
+                return false;
+
+            OrbitSegment lastSegment = appendedSegments[appendedSegments.Count - 1];
+            if (string.IsNullOrEmpty(lastSegment.bodyName)
+                || !bodies.TryGetValue(lastSegment.bodyName, out ExtrapolationBody body)
+                || body == null
+                || body.HasAtmosphere)
+            {
+                return false;
+            }
+
+            double periapsisRadius = lastSegment.semiMajorAxis * (1.0 - lastSegment.eccentricity);
+            if (double.IsNaN(periapsisRadius) || double.IsInfinity(periapsisRadius) || periapsisRadius <= 0.0)
+                return false;
+
+            double cutoffAltitude = 0.0;
+            double closestApproachAltitude = periapsisRadius - body.Radius;
+            if (closestApproachAltitude > cutoffAltitude)
+                return false;
+
+            terminalUT = lastSegment.endUT;
+            ParsekLog.Info("PatchedSnapshot",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TryFinalizeRecording: solver-predicted impact short-circuit for '{0}' body={1} " +
+                    "closestApproachAlt={2:F1} cutoffAlt={3:F1} terminalUT={4:F1}",
+                    recordingId ?? "(null)",
+                    body.Name ?? lastSegment.bodyName ?? "(null)",
+                    closestApproachAltitude,
+                    cutoffAltitude,
+                    terminalUT));
             return true;
         }
 
