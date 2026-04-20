@@ -3187,6 +3187,12 @@ namespace Parsek
 
             if (hasPoints)
             {
+                if (ShouldPositionMultiPointGhostFromOrbit(traj, playbackUT))
+                {
+                    positioner.PositionFromOrbit(index, traj, state, playbackUT);
+                    return;
+                }
+
                 bool usedRelative = false;
                 if (traj.TrackSections != null && traj.TrackSections.Count > 0)
                 {
@@ -3226,6 +3232,22 @@ namespace Parsek
 
             if (hasOrbitData)
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
+        }
+
+        internal static bool ShouldPositionMultiPointGhostFromOrbit(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj?.Points == null || traj.Points.Count < 2 || !traj.HasOrbitSegments)
+                return false;
+
+            if (traj.TrackSections != null
+                && traj.TrackSections.Count > 0
+                && TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT) >= 0)
+                return false;
+
+            double lastPointUT = traj.Points[traj.Points.Count - 1].ut;
+            return playbackUT > lastPointUT + 1e-6
+                && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
         }
 
         internal static bool ShouldPrimeSinglePointGhostFromOrbit(

@@ -1102,6 +1102,33 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Recorded points ending before the current UT should not block map-view orbit
+        /// rendering when OrbitSegments extend the timeline.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithRecordedPointsAndExtendedOrbitTail_Created()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = null,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 200, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 300);
+
+            Assert.True(should);
+            Assert.Null(reason);
+        }
+
+        /// <summary>
         /// Null terminal state with same-body segment gap: keep showing the orbit ghost.
         /// </summary>
         [Fact]
