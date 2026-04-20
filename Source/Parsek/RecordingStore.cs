@@ -5603,8 +5603,21 @@ namespace Parsek
                 ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
                 if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal))
                 {
-                    Log($"[Parsek] Eager-populated TerminalOrbit for {rec.RecordingId} from last orbit segment (body={rec.TerminalOrbitBody}, sma={rec.TerminalOrbitSemiMajorAxis:F0})");
+                    Log(string.Format(CultureInfo.InvariantCulture,
+                        "[Parsek] Eager-populated TerminalOrbit for {0} from last orbit segment (body={1}, sma={2:F0})",
+                        rec.RecordingId,
+                        rec.TerminalOrbitBody,
+                        rec.TerminalOrbitSemiMajorAxis));
                 }
+            }
+
+            RecordingEndpointPhase endpointPhaseBeforeBackfill = rec.EndpointPhase;
+            string endpointBodyBeforeBackfill = rec.EndpointBodyName;
+            if (RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingStore.LoadRecordingFilesFromPathsInternal")
+                && (rec.EndpointPhase != endpointPhaseBeforeBackfill
+                    || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal)))
+            {
+                Log($"[Parsek] Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
             }
 
             // Load snapshot sidecars only after the trajectory probe passes the
