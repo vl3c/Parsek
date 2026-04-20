@@ -377,7 +377,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_ImmediateParentExit_TriggersZeroProgressGuard()
+        public void Extrapolate_ImmediateParentExit_HandsOffToParent()
         {
             var bodies = new Dictionary<string, ExtrapolationBody>
             {
@@ -410,10 +410,12 @@ namespace Parsek.Tests
                 });
 
             Assert.Equal(TerminalState.Orbiting, result.terminalState);
-            Assert.Equal(42.0, result.terminalUT, 6);
-            Assert.Equal("Home", result.terminalBodyName);
-            Assert.Empty(result.segments);
-            Assert.Contains(logLines, l => l.Contains("Terminal reason=zero-progress-guard"));
+            Assert.Equal("Star", result.terminalBodyName);
+            Assert.Single(result.segments);
+            Assert.Equal("Star", result.segments[0].bodyName);
+            Assert.True(result.terminalUT > 42.0);
+            Assert.Contains(logLines, l => l.Contains("SOI transition: child=Home parent=Star"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Terminal reason=zero-progress-guard"));
         }
 
         [Fact]

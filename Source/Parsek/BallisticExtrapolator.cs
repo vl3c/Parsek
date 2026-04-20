@@ -250,24 +250,12 @@ namespace Parsek
                     orbit);
 
                 double segmentEndUT = Math.Max(currentState.ut, Math.Min(chosen.UT, horizonUT));
-                if ((chosen.Kind == EventKind.ParentExit || chosen.Kind == EventKind.ChildEntry)
-                    && segmentEndUT <= currentState.ut + ImmediateEventEpsilon)
-                {
-                    result.terminalState = TerminalState.Orbiting;
-                    result.terminalUT = currentState.ut;
-                    result.terminalBodyName = currentBody.Name;
-                    result.terminalPosition = currentState.position;
-                    result.terminalVelocity = currentState.velocity;
-                    ParsekLog.Warn(LogTag, string.Format(
-                        CultureInfo.InvariantCulture,
-                        "Terminal reason=zero-progress-guard: body={0} event={1} ut={2:F6}",
-                        currentBody.Name,
-                        chosen.Kind,
-                        currentState.ut));
-                    return result;
-                }
+                bool immediateSoiTransition =
+                    (chosen.Kind == EventKind.ParentExit || chosen.Kind == EventKind.ChildEntry)
+                    && segmentEndUT <= currentState.ut + ImmediateEventEpsilon;
 
-                result.segments.Add(CreateSegment(orbit, currentBody.Name, currentState.ut, segmentEndUT));
+                if (!immediateSoiTransition)
+                    result.segments.Add(CreateSegment(orbit, currentBody.Name, currentState.ut, segmentEndUT));
 
                 if (chosen.Kind == EventKind.Destroyed)
                 {
@@ -357,10 +345,11 @@ namespace Parsek
                     GetBodyStateRelativeToParent(currentBody, chosen.UT, out Vector3d bodyPosition, out Vector3d bodyVelocity);
                     ParsekLog.Info(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
-                        "SOI transition: child={0} parent={1} ut={2:F3} kind=ParentExit",
+                        "SOI transition: child={0} parent={1} ut={2:F3} kind=ParentExit immediate={3}",
                         currentBody.Name,
                         parentBody.Name,
-                        chosen.UT));
+                        chosen.UT,
+                        immediateSoiTransition));
                     currentState = new BallisticStateVector
                     {
                         ut = chosen.UT,
@@ -377,10 +366,11 @@ namespace Parsek
                     GetBodyStateRelativeToParent(chosen.ChildBody, chosen.UT, out Vector3d childPosition, out Vector3d childVelocity);
                     ParsekLog.Info(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
-                        "SOI transition: parent={0} child={1} ut={2:F3} kind=ChildEntry",
+                        "SOI transition: parent={0} child={1} ut={2:F3} kind=ChildEntry immediate={3}",
                         currentBody.Name,
                         chosen.ChildBody.Name,
-                        chosen.UT));
+                        chosen.UT,
+                        immediateSoiTransition));
                     currentState = new BallisticStateVector
                     {
                         ut = chosen.UT,
@@ -638,7 +628,7 @@ namespace Parsek
             double previousUT = startUT;
             double startValue = Magnitude(orbit.GetPositionAtUT(startUT)) - body.SphereOfInfluence;
 
-            if (startValue >= 0.0)
+            if (startValue > ImmediateEventEpsilon)
             {
                 orbit.GetStateAtUT(startUT, out Vector3d startPosition, out Vector3d startVelocity);
                 return new EventCandidate
@@ -736,7 +726,7 @@ namespace Parsek
             double previousUT = startUT;
             double startValue = GetRelativeDistanceToChild(orbit, childBody, startUT) - childBody.SphereOfInfluence;
 
-            if (startValue <= 0.0)
+            if (startValue < -ImmediateEventEpsilon)
             {
                 orbit.GetStateAtUT(startUT, out Vector3d startPosition, out Vector3d startVelocity);
                 return new EventCandidate

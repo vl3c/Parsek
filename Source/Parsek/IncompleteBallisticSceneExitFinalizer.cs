@@ -120,7 +120,7 @@ namespace Parsek
                     cutoffAltitude))
                 return false;
 
-            if (!TryBuildExtrapolationBodies(recording.RecordingId, out var bodies))
+            if (!TryBuildExtrapolationBodies(recording.RecordingId, commitUT, out var bodies))
                 return false;
 
             var appendedSegments = new List<OrbitSegment>();
@@ -271,6 +271,7 @@ namespace Parsek
 
         private static bool TryBuildExtrapolationBodies(
             string recordingId,
+            double referenceUT,
             out Dictionary<string, ExtrapolationBody> bodies)
         {
             bodies = new Dictionary<string, ExtrapolationBody>(StringComparer.Ordinal);
@@ -296,6 +297,8 @@ namespace Parsek
                     Radius = body.Radius,
                     AtmosphereDepth = body.atmosphereDepth,
                     SphereOfInfluence = body.sphereOfInfluence,
+                    SurfaceCoordinates = (double ut, Vector3d position, out double latitude, out double longitude) =>
+                        ResolveBodyFixedSurfaceCoordinates(body, referenceUT, ut, position, out latitude, out longitude),
                     TerrainAltitude = (double latitude, double longitude, out double altitude) =>
                     {
                         try
@@ -327,6 +330,37 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        private static void ResolveBodyFixedSurfaceCoordinates(
+            CelestialBody body,
+            double referenceUT,
+            double ut,
+            Vector3d position,
+            out double latitude,
+            out double longitude)
+        {
+            try
+            {
+                Vector3d worldPos = body.position + position;
+                latitude = body.GetLatitude(worldPos);
+                longitude = body.GetLongitude(worldPos);
+
+                if (!double.IsNaN(referenceUT)
+                    && !double.IsNaN(ut)
+                    && !double.IsNaN(body.rotationPeriod)
+                    && !double.IsInfinity(body.rotationPeriod)
+                    && Math.Abs(body.rotationPeriod) > double.Epsilon)
+                {
+                    longitude -= ((ut - referenceUT) * 360.0) / body.rotationPeriod;
+                }
+
+                longitude = NormalizeLongitudeDegrees(longitude);
+            }
+            catch
+            {
+                GetApproximateLatitudeLongitude(position, out latitude, out longitude);
+            }
         }
 
         private static bool TryBuildStartStateFromSegment(
@@ -395,6 +429,30 @@ namespace Parsek
         {
             return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
                 || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
+        }
+
+        private static void GetApproximateLatitudeLongitude(
+            Vector3d position,
+            out double latitude,
+            out double longitude)
+        {
+            double radius = Math.Max(1e-8, position.magnitude);
+            latitude = Math.Asin(Math.Max(-1.0, Math.Min(1.0, position.z / radius))) * 57.29577951308232;
+            longitude = Math.Atan2(position.y, position.x) * 57.29577951308232;
+        }
+
+        private static double NormalizeLongitudeDegrees(double longitude)
+        {
+            if (double.IsNaN(longitude) || double.IsInfinity(longitude))
+                return longitude;
+
+            double normalized = longitude % 360.0;
+            if (normalized <= -180.0)
+                normalized += 360.0;
+            else if (normalized > 180.0)
+                normalized -= 360.0;
+
+            return normalized;
         }
 
         private static void StampTerminalOrbitFromSegment(Recording recording, OrbitSegment segment)
