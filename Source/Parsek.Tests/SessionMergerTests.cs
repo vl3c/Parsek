@@ -1019,6 +1019,128 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LooksLikeSaveLoadTeleportBoundary_OverlappingActiveSections_ReturnsTrue()
+        {
+            var trimmedFutureTail = MakeSection(
+                100.0, 110.0, TrackSectionSource.Active,
+                alt: 70000.0, endAlt: 70000.0);
+            var resumedOverlap = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 105.0,
+                endUT = 120.0,
+                source = TrackSectionSource.Active,
+                sampleRateHz = 10f,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 105.0,
+                        altitude = 70005.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.5,
+                        altitude = 70500.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 120.0,
+                        altitude = 70510.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    }
+                },
+                checkpoints = new List<OrbitSegment>()
+            };
+            var mergedHead = MakeSection(
+                110.0, 120.0, TrackSectionSource.Active,
+                alt: 70500.0, endAlt: 70510.0);
+
+            Assert.True(SessionMerger.LooksLikeSaveLoadTeleportBoundary(
+                new List<TrackSection> { trimmedFutureTail, resumedOverlap },
+                trimmedFutureTail,
+                mergedHead));
+        }
+
+        [Fact]
+        public void MergeTree_DiscontinuityWarning_OverlapSeam_TaggedSaveLoadTeleport()
+        {
+            var futureTail = MakeSection(
+                100.0, 110.0, TrackSectionSource.Active,
+                alt: 70000.0, endAlt: 70000.0);
+            futureTail.frames[futureTail.frames.Count - 1] = new TrajectoryPoint
+            {
+                ut = 110.0,
+                altitude = 70000.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = new Vector3(10f, 0f, 0f)
+            };
+
+            var resumed = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 105.0,
+                endUT = 120.0,
+                source = TrackSectionSource.Active,
+                sampleRateHz = 10f,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 105.0,
+                        altitude = 70005.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.5,
+                        altitude = 70500.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 120.0,
+                        altitude = 70510.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero
+                    }
+                },
+                checkpoints = new List<OrbitSegment>(),
+                boundaryDiscontinuityMeters = 0f
+            };
+
+            var rec = MakeRecording(
+                "rec-486-teleport",
+                "Teleport Vessel",
+                new List<TrackSection> { futureTail, resumed });
+            var tree = MakeTree("486 Teleport", rec);
+
+            SessionMerger.MergeTree(tree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("cause=save-load-teleport"));
+        }
+
+        [Fact]
         public void ClassifyBoundaryDiscontinuity_StationaryWithFloor_TaggedUnrecordedGap()
         {
             // Stationary vessel (vMag=0) with a small jump under the 5m floor:

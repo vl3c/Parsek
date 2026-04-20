@@ -1136,6 +1136,7 @@ namespace Parsek
                     // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
                     // #434: on revert the block above already discarded the pending tree, so
                     // HasPendingTree will be false here and the dispatch is skipped entirely.
+                    ClearPendingQuickloadResumeContext();
                     if (RecordingStore.HasPendingTree
                         && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                             || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
@@ -1148,6 +1149,7 @@ namespace Parsek
                             // to OnFlightReady for the vessel-switch restore coroutine, which
                             // reinstalls the tree and (optionally) promotes the new active
                             // vessel from BackgroundMap.
+                            ClearPendingQuickloadResumeContext();
                             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.VesselSwitch;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-LimboVesselSwitch tree '{RecordingStore.PendingTree?.TreeName}' " +
@@ -1167,6 +1169,7 @@ namespace Parsek
                             // exact case where vessels ARE still loaded in FlightGlobals
                             // (it's a vessel switch, not a quickload — no scene reset).
                             FinalizePendingLimboTreeForRevert();
+                            ClearPendingQuickloadResumeContext();
                             ParsekLog.Info("Scenario",
                                 "OnLoad: Limbo tree finalized on vessel switch (safety-net path; " +
                                 "stash didn't pre-transition — usually means a guard at stash " +
@@ -1177,6 +1180,7 @@ namespace Parsek
                             // Quickload or cold-start resume: defer restore to OnFlightReady.
                             // ParsekFlight.RestoreActiveTreeFromPending picks up the
                             // pending-Limbo tree and wires a fresh recorder to it.
+                            ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree);
                             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
@@ -1280,6 +1284,7 @@ namespace Parsek
                 // quickload. Without this, cold-start resume silently drops the active
                 // tree and the player's in-progress mission fragments just like the
                 // original Bug C scenario.
+                ClearPendingQuickloadResumeContext();
                 if (TryRestoreActiveTreeNode(node))
                 {
                     // Flag the coroutine to run on OnFlightReady so the active vessel is
@@ -1295,6 +1300,10 @@ namespace Parsek
                         RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch
                             ? ActiveTreeRestoreMode.VesselSwitch
                             : ActiveTreeRestoreMode.Quickload;
+                    if (ScheduleActiveTreeRestoreOnFlightReady == ActiveTreeRestoreMode.Quickload)
+                        ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree);
+                    else
+                        ClearPendingQuickloadResumeContext();
                     ParsekLog.Info("Scenario",
                         $"OnLoad: cold-start active tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
@@ -2081,6 +2090,349 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Truncates a live active-tree recording to the current quickload-resume UT so
+        /// post-load recording can continue from the restored timeline without appending
+        /// stale samples/events from the pre-load future. Returns true when any payload was
+        /// removed or clipped.
+        /// </summary>
+        internal static bool TrimRecordingPastUT(Recording rec, double cutoffUT)
+        {
+            if (rec == null || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
+                return false;
+
+            bool mutated = false;
+
+            mutated |= RemoveItemsPastUT(rec.Points, cutoffUT, p => p.ut);
+            mutated |= TrimOrbitSegmentsPastUT(rec.OrbitSegments, cutoffUT);
+            mutated |= RemoveItemsPastUT(rec.PartEvents, cutoffUT, e => e.ut);
+            mutated |= RemoveItemsPastUT(rec.FlagEvents, cutoffUT, e => e.ut);
+            mutated |= RemoveItemsPastUT(rec.SegmentEvents, cutoffUT, e => e.ut);
+            mutated |= TrimTrackSectionsPastUT(rec.TrackSections, cutoffUT);
+
+            if (!double.IsNaN(rec.ExplicitStartUT) && rec.ExplicitStartUT > cutoffUT)
+            {
+                rec.ExplicitStartUT = cutoffUT;
+                mutated = true;
+            }
+
+            if (double.IsNaN(rec.ExplicitEndUT) || rec.ExplicitEndUT > cutoffUT)
+            {
+                rec.ExplicitEndUT = cutoffUT;
+                mutated = true;
+            }
+
+            if (mutated)
+                rec.MarkFilesDirty();
+
+            return mutated;
+        }
+
+        internal static bool TrimRecordingTreePastUT(RecordingTree tree, double cutoffUT)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0
+                || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
+            {
+                return false;
+            }
+
+            bool mutated = false;
+            int trimmedCount = 0;
+            HashSet<string> futureOnlyIds = CollectFutureOnlyRecordingIds(tree, cutoffUT);
+            int recordingCountBeforeTrim = tree.Recordings.Count;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (TrimRecordingPastUT(rec, cutoffUT))
+                {
+                    mutated = true;
+                    trimmedCount++;
+                }
+            }
+
+            if (mutated || (futureOnlyIds != null && futureOnlyIds.Count > 0))
+            {
+                int prunedRecordings = PruneFutureOnlyRecordings(tree, futureOnlyIds);
+                int prunedBranchPoints = RemoveEmptyBranchPoints(tree);
+                if (prunedRecordings > 0 || prunedBranchPoints > 0)
+                    mutated = true;
+
+                tree.RebuildBackgroundMap();
+                ParsekLog.Info("Scenario",
+                    $"Quickload tree trim: tree='{tree.TreeName}' cutoffUT={cutoffUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"trimmedRecordings={trimmedCount}/{recordingCountBeforeTrim} " +
+                    $"prunedFutureRecordings={prunedRecordings} prunedBranchPoints={prunedBranchPoints} " +
+                    $"backgroundEntries={tree.BackgroundMap.Count}");
+            }
+
+            return mutated;
+        }
+
+        private static HashSet<string> CollectFutureOnlyRecordingIds(RecordingTree tree, double cutoffUT)
+        {
+            HashSet<string> futureOnlyIds = null;
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
+            {
+                string recordingId = kvp.Key;
+                Recording rec = kvp.Value;
+                if (rec == null
+                    || rec.SidecarLoadFailed
+                    || string.Equals(recordingId, tree.ActiveRecordingId, StringComparison.Ordinal)
+                    || string.Equals(recordingId, tree.RootRecordingId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (rec.StartUT >= cutoffUT)
+                {
+                    if (futureOnlyIds == null)
+                        futureOnlyIds = new HashSet<string>(StringComparer.Ordinal);
+                    futureOnlyIds.Add(recordingId);
+                }
+            }
+
+            return futureOnlyIds;
+        }
+
+        private static int PruneFutureOnlyRecordings(RecordingTree tree, HashSet<string> futureOnlyIds)
+        {
+            if (tree == null || futureOnlyIds == null || futureOnlyIds.Count == 0)
+                return 0;
+
+            int removed = 0;
+            foreach (string recordingId in futureOnlyIds)
+            {
+                if (tree.Recordings.Remove(recordingId))
+                    removed++;
+            }
+
+            if (removed == 0)
+                return 0;
+
+            if (tree.BranchPoints != null)
+            {
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = tree.BranchPoints[i];
+                    bp.ParentRecordingIds?.RemoveAll(id => futureOnlyIds.Contains(id));
+                    bp.ChildRecordingIds?.RemoveAll(id => futureOnlyIds.Contains(id));
+                }
+            }
+
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec != null && futureOnlyIds.Contains(rec.ParentRecordingId))
+                    rec.ParentRecordingId = null;
+            }
+
+            return removed;
+        }
+
+        private static int RemoveEmptyBranchPoints(RecordingTree tree)
+        {
+            if (tree == null || tree.BranchPoints == null || tree.BranchPoints.Count == 0)
+                return 0;
+
+            HashSet<string> removedBranchPointIds = null;
+            int removed = 0;
+            for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                int parentCount = bp.ParentRecordingIds != null ? bp.ParentRecordingIds.Count : 0;
+                int childCount = bp.ChildRecordingIds != null ? bp.ChildRecordingIds.Count : 0;
+                if (parentCount > 0 && childCount > 0)
+                    continue;
+
+                if (removedBranchPointIds == null)
+                    removedBranchPointIds = new HashSet<string>(StringComparer.Ordinal);
+                removedBranchPointIds.Add(bp.Id);
+                tree.BranchPoints.RemoveAt(i);
+                removed++;
+            }
+
+            if (removedBranchPointIds == null || removedBranchPointIds.Count == 0)
+                return 0;
+
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+
+                if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                    && removedBranchPointIds.Contains(rec.ParentBranchPointId))
+                {
+                    rec.ParentBranchPointId = null;
+                }
+
+                if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                    && removedBranchPointIds.Contains(rec.ChildBranchPointId))
+                {
+                    rec.ChildBranchPointId = null;
+                }
+            }
+
+            return removed;
+        }
+
+        private static bool TrimOrbitSegmentsPastUT(List<OrbitSegment> segments, double cutoffUT)
+        {
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            bool mutated = false;
+            for (int i = segments.Count - 1; i >= 0; i--)
+            {
+                OrbitSegment seg = segments[i];
+                if (seg.startUT >= cutoffUT)
+                {
+                    segments.RemoveAt(i);
+                    mutated = true;
+                    continue;
+                }
+
+                if (seg.endUT > cutoffUT)
+                {
+                    seg.endUT = cutoffUT;
+                    segments[i] = seg;
+                    mutated = true;
+                }
+            }
+
+            return mutated;
+        }
+
+        private static bool TrimTrackSectionsPastUT(List<TrackSection> sections, double cutoffUT)
+        {
+            if (sections == null || sections.Count == 0)
+                return false;
+
+            bool mutated = false;
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = sections[i];
+                if (section.startUT >= cutoffUT)
+                {
+                    sections.RemoveAt(i);
+                    mutated = true;
+                    continue;
+                }
+
+                bool sectionMutated = false;
+                if (section.endUT > cutoffUT)
+                {
+                    section.endUT = cutoffUT;
+                    sectionMutated = true;
+                }
+
+                sectionMutated |= TrimTrackSectionFramesPastUT(ref section, cutoffUT);
+                sectionMutated |= TrimTrackSectionCheckpointsPastUT(ref section, cutoffUT);
+
+                bool hasFrames = section.frames != null && section.frames.Count > 0;
+                bool hasCheckpoints = section.checkpoints != null && section.checkpoints.Count > 0;
+                if (!hasFrames && !hasCheckpoints)
+                {
+                    sections.RemoveAt(i);
+                    mutated = true;
+                    continue;
+                }
+
+                if (sectionMutated)
+                {
+                    RecomputeTrimmedTrackSectionMetadata(ref section);
+                    sections[i] = section;
+                    mutated = true;
+                }
+            }
+
+            return mutated;
+        }
+
+        private static bool TrimTrackSectionFramesPastUT(ref TrackSection section, double cutoffUT)
+        {
+            if (section.frames == null || section.frames.Count == 0)
+                return false;
+
+            int originalCount = section.frames.Count;
+            for (int i = section.frames.Count - 1; i >= 0; i--)
+            {
+                if (section.frames[i].ut > cutoffUT)
+                    section.frames.RemoveAt(i);
+            }
+
+            if (section.frames.Count == 0)
+                section.frames = null;
+
+            int remainingCount = section.frames != null ? section.frames.Count : 0;
+            return remainingCount != originalCount;
+        }
+
+        private static bool TrimTrackSectionCheckpointsPastUT(ref TrackSection section, double cutoffUT)
+        {
+            if (section.checkpoints == null || section.checkpoints.Count == 0)
+                return false;
+
+            bool mutated = false;
+            for (int i = section.checkpoints.Count - 1; i >= 0; i--)
+            {
+                OrbitSegment checkpoint = section.checkpoints[i];
+                if (checkpoint.startUT >= cutoffUT)
+                {
+                    section.checkpoints.RemoveAt(i);
+                    mutated = true;
+                    continue;
+                }
+
+                if (checkpoint.endUT > cutoffUT)
+                {
+                    checkpoint.endUT = cutoffUT;
+                    section.checkpoints[i] = checkpoint;
+                    mutated = true;
+                }
+            }
+
+            if (section.checkpoints.Count == 0)
+                section.checkpoints = null;
+
+            return mutated;
+        }
+
+        private static void RecomputeTrimmedTrackSectionMetadata(ref TrackSection section)
+        {
+            section.sampleRateHz = 0f;
+            section.minAltitude = float.NaN;
+            section.maxAltitude = float.NaN;
+
+            if (section.frames == null || section.frames.Count == 0)
+                return;
+
+            for (int i = 0; i < section.frames.Count; i++)
+            {
+                float alt = (float)section.frames[i].altitude;
+                if (float.IsNaN(section.minAltitude) || alt < section.minAltitude)
+                    section.minAltitude = alt;
+                if (float.IsNaN(section.maxAltitude) || alt > section.maxAltitude)
+                    section.maxAltitude = alt;
+            }
+
+            double duration = section.endUT - section.startUT;
+            if (duration > 0.0 && section.frames.Count > 1)
+                section.sampleRateHz = (float)(section.frames.Count / duration);
+        }
+
+        private static bool RemoveItemsPastUT<T>(List<T> items, double cutoffUT, Func<T, double> getUT)
+        {
+            if (items == null || items.Count == 0)
+                return false;
+
+            int originalCount = items.Count;
+            for (int i = items.Count - 1; i >= 0; i--)
+            {
+                if (getUT(items[i]) > cutoffUT)
+                    items.RemoveAt(i);
+            }
+
+            return items.Count != originalCount;
+        }
+
+        /// <summary>
         /// Removes a committed tree from <see cref="RecordingStore.CommittedTrees"/>
         /// (and its recordings from the flat committed list) if a tree with the given id
         /// exists. Used by the active-tree restore path to prevent duplicate-id collisions
@@ -2276,9 +2628,43 @@ namespace Parsek
             return rec.VesselSnapshot != null || rec.GhostVisualSnapshot != null;
         }
 
-        // Resume hints parsed from PARSEK_ACTIVE_TREE node, consumed by ParsekFlight
-        // when it constructs the new recorder during the restore coroutine.
+        private sealed class QuickloadResumeContext
+        {
+            internal string TreeId;
+        }
+
+        // Resume hints parsed from PARSEK_ACTIVE_TREE, consumed by the quickload-resume
+        // path when FlightRecorder.StartRecording reopens the restored active tree.
         internal static string pendingActiveTreeResumeRewindSave;
+        private static QuickloadResumeContext pendingQuickloadResumeContext;
+
+        internal static void ConfigurePendingQuickloadResumeContext(RecordingTree tree)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.Id) || string.IsNullOrEmpty(tree.ActiveRecordingId))
+            {
+                ClearPendingQuickloadResumeContext();
+                return;
+            }
+
+            pendingQuickloadResumeContext = new QuickloadResumeContext
+            {
+                TreeId = tree.Id
+            };
+
+            ParsekLog.Verbose("Scenario",
+                $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId}");
+        }
+
+        internal static bool MatchesPendingQuickloadResumeContext(string treeId)
+        {
+            return pendingQuickloadResumeContext != null
+                && string.Equals(pendingQuickloadResumeContext.TreeId, treeId, StringComparison.Ordinal);
+        }
+
+        internal static void ClearPendingQuickloadResumeContext()
+        {
+            pendingQuickloadResumeContext = null;
+        }
 
         /// <summary>
         /// Restore path that <see cref="ParsekFlight.OnFlightReady"/> should run on

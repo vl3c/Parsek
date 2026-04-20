@@ -40,6 +40,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#486` Quickload after a runway takeoff no longer leaves stale future samples or fake save/load discontinuity warnings in the merged recording tree.
 - `#482` KSP.log no longer accumulates spurious recording-id rejection WARN lines during test runs, while real invalid ids in live save/load/delete paths still log at `WARN`.
 - Real-vessel spawn now reconstructs world-space `VESSEL.rot` explicitly from format-v0 surface-relative recording data before `ProtoVessel.Load()`, so `SpawnAtPosition`, EVA/snapshot-prep respawns, chain-tip spawns, and flag ProtoVessel spawns all use `body.bodyTransform.rotation * srfRelRotation` instead of writing raw recorded quaternions. Surface-only fallback selection now leaves orbital snapshot rotations untouched.
 - `#487` The Ctrl+Shift+T test runner window now defers opaque-style rebuilds until the destination scene's IMGUI skin exposes a real normal window background, and any lagging hover/focus/active variants fall back to that ready background instead of being cached as transparent states. Scene-reset cleanup also destroys the copied opaque textures before rebuilding to avoid leaking them across repeated transitions.

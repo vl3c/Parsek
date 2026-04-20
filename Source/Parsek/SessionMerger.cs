@@ -216,11 +216,17 @@ namespace Parsek
                 {
                     string prevRef = i > 0 ? mergedSections[i - 1].referenceFrame.ToString() : "?";
                     string prevSrc = i > 0 ? mergedSections[i - 1].source.ToString() : "?";
+                    bool saveLoadTeleport = i > 0
+                        && LooksLikeSaveLoadTeleportBoundary(
+                            inputSections,
+                            mergedSections[i - 1],
+                            mergedSections[i]);
                     ClassifyBoundaryDiscontinuity(
                         i > 0 ? mergedSections[i - 1] : default(TrackSection),
                         mergedSections[i],
                         i > 0,
                         disc,
+                        saveLoadTeleport,
                         out double dt, out double expectedM, out string cause);
                     ParsekLog.Warn(Tag,
                         $"MergeTree: boundary discontinuity={disc.ToString("F2", ic)}m " +
@@ -245,6 +251,8 @@ namespace Parsek
         ///   <c>|prev.velocity| × dt</c> (with a tolerance margin); points at a legitimate
         ///   pause-and-resume span (quickload-resume, scene-reload, frame-budget spike) that
         ///   the recorder couldn't sample through.</item>
+        ///   <item><c>save-load-teleport</c> — overlap resolution exposed a boundary where
+        ///   active data from the pre-load future was glued to resumed post-load data.</item>
         ///   <item><c>sample-skip</c> — discontinuity exceeds the velocity-implied gap;
         ///   points at a dropped-sample / drift bug or a source-tag mismatch.</item>
         ///   <item><c>invalid-data</c> — boundary UTs or the previous tail velocity are
@@ -254,6 +262,17 @@ namespace Parsek
         /// </summary>
         internal static void ClassifyBoundaryDiscontinuity(
             TrackSection prev, TrackSection next, bool hasPrev, float discMeters,
+            out double dtSeconds, out double expectedMeters, out string cause)
+        {
+            ClassifyBoundaryDiscontinuity(
+                prev, next, hasPrev, discMeters,
+                looksLikeSaveLoadTeleport: false,
+                out dtSeconds, out expectedMeters, out cause);
+        }
+
+        internal static void ClassifyBoundaryDiscontinuity(
+            TrackSection prev, TrackSection next, bool hasPrev, float discMeters,
+            bool looksLikeSaveLoadTeleport,
             out double dtSeconds, out double expectedMeters, out string cause)
         {
             dtSeconds = 0.0;
@@ -303,8 +322,49 @@ namespace Parsek
                 cause = "frame-mismatch";
             else if ((double)discMeters <= tolerance)
                 cause = "unrecorded-gap";
+            else if (looksLikeSaveLoadTeleport)
+                cause = "save-load-teleport";
             else
                 cause = "sample-skip";
+        }
+
+        internal static bool LooksLikeSaveLoadTeleportBoundary(
+            List<TrackSection> inputSections, TrackSection prev, TrackSection next)
+        {
+            if (inputSections == null || inputSections.Count < 2)
+                return false;
+            if (prev.source != TrackSectionSource.Active || next.source != TrackSectionSource.Active)
+                return false;
+            if (prev.referenceFrame != next.referenceFrame)
+                return false;
+
+            const double boundaryTolerance = 0.05;
+            const double overlapEpsilon = 1e-3;
+            double boundaryUT = next.startUT;
+            bool foundTrimmedFutureTail = false;
+            bool foundResumedOverlap = false;
+
+            for (int i = 0; i < inputSections.Count; i++)
+            {
+                TrackSection section = inputSections[i];
+                if (section.source != TrackSectionSource.Active
+                    || section.referenceFrame != prev.referenceFrame)
+                    continue;
+
+                if (section.startUT < boundaryUT - overlapEpsilon
+                    && Math.Abs(section.endUT - boundaryUT) <= boundaryTolerance)
+                {
+                    foundTrimmedFutureTail = true;
+                }
+
+                if (section.startUT < boundaryUT - overlapEpsilon
+                    && section.endUT > boundaryUT + overlapEpsilon)
+                {
+                    foundResumedOverlap = true;
+                }
+            }
+
+            return foundTrimmedFutureTail && foundResumedOverlap;
         }
 
         /// <summary>
