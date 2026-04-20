@@ -421,6 +421,20 @@ Similar care needed for `FundsThreshold = 100.0` and `ScienceThreshold = 1.0` â€
 
 ---
 
+## ~~489. Ghosts freeze in mid-air when an incomplete ballistic flight ends on scene exit~~
+
+**Source:** implementation plan + follow-through from `docs/dev/plans/incomplete-ballistic-extrapolation.md`.
+
+**Concern:** if the player leaves flight while a vessel is still on an incomplete ballistic path, the saved recording ends at the last sampled frame and the ghost later freezes in place. Suborbital arcs, atmospheric descents, escape trajectories, and post-flyby coasts all stop at scene-exit UT instead of continuing to a natural endpoint.
+
+**Fix / Resolution (2026-04-20):** shipped. Scene-exit finalization now snapshots the vessel's patched-conic coast chain, stores predicted segments in the existing `OrbitSegments` list with persisted `isPredicted` metadata, extrapolates incomplete ballistic tails through SOI handoffs until atmosphere / terrain / horizon termination, and commits the resulting terminal lifetime through `ExplicitEndUT` so existing playback, spawn-timing, watch-protection, and timeline consumers naturally honor the extended end. Runtime/map handling stays on the existing single-orbit renderer path in v1, while focused unit/integration coverage was added for persistence, snapshotting, extrapolation, and scene-exit finalization seams.
+
+**Files:** `Source/Parsek/PatchedConicSnapshot.cs`, `Source/Parsek/BallisticExtrapolator.cs`, `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs`, `Source/Parsek/ParsekFlight.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, plus the new focused tests in `Source/Parsek.Tests`.
+
+**Status:** DONE/CLOSED (2026-04-20). Fixed for `0.8.3`.
+
+---
+
 ## ~~466. `RecalculateAndPatch` runs mid-flight with an incomplete ledger, patches funds DOWN to the pre-milestone target and destroys in-progress earnings~~
 
 **Source:** `logs/2026-04-19_0049_career-ledger/KSP.log:9993`.
