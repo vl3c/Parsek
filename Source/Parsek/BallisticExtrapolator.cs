@@ -478,10 +478,12 @@ namespace Parsek
                 double currentSurfaceDelta = GetSurfaceDeltaAtSample(body, samples[i], ref failureReason);
                 if (previousSurfaceDelta > 0.0 && currentSurfaceDelta <= 0.0)
                 {
+                    ExtrapolationFailureReason refineFailureReason = failureReason;
                     double crossingUT = RefineCrossing(
-                        ut => GetSurfaceDeltaAtUT(orbit, body, ut, ref failureReason),
+                        ut => GetSurfaceDeltaAtUT(orbit, body, ut, ref refineFailureReason),
                         samples[i - 1].UT,
                         samples[i].UT);
+                    failureReason = refineFailureReason;
 
                     orbit.GetStateAtUT(crossingUT, out Vector3d position, out Vector3d velocity);
                     return new EventCandidate
