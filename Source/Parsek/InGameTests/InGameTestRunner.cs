@@ -99,6 +99,8 @@ namespace Parsek.InGameTests
         private FlightBatchBaselineState batchFlightBaseline;
         private bool batchFlightBaselinePrimed;
         private bool abortBatchAfterRestoreFailure;
+        private bool preserveBatchFlightBaselineArtifacts;
+        private string preservedBatchFlightBaselineReason;
 
         // Results summary
         public int Passed { get; private set; }
@@ -172,6 +174,8 @@ namespace Parsek.InGameTests
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
+            preserveBatchFlightBaselineArtifacts = false;
+            preservedBatchFlightBaselineReason = null;
             PerformBetweenRunCleanup("run-all+restore");
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
                 allTests.Where(t => IsEligibleForScene(t)));
@@ -196,6 +200,8 @@ namespace Parsek.InGameTests
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
+            preserveBatchFlightBaselineArtifacts = false;
+            preservedBatchFlightBaselineReason = null;
             PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecutionIncludingFlightRestore(allTests
                 .Where(t => t.Category == category && IsEligibleForScene(t)));
@@ -210,6 +216,8 @@ namespace Parsek.InGameTests
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
+            preserveBatchFlightBaselineArtifacts = false;
+            preservedBatchFlightBaselineReason = null;
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(new List<InGameTestInfo> { test }));
         }
 
@@ -542,20 +550,32 @@ namespace Parsek.InGameTests
                 "Automatic FLIGHT batch restore requires a live active vessel to capture baseline.");
 
             string slotName = CreateBatchFlightBaselineSlotName();
-            Helpers.QuickloadResumeHelpers.TriggerQuicksave(slotName);
-            string parsekSnapshotDirectory = CaptureBatchFlightParsekSaveSnapshot(slotName);
+            string parsekSnapshotDirectory = null;
 
-            return new FlightBatchBaselineState
+            try
             {
-                SlotName = slotName,
-                ParsekSaveSnapshotDirectory = parsekSnapshotDirectory,
-                CapturedFlightInstanceId = ParsekFlight.Instance != null
-                    ? ParsekFlight.Instance.GetInstanceID()
-                    : 0,
-                ActiveVesselId = vessel.id,
-                ActiveVesselName = vessel.vesselName,
-                ActiveVesselSituation = vessel.situation
-            };
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave(slotName);
+                parsekSnapshotDirectory = CaptureBatchFlightParsekSaveSnapshot(slotName);
+
+                return new FlightBatchBaselineState
+                {
+                    SlotName = slotName,
+                    ParsekSaveSnapshotDirectory = parsekSnapshotDirectory,
+                    CapturedFlightInstanceId = ParsekFlight.Instance != null
+                        ? ParsekFlight.Instance.GetInstanceID()
+                        : 0,
+                    ActiveVesselId = vessel.id,
+                    ActiveVesselName = vessel.vesselName,
+                    ActiveVesselSituation = vessel.situation
+                };
+            }
+            catch
+            {
+                Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(slotName);
+                if (!string.IsNullOrEmpty(parsekSnapshotDirectory))
+                    TryDeleteDirectoryRecursive(parsekSnapshotDirectory);
+                throw;
+            }
         }
 
         private static string CreateBatchFlightBaselineSlotName()
@@ -578,17 +598,25 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(!string.IsNullOrEmpty(snapshotDirectory),
                 "Automatic FLIGHT batch restore failed: snapshot directory was null/empty.");
 
-            TryDeleteDirectoryRecursive(snapshotDirectory);
-            if (Directory.Exists(currentParsekSaveDirectory))
+            try
             {
-                CopyDirectoryRecursive(currentParsekSaveDirectory, snapshotDirectory);
-            }
-            else
-            {
-                Directory.CreateDirectory(snapshotDirectory);
-            }
+                DeleteDirectoryRecursive(snapshotDirectory);
+                if (Directory.Exists(currentParsekSaveDirectory))
+                {
+                    CopyDirectoryRecursive(currentParsekSaveDirectory, snapshotDirectory);
+                }
+                else
+                {
+                    Directory.CreateDirectory(snapshotDirectory);
+                }
 
-            return snapshotDirectory;
+                return snapshotDirectory;
+            }
+            catch
+            {
+                TryDeleteDirectoryRecursive(snapshotDirectory);
+                throw;
+            }
         }
 
         private static List<InGameTestInfo> SkipBatchFlightRestoreTests(
@@ -665,6 +693,8 @@ namespace Parsek.InGameTests
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
+            preserveBatchFlightBaselineArtifacts = false;
+            preservedBatchFlightBaselineReason = null;
             activeTestCoroutine = null;
             int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
             ParsekLog.Info(Tag,
@@ -777,12 +807,17 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.Warn(Tag,
                     $"Cancelled run failed to restore isolated batch baseline: {restoreFailure.Message}");
+                preserveBatchFlightBaselineArtifacts = true;
+                preservedBatchFlightBaselineReason =
+                    "cancelled batch restore failed: " + restoreFailure.Message;
             }
 
             CleanupBatchFlightBaselineSave();
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
+            preserveBatchFlightBaselineArtifacts = false;
+            preservedBatchFlightBaselineReason = null;
             activeCoroutine = null;
             activeTestCoroutine = null;
             activeInnerCoroutine = null;
@@ -807,6 +842,13 @@ namespace Parsek.InGameTests
             if (batchFlightBaseline == null || string.IsNullOrEmpty(batchFlightBaseline.SlotName))
                 return;
 
+            if (preserveBatchFlightBaselineArtifacts)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Preserving isolated batch baseline artifacts for recovery: slot='{batchFlightBaseline.SlotName}', snapshot='{batchFlightBaseline.ParsekSaveSnapshotDirectory}', reason='{preservedBatchFlightBaselineReason ?? "restore failure"}'");
+                return;
+            }
+
             Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(batchFlightBaseline.SlotName);
             TryDeleteDirectoryRecursive(batchFlightBaseline.ParsekSaveSnapshotDirectory);
         }
@@ -827,8 +869,69 @@ namespace Parsek.InGameTests
                     $"Automatic FLIGHT batch restore skipped: Parsek save snapshot '{baseline.ParsekSaveSnapshotDirectory}' was missing");
             }
 
-            TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
-            CopyDirectoryRecursive(baseline.ParsekSaveSnapshotDirectory, currentParsekSaveDirectory);
+            string parentDirectory = Path.GetDirectoryName(currentParsekSaveDirectory);
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(parentDirectory),
+                "Automatic FLIGHT batch restore requires a Parsek save directory parent.");
+            Directory.CreateDirectory(parentDirectory);
+
+            string restoreStagingDirectory =
+                CreateBatchFlightTempSiblingDirectory(currentParsekSaveDirectory, "restore");
+            string backupDirectory =
+                CreateBatchFlightTempSiblingDirectory(currentParsekSaveDirectory, "backup");
+            bool currentMovedToBackup = false;
+            bool stagedSnapshotMovedIntoPlace = false;
+
+            try
+            {
+                CopyDirectoryRecursive(baseline.ParsekSaveSnapshotDirectory, restoreStagingDirectory);
+
+                if (Directory.Exists(currentParsekSaveDirectory))
+                {
+                    DeleteDirectoryRecursive(backupDirectory);
+                    Directory.Move(currentParsekSaveDirectory, backupDirectory);
+                    currentMovedToBackup = true;
+                }
+
+                Directory.Move(restoreStagingDirectory, currentParsekSaveDirectory);
+                stagedSnapshotMovedIntoPlace = true;
+
+                if (currentMovedToBackup)
+                    DeleteDirectoryRecursive(backupDirectory);
+            }
+            catch
+            {
+                if (stagedSnapshotMovedIntoPlace && Directory.Exists(currentParsekSaveDirectory))
+                {
+                    TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
+                }
+                else if (Directory.Exists(restoreStagingDirectory))
+                {
+                    TryDeleteDirectoryRecursive(restoreStagingDirectory);
+                }
+
+                if (currentMovedToBackup && Directory.Exists(backupDirectory))
+                {
+                    if (Directory.Exists(currentParsekSaveDirectory))
+                        TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
+
+                    Directory.Move(backupDirectory, currentParsekSaveDirectory);
+                }
+
+                throw;
+            }
+            finally
+            {
+                if (Directory.Exists(restoreStagingDirectory))
+                    TryDeleteDirectoryRecursive(restoreStagingDirectory);
+            }
+        }
+
+        private static string CreateBatchFlightTempSiblingDirectory(string currentParsekSaveDirectory, string suffix)
+        {
+            string parentDirectory = Path.GetDirectoryName(currentParsekSaveDirectory) ?? string.Empty;
+            string leafName = Path.GetFileName(currentParsekSaveDirectory);
+            return Path.Combine(parentDirectory,
+                leafName + "-" + suffix + "-" + Guid.NewGuid().ToString("N"));
         }
 
         private static void CopyDirectoryRecursive(string sourceDirectory, string destinationDirectory)
@@ -856,6 +959,27 @@ namespace Parsek.InGameTests
         }
 
         private static void TryDeleteDirectoryRecursive(string directoryPath)
+        {
+            if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
+                return;
+
+            try
+            {
+                DeleteDirectoryRecursive(directoryPath);
+            }
+            catch (IOException ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Best-effort cleanup skipped directory '{directoryPath}': {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Best-effort cleanup skipped directory '{directoryPath}': {ex.Message}");
+            }
+        }
+
+        private static void DeleteDirectoryRecursive(string directoryPath)
         {
             if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
                 return;
@@ -1049,6 +1173,8 @@ namespace Parsek.InGameTests
                 combinedMessage,
                 test.DurationMs);
             abortBatchAfterRestoreFailure = true;
+            preserveBatchFlightBaselineArtifacts = true;
+            preservedBatchFlightBaselineReason = combinedMessage;
             ParsekLog.Warn(Tag, $"FAILED: {test.Name} - {combinedMessage}");
             ParsekLog.Warn(Tag,
                 $"Aborting batch after restore failure in {test.Name}; the current session is no longer trusted");
