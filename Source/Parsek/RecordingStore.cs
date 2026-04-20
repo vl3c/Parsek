@@ -5608,6 +5608,15 @@ namespace Parsek
                 }
             }
 
+            RecordingEndpointPhase endpointPhaseBeforeBackfill = rec.EndpointPhase;
+            string endpointBodyBeforeBackfill = rec.EndpointBodyName;
+            if (RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingStore.LoadRecordingFilesFromPathsInternal")
+                && (rec.EndpointPhase != endpointPhaseBeforeBackfill
+                    || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal)))
+            {
+                Log($"[Parsek] Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
+            }
+
             // Load snapshot sidecars only after the trajectory probe passes the
             // recording-id and sidecar-epoch safety gates.
             SnapshotSidecarLoadSummary snapshotSummary = LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);

@@ -49,6 +49,8 @@ namespace Parsek.Tests
         public double TerminalOrbitArgumentOfPeriapsis { get; set; }
         public double TerminalOrbitMeanAnomalyAtEpoch { get; set; }
         public double TerminalOrbitEpoch { get; set; }
+        public RecordingEndpointPhase EndpointPhase { get; set; } = RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName { get; set; }
 
         /// <summary>
         /// Helper: add two points spanning [startUT, endUT] for a minimal valid trajectory.

@@ -457,6 +457,10 @@ namespace Parsek
 
             if (rec.TerminalStateValue.HasValue)
                 recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(ic));
+            if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
+                recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
+            if (!string.IsNullOrEmpty(rec.EndpointBodyName))
+                recNode.AddValue("endpointBodyName", rec.EndpointBodyName);
 
             if (rec.ParentBranchPointId != null)
                 recNode.AddValue("parentBranchPointId", rec.ParentBranchPointId);
@@ -704,6 +708,16 @@ namespace Parsek
                     && Enum.IsDefined(typeof(TerminalState), terminalInt))
                     rec.TerminalStateValue = (TerminalState)terminalInt;
             }
+
+            string endpointPhaseStr = recNode.GetValue("endpointPhase");
+            if (endpointPhaseStr != null)
+            {
+                int endpointPhaseInt;
+                if (int.TryParse(endpointPhaseStr, NumberStyles.Integer, ic, out endpointPhaseInt)
+                    && Enum.IsDefined(typeof(RecordingEndpointPhase), endpointPhaseInt))
+                    rec.EndpointPhase = (RecordingEndpointPhase)endpointPhaseInt;
+            }
+            rec.EndpointBodyName = recNode.GetValue("endpointBodyName");
 
             rec.ParentBranchPointId = recNode.GetValue("parentBranchPointId");
             rec.ChildBranchPointId = recNode.GetValue("childBranchPointId");
