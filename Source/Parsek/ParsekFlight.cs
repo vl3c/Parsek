@@ -10342,7 +10342,15 @@ namespace Parsek
             // Find the orbit segment covering this UT
             OrbitSegment? seg = FindOrbitSegment(traj.OrbitSegments, ut);
             if (seg.HasValue)
+            {
+                if (PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
+                    index, traj, seg.Value, ut, out string logKey, out string logMessage))
+                {
+                    ParsekLog.VerboseRateLimited("Playback", logKey, logMessage, 1.0);
+                }
+
                 PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000);
+            }
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
