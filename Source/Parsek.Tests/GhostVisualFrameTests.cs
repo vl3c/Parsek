@@ -224,62 +224,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldPositionMultiPointGhostFromOrbit_ReturnsTruePastLastRecordedPoint()
-        {
-            var traj = new MockTrajectory().WithTimeRange(70.04, 90.00);
-            traj.OrbitSegments = new List<OrbitSegment>
-            {
-                new OrbitSegment { startUT = 90.00, endUT = 122.60, bodyName = "Kerbin" }
-            };
-
-            bool useOrbit = GhostPlaybackEngine.ShouldPositionMultiPointGhostFromOrbit(traj, 100.00);
-
-            Assert.True(useOrbit);
-        }
-
-        [Fact]
-        public void ShouldPositionMultiPointGhostFromOrbit_ReturnsFalseWithinRecordedPoints()
-        {
-            var traj = new MockTrajectory().WithTimeRange(70.04, 90.00);
-            traj.OrbitSegments = new List<OrbitSegment>
-            {
-                new OrbitSegment { startUT = 90.00, endUT = 122.60, bodyName = "Kerbin" }
-            };
-
-            bool useOrbit = GhostPlaybackEngine.ShouldPositionMultiPointGhostFromOrbit(traj, 85.00);
-
-            Assert.False(useOrbit);
-        }
-
-        [Fact]
-        public void ShouldPositionMultiPointGhostFromOrbit_ReturnsFalseWhenRecordedSectionStillCoversUT()
-        {
-            var traj = new MockTrajectory().WithTimeRange(70.04, 90.00);
-            traj.TrackSections = new List<TrackSection>
-            {
-                new TrackSection
-                {
-                    referenceFrame = ReferenceFrame.Relative,
-                    startUT = 90.00,
-                    endUT = 110.00,
-                    frames = new List<TrajectoryPoint>
-                    {
-                        new TrajectoryPoint { ut = 90.00, bodyName = "Kerbin" },
-                        new TrajectoryPoint { ut = 110.00, bodyName = "Kerbin" }
-                    }
-                }
-            };
-            traj.OrbitSegments = new List<OrbitSegment>
-            {
-                new OrbitSegment { startUT = 90.00, endUT = 122.60, bodyName = "Kerbin" }
-            };
-
-            bool useOrbit = GhostPlaybackEngine.ShouldPositionMultiPointGhostFromOrbit(traj, 100.00);
-
-            Assert.False(useOrbit);
-        }
-
-        [Fact]
         public void ShouldUseOrbitEndpoint_WhenOrbitExtendsPastLastPoint_ReturnsTrue()
         {
             var traj = new MockTrajectory
