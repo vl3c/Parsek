@@ -102,6 +102,37 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 
 ---
 
+## 493. Destructive FLIGHT runtime tests now have an isolated batch mode locally, but it still needs live KSP validation
+
+**Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
+
+**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. The first isolated-batch cohort is:
+
+- `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
+- `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
+- `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
+- `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
+- `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+
+Quickload/resume, revert, and scene-exit merge canaries intentionally remain manual-only because they exercise the same stock restore/exit paths the isolated harness would rely on if those tests failed.
+
+Local CLI verification for this runner change is still blocked on this machine's `.NETFramework,Version=v4.7.2` targeting-pack / restore issues, so the next real confidence step is live KSP evidence plus code review rather than a healthy local `dotnet build`.
+
+**Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
+
+**Proposed next step:** from a disposable prelaunch `FLIGHT` session in this worktree build, use `Run All + Isolated` or per-category `Run+`, then collect `KSP.log`, `Player.log`, and `parsek-test-results.txt`. The validation bar is:
+
+- the `[isolated]` tests above run in one session without manual reloads
+- the runner quickloads the baseline back between destructive tests
+- manual-only stock quickload / revert / scene-exit canaries remain excluded from the isolated batch path
+
+**Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
 ## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.

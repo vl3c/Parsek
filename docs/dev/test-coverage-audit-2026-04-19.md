@@ -503,17 +503,27 @@ The branch also now contains the first deterministic timing-sensitive part-event
 - `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`, which builds a synthetic deployable transform state and asserts extend/retract poses apply exactly at the authored `DeployableExtended` / `DeployableRetracted` UT boundaries
 - unlike the scene-exit tests, these remain ordinary `FLIGHT` runtime tests and do not mutate the save or require a disposable session; they exist to turn the audit's "player-visible timing scenario" recommendation into concrete runnable coverage instead of only a backlog note
 
+The branch now also contains a first pass at making destructive FLIGHT runtime tests batchable without repeated manual game reloads:
+
+- the in-game runner now has explicit `Run All + Isolated` / `Run+` entry points that capture a temporary uniquely-named baseline save in `FLIGHT`, then quickload that baseline after each opt-in destructive test
+- the first isolated-batch cohort is `AutoRecordOnLaunch_StartsExactlyOnce`, `AutoRecordOnEvaFromPad_StartsExactlyOnce`, `TreeMergeDialog_DiscardButton_ClearsPendingTree`, `TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`, `RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`, and `KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+- the stock-transition canaries still intentionally remain manual-only: the two `QuickloadResume` tests, `RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`, and the two `SceneExitMerge` tests still exercise the same stock restore/exit paths the isolated harness would depend on if they failed
+- this means the remaining workflow pain is narrower now: the user still needs manual single-run passes for stock quickload / revert / save-and-exit, but the rest of the destructive FLIGHT slice should be able to run in one disposable session once the new harness is live-validated
+- local CLI build verification for this runner change is still blocked on this machine's `.NETFramework,Version=v4.7.2` targeting-pack / restore problems, so the immediate next confidence step is live KSP validation plus code review rather than a healthy local `dotnet build`
+
 ### Recommended next sequence
 
 From here, I would continue with one structural pass, but with a tighter order than the earlier draft:
 
-1. **Live-validate the two new non-revert scene-exit canaries**
-   Build the audit worktree, then run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually from a disposable prelaunch flight and capture the resulting `KSP.log` / `parsek-test-results.txt`.
-2. **Live-validate the first timing-sensitive part-event canaries**
+1. **Live-validate the new isolated batch mode**
+   Build this worktree, enter a disposable `FLIGHT` session, and use `Run All + Isolated` or per-category `Run+` to confirm the new `[isolated]` tests complete without manual reloads and that the runner reliably quickloads the baseline back between destructive tests.
+2. **Live-validate the two new non-revert scene-exit canaries**
+   Still from a disposable prelaunch flight, run `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` individually and capture the resulting `KSP.log` / `parsek-test-results.txt`.
+3. **Live-validate the first timing-sensitive part-event canaries**
    In a normal `FLIGHT` session, run `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt` and confirm the new assertions show up as clean `PASSED` rows in `parsek-test-results.txt`.
-3. **Finish validating the local coverage path**
+4. **Finish validating the local coverage path**
    Keep the new local coverage scaffold, but do not treat it as done until `dotnet restore` and `dotnet test` are healthy on a non-broken machine/account. The next useful output is a real baseline report, not more tooling churn.
-4. **After that, broaden the part-event timing slice if needed**
+5. **After that, broaden the part-event timing slice if needed**
    Lights/deployables would close the first showcase-sized gap. If those hold up live, the next worthwhile additions are fairing disappearance or RCS FX onset timing.
 
 ### Scenario promotion shortlist
