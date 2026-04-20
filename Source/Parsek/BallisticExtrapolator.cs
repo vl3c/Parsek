@@ -374,7 +374,12 @@ namespace Parsek
                         bodyName = parentBody.Name,
                         position = chosen.Position + bodyPosition,
                         velocity = chosen.Velocity + bodyVelocity,
-                        orbitalFrameRotation = currentState.orbitalFrameRotation
+                        orbitalFrameRotation = ReframeOrbitalFrameRotation(
+                            currentState.orbitalFrameRotation,
+                            chosen.Position,
+                            chosen.Velocity,
+                            chosen.Position + bodyPosition,
+                            chosen.Velocity + bodyVelocity)
                     };
                     suppressedImmediateChildEntryBodyName = immediateSoiTransition
                         ? currentBody.Name
@@ -403,7 +408,12 @@ namespace Parsek
                         bodyName = chosen.ChildBody.Name,
                         position = chosen.Position - childPosition,
                         velocity = chosen.Velocity - childVelocity,
-                        orbitalFrameRotation = currentState.orbitalFrameRotation
+                        orbitalFrameRotation = ReframeOrbitalFrameRotation(
+                            currentState.orbitalFrameRotation,
+                            chosen.Position,
+                            chosen.Velocity,
+                            chosen.Position - childPosition,
+                            chosen.Velocity - childVelocity)
                     };
                     suppressedImmediateParentExitBodyName = immediateSoiTransition
                         ? currentBody.Name
@@ -442,6 +452,63 @@ namespace Parsek
                 horizonUT,
                 soiTransitions));
             return result;
+        }
+
+        internal static bool HasOrbitalFrameRotation(Quaternion orbitalFrameRotation)
+        {
+            return orbitalFrameRotation.x != 0f
+                || orbitalFrameRotation.y != 0f
+                || orbitalFrameRotation.z != 0f
+                || orbitalFrameRotation.w != 0f;
+        }
+
+        internal static Quaternion ComputeOrbitalFrameRotationFromState(
+            Quaternion worldRotation,
+            Vector3d position,
+            Vector3d velocity)
+        {
+            double radius = Magnitude(position);
+            if (radius <= StateVectorEpsilon)
+                return Quaternion.identity;
+
+            Vector3d radialOut = position / radius;
+            return TrajectoryMath.ComputeOrbitalFrameRotation(worldRotation, velocity, radialOut);
+        }
+
+        internal static Quaternion ResolveWorldRotation(
+            Quaternion orbitalFrameRotation,
+            Vector3d position,
+            Vector3d velocity)
+        {
+            if (!HasOrbitalFrameRotation(orbitalFrameRotation))
+                return default(Quaternion);
+
+            Quaternion inverseOrbitalFrame = ComputeOrbitalFrameRotationFromState(
+                Quaternion.identity,
+                position,
+                velocity);
+            Quaternion orbitalFrame = TrajectoryMath.PureInverse(inverseOrbitalFrame);
+            return TrajectoryMath.PureMultiply(orbitalFrame, orbitalFrameRotation);
+        }
+
+        internal static Quaternion ReframeOrbitalFrameRotation(
+            Quaternion orbitalFrameRotation,
+            Vector3d fromPosition,
+            Vector3d fromVelocity,
+            Vector3d toPosition,
+            Vector3d toVelocity)
+        {
+            if (!HasOrbitalFrameRotation(orbitalFrameRotation))
+                return default(Quaternion);
+
+            Quaternion worldRotation = ResolveWorldRotation(
+                orbitalFrameRotation,
+                fromPosition,
+                fromVelocity);
+            return ComputeOrbitalFrameRotationFromState(
+                worldRotation,
+                toPosition,
+                toVelocity);
         }
 
         internal static bool TryPropagate(

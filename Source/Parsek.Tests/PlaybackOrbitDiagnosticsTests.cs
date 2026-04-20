@@ -31,6 +31,25 @@ namespace Parsek.Tests
                 }
             });
 
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 200.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+
             traj.OrbitSegments.Add(new OrbitSegment
             {
                 startUT = 100.0,
@@ -78,6 +97,87 @@ namespace Parsek.Tests
 
             bool result = PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
                 3, traj, actualSegment, 150.0, out string key, out string message);
+
+            Assert.False(result);
+            Assert.Null(key);
+            Assert.Null(message);
+        }
+
+        [Fact]
+        public void TryGetRecordedPayloadEndUT_UsesRecordedOrbitPayloadWhenNoTrackSectionsExist()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-orbit-payload"
+            };
+
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 200.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 200.0,
+                endUT = 400.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = false
+            });
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 400.0,
+                endUT = 500.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 710000.0,
+                isPredicted = true
+            });
+
+            Assert.True(PlaybackOrbitDiagnostics.TryGetRecordedPayloadEndUT(traj, out double endUT));
+            Assert.Equal(400.0, endUT);
+        }
+
+        [Fact]
+        public void TryBuildPlaybackPredictedTailLog_NonPredictedOrbitSegment_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-recorded-orbit"
+            };
+
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 200.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity
+            });
+
+            var recordedOrbitSegment = new OrbitSegment
+            {
+                startUT = 200.0,
+                endUT = 400.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = false
+            };
+            traj.OrbitSegments.Add(recordedOrbitSegment);
+
+            bool result = PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
+                9, traj, recordedOrbitSegment, 350.0, out string key, out string message);
 
             Assert.False(result);
             Assert.Null(key);
@@ -140,14 +240,16 @@ namespace Parsek.Tests
                 startUT = 100.0,
                 endUT = 200.0,
                 bodyName = "Kerbin",
-                semiMajorAxis = 700000.0
+                semiMajorAxis = 700000.0,
+                isPredicted = false
             });
             traj.OrbitSegments.Add(new OrbitSegment
             {
                 startUT = 200.0,
                 endUT = 500.0,
                 bodyName = "Kerbin",
-                semiMajorAxis = 710000.0
+                semiMajorAxis = 710000.0,
+                isPredicted = true
             });
 
             return traj;

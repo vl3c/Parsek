@@ -223,6 +223,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputeOrbitalFrameRotationFromState_RoundTripsWorldRotation()
+        {
+            Quaternion worldRotation = new Quaternion(0.2f, -0.6f, 0.3f, 0.7f);
+            Vector3d position = new Vector3d(KerbinRadius + 100000.0, 0.0, 0.0);
+            Vector3d velocity = new Vector3d(0.0, 2200.0, 0.0);
+
+            Quaternion orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                worldRotation,
+                position,
+                velocity);
+            Quaternion resolvedWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                orbitalFrameRotation,
+                position,
+                velocity);
+
+            AssertQuaternionEqual(worldRotation, resolvedWorldRotation);
+        }
+
+        [Fact]
         public void Extrapolate_HyperbolicHomeEscape_HandsOffToStar()
         {
             var bodies = new Dictionary<string, ExtrapolationBody>
@@ -260,7 +279,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_SoiTransitions_PreserveFrozenPlaybackRotationAcrossSegments()
+        public void Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments()
         {
             Quaternion frozenRotation = new Quaternion(-0.6f, -0.3f, 0.6f, 0.3f);
             var bodies = new Dictionary<string, ExtrapolationBody>
@@ -296,11 +315,34 @@ namespace Parsek.Tests
                 });
 
             Assert.Equal(2, result.segments.Count);
-            foreach (OrbitSegment segment in result.segments)
-            {
-                Assert.True(TrajectoryMath.HasOrbitalFrameRotation(segment));
-                AssertQuaternionEqual(frozenRotation, segment.orbitalFrameRotation);
-            }
+            OrbitSegment homeSegment = result.segments[0];
+            OrbitSegment starSegment = result.segments[1];
+
+            Assert.True(TrajectoryMath.HasOrbitalFrameRotation(homeSegment));
+            Assert.True(TrajectoryMath.HasOrbitalFrameRotation(starSegment));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                homeSegment,
+                KerbinGravParameter,
+                homeSegment.endUT,
+                out Vector3d homeBoundaryPosition,
+                out Vector3d homeBoundaryVelocity));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                starSegment,
+                StarGravParameter,
+                starSegment.startUT,
+                out Vector3d starBoundaryPosition,
+                out Vector3d starBoundaryVelocity));
+
+            Quaternion homeWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                homeSegment.orbitalFrameRotation,
+                homeBoundaryPosition,
+                homeBoundaryVelocity);
+            Quaternion starWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                starSegment.orbitalFrameRotation,
+                starBoundaryPosition,
+                starBoundaryVelocity);
+
+            AssertQuaternionEqual(homeWorldRotation, starWorldRotation);
         }
 
         [Fact]

@@ -342,6 +342,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildStartStateFromSegment_CopiesOrbitalFrameRotation()
+        {
+            var frozenRotation = new UnityEngine.Quaternion(0.2f, -0.4f, 0.3f, 0.8f);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0
+                }
+            };
+            var segment = new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = 100.0,
+                orbitalFrameRotation = frozenRotation
+            };
+
+            bool built = IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment(
+                segment,
+                bodies,
+                out BallisticStateVector startState);
+
+            Assert.True(built);
+            Assert.Equal(frozenRotation.x, startState.orbitalFrameRotation.x);
+            Assert.Equal(frozenRotation.y, startState.orbitalFrameRotation.y);
+            Assert.Equal(frozenRotation.z, startState.orbitalFrameRotation.z);
+            Assert.Equal(frozenRotation.w, startState.orbitalFrameRotation.w);
+        }
+
+        [Fact]
         public void TryApply_HookDecline_LogsWhenUsingNonTestHook()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeHook =

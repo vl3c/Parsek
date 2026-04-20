@@ -15,18 +15,23 @@ namespace Parsek
             if (traj == null)
                 return false;
 
-            bool found = false;
+            if (TryGetTrackSectionPayloadEndUT(traj.TrackSections, out double trackSectionEndUT))
+            {
+                endUT = trackSectionEndUT;
+                return true;
+            }
 
+            bool found = false;
             if (traj.Points != null && traj.Points.Count > 0)
             {
                 endUT = traj.Points[traj.Points.Count - 1].ut;
                 found = true;
             }
 
-            if (TryGetTrackSectionPayloadEndUT(traj.TrackSections, out double trackSectionEndUT))
+            if (TryGetRecordedOrbitPayloadEndUT(traj.OrbitSegments, out double orbitEndUT))
             {
-                if (!found || trackSectionEndUT > endUT)
-                    endUT = trackSectionEndUT;
+                if (!found || orbitEndUT > endUT)
+                    endUT = orbitEndUT;
                 found = true;
             }
 
@@ -44,7 +49,8 @@ namespace Parsek
             key = null;
             message = null;
 
-            if (!TryGetRecordedPayloadEndUT(traj, out double payloadEndUT)
+            if (!segment.isPredicted
+                || !TryGetRecordedPayloadEndUT(traj, out double payloadEndUT)
                 || ut <= payloadEndUT + PayloadEndEpsilon)
                 return false;
 
@@ -82,7 +88,8 @@ namespace Parsek
             key = null;
             message = null;
 
-            if (!TryGetRecordedPayloadEndUT(traj, out double payloadEndUT)
+            if (!segment.isPredicted
+                || !TryGetRecordedPayloadEndUT(traj, out double payloadEndUT)
                 || ut <= payloadEndUT + PayloadEndEpsilon)
                 return false;
 
@@ -131,6 +138,29 @@ namespace Parsek
                 if (!found || candidateEndUT > endUT)
                     endUT = candidateEndUT;
 
+                found = true;
+            }
+
+            return found;
+        }
+
+        private static bool TryGetRecordedOrbitPayloadEndUT(
+            List<OrbitSegment> segments,
+            out double endUT)
+        {
+            endUT = 0.0;
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            bool found = false;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (segment.isPredicted)
+                    continue;
+
+                if (!found || segment.endUT > endUT)
+                    endUT = segment.endUT;
                 found = true;
             }
 

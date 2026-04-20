@@ -418,7 +418,7 @@ namespace Parsek
             }
         }
 
-        private static bool TryBuildStartStateFromSegment(
+        internal static bool TryBuildStartStateFromSegment(
             OrbitSegment segment,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             out BallisticStateVector startState)
@@ -441,7 +441,8 @@ namespace Parsek
                 ut = segment.endUT,
                 bodyName = segment.bodyName,
                 position = position,
-                velocity = velocity
+                velocity = velocity,
+                orbitalFrameRotation = segment.orbitalFrameRotation
             };
             return true;
         }
@@ -465,7 +466,11 @@ namespace Parsek
                 ut = commitUT,
                 bodyName = vessel.orbit.referenceBody.name,
                 position = position,
-                velocity = velocity
+                velocity = velocity,
+                orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                    vessel.transform.rotation,
+                    position,
+                    velocity)
             };
             return true;
         }
