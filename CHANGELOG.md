@@ -12,7 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- `#484` Terminal-orbit backfill regressions now preserve cached terminal-orbit data only when the full endpoint-aligned tuple already matches; stale same-body and stale different-body cached orbits now both heal from the last endpoint-aligned segment.
+- `#484` Terminal-orbit backfill now keeps an already-correct cached orbit instead of needlessly rewriting it, and the preserve/heal logs stay stable across comma-decimal locales.
 - `#461` Added in-game loop-cycle reuse visibility regressions that drive the full `UpdatePlayback -> UpdateLoopingPlayback` boundary path, pinning both the same-frame visible reactivation case and the hidden-by-zone deferred/inactive case.
 - `#478` `RuntimeTests.MapMarkerIconsMatchStockAtlas` now skips outside `FLIGHT` and `TRACKSTATION` instead of failing in `EDITOR`, `MAINMENU`, and `SPACECENTER`, so the runtime test only asserts `MapView.fetch` where that API actually exists.
 - `#480` Strategy lifecycle in-game regressions now wait for stock strategy hydration to stabilize before probing activation, so the SPACECENTER career tests fail with targeted readiness diagnostics instead of early `NullReferenceException`s.

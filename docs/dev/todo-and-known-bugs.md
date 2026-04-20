@@ -352,7 +352,7 @@ Per-leg gating (not whole-sweep) is the correct granularity — a save that disa
 
 **Fix shipped:** terminal-orbit capture no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, finalization/load-time backfill only trusts a last `OrbitSegment` when that segment agrees with the recording endpoint body, and spawn-at-end now resolves the body from the actual endpoint before attempting any recorded-orbit propagation. If no endpoint-aligned orbital seed exists, spawn falls back to the endpoint state instead of constructing a wrong Kerbin-frame orbit.
 
-**Tests:** added xUnit coverage for endpoint-aligned terminal-orbit backfill and endpoint-aligned orbital spawn-seed selection across Kerbin → Mun end-state shapes.
+**Tests:** added xUnit and runtime coverage for endpoint-aligned terminal-orbit backfill, including preserve-vs-heal observability, invariant-culture tuple-heal logs, and endpoint-aligned orbital spawn-seed selection across Kerbin → Mun end-state shapes.
 
 **Status:** done/closed on this branch. Priority was high because the bad cached body could throw the spawned vessel onto a solar-escape path after rewind and effectively destroy the mission outcome.
 

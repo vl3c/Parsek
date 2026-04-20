@@ -7571,6 +7571,26 @@ namespace Parsek
             }
         }
 
+        private const double TerminalOrbitTupleMatchTolerance = 1e-6;
+
+        private static bool TerminalOrbitScalarMatches(double cachedValue, double segmentValue)
+            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitTupleMatchTolerance;
+
+        private static bool CachedTerminalOrbitMatchesSegment(Recording rec, OrbitSegment seg)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                return false;
+
+            return string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitInclination, seg.inclination)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitEccentricity, seg.eccentricity)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitSemiMajorAxis, seg.semiMajorAxis)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitLAN, seg.longitudeOfAscendingNode)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitArgumentOfPeriapsis, seg.argumentOfPeriapsis)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitMeanAnomalyAtEpoch, seg.meanAnomalyAtEpoch)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitEpoch, seg.epoch);
+        }
+
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
@@ -7589,28 +7609,33 @@ namespace Parsek
                 return false;
 
             bool hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody);
+            bool endpointAligned = hasEndpointBody
+                && string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
             if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
             {
-                return !hasEndpointBody
-                    || string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
+                return !hasEndpointBody || endpointAligned;
             }
 
-            bool cachedTupleMatchesLastSegment =
-                string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal)
-                && rec.TerminalOrbitInclination == seg.inclination
-                && rec.TerminalOrbitEccentricity == seg.eccentricity
-                && rec.TerminalOrbitSemiMajorAxis == seg.semiMajorAxis
-                && rec.TerminalOrbitLAN == seg.longitudeOfAscendingNode
-                && rec.TerminalOrbitArgumentOfPeriapsis == seg.argumentOfPeriapsis
-                && rec.TerminalOrbitMeanAnomalyAtEpoch == seg.meanAnomalyAtEpoch
-                && rec.TerminalOrbitEpoch == seg.epoch;
+            bool cachedTupleMatchesLastSegment = CachedTerminalOrbitMatchesSegment(rec, seg);
             if (cachedTupleMatchesLastSegment)
+            {
+                if (endpointAligned)
+                {
+                    ParsekLog.Info("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "ShouldPopulateTerminalOrbitFromLastSegment: preserved cached terminal orbit for '{0}' because cached tuple already matches endpoint-aligned segment body={1} sma={2:F1}",
+                            rec.RecordingId ?? "(null)",
+                            seg.bodyName,
+                            seg.semiMajorAxis));
+                }
+
                 return false;
+            }
 
             if (!hasEndpointBody)
                 return false;
 
-            return string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
+            return endpointAligned;
         }
 
         internal static void PopulateTerminalOrbitFromLastSegment(Recording rec)
@@ -7621,14 +7646,7 @@ namespace Parsek
             string previousBody = rec.TerminalOrbitBody;
             double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
             bool healingStaleCachedTuple = !string.IsNullOrEmpty(previousBody)
-                && !(string.Equals(previousBody, seg.bodyName, StringComparison.Ordinal)
-                    && rec.TerminalOrbitInclination == seg.inclination
-                    && rec.TerminalOrbitEccentricity == seg.eccentricity
-                    && rec.TerminalOrbitSemiMajorAxis == seg.semiMajorAxis
-                    && rec.TerminalOrbitLAN == seg.longitudeOfAscendingNode
-                    && rec.TerminalOrbitArgumentOfPeriapsis == seg.argumentOfPeriapsis
-                    && rec.TerminalOrbitMeanAnomalyAtEpoch == seg.meanAnomalyAtEpoch
-                    && rec.TerminalOrbitEpoch == seg.epoch);
+                && !CachedTerminalOrbitMatchesSegment(rec, seg);
             rec.TerminalOrbitInclination = seg.inclination;
             rec.TerminalOrbitEccentricity = seg.eccentricity;
             rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
@@ -7641,15 +7659,22 @@ namespace Parsek
             if (healingStaleCachedTuple)
             {
                 ParsekLog.Warn("Flight",
-                    $"PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit for '{rec.RecordingId}' " +
-                    $"previousBody={previousBody ?? "(empty)"} previousSma={previousSemiMajorAxis:F1} " +
-                    $"newBody={seg.bodyName} newSma={seg.semiMajorAxis:F1}");
+                    string.Format(CultureInfo.InvariantCulture,
+                        "PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit for '{0}' previousBody={1} previousSma={2:F1} newBody={3} newSma={4:F1}",
+                        rec.RecordingId ?? "(null)",
+                        previousBody ?? "(empty)",
+                        previousSemiMajorAxis,
+                        seg.bodyName,
+                        seg.semiMajorAxis));
                 return;
             }
 
             ParsekLog.Info("Flight",
-                $"PopulateTerminalOrbitFromLastSegment: recovered orbit for '{rec.RecordingId}' " +
-                $"from segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
+                string.Format(CultureInfo.InvariantCulture,
+                    "PopulateTerminalOrbitFromLastSegment: recovered orbit for '{0}' from segment body={1} sma={2:F1}",
+                    rec.RecordingId ?? "(null)",
+                    seg.bodyName,
+                    seg.semiMajorAxis));
         }
 
         /// <summary>
