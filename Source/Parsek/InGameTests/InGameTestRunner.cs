@@ -71,6 +71,7 @@ namespace Parsek.InGameTests
             "Single-run only — excluded from Run All / Run category because it performs a destructive scene transition. Run it from the row play button in a disposable session.";
         internal const string DefaultBatchRestoreNote =
             "Included in Run All + Isolated / Run+ with automatic FLIGHT restore — the runner captures a temporary baseline save and quickloads it after this destructive test. Use a disposable session.";
+        private const float BatchBaselineStableMatchSeconds = 0.5f;
 
         private sealed class FlightBatchBaselineState
         {
@@ -89,6 +90,7 @@ namespace Parsek.InGameTests
         private Coroutine activeTestCoroutine;
         private Coroutine activeInnerCoroutine;
         private FlightBatchBaselineState batchFlightBaseline;
+        private bool batchFlightBaselinePrimed;
         private bool abortBatchAfterRestoreFailure;
 
         // Results summary
@@ -161,6 +163,7 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             batchFlightBaseline = null;
+            batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             PerformBetweenRunCleanup("run-all+restore");
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
@@ -184,6 +187,7 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             batchFlightBaseline = null;
+            batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecutionIncludingFlightRestore(allTests
@@ -197,6 +201,7 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             batchFlightBaseline = null;
+            batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(new List<InGameTestInfo> { test }));
         }
@@ -488,6 +493,7 @@ namespace Parsek.InGameTests
             try
             {
                 batchFlightBaseline = CaptureFlightBatchBaseline();
+                batchFlightBaselinePrimed = false;
                 int restoreCount = ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution);
                 ParsekLog.Info(Tag,
                     $"Captured batch FLIGHT baseline slot '{batchFlightBaseline.SlotName}' for {restoreCount} restore-after-run test(s)");
@@ -587,6 +593,17 @@ namespace Parsek.InGameTests
 
             foreach (var test in tests)
             {
+                if (test.RestoreBatchFlightBaselineAfterExecution
+                    && batchFlightBaseline != null
+                    && !batchFlightBaselinePrimed)
+                {
+                    yield return coroutineHost.StartCoroutine(
+                        PrimeBatchFlightBaselineBeforeFirstRestoreBackedTest(test));
+                    RecountResults();
+                    if (abortBatchAfterRestoreFailure)
+                        break;
+                }
+
                 if (!IsEligibleForScene(test))
                 {
                     test.Status = TestStatus.Skipped;
@@ -612,6 +629,7 @@ namespace Parsek.InGameTests
             isRunning = false;
             CleanupBatchFlightBaselineSave();
             batchFlightBaseline = null;
+            batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             activeTestCoroutine = null;
             int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
@@ -660,6 +678,54 @@ namespace Parsek.InGameTests
                 FailAndAbortBatchAfterRestore(test,
                     $"Automatic FLIGHT batch restore failed after {test.Name}: {restoreFailure.Message}");
             }
+            else
+            {
+                batchFlightBaselinePrimed = true;
+            }
+        }
+
+        private IEnumerator PrimeBatchFlightBaselineBeforeFirstRestoreBackedTest(InGameTestInfo test)
+        {
+            if (test == null || !test.RestoreBatchFlightBaselineAfterExecution
+                || batchFlightBaseline == null || batchFlightBaselinePrimed)
+            {
+                yield break;
+            }
+
+            int previousFlightInstanceId = ParsekFlight.Instance != null
+                ? ParsekFlight.Instance.GetInstanceID()
+                : batchFlightBaseline.CapturedFlightInstanceId;
+
+            ParsekLog.Info(Tag,
+                $"Priming batch FLIGHT baseline before {test.Name} from slot '{batchFlightBaseline.SlotName}'");
+
+            Exception restoreFailure = null;
+            yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
+                RestoreBatchFlightBaselineCore(
+                    batchFlightBaseline,
+                    previousFlightInstanceId,
+                    "pre-batch-restore:" + test.Name),
+                ex => restoreFailure = ex));
+
+            if (restoreFailure is InGameTestSkippedException skipEx)
+            {
+                FailAndAbortBatchAfterRestore(test,
+                    $"Automatic FLIGHT batch baseline prime skipped before {test.Name}: {skipEx.Message}");
+            }
+            else if (restoreFailure is InGameTestFailedException failEx)
+            {
+                FailAndAbortBatchAfterRestore(test,
+                    $"Automatic FLIGHT batch baseline prime failed before {test.Name}: {failEx.Message}");
+            }
+            else if (restoreFailure != null)
+            {
+                FailAndAbortBatchAfterRestore(test,
+                    $"Automatic FLIGHT batch baseline prime failed before {test.Name}: {restoreFailure.Message}");
+            }
+            else
+            {
+                batchFlightBaselinePrimed = true;
+            }
         }
 
         private IEnumerator RestoreBatchBaselineAfterCancel(
@@ -681,6 +747,7 @@ namespace Parsek.InGameTests
 
             CleanupBatchFlightBaselineSave();
             batchFlightBaseline = null;
+            batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             activeCoroutine = null;
             activeTestCoroutine = null;
@@ -710,16 +777,30 @@ namespace Parsek.InGameTests
             FlightBatchBaselineState baseline, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
+            float stableMatchStarted = -1f;
             while (Time.time < deadline)
             {
                 Vessel vessel = FlightGlobals.ActiveVessel;
-                if (HighLogic.LoadedScene == GameScenes.FLIGHT
+                bool matchesBaseline = HighLogic.LoadedScene == GameScenes.FLIGHT
                     && FlightGlobals.ready
+                    && FlightInputHandler.state != null
                     && vessel != null
                     && vessel.id == baseline.ActiveVesselId
-                    && DoesVesselMatchBatchBaselineSituation(vessel, baseline.ActiveVesselSituation))
+                    && DoesVesselMatchBatchBaselineSituation(vessel, baseline.ActiveVesselSituation);
+                if (matchesBaseline)
                 {
-                    yield break;
+                    if (stableMatchStarted < 0f)
+                    {
+                        stableMatchStarted = Time.unscaledTime;
+                    }
+                    else if ((Time.unscaledTime - stableMatchStarted) >= BatchBaselineStableMatchSeconds)
+                    {
+                        yield break;
+                    }
+                }
+                else
+                {
+                    stableMatchStarted = -1f;
                 }
 
                 yield return null;
@@ -736,7 +817,9 @@ namespace Parsek.InGameTests
                 $"(expectedVessel='{baseline.ActiveVesselName}'/{baseline.ActiveVesselId}, " +
                 $"expectedSituation={baseline.ActiveVesselSituation}, " +
                 $"actualVessel='{actualName}'/{actualId}, actualSituation={actualSituation}, " +
-                $"scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready})");
+                $"scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, " +
+                $"controlsReady={(FlightInputHandler.state != null)}, " +
+                $"stableWindow={BatchBaselineStableMatchSeconds:F1}s)");
         }
 
         private static bool DoesVesselMatchBatchBaselineSituation(

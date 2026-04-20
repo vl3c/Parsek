@@ -587,8 +587,17 @@ namespace Parsek.InGameTests
                 ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
+                yield return new WaitForSeconds(0.5f);
                 FlightInputHandler.state.mainThrottle = 1f;
-                KSP.UI.Screens.StageManager.ActivateNextStage();
+                try
+                {
+                    KSP.UI.Screens.StageManager.ActivateNextStage();
+                }
+                catch (System.Exception ex)
+                {
+                    InGameAssert.Fail(
+                        $"StageManager.ActivateNextStage threw {ex.GetType().Name}: {ex.Message}");
+                }
 
                 yield return WaitForLaunchAutoRecordStart(10f);
                 yield return new WaitForSeconds(0.5f);
