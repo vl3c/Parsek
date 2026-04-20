@@ -9,13 +9,13 @@ Stock KSP handles the equivalent "unloaded vessel" case by destroying the real v
 ## Terminology
 
 - **Recording** — a stored timeline for one vessel: trajectory points, orbit segments, events, a terminal state, etc.
-- **OrbitSegment** — one coast arc expressed as Kepler elements (sma/ecc/inc/argPe/lan/mna/epoch) in a body's frame, valid over `[startUT, endUT]`. Already in the codebase.
-- **Predicted segment** — an `OrbitSegment` captured from `vessel.patchedConicSolver` at scene exit rather than from traversed flight. Flagged by a new `isPredicted: true`.
-- **Extrapolated arc** — a Kepler arc computed by this plan's `BallisticExtrapolator` when the patched-conic chain does not reach a natural terminus. Stored in a new `ExtrapolatedArcs` list.
+- **OrbitSegment** — one coast arc expressed as Kepler elements (sma/ecc/inc/argPe/lan/mna/epoch) in a body's frame, valid over `[startUT, endUT]`. Already in the codebase. This plan reuses the type for all new data (predicted + extrapolated); no new parallel list is introduced.
+- **Predicted segment** — an `OrbitSegment` captured from `vessel.patchedConicSolver` at scene exit. Flagged by a new `isPredicted: true`.
+- **Extrapolated segment** — an `OrbitSegment` computed by this plan's `BallisticExtrapolator` when the patched-conic chain does not reach a natural terminus. Also flagged `isPredicted: true`; distinguishable from solver-captured predicted segments only by the log trail and by whether it was produced in the extrapolation pass. Same shape on disk.
 - **Last covered UT** — the UT at the end of the latest source in the precedence stack (recorded frames → patched chain). Extrapolation starts here.
-- **Terminal UT (`TerminalUT`)** — the UT at which the ghost's visual lifetime ends. For `Destroyed` recordings it is the atmo/ground contact UT. For `Orbiting` recordings it is either the recording's nominal end UT (stock case) or the horizon-cap UT.
 - **Cutoff altitude** — body-dependent altitude at which extrapolation terminates. Has atmosphere → `body.atmosphereDepth`. No atmosphere → terrain altitude at projected lat/lon (with sea-level fallback).
 - **Current SOI** — the body whose sphere of influence contains the ghost's position at playback UT.
+- **Terminal UT** — the UT at which the ghost's visual lifetime ends. Stored as `ExplicitEndUT` on the Recording (existing field) — no new field. For extrapolated recordings, `ExplicitEndUT` is set to the atmo/ground contact UT or horizon-cap UT, and the existing `EndUT` property (which already prefers `ExplicitEndUT` when set) naturally becomes the authoritative playback / spawn / timeline boundary. All existing `EndUT` consumers inherit correct behaviour for free.
 
 ## Mental Model
 
@@ -43,7 +43,9 @@ At playback, the ghost reads position from the appropriate source for the curren
 
 The extrapolator's only job is to choose the terminal bucket (`Destroyed` vs `Orbiting`) and produce the arcs covering `[endOfPatchedChain, terminalUT]`. The existing spawn gate (`ShouldSpawnAtRecordingEnd`) handles everything downstream: `Destroyed` is blocked from spawn and RSW; `Orbiting` spawns normally.
 
-Map view renders the ghost's future coast segments **in the camera's focused-body frame**, and only when the focused body is the ghost's current SOI or an ancestor in the SOI hierarchy. A ghost in Kerbin SOI about to fly past Mun and return, with the camera focused on Kerbin: pre-Mun, flyby (transformed into Kerbin frame through Mun's time-varying world position), and post-Mun — all drawn as a continuous Kerbin-frame line. Same ghost, camera switched to Mun: the flyby shows as the tight Mun-frame arc only while the ghost is actually in Mun SOI. Camera focused on Mun while the ghost is still in Kerbin → nothing drawn for that ghost (Mun is a descendant of Kerbin, not an ancestor; the ghost is "above" the focused view).
+Map view in v1 continues to use the existing single-`OrbitRenderer` path: one active segment drawn per ghost at a time, in the segment's native body frame, matching the ghost's current SOI. The change in v1 is that the renderer's selection pool now includes predicted/extrapolated segments alongside traversed ones, so the drawn line extends past the recording's live-flight end.
+
+The broader target — multi-segment chain with camera-focus-driven frame selection and ancestor-frame transforms (a Mun-flyby arc transformed into Kerbin frame when focused on Kerbin, etc.) — lives in a separate Future phase that introduces a new renderer. Core Principles describes that target rule so the v1 implementation does not paint itself into a corner.
 
 ## Core Principles
 
@@ -55,7 +57,9 @@ Map view renders the ghost's future coast segments **in the camera's focused-bod
 
 **Stock KSP is the arbiter of reality.** `Vessel.Situations` is the authoritative classification for whether extrapolation should run. Stock events drive crew-reservation state. Parsek mirrors; it does not invent outcomes.
 
-**Frame-of-rendering follows camera focus; visibility follows SOI containment.** At each playback UT, the ghost has one current SOI and the camera has one focused body `F`. For any future coast segment to draw, `F` must be the ghost's current SOI or an ancestor in the SOI hierarchy (i.e. camera is at or above the ghost's level). When that condition holds, every future coast segment in the chain is rendered in `F`'s frame — natively if the segment's body is `F`, or transformed through the parent chain if the segment's body is a descendant of `F`. When the condition fails (camera focused on a body unrelated to or below the ghost's current SOI), nothing is drawn. Past segments are always hidden (clutter reduction, already current behaviour). This is simpler than stock's active-vessel patched-conic display — appropriate because the player is watching, not planning.
+**Frame-of-rendering follows camera focus; visibility follows SOI containment** — target rule for multi-segment rendering. At each playback UT, the ghost has one current SOI and the camera has one focused body `F`. For any future coast segment to draw, `F` must be the ghost's current SOI or an ancestor in the SOI hierarchy. When that condition holds, every future coast segment in the chain is rendered in `F`'s frame — natively if the segment's body is `F`, or transformed through the parent chain if the segment's body is a descendant of `F`. When the condition fails, nothing is drawn. Past segments are always hidden.
+
+**v1 rendering scope.** v1 does not implement the full target rule above — the existing map/TS architecture draws one `OrbitSegment` per ghost via a single `OrbitRenderer` line, and expanding to a multi-segment chain with ancestor-frame transforms requires a new renderer. v1 preserves the existing architecture and only expands the data pool the renderer selects from, so the single-segment line continues drawing past recording end using predicted/extrapolated segments. The full focus+ancestry rule targets a Future phase.
 
 ## Scope
 
@@ -82,33 +86,16 @@ Map view renders the ghost's future coast segments **in the camera's focused-bod
 
 ```csharp
 public bool isPredicted;  // true for segments captured from patchedConicSolver at scene exit
+                          //   OR produced by BallisticExtrapolator (same shape, same storage)
                           // false for segments traversed during live flight
                           // defaults to false; legacy recordings load with isPredicted = false
 ```
 
-`Recording` gains two fields:
-
-```csharp
-public double TerminalUT;                // UT at which the ghost's visual lifetime ends
-                                         // = recording's nominal EndUT when terminal = Orbiting / Landed / etc.
-                                         // = atmo/ground contact UT when terminal = Destroyed (extrapolated)
-                                         // = horizon-cap UT when terminal = Orbiting at horizon
-
-public List<OrbitArc> ExtrapolatedArcs;  // chain of Kepler arcs produced by BallisticExtrapolator
-                                         // empty for recordings that never triggered extrapolation
-                                         // persisted in .prec sidecar, not .sfs
-```
+`Recording` — no new fields. The existing `ExplicitEndUT` is authoritative for extrapolated terminal UT; the existing `OrbitSegments` list holds all predicted + extrapolated segments alongside traversed ones. `EndUT` (property at `Recording.cs:259-270`) already prefers `ExplicitEndUT` when set, so playback, spawn timing, loop timing, timeline entries, watch protection — every `EndUT` consumer documented in "What Doesn't Change" — reach the extrapolated terminus without modification.
 
 ### New types
 
 ```csharp
-public struct OrbitArc
-{
-    public string bodyName;      // central body frame
-    public double startUT, endUT;
-    public double sma, ecc, inc, argPe, lan, mna, epoch;  // Kepler elements
-}
-
 internal struct ExtrapolationResult
 {
     public TerminalState terminalState;   // Destroyed or Orbiting
@@ -116,7 +103,7 @@ internal struct ExtrapolationResult
     public string terminalBodyName;
     public Vector3d terminalPosition;
     public Vector3d terminalVelocity;
-    public List<OrbitArc> arcs;
+    public List<OrbitSegment> segments;   // appended into Recording.OrbitSegments with isPredicted = true
     public ExtrapolationFailureReason failureReason;  // none / degenerate-ecc / pqs-unavailable / ...
 }
 
@@ -139,26 +126,24 @@ internal const int PatchedConicSolverCaptureLimit = 8;   // max patches walked f
 
 No change. `Destroyed` already exists (`TerminalState.cs:9`) and is already blocked by `ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) alongside `Recovered`, `Docked`, `Boarded`, `SubOrbital`.
 
-### ConfigNode keys (`.prec` sidecar)
+### Persistence
+
+Modern recordings (format v3+, currently v4) serialise via the binary codec in `TrajectorySidecarBinary.cs`; legacy v0–v2 use `ConfigNode`. Both paths must carry the new `OrbitSegment.isPredicted` flag, and `ExplicitEndUT` is already persisted — no new top-level Recording field.
+
+**Format bump: v4 → v5.** Rationale: `OrbitSegment.isPredicted` changes on-disk segment shape. A v4 reader must gracefully default `isPredicted = false` when a v4 sidecar omits the flag; a v5 reader decodes the new flag explicitly.
+
+Binary codec changes (Phase 3 scope):
+
+- Add `isPredicted` to the per-segment encoding in the binary sidecar section that writes orbit segments. One bit in an existing flags byte, or a new byte per segment — decide during implementation based on the surrounding layout.
+- Bump `CurrentBinaryVersion` / `SparsePointBinaryVersion` in `TrajectorySidecarBinary.cs` appropriately.
+- Bump `RecordingStore.CurrentRecordingFormatVersion` to 5.
+- Version-gate the decode path: v4 and earlier → `isPredicted = false` for all segments; v5+ → decode the flag.
+
+Text ConfigNode changes (for legacy-path completeness, even though new recordings don't hit it):
 
 ```
-RECORDING
-{
-    ...existing fields...
-    TerminalUT = 12345.6789
-    EXTRAPOLATED_ARCS
-    {
-        ARC { bodyName = Kerbin; startUT = ...; endUT = ...; sma = ...; ecc = ...; ... }
-        ARC { bodyName = Kerbol; startUT = ...; endUT = ...; sma = ...; ecc = ...; ... }
-        ...
-    }
-    ORBIT_SEGMENTS
-    {
-        SEGMENT { ...existing fields...; isPredicted = False }
-        SEGMENT { ...existing fields...; isPredicted = True }   // new field
-        ...
-    }
-}
+SEGMENT { ...existing fields...; isPredicted = False }   // new field
+SEGMENT { ...existing fields...; isPredicted = True }
 ```
 
 All doubles serialised via `ToString("R", CultureInfo.InvariantCulture)` per project convention. `isPredicted` defaults to `False` for legacy load compatibility.
@@ -171,37 +156,37 @@ Triggered by `FlightRecorder.FinalizeRecordingState(isSceneExit: true)`. Runs du
 
 1. **Snapshot patched chain.** Call `SnapshotPatchedConicChain(vessel, PatchedConicSolverCaptureLimit)`. Append resulting `OrbitSegment`s (each with `isPredicted = true`) to `recording.OrbitSegments`.
 2. **Decide if extrapolation is warranted.** `ShouldExtrapolate(vessel.situation, lastOrbit, lastBody)` returns bool.
-3. **Run extrapolator if warranted.** Start state = state vector at end of patched chain (or last recorded frame if chain is empty). Produces `ExtrapolationResult`.
-4. **Assign outputs.** Set `recording.TerminalStateValue`, `recording.TerminalUT`, `recording.ExtrapolatedArcs`, and terminal-orbit fields as appropriate.
-5. **Short-circuit for solver-predicted impact.** If the patched chain's last patch ends with closest-approach altitude below cutoff on its body, set `TerminalState.Destroyed` directly at that UT without invoking the extrapolator.
+3. **Run extrapolator if warranted.** Start state = state vector at end of patched chain (or last recorded frame if chain is empty). Produces `ExtrapolationResult` containing additional `OrbitSegment`s (`isPredicted = true`).
+4. **Assign outputs.** Append extrapolator segments to `recording.OrbitSegments`. Set `recording.TerminalStateValue`. Set `recording.ExplicitEndUT = result.terminalUT`. Populate existing terminal-orbit fields if the final segment represents a stable resting orbit.
+5. **Short-circuit for solver-predicted impact.** If the patched chain's last patch ends with closest-approach altitude below cutoff on its body, set `TerminalState.Destroyed`, `recording.ExplicitEndUT = lastPatch.EndUT`, skip the extrapolator entirely.
+
+Because `ExplicitEndUT` feeds the existing `Recording.EndUT` property (`Recording.cs:259-270`) via the `ExplicitEndUT > endUT` branch, every existing `EndUT` consumer — `GhostPlaybackEngine` playback end detection, `TimelineBuilder` entries, watch-mode protection, spawn timing, loop timing — automatically uses the extrapolated terminal UT. No threaded changes to those systems; no new field on Recording.
 
 ### Playback rendering
 
 During `[startUT, terminalUT]`:
 
-- **Position resolution** (each frame): evaluate whichever source covers the current UT. Recorded frames where they exist; predicted-segment Kepler evaluation for patched-chain UTs; `ExtrapolatedArcResolver.ResolveAt(ut, arcs)` for extrapolated-arc UTs.
+- **Position resolution** (each frame): evaluate whichever source covers the current UT. Recorded frames where they exist; `OrbitSegment` Kepler evaluation for any segment (`isPredicted` or not) whose `[startUT, endUT]` contains the playback UT. Predicted and extrapolated segments go through the same code path as traversed segments — same type, same storage, same lookup.
 - **Orientation during extrapolation:** reuse the last captured `srfRelRotation`. No tumble simulation.
-- **Map-view lines** (per ghost, per frame):
-  1. Let `F` = camera's focused body; let `S` = ghost's current SOI body (the body whose sphere contains the ghost's position at `playbackUT`).
-  2. If `F != S` and `F` is not an ancestor of `S` in the SOI hierarchy → hide all lines for this ghost, done.
-  3. Otherwise, for every segment in `OrbitSegments ∪ ExtrapolatedArcs` with `endUT > playbackUT`:
-     - If `segment.body == F` → render the segment directly using its Kepler elements in `F`'s frame.
-     - If `segment.body` is a descendant of `F` → evaluate the segment in its native body's frame at sampled UTs, then transform each position through the ancestor-chain body positions to produce a polyline in `F`'s frame.
-     - If `segment.body` is NOT `F` and NOT a descendant of `F` → hide (e.g., a Kerbol-frame segment when `F = Kerbin`).
-  4. The segment containing `playbackUT` is drawn from `playbackUT` forward; fully-future segments are drawn in full.
-- **Map-view line visibility:** suppressed during thrust segments (ghost rendered as icon only, no line). Transition is automatic as playback head moves between coast and thrust segments.
+- **Map-view lines — v1 scope (existing renderer extended in data only):** The current Parsek map/TS path exposes one active `OrbitSegment` per ghost through a single `OrbitRenderer` line (`GhostMapPresence` / `GhostOrbitLinePatch`). v1 keeps that architecture unchanged and only expands the pool the renderer selects from:
+  - Today: the renderer picks the single `OrbitSegment` whose `[startUT, endUT]` contains the playback UT and whose body matches the ghost's current SOI.
+  - v1 change: the pool now includes predicted/extrapolated segments alongside traversed ones, so that after the recording ends the renderer continues drawing the ghost's current-SOI orbit line from the extrapolated segments. No new data path; no extrapolated-arc list outside `OrbitSegments`.
+  - Coast-vs-thrust rule still applies — line suppressed during thrust-point segments.
+  - Past-segments hidden, same as today.
+  - Camera focus and SOI-ancestry considerations do not apply in v1: the existing renderer already draws the one segment in its native body's frame; there is no chain of segments and no cross-frame transform.
+- **Map-view lines — Future (see edge case 29, separate phase):** Multi-segment chain display + ancestor-frame transforms (Mun-flyby arc transformed into Kerbin frame when focused on Kerbin, etc.) require a new renderer that produces polylines rather than a single stock `OrbitRenderer`. Out of v1 scope. The rule defined in Core Principles ("frame-of-rendering follows camera focus; visibility follows SOI containment") is the target for that phase.
 
 ### Ghost despawn
 
-At `playbackUT >= terminalUT` for a `Destroyed` recording:
+`Recording.ExplicitEndUT` is set to the extrapolated terminus, so `Recording.EndUT` returns that value. At `playbackUT >= Recording.EndUT`, the existing end-of-playback path in `GhostPlaybackEngine` fires.
 
+For a `Destroyed` recording:
 - Ghost icon disappears silently (no FX in v1).
-- `GhostMapPresence` ProtoVessel (if created) is removed.
+- `GhostMapPresence` ProtoVessel (if created) is removed by the existing end-of-playback teardown.
 - Spawn path never fires — `ShouldSpawnAtRecordingEnd` returns `(false, "terminal state Destroyed")`.
 
 For `Orbiting` recordings (including horizon-capped extrapolation):
-
-- Normal spawn path runs at `EndUT` (or nominal recording end) via existing gates. No behavioural change from today.
+- Normal spawn path runs at `EndUT` via existing gates. No behavioural change from today.
 
 ## Edge Cases
 
@@ -225,16 +210,16 @@ Numbered for reference. Each marked v1 (handled now) or Future (deferred).
 16. **(v1) Maneuver nodes present at scene exit.** Walk `nextPatch` only up to (not including) first patch where `patchEndTransition == MANEUVER`. Chain is pure coast; no node mutation; no restore logic.
 17. **(v1) Player edits/deletes nodes after scene exit.** Irrelevant — snapshot is immutable.
 18. **(v1) Patched-conic chain terminates mid-space.** Extrapolator picks up at last patch's `endUT` and chains via SOI handoff to atmo/ground/horizon.
-19. **(v1) Patched-conic chain already predicts impact.** Short-circuit: set `Destroyed`, `TerminalUT = lastPatch.EndUT`, skip extrapolator.
+19. **(v1) Patched-conic chain already predicts impact.** Short-circuit: set `TerminalStateValue = Destroyed`, `ExplicitEndUT = lastPatch.EndUT`, skip extrapolator.
 20. **(v1) Player exits mid-thrust-burn.** `vessel.situation` is likely `FLYING` or `SUB_ORBITAL` → extrapolate. Start state = current state vector; extrapolation is pure coast from that state forward (matches "abandoned, no further thrust" semantics).
 21. **(v1) Player exits with no orbit and no maneuver (pre-launch, on pad).** `vessel.situation == PRELAUNCH` → skip. Stays on the pad.
 22. **(v1) Ghost with `Destroyed` state in Real Spawn Control list.** Already filtered out by `ShouldSpawnAtRecordingEnd`. No row shown, no "warp to spawn" offered.
 23. **(v1) Ghost with `Destroyed` in deferred spawn queue during warp.** Can't enter — same gate blocks queue entry. No queue changes needed.
 24. **(v1) Crew aboard at scene exit of a `Destroyed`-bound ghost.** Crew state is driven by stock KSP events on the real unloaded vessel, not by extrapolation. If stock destroys the real vessel, Jeb dies via stock; if stock preserves it, Jeb lives. Parsek reconciles from stock events as today.
-25. **(v1) Reverting a flight mid-playback.** Existing revert infrastructure discards in-progress recordings. New fields (`TerminalUT`, `ExtrapolatedArcs`) ride along; nothing special required.
-26. **(v1) Camera focused on a body unrelated to ghost's SOI chain.** E.g., focused Eve while a ghost is in Kerbin SOI, Eve not being an ancestor of Kerbin. Hide all segments for that ghost. Player sees Eve-relative stuff only, ghost's line is absent — matches the "ghost is elsewhere, nothing to show here" intuition.
-27. **(v1) Camera focused on Kerbol with ghosts throughout the Kerbol system.** Kerbol is the universal ancestor — every ghost's SOI chain reaches Kerbol. All ghosts render in Kerbol frame via chain-transform. Many short polylines near various bodies. Potential clutter; accepted for v1.
-28. **(v1) Player changes camera focus mid-playback.** Rendering re-evaluates on every frame based on current focus; switching focus produces an immediate visibility change (no transition animation). Logged for diagnostics.
+25. **(v1) Reverting a flight mid-playback.** Existing revert infrastructure discards in-progress recordings. `ExplicitEndUT` and predicted/extrapolated `OrbitSegment`s ride along in the same Recording object; nothing special required.
+26. **(Future) Camera focused on a body unrelated to ghost's SOI chain.** Ancestor-gating rule: hide all segments. Belongs to the future multi-segment renderer.
+27. **(Future) Camera focused on Kerbol with ghosts throughout the Kerbol system.** Would render all ghosts' chains in Kerbol frame via chain-transform; potential clutter to calibrate then. Future phase.
+28. **(Future) Player changes camera focus mid-playback.** Will trigger re-evaluation of which ghosts' segments are visible once the focus+ancestry rule lands. Not applicable in v1 (which renders one segment in its native frame regardless of camera).
 29. **(Future) Mid-recording refresh of patched chain on SOI change / node edit.** Scene-exit-only capture is v1. Mid-recording refresh would update the stored predictions as the player re-plans, but has no rendering role until the recording actually ends. Defer.
 30. **(Future) Background-recorder continuation across scenes.** No such system exists today. If one is added later, it inserts between (1) and (2) in the precedence stack with per-sub-interval gap filling.
 31. **(Future) Atmospheric drag during extrapolation.** Drag-free is v1. A drag model would affect in-atmo plane-drop overshoot, but introduces calibration complexity and per-vessel drag data we don't store. Defer.
@@ -250,19 +235,22 @@ Explicit list of systems NOT affected by this plan:
 - RSW / `SelectiveSpawnUI` / `SpawnControlUI` — no UI changes.
 - `ParsekPlaybackPolicy` deferred spawn queue — no changes.
 - `CrewReservationManager` — no changes.
-- `GhostMapPresence` ProtoVessel lifecycle — continues to create at spawn and remove at terminal UT; terminal UT is simply earlier for `Destroyed` recordings.
-- Chain / loop systems — `ChainSegmentManager`, loop playback, overlap handling. A `Destroyed` recording's extrapolated arc plays within its single loop cycle; next cycle re-runs from the start identically.
-- Save-file main layout (`.sfs`) — new fields live in `.prec` sidecar only.
+- `Recording.EndUT` getter and every `EndUT` consumer (`GhostPlaybackEngine` end-of-playback, `TimelineBuilder`, watch protection, spawn timing, loop timing) — no changes. The authoritative boundary shifts via `ExplicitEndUT`, which `EndUT` already prefers. No threading through consumers.
+- `GhostMapPresence` ProtoVessel lifecycle — continues to create at spawn and remove at end-of-playback; the end-of-playback UT simply comes from `ExplicitEndUT` now.
+- Chain / loop systems — `ChainSegmentManager`, loop playback, overlap handling. A `Destroyed` recording's extrapolated segments play within its single loop cycle; next cycle re-runs from the start identically.
+- Save-file main layout (`.sfs`) — new fields live in `.prec` sidecar only; `ExplicitEndUT` is already persisted.
 - `FlightCamera` / watch-mode systems — no changes.
-- Existing `OrbitSegment` rendering pipeline — extended (more segments drawable); not rewritten.
 - In-flight multi-vessel recording via `BackgroundRecorder` — no changes.
-- Thrust-segment icon-only rendering — no changes; applies equally to extrapolation intervals (extrapolated arcs are coast by definition, so they draw orbit lines; any recorded thrust segment before extrapolation starts continues to behave as today).
+- Thrust-segment icon-only rendering — no changes.
+- Map-view renderer (`OrbitRenderer` / `GhostOrbitLinePatch` / `GhostMapPresence` line path) — no code changes in v1. It operates on the `OrbitSegments` list as before; we just grow the list.
+- `OrbitArc` / `ExtrapolatedArcs` as separate types — not introduced. Extrapolator produces `OrbitSegment`s with `isPredicted = true`, stored in the existing list.
+- `Recording.TerminalUT` as a new field — not introduced. `ExplicitEndUT` is the authoritative boundary.
 
 ## Backward Compatibility
 
-- Format version bumps to accommodate `TerminalUT`, `ExtrapolatedArcs`, and `OrbitSegment.isPredicted`. No automated migration — per `Format v0 reset` policy, old recordings load with defaults (`TerminalUT = EndUT`, `ExtrapolatedArcs = empty`, `isPredicted = false`).
-- Legacy recordings play identically to today: extrapolation never triggered (empty arcs), spawn behaviour driven by the existing terminal state.
-- Recordings written by this feature load cleanly in older Parsek builds IF the new fields are ignored gracefully. If strict-parsing is in play, a guard/opt-in load path may be needed; verify during Phase 3 by round-tripping through the oldest supported `.prec` format.
+- **Format bump v4 → v5** (binary codec in `TrajectorySidecarBinary`, text codec in ConfigNode path). Only change on disk is `OrbitSegment.isPredicted` per-segment. No top-level new Recording fields.
+- Legacy v2/v3/v4 recordings load cleanly; missing `isPredicted` defaults to `false`; empty `OrbitSegments` means no extrapolated tail, so playback behaves identically to today.
+- v5 recordings loaded by older Parsek builds: the safest path is a strict format-version rejection. If older builds must coexist, we can add a backward-compatible decode that treats the flag as absent — decide during Phase 1 based on how `CurrentRecordingFormatVersion` gates are checked today.
 
 ## Diagnostic Logging
 
@@ -274,7 +262,7 @@ Every decision point logs. All lines under `[Parsek][LEVEL][Subsystem]` format v
 - Solver null / unavailable: `Warn` — vessel name, reason (e.g., "on rails", "solver disposed"). Short-circuits to no-op.
 - Solver.Update() exception: `Error` — exception type + message; confirmation that `maxGeometryPatches` was restored.
 - Walk complete: `Verbose` — N patches captured, M patches truncated due to MANEUVER transition, terminal body of last captured patch.
-- Short-circuit to `Destroyed`: `Info` — last patch's body, closest-approach altitude, target cutoff altitude, chosen `TerminalUT`.
+- Short-circuit to `Destroyed`: `Info` — last patch's body, closest-approach altitude, target cutoff altitude, chosen `ExplicitEndUT`.
 
 ### Extrapolation guard (`[Extrapolator]`)
 
@@ -297,14 +285,14 @@ Every decision point logs. All lines under `[Parsek][LEVEL][Subsystem]` format v
 
 ### Playback (`[Playback]`)
 
-- Ghost position resolves from `ExtrapolatedArcs`: `VerboseRateLimited` (one shared key per-recording) — recording id, arc index, UT.
-- Ghost despawn at `terminalUT`: `Info` — recording id, terminal state, terminal UT, actual playback UT.
+- Ghost position resolves from a predicted/extrapolated `OrbitSegment`: `VerboseRateLimited` (one shared key per-recording) — recording id, segment body, segment index in list, UT.
+- Ghost despawn at end-of-playback: `Info` — recording id, terminal state, `EndUT`, `ExplicitEndUT`, actual playback UT.
 
 ### Map-view rendering (`[MapRender]`)
 
-- Per-ghost segment selection: `VerboseRateLimited` (one shared key for the pass) — ghost id, current SOI body, camera focused body, ancestor-check result, N segments selected (native vs transformed breakdown).
-- SOI crossing during playback: `Info` — recording id, old body → new body, UT.
-- Camera focus change: `Verbose` — new focused body; triggers a re-evaluation of which ghosts become visible/hidden.
+- Per-ghost segment selection (v1): `VerboseRateLimited` (one shared key for the pass) — ghost id, selected segment's body, segment's `isPredicted` flag, segment UT range.
+- SOI crossing during playback: `Info` — recording id, old body → new body, UT. Existing behaviour — triggers the existing renderer to switch to the new-SOI segment.
+- (Future) Camera focus change: log line belongs to the future multi-segment renderer phase.
 
 ### Finalization summary
 
@@ -360,10 +348,11 @@ Because `PatchedConicSolver` and `Orbit` are hard to mock, some tests wrap them 
 
 ### Serialization tests — `Source/Parsek.Tests/RecordingStorageRoundTripTests.cs` (extend existing)
 
-- `TerminalUT_RoundTrips` — fails if the double precision is lost through `ToString("R")`.
-- `ExtrapolatedArcs_RoundTrips` — fails if ARC ConfigNodes are written differently than they're read.
-- `OrbitSegment_IsPredicted_RoundTrips` — fails if the new boolean field is silently dropped on save or load.
-- `LegacyRecordingWithoutNewFields_LoadsWithDefaults` — fails if old `.prec` files fail to load or produce invalid state when the new fields are absent.
+- `OrbitSegment_IsPredicted_RoundTrips_Binary` — fails if the new boolean field is silently dropped in the binary codec's segment encode/decode.
+- `OrbitSegment_IsPredicted_RoundTrips_Text` — fails if the legacy ConfigNode path silently drops the flag.
+- `ExplicitEndUT_AfterExtrapolation_IsPersisted` — fails if `ExplicitEndUT` is not persisted or gets recomputed on load from trajectory bounds (which would revert the extrapolated terminus).
+- `LegacyV4Recording_LoadsWithIsPredictedFalse` — fails if old binary `.prec` files fail to load or produce invalid segments when the flag is absent.
+- `V5Recording_RoundTripsThroughBinaryCodec` — fails if the bumped format version is not gated correctly in the encode / decode / version-check path.
 
 ### Log-assertion tests
 
@@ -383,10 +372,11 @@ At least one test per subsystem tag that captures log output via `ParsekLog.Test
 - `ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol` — fails if patched-conics SOI handoff math diverges from stock KSP's frame conventions.
 - `PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView` — fails if the ghost's post-finalization trajectory lines in map view differ visibly from what the player saw during flight.
 - `PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn` — fails if a planned (but unexecuted) burn's delta-v contaminates the captured chain.
-- `MapRendering_FocusedKerbin_GhostInKerbinSOI_FlybyTransformed` — fails if the Mun-frame flyby segment is not chain-transformed into Kerbin frame while focused on Kerbin; the Kerbin-frame continuous line would show a gap.
-- `MapRendering_FocusedMun_GhostInKerbinSOI_HidesAll` — fails if Mun-frame segments are drawn while the ghost is above Mun in the SOI hierarchy (ghost in Kerbin, camera on Mun). Would show a predicted Mun flyby arc for a ghost that isn't at Mun yet.
-- `MapRendering_FocusedMun_GhostInMunSOI_NativeArc` — fails if the Mun-frame arc is incorrectly transformed through Kerbin when it should render natively. Would produce a far-away curve instead of the tight Mun-close arc.
-- `MapRendering_PostFlybyReturnSegment_Drawn` — fails if the chain walk stops at the first SOI transition, losing the post-flyby Kerbin-frame return segment.
+- `MapRendering_V1_GhostDrawsLineFromExtrapolatedSegment` — fails if the existing `OrbitRenderer` path doesn't select a predicted/extrapolated `OrbitSegment` the same way it selects a traversed one; without this the line would vanish at the recorded-flight end.
+- `MapRendering_V1_LineContinuesPastRecordedEnd` — in-game; exit mid-flight, return, observe ghost's line persists past the recording's live-flight end and ends at the extrapolated terminus.
+- `MapRendering_V1_ForeignSOISegmentsNotRendered` — fails if the existing single-`OrbitRenderer` accidentally draws multi-body segments simultaneously (v1 stays current-SOI-only; multi-segment chain display is Future).
+
+Note: tests for camera-focus-driven rendering and ancestor-frame transforms belong to the Future renderer phase — not in v1 scope.
 
 ### Synthetic recordings — `Tests/Generators/`
 
@@ -409,7 +399,7 @@ Each injectable via `dotnet test --filter InjectAllRecordings` and verified end-
 - **Q7 background-recorder integration:** n/a; no cross-scene system exists.
 - **Q8 destruction visual FX:** silent disappear. Re-entry FX is deferrable polish.
 - **Q9 `ShouldExtrapolate` guard:** switch on `vessel.situation`. No altitude/speed thresholds.
-- **Q10 map-view rendering:** current-SOI-only, every future coast segment in that SOI drawn simultaneously; foreign-SOI segments and past segments hidden.
+- **Q10 map-view rendering (v1):** existing single-`OrbitRenderer` architecture preserved. Data pool expanded to include predicted/extrapolated segments so the line continues past the recorded flight. Multi-segment chain display + ancestor-frame transforms (the focus+ancestry rule described in Core Principles) target a later phase with a new renderer — out of v1 scope.
 
 ## Open Questions (deferrable)
 
@@ -425,18 +415,26 @@ Each injectable via `dotnet test --filter InjectAllRecordings` and verified end-
 
 Each phase ships as its own PR, testable independently.
 
-1. **Patched-conic snapshot + `isPredicted` field.** `SnapshotPatchedConicChain`, `OrbitSegment.isPredicted`, finalization hook, serialization round-trip tests, in-game test for Mun flyby. Cheapest concrete win; lands first. Eligible for isolated work — does not depend on extrapolator.
-2. **`BallisticExtrapolator` module, pure-static, no integration.** `ShouldExtrapolate` switch, single-body Kepler propagator, SOI handoff, terrain sampling, horizon caps. Unit tests only. No hooks into `ParsekFlight` yet.
-3. **Recording serialization for `TerminalUT` and `ExtrapolatedArcs`.** `.prec` sidecar round-trip tests. Legacy compatibility verified.
-4. **Finalization integration.** Hook `FinalizeRecordingState(isSceneExit: true)` → `SnapshotPatchedConicChain` → `BallisticExtrapolator.Extrapolate`. Assigns `TerminalState.Destroyed` or `Orbiting` plus fields. Log summary line per finalized recording.
-5. **Playback integration for extrapolated arcs.** `ExtrapolatedArcResolver.ResolveAt` for ghost positions during `[lastCoveredUT, terminalUT]`. Ghost despawn at `terminalUT` for `Destroyed`. Attitude frozen to last captured `srfRelRotation`.
-6. **Map-view rendering extension.** Two changes on top of existing rendering: (a) gate rendering by camera-focused body vs. ghost's current SOI (show only when focus is ghost's SOI or an ancestor); (b) for segments whose native body is a descendant of the focused body, sample in native frame and chain-transform positions to the focused body's frame. Past segments hidden per existing convention.
-7. **In-game integration tests + synthetic recordings.** Phase 7 is mostly testing, no new production code.
+1. **Patched-conic snapshot + `isPredicted` field + persistence.** Add `OrbitSegment.isPredicted`. Implement `SnapshotPatchedConicChain`. Bump `RecordingStore.CurrentRecordingFormatVersion` to v5. Update `TrajectorySidecarBinary` to encode/decode the new flag and version-gate the decode path. Update text ConfigNode path for legacy completeness. Binary + text round-trip tests. In-game test for Mun flyby. Lands first.
+2. **`BallisticExtrapolator` module, pure-static, no integration.** `ShouldExtrapolate` switch, single-body Kepler propagator, SOI handoff, terrain sampling, horizon caps. Produces `List<OrbitSegment>` with `isPredicted = true`. Unit tests only. No hooks into `ParsekFlight` yet.
+3. **Finalization integration.** Hook `FinalizeRecordingState(isSceneExit: true)` → `SnapshotPatchedConicChain` → `BallisticExtrapolator.Extrapolate`. Append extrapolator segments to `Recording.OrbitSegments`. Set `Recording.ExplicitEndUT = result.terminalUT`. Set `TerminalStateValue`. Log summary line per finalized recording. No new fields on `Recording`; `ExplicitEndUT` is the authoritative boundary downstream.
+4. **Playback end-of-recording behaviour.** Verify the existing `EndUT` consumers (`GhostPlaybackEngine` end-of-playback, `TimelineBuilder`, watch protection, spawn timing, loop timing) pick up the extrapolated `EndUT` without code change. Add log assertion tests confirming each consumer sees the post-extrapolation `EndUT`.
+5. **Ghost position during extrapolated interval.** Ensure the existing orbit-segment evaluation path (whatever `GhostPlaybackEngine` uses today to get position from an `OrbitSegment`) is exercised by the new `isPredicted = true` segments — they should just work since they're the same type. Add tests. Attitude: freeze last captured `srfRelRotation`.
+6. **Map-view rendering v1 — pool extension only.** No renderer rewrite. Verify the existing single-`OrbitRenderer` path draws from the expanded `OrbitSegments` pool (predicted + extrapolated included) and continues the ghost's current-SOI line past the recorded flight. Past-segments hiding and coast-vs-thrust rules unchanged.
+7. **In-game integration tests + synthetic recordings.** Mostly testing, no new production code.
 8. **Calibration pass** after initial playtests — tune horizon years, capture limit, SOI-sample step if evidence warrants.
 
-Phases 1–6 are production; 7–8 are verification and tuning.
+Phases 1–6 are v1 production; 7–8 are verification and tuning.
 
-No RSW, spawn-queue, or crew-reservation work required — the existing gate and stock events handle `Destroyed` correctly.
+**Out of v1 scope (separate Future phase, not part of this plan):**
+
+- Multi-segment chain display in map view.
+- Camera-focus-driven frame selection with SOI-ancestry gating.
+- Ancestor-frame transforms (Mun-flyby arc rendered in Kerbin frame etc.).
+
+That phase introduces a new polyline-based renderer for ghost trajectories, replacing the single `OrbitRenderer` per ghost. Design deferred — Core Principles captures the target rule so v1 data layout does not block it.
+
+No RSW, spawn-queue, or crew-reservation work required — the existing gate and stock events handle `Destroyed` correctly. No Recording-level `EndUT` threading required — `ExplicitEndUT` is the single source of truth.
 
 ## References
 
