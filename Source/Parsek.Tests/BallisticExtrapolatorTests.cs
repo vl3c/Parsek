@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class BallisticExtrapolatorTests
+    public class BallisticExtrapolatorTests : IDisposable
     {
         private const double KerbinRadius = 600000.0;
         private const double KerbinAtmosphereDepth = 70000.0;
@@ -18,6 +18,22 @@ namespace Parsek.Tests
 
         private const double StarRadius = 1000000.0;
         private const double StarGravParameter = 1.0e14;
+
+        private readonly List<string> logLines = new List<string>();
+
+        public BallisticExtrapolatorTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
 
         [Theory]
         [InlineData((int)Vessel.Situations.LANDED)]
@@ -168,6 +184,8 @@ namespace Parsek.Tests
             Assert.Equal("Kerbin", result.terminalBodyName);
             Assert.True(result.segments[0].isPredicted);
             Assert.InRange(Altitude(result.terminalPosition, KerbinRadius), circularAltitude - 5.0, circularAltitude + 5.0);
+            Assert.Contains(logLines, l => l.Contains("[Extrapolator]") && l.Contains("Start: body=Kerbin"));
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=horizon-cap"));
         }
 
         [Fact]
@@ -263,6 +281,7 @@ namespace Parsek.Tests
             Assert.Equal(ExtrapolationFailureReason.PqsUnavailable, result.failureReason);
             Assert.Equal("Mun", result.terminalBodyName);
             Assert.InRange(Altitude(result.terminalPosition, MunRadius), -1.0, 100.0);
+            Assert.Contains(logLines, l => l.Contains("Surface fallback: body=Mun reason=no-terrain-resolver -> sea-level"));
         }
 
         [Fact]
@@ -329,6 +348,7 @@ namespace Parsek.Tests
             Assert.Equal("Home", result.terminalBodyName);
             Assert.Single(result.segments);
             Assert.Equal(result.segments[0].endUT, result.terminalUT, 6);
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=missing-parent-frame-resolver"));
         }
 
         [Fact]
@@ -353,6 +373,114 @@ namespace Parsek.Tests
             Assert.Empty(result.segments);
             Assert.Equal(123.0, result.terminalUT, 6);
             Assert.Equal("Kerbin", result.terminalBodyName);
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=degenerate-state"));
+        }
+
+        [Fact]
+        public void Extrapolate_ImmediateParentExit_TriggersZeroProgressGuard()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Star"] = MakeBody("Star", StarGravParameter, StarRadius),
+                ["Home"] = MakeBody(
+                    "Home",
+                    KerbinGravParameter,
+                    KerbinRadius,
+                    sphereOfInfluence: KerbinSoi,
+                    parentBodyName: "Star",
+                    parentFrameState: FixedState(
+                        new Vector3d(200000000.0, 0.0, 0.0),
+                        new Vector3d(0.0, 200.0, 0.0)))
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                new BallisticStateVector
+                {
+                    ut = 42.0,
+                    bodyName = "Home",
+                    position = new Vector3d(KerbinSoi + 1000.0, 0.0, 0.0),
+                    velocity = new Vector3d(0.0, 100.0, 0.0)
+                },
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.001,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.Equal(42.0, result.terminalUT, 6);
+            Assert.Equal("Home", result.terminalBodyName);
+            Assert.Empty(result.segments);
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=zero-progress-guard"));
+        }
+
+        [Fact]
+        public void Extrapolate_LongHorizonSeaLevelImpact_NarrowsSurfaceScan()
+        {
+            const double periapsisRadius = MunRadius - 1000.0;
+            const double apoapsisRadius = MunRadius + 5000000.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Mun"] = MakeBody("Mun", MunGravParameter, MunRadius)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeApoapsisState("Mun", apoapsisRadius, periapsisRadius, MunGravParameter),
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.01,
+                    maxSoiTransitions = 2,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.PqsUnavailable, result.failureReason);
+            Assert.InRange(Altitude(result.terminalPosition, MunRadius), -1.0, 100.0);
+            Assert.Contains(logLines, l => l.Contains("Surface scan narrowed: body=Mun reason=sea-level"));
+            Assert.Contains(logLines, l => l.Contains("Surface fallback: body=Mun reason=no-terrain-resolver -> sea-level"));
+        }
+
+        [Fact]
+        public void Extrapolate_SurfaceCoordinatesResolver_OverridesFallbackLatitudeLongitude()
+        {
+            double observedLatitude = 0.0;
+            double observedLongitude = 0.0;
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Mun"] = MakeBody(
+                    "Mun",
+                    MunGravParameter,
+                    MunRadius,
+                    terrainAltitude: (double latitude, double longitude, out double altitude) =>
+                    {
+                        observedLatitude = latitude;
+                        observedLongitude = longitude;
+                        altitude = 2500.0;
+                        return true;
+                    },
+                    surfaceCoordinates: (double ut, Vector3d position, out double latitude, out double longitude) =>
+                    {
+                        latitude = 12.5;
+                        longitude = -45.25;
+                    })
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Mun", MunRadius, altitude: 10000.0, tangentialSpeed: 150.0),
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.01,
+                    maxSoiTransitions = 2,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(12.5, observedLatitude, 6);
+            Assert.Equal(-45.25, observedLongitude, 6);
         }
 
         [Fact]
@@ -403,6 +531,24 @@ namespace Parsek.Tests
             };
         }
 
+        private static BallisticStateVector MakeApoapsisState(
+            string bodyName,
+            double apoapsisRadius,
+            double periapsisRadius,
+            double gravParameter)
+        {
+            double semiMajorAxis = (apoapsisRadius + periapsisRadius) * 0.5;
+            double tangentialSpeed = Math.Sqrt(
+                gravParameter * ((2.0 / apoapsisRadius) - (1.0 / semiMajorAxis)));
+            return new BallisticStateVector
+            {
+                ut = 0.0,
+                bodyName = bodyName,
+                position = new Vector3d(apoapsisRadius, 0.0, 0.0),
+                velocity = new Vector3d(0.0, tangentialSpeed, 0.0)
+            };
+        }
+
         private static ExtrapolationBody MakeBody(
             string name,
             double gravParameter,
@@ -411,7 +557,8 @@ namespace Parsek.Tests
             double sphereOfInfluence = 0.0,
             string parentBodyName = null,
             TerrainAltitudeResolver terrainAltitude = null,
-            ParentFrameStateResolver parentFrameState = null)
+            ParentFrameStateResolver parentFrameState = null,
+            SurfaceCoordinatesResolver surfaceCoordinates = null)
         {
             return new ExtrapolationBody
             {
@@ -422,7 +569,8 @@ namespace Parsek.Tests
                 AtmosphereDepth = atmosphereDepth,
                 SphereOfInfluence = sphereOfInfluence,
                 TerrainAltitude = terrainAltitude,
-                ParentFrameState = parentFrameState
+                ParentFrameState = parentFrameState,
+                SurfaceCoordinates = surfaceCoordinates
             };
         }
 

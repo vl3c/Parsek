@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
 {
     internal delegate bool TerrainAltitudeResolver(double latitude, double longitude, out double altitude);
     internal delegate void ParentFrameStateResolver(double ut, out Vector3d position, out Vector3d velocity);
+    internal delegate void SurfaceCoordinatesResolver(double ut, Vector3d position, out double latitude, out double longitude);
 
     internal enum ExtrapolationFailureReason
     {
@@ -60,12 +62,14 @@ namespace Parsek
         public double SphereOfInfluence;
         public TerrainAltitudeResolver TerrainAltitude;
         public ParentFrameStateResolver ParentFrameState;
+        public SurfaceCoordinatesResolver SurfaceCoordinates;
 
         public bool HasAtmosphere => AtmosphereDepth > 0.0;
     }
 
     internal static class BallisticExtrapolator
     {
+        private const string LogTag = "Extrapolator";
         private const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
         private const double OrbitEpsilon = 1e-9;
         private const double StateVectorEpsilon = 1e-8;
@@ -73,6 +77,8 @@ namespace Parsek
         private const int MaxEncounterSamples = 4096;
         private const int RootRefinementIterations = 48;
         private const double DefaultCutoffSampleStep = 30.0;
+        private const double LocalCutoffDenseWindowSeconds = MaxLocalCutoffSamples * DefaultCutoffSampleStep;
+        private const double ImmediateEventEpsilon = 1e-6;
 
         private enum EventKind
         {
@@ -151,12 +157,27 @@ namespace Parsek
             if (!TryGetBody(bodies, startState.bodyName, out ExtrapolationBody currentBody))
             {
                 result.failureReason = ExtrapolationFailureReason.MissingBody;
+                ParsekLog.Warn(LogTag, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Start rejected: missing body='{0}' at ut={1:F3}",
+                    startState.bodyName ?? "(null)",
+                    startState.ut));
                 return result;
             }
 
             double horizonUT = startState.ut + Math.Max(0.0, limits.maxHorizonYears) * SecondsPerYear;
             var currentState = startState;
             int soiTransitions = 0;
+
+            ParsekLog.Info(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Start: body={0} ut={1:F3} alt={2:F1} horizonUT={3:F3} maxYears={4:F3} maxSoiTransitions={5}",
+                currentBody.Name,
+                startState.ut,
+                Magnitude(startState.position) - currentBody.Radius,
+                horizonUT,
+                Math.Max(0.0, limits.maxHorizonYears),
+                Math.Max(0, limits.maxSoiTransitions)));
 
             while (currentState.ut < horizonUT)
             {
@@ -172,10 +193,19 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = currentState.position;
                     result.terminalVelocity = currentState.velocity;
+                    ParsekLog.Error(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Terminal reason=degenerate-state: body={0} ut={1:F3} pos=({2:F1},{3:F1},{4:F1}) vel=({5:F3},{6:F3},{7:F3})",
+                        currentBody.Name,
+                        currentState.ut,
+                        currentState.position.x,
+                        currentState.position.y,
+                        currentState.position.z,
+                        currentState.velocity.x,
+                        currentState.velocity.y,
+                        currentState.velocity.z));
                     return result;
                 }
-                orbit.BodyRadius = currentBody.Radius;
-
                 orbit.BodyRadius = currentBody.Radius;
 
                 EventCandidate? parentExit = FindParentExit(
@@ -196,7 +226,6 @@ namespace Parsek
                     currentBody,
                     currentState.ut,
                     localCutoffSearchEndUT,
-                    limits,
                     ref result.failureReason);
 
                 double childSearchEndUT = horizonUT;
@@ -221,6 +250,23 @@ namespace Parsek
                     orbit);
 
                 double segmentEndUT = Math.Max(currentState.ut, Math.Min(chosen.UT, horizonUT));
+                if ((chosen.Kind == EventKind.ParentExit || chosen.Kind == EventKind.ChildEntry)
+                    && segmentEndUT <= currentState.ut + ImmediateEventEpsilon)
+                {
+                    result.terminalState = TerminalState.Orbiting;
+                    result.terminalUT = currentState.ut;
+                    result.terminalBodyName = currentBody.Name;
+                    result.terminalPosition = currentState.position;
+                    result.terminalVelocity = currentState.velocity;
+                    ParsekLog.Warn(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Terminal reason=zero-progress-guard: body={0} event={1} ut={2:F6}",
+                        currentBody.Name,
+                        chosen.Kind,
+                        currentState.ut));
+                    return result;
+                }
+
                 result.segments.Add(CreateSegment(orbit, currentBody.Name, currentState.ut, segmentEndUT));
 
                 if (chosen.Kind == EventKind.Destroyed)
@@ -230,6 +276,13 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = chosen.Position;
                     result.terminalVelocity = chosen.Velocity;
+                    ParsekLog.Info(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Terminal reason=cutoff: body={0} ut={1:F3} alt={2:F1} failure={3}",
+                        currentBody.Name,
+                        chosen.UT,
+                        Magnitude(chosen.Position) - currentBody.Radius,
+                        result.failureReason));
                     return result;
                 }
 
@@ -241,6 +294,12 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = horizonPosition;
                     result.terminalVelocity = horizonVelocity;
+                    ParsekLog.Warn(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Terminal reason=horizon-cap: body={0} ut={1:F3} soiTransitions={2}",
+                        currentBody.Name,
+                        segmentEndUT,
+                        soiTransitions));
                     return result;
                 }
 
@@ -252,6 +311,12 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = chosen.Position;
                     result.terminalVelocity = chosen.Velocity;
+                    ParsekLog.Warn(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Terminal reason=soi-transition-cap: body={0} ut={1:F3} soiTransitions={2}",
+                        currentBody.Name,
+                        chosen.UT,
+                        soiTransitions));
                     return result;
                 }
 
@@ -264,6 +329,12 @@ namespace Parsek
                         result.terminalBodyName = currentBody.Name;
                         result.terminalPosition = chosen.Position;
                         result.terminalVelocity = chosen.Velocity;
+                        ParsekLog.Warn(LogTag, string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Terminal reason=missing-parent-body: body={0} parent={1} ut={2:F3}",
+                            currentBody.Name,
+                            currentBody.ParentBodyName ?? "(null)",
+                            chosen.UT));
                         return result;
                     }
                     if (currentBody.ParentFrameState == null)
@@ -274,10 +345,22 @@ namespace Parsek
                         result.terminalBodyName = currentBody.Name;
                         result.terminalPosition = chosen.Position;
                         result.terminalVelocity = chosen.Velocity;
+                        ParsekLog.Warn(LogTag, string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Terminal reason=missing-parent-frame-resolver: body={0} parent={1} ut={2:F3}",
+                            currentBody.Name,
+                            currentBody.ParentBodyName ?? "(null)",
+                            chosen.UT));
                         return result;
                     }
 
                     GetBodyStateRelativeToParent(currentBody, chosen.UT, out Vector3d bodyPosition, out Vector3d bodyVelocity);
+                    ParsekLog.Info(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "SOI transition: child={0} parent={1} ut={2:F3} kind=ParentExit",
+                        currentBody.Name,
+                        parentBody.Name,
+                        chosen.UT));
                     currentState = new BallisticStateVector
                     {
                         ut = chosen.UT,
@@ -292,6 +375,12 @@ namespace Parsek
                 if (chosen.Kind == EventKind.ChildEntry && chosen.ChildBody != null)
                 {
                     GetBodyStateRelativeToParent(chosen.ChildBody, chosen.UT, out Vector3d childPosition, out Vector3d childVelocity);
+                    ParsekLog.Info(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "SOI transition: parent={0} child={1} ut={2:F3} kind=ChildEntry",
+                        currentBody.Name,
+                        chosen.ChildBody.Name,
+                        chosen.UT));
                     currentState = new BallisticStateVector
                     {
                         ut = chosen.UT,
@@ -308,6 +397,12 @@ namespace Parsek
                 result.terminalBodyName = currentBody.Name;
                 result.terminalPosition = chosen.Position;
                 result.terminalVelocity = chosen.Velocity;
+                ParsekLog.Warn(LogTag, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Terminal reason=unexpected-event-fallthrough: body={0} event={1} ut={2:F3}",
+                    currentBody.Name,
+                    chosen.Kind,
+                    segmentEndUT));
                 return result;
             }
 
@@ -316,6 +411,12 @@ namespace Parsek
             result.terminalBodyName = currentBody.Name;
             result.terminalPosition = currentState.position;
             result.terminalVelocity = currentState.velocity;
+            ParsekLog.Warn(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Terminal reason=loop-horizon-exit: body={0} ut={1:F3} soiTransitions={2}",
+                currentBody.Name,
+                horizonUT,
+                soiTransitions));
             return result;
         }
 
@@ -392,31 +493,60 @@ namespace Parsek
             ExtrapolationBody body,
             double startUT,
             double endUT,
-            ExtrapolationLimits limits,
             ref ExtrapolationFailureReason failureReason)
         {
             if (endUT <= startUT)
-                return null;
-
-            List<StateSample> samples = SampleOrbitWindow(
-                orbit,
-                startUT,
-                endUT,
-                DefaultCutoffSampleStep,
-                MaxLocalCutoffSamples);
-
-            if (samples.Count == 0)
                 return null;
 
             if (body.HasAtmosphere)
             {
                 EventCandidate? atmo = FindDescendingAltitudeCrossing(
                     orbit,
-                    samples,
-                    body.AtmosphereDepth);
+                    body,
+                    startUT,
+                    endUT);
                 if (atmo.HasValue)
                     return atmo;
             }
+
+            double sampleStartUT = startUT;
+            double sampleEndUT = endUT;
+            string windowReason = null;
+            if (TryFindDescendingRadiusCrossingUT(orbit, startUT, endUT, body.Radius, out double seaLevelCrossingUT))
+            {
+                sampleStartUT = Math.Max(startUT, seaLevelCrossingUT - LocalCutoffDenseWindowSeconds);
+                sampleEndUT = seaLevelCrossingUT;
+                windowReason = "sea-level";
+            }
+            else if (TryGetNextPeriapsisUT(orbit, startUT, endUT, out double periapsisUT))
+            {
+                sampleStartUT = Math.Max(startUT, periapsisUT - LocalCutoffDenseWindowSeconds);
+                sampleEndUT = periapsisUT;
+                windowReason = "periapsis";
+            }
+
+            if ((sampleStartUT > startUT + OrbitEpsilon || sampleEndUT < endUT - OrbitEpsilon)
+                && !string.IsNullOrEmpty(windowReason))
+            {
+                ParsekLog.Verbose(LogTag, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Surface scan narrowed: body={0} reason={1} scanStartUT={2:F3} scanEndUT={3:F3} requestedEndUT={4:F3}",
+                    body.Name,
+                    windowReason,
+                    sampleStartUT,
+                    sampleEndUT,
+                    endUT));
+            }
+
+            List<StateSample> samples = SampleOrbitWindow(
+                orbit,
+                sampleStartUT,
+                sampleEndUT,
+                DefaultCutoffSampleStep,
+                MaxLocalCutoffSamples);
+
+            if (samples.Count == 0)
+                return null;
 
             return FindSurfaceCrossing(
                 orbit,
@@ -427,41 +557,26 @@ namespace Parsek
 
         private static EventCandidate? FindDescendingAltitudeCrossing(
             TwoBodyOrbit orbit,
-            List<StateSample> samples,
-            double cutoffAltitude)
+            ExtrapolationBody body,
+            double startUT,
+            double endUT)
         {
-            bool wasAbove = samples[0].Altitude > cutoffAltitude;
+            if (!TryFindDescendingRadiusCrossingUT(
+                orbit,
+                startUT,
+                endUT,
+                body.Radius + body.AtmosphereDepth,
+                out double crossingUT))
+                return null;
 
-            for (int i = 1; i < samples.Count; i++)
+            orbit.GetStateAtUT(crossingUT, out Vector3d position, out Vector3d velocity);
+            return new EventCandidate
             {
-                double previous = samples[i - 1].Altitude - cutoffAltitude;
-                double current = samples[i].Altitude - cutoffAltitude;
-
-                if (samples[i].Altitude > cutoffAltitude)
-                    wasAbove = true;
-
-                if (!wasAbove)
-                    continue;
-
-                if (previous > 0.0 && current <= 0.0)
-                {
-                    double crossingUT = RefineCrossing(
-                        ut => GetAltitudeAtUT(orbit, ut) - cutoffAltitude,
-                        samples[i - 1].UT,
-                        samples[i].UT);
-
-                    orbit.GetStateAtUT(crossingUT, out Vector3d position, out Vector3d velocity);
-                    return new EventCandidate
-                    {
-                        Kind = EventKind.Destroyed,
-                        UT = crossingUT,
-                        Position = position,
-                        Velocity = velocity
-                    };
-                }
-            }
-
-            return null;
+                Kind = EventKind.Destroyed,
+                UT = crossingUT,
+                Position = position,
+                Velocity = velocity
+            };
         }
 
         private static EventCandidate? FindSurfaceCrossing(
@@ -521,9 +636,9 @@ namespace Parsek
 
             double step = ComputeStep(startUT, searchEndUT, limits.soiSampleStep, MaxEncounterSamples);
             double previousUT = startUT;
-            double previousValue = Magnitude(orbit.GetPositionAtUT(startUT)) - body.SphereOfInfluence;
+            double startValue = Magnitude(orbit.GetPositionAtUT(startUT)) - body.SphereOfInfluence;
 
-            if (previousValue >= 0.0)
+            if (startValue >= 0.0)
             {
                 orbit.GetStateAtUT(startUT, out Vector3d startPosition, out Vector3d startVelocity);
                 return new EventCandidate
@@ -558,7 +673,6 @@ namespace Parsek
                 }
 
                 previousUT = currentUT;
-                previousValue = currentValue;
                 if (Math.Abs(searchEndUT - currentUT) < OrbitEpsilon)
                     break;
             }
@@ -585,7 +699,14 @@ namespace Parsek
                 if (candidate.SphereOfInfluence <= 0.0)
                     continue;
                 if (candidate.ParentFrameState == null)
+                {
+                    ParsekLog.Verbose(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Child entry candidate rejected: currentBody={0} child={1} missing parent-frame resolver",
+                        currentBody.Name,
+                        candidate.Name));
                     continue;
+                }
 
                 EventCandidate? hit = FindSingleChildEntry(
                     orbit,
@@ -613,9 +734,9 @@ namespace Parsek
         {
             double step = ComputeStep(startUT, endUT, limits.soiSampleStep, MaxEncounterSamples);
             double previousUT = startUT;
-            double previousValue = GetRelativeDistanceToChild(orbit, childBody, startUT) - childBody.SphereOfInfluence;
+            double startValue = GetRelativeDistanceToChild(orbit, childBody, startUT) - childBody.SphereOfInfluence;
 
-            if (previousValue <= 0.0)
+            if (startValue <= 0.0)
             {
                 orbit.GetStateAtUT(startUT, out Vector3d startPosition, out Vector3d startVelocity);
                 return new EventCandidate
@@ -740,18 +861,54 @@ namespace Parsek
             double terrainAltitude = 0.0;
             if (body.TerrainAltitude != null)
             {
-                GetLatitudeLongitude(sample.Position, out double latitude, out double longitude);
+                GetSurfaceCoordinates(body, sample, out double latitude, out double longitude);
                 if (body.TerrainAltitude(latitude, longitude, out double sampledAltitude))
+                {
                     terrainAltitude = Math.Max(0.0, sampledAltitude);
+                }
                 else if (failureReason == ExtrapolationFailureReason.None)
+                {
                     failureReason = ExtrapolationFailureReason.PqsUnavailable;
+                    ParsekLog.Warn(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Surface fallback: body={0} lat={1:F3} lon={2:F3} reason=PQS-unavailable -> sea-level",
+                        body.Name,
+                        latitude,
+                        longitude));
+                }
             }
             else if (failureReason == ExtrapolationFailureReason.None)
             {
                 failureReason = ExtrapolationFailureReason.PqsUnavailable;
+                ParsekLog.Warn(LogTag, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Surface fallback: body={0} reason=no-terrain-resolver -> sea-level",
+                    body.Name));
             }
 
             return sample.Altitude - terrainAltitude;
+        }
+
+        private static void GetSurfaceCoordinates(
+            ExtrapolationBody body,
+            StateSample sample,
+            out double latitude,
+            out double longitude)
+        {
+            if (body != null && body.SurfaceCoordinates != null)
+            {
+                body.SurfaceCoordinates(sample.UT, sample.Position, out latitude, out longitude);
+                return;
+            }
+
+            // Fallback when the caller does not provide a body-fixed transform: treat the
+            // body-centered position vector as the local surface normal. Latitude remains exact
+            // for a spherical body; longitude becomes an inertial-meridian approximation.
+            ParsekLog.VerboseRateLimited(
+                LogTag,
+                $"surface-coords.{body?.Name ?? "(null)"}",
+                $"Surface coordinates fallback: body={body?.Name ?? "(null)"} using inertial longitude approximation");
+            GetApproximateLatitudeLongitude(sample.Position, out latitude, out longitude);
         }
 
         private static double RefineCrossing(
@@ -820,7 +977,7 @@ namespace Parsek
             velocity = Vector3d.zero;
         }
 
-        private static void GetLatitudeLongitude(
+        private static void GetApproximateLatitudeLongitude(
             Vector3d position,
             out double latitude,
             out double longitude)
@@ -828,6 +985,96 @@ namespace Parsek
             double radius = Math.Max(StateVectorEpsilon, Magnitude(position));
             latitude = Math.Asin(Clamp(position.z / radius, -1.0, 1.0)) * Mathf.Rad2Deg;
             longitude = Math.Atan2(position.y, position.x) * Mathf.Rad2Deg;
+        }
+
+        private static bool TryGetNextPeriapsisUT(
+            TwoBodyOrbit orbit,
+            double startUT,
+            double endUT,
+            out double periapsisUT)
+        {
+            periapsisUT = 0.0;
+            double meanMotion = orbit.GetMeanMotion();
+            if (meanMotion <= 0.0)
+                return false;
+
+            double currentMeanAnomaly = orbit.GetMeanAnomalyAtUT(startUT);
+            double deltaTime;
+            if (orbit.IsElliptic)
+            {
+                double deltaMeanAnomaly = currentMeanAnomaly <= OrbitEpsilon
+                    ? 0.0
+                    : (Math.PI * 2.0) - currentMeanAnomaly;
+                deltaTime = deltaMeanAnomaly / meanMotion;
+            }
+            else
+            {
+                if (currentMeanAnomaly > 0.0)
+                    return false;
+
+                deltaTime = -currentMeanAnomaly / meanMotion;
+            }
+
+            periapsisUT = startUT + Math.Max(0.0, deltaTime);
+            return periapsisUT <= endUT + OrbitEpsilon;
+        }
+
+        private static bool TryFindDescendingRadiusCrossingUT(
+            TwoBodyOrbit orbit,
+            double startUT,
+            double endUT,
+            double targetRadius,
+            out double crossingUT)
+        {
+            crossingUT = 0.0;
+            if (targetRadius <= 0.0 || endUT <= startUT)
+                return false;
+
+            double currentRadius = Magnitude(orbit.GetPositionAtUT(startUT));
+            if (currentRadius <= targetRadius + OrbitEpsilon)
+                return false;
+            if (targetRadius < orbit.PeriapsisRadius - OrbitEpsilon)
+                return false;
+
+            double meanMotion = orbit.GetMeanMotion();
+            if (meanMotion <= 0.0)
+                return false;
+
+            if (orbit.IsElliptic)
+            {
+                if (orbit.Eccentricity <= OrbitEpsilon || targetRadius > orbit.ApoapsisRadius + OrbitEpsilon)
+                    return false;
+
+                double cosEccentricAnomaly = Clamp(
+                    (1.0 - (targetRadius / orbit.SemiMajorAxis)) / orbit.Eccentricity,
+                    -1.0,
+                    1.0);
+                double eccentricAnomaly = AcosClamped(cosEccentricAnomaly);
+                double descendingMeanAnomaly = NormalizeAngle(
+                    (Math.PI * 2.0 - eccentricAnomaly) + orbit.Eccentricity * Math.Sin(eccentricAnomaly));
+                double currentMeanAnomaly = orbit.GetMeanAnomalyAtUT(startUT);
+                double deltaMeanAnomaly = descendingMeanAnomaly >= currentMeanAnomaly
+                    ? descendingMeanAnomaly - currentMeanAnomaly
+                    : (Math.PI * 2.0 - currentMeanAnomaly) + descendingMeanAnomaly;
+                crossingUT = startUT + (deltaMeanAnomaly / meanMotion);
+                return crossingUT <= endUT + OrbitEpsilon;
+            }
+
+            if (orbit.Eccentricity <= 1.0 + OrbitEpsilon)
+                return false;
+
+            double coshHyperbolicAnomaly = (1.0 - (targetRadius / orbit.SemiMajorAxis)) / orbit.Eccentricity;
+            if (coshHyperbolicAnomaly < 1.0)
+                return false;
+
+            double hyperbolicAnomaly = Acosh(coshHyperbolicAnomaly);
+            double descendingHyperbolicMeanAnomaly = hyperbolicAnomaly - orbit.Eccentricity * Math.Sinh(hyperbolicAnomaly);
+            double currentHyperbolicMeanAnomaly = orbit.GetMeanAnomalyAtUT(startUT);
+            if (currentHyperbolicMeanAnomaly > descendingHyperbolicMeanAnomaly + OrbitEpsilon)
+                return false;
+
+            crossingUT = startUT + ((descendingHyperbolicMeanAnomaly - currentHyperbolicMeanAnomaly) / meanMotion);
+            return crossingUT <= endUT + OrbitEpsilon;
         }
 
         private static double ComputeStep(
@@ -879,6 +1126,11 @@ namespace Parsek
             return 0.5 * Math.Log((1.0 + value) / (1.0 - value));
         }
 
+        private static double Acosh(double value)
+        {
+            return Math.Log(value + Math.Sqrt((value - 1.0) * (value + 1.0)));
+        }
+
         private struct TwoBodyOrbit
         {
             public double BodyRadius;
@@ -894,6 +1146,33 @@ namespace Parsek
             public double ApoapsisRadius;
             public double Period;
             public bool IsElliptic;
+
+            public double GetMeanMotion()
+            {
+                if (GravitationalParameter <= 0.0 || double.IsNaN(SemiMajorAxis) || double.IsInfinity(SemiMajorAxis))
+                    return 0.0;
+
+                if (IsElliptic)
+                {
+                    return Math.Sqrt(
+                        GravitationalParameter
+                        / (SemiMajorAxis * SemiMajorAxis * SemiMajorAxis));
+                }
+
+                return Math.Sqrt(
+                    GravitationalParameter
+                    / ((-SemiMajorAxis) * (-SemiMajorAxis) * (-SemiMajorAxis)));
+            }
+
+            public double GetMeanAnomalyAtUT(double ut)
+            {
+                double meanMotion = GetMeanMotion();
+                if (meanMotion <= 0.0)
+                    return 0.0;
+
+                double meanAnomaly = MeanAnomalyAtEpoch + meanMotion * (ut - Epoch);
+                return IsElliptic ? NormalizeAngle(meanAnomaly) : meanAnomaly;
+            }
 
             public static bool TryCreate(
                 Vector3d position,
