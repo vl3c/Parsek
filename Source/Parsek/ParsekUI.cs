@@ -21,6 +21,8 @@ namespace Parsek
 
         // Opaque window style (replaces KSP's semi-transparent default)
         private GUIStyle opaqueWindowStyle;
+        private GameScenes opaqueWindowStyleScene;
+        private bool hasOpaqueWindowStyleScene;
 
         // Shared header styles (promoted from CareerStateWindowUI so every window
         // renders section bars and column headers the same way). Lazy-initialized
@@ -413,7 +415,18 @@ namespace Parsek
         private bool EnsureOpaqueWindowStyle(GUISkin skin)
         {
             if (opaqueWindowStyle != null)
-                return true;
+            {
+                if (hasOpaqueWindowStyleScene
+                    && opaqueWindowStyleScene == HighLogic.LoadedScene
+                    && AreAllOpaqueStyleBackgroundsPresent(opaqueWindowStyle))
+                    return true;
+
+                ParsekLog.VerboseRateLimited("UI", "opaque-style-cache-stale",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "ParsekUI: dropping cached opaque style before rebuild (built={0}, current={1})",
+                        opaqueWindowStyleScene, HighLogic.LoadedScene), 1f);
+                ResetCachedWindowStylesForSceneChange();
+            }
 
             if (!IsOpaqueStyleSkinReady(skin))
             {
@@ -433,6 +446,8 @@ namespace Parsek
             opaqueWindowStyle.fontSize = baseFontSize + 2;
             var p = opaqueWindowStyle.padding;
             opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
+            opaqueWindowStyleScene = HighLogic.LoadedScene;
+            hasOpaqueWindowStyleScene = true;
             return true;
         }
 
@@ -441,6 +456,19 @@ namespace Parsek
             return skin != null
                 && skin.window != null
                 && skin.window.normal.background != null;
+        }
+
+        private static bool AreAllOpaqueStyleBackgroundsPresent(GUIStyle style)
+        {
+            return style != null
+                && style.normal.background != null
+                && style.onNormal.background != null
+                && style.focused.background != null
+                && style.onFocused.background != null
+                && style.active.background != null
+                && style.onActive.background != null
+                && style.hover.background != null
+                && style.onHover.background != null;
         }
 
         private static GUIStyle BuildOpaqueWindowStyle(GUIStyle sourceStyle)
@@ -473,6 +501,15 @@ namespace Parsek
             DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
             DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
             opaqueWindowStyle = null;
+            hasOpaqueWindowStyleScene = false;
+        }
+
+        private void ResetCachedWindowStylesForSceneChange()
+        {
+            ClearOpaqueWindowStyle();
+            sharedSectionHeaderStyle = null;
+            sharedColumnHeaderStyle = null;
+            versionStyle = null;
         }
 
         private static void DestroyOpaqueBackground(
@@ -1046,7 +1083,7 @@ namespace Parsek
             careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
-            ClearOpaqueWindowStyle();
+            ResetCachedWindowStylesForSceneChange();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.
         }
