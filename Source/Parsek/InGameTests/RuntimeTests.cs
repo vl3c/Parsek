@@ -579,10 +579,12 @@ namespace Parsek.InGameTests
             float originalThrottle = FlightInputHandler.state.mainThrottle;
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
 
             try
             {
                 ParsekSettings.Current.autoRecordOnLaunch = true;
+                ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 FlightInputHandler.state.mainThrottle = 1f;
@@ -611,6 +613,7 @@ namespace Parsek.InGameTests
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecord;
                 ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
             }
         }
 
@@ -660,10 +663,12 @@ namespace Parsek.InGameTests
             bool originalAutoRecord = ParsekSettings.Current.autoRecordOnEva;
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
 
             try
             {
                 ParsekSettings.Current.autoRecordOnEva = true;
+                ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 try
@@ -705,6 +710,7 @@ namespace Parsek.InGameTests
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoRecordOnEva = originalAutoRecord;
                 ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
             }
         }
 
