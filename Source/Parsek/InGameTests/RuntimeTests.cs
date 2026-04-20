@@ -3790,6 +3790,70 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 follow-up: the test runner draw path must neutralize leaked IMGUI tint
+        /// state so a scene transition cannot leave the window visually transparent.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Window drawing normalizes leaked GUI tint and restores the prior state")]
+        public void WindowDraw_NormalizesGuiTintAndRestoresState()
+        {
+            Color originalColor = new Color(0.2f, 0.3f, 0.4f, 0.25f);
+            Color originalBackground = new Color(0.5f, 0.4f, 0.3f, 0.15f);
+            Color originalContent = new Color(0.6f, 0.7f, 0.8f, 0.35f);
+
+            GUI.color = originalColor;
+            GUI.backgroundColor = originalBackground;
+            GUI.contentColor = originalContent;
+
+            Color observedColor = Color.clear;
+            Color observedBackground = Color.clear;
+            Color observedContent = Color.clear;
+
+            int result = ParsekUI.RunWithNormalizedWindowGuiColors(() =>
+            {
+                observedColor = GUI.color;
+                observedBackground = GUI.backgroundColor;
+                observedContent = GUI.contentColor;
+                GUI.color = Color.red;
+                GUI.backgroundColor = Color.green;
+                GUI.contentColor = Color.blue;
+                return 7;
+            });
+
+            InGameAssert.AreEqual(7, result, "Wrapped callback return value should flow through unchanged");
+            InGameAssert.IsTrue(Mathf.Approximately(observedColor.a, 1f)
+                    && Mathf.Approximately(observedColor.r, 1f)
+                    && Mathf.Approximately(observedColor.g, 1f)
+                    && Mathf.Approximately(observedColor.b, 1f),
+                "Window draw should force GUI.color to opaque white inside the callback");
+            InGameAssert.IsTrue(Mathf.Approximately(observedBackground.a, 1f)
+                    && Mathf.Approximately(observedBackground.r, 1f)
+                    && Mathf.Approximately(observedBackground.g, 1f)
+                    && Mathf.Approximately(observedBackground.b, 1f),
+                "Window draw should force GUI.backgroundColor to opaque white inside the callback");
+            InGameAssert.IsTrue(Mathf.Approximately(observedContent.a, 1f)
+                    && Mathf.Approximately(observedContent.r, 1f)
+                    && Mathf.Approximately(observedContent.g, 1f)
+                    && Mathf.Approximately(observedContent.b, 1f),
+                "Window draw should force GUI.contentColor to opaque white inside the callback");
+            InGameAssert.IsTrue(Mathf.Approximately(GUI.color.r, originalColor.r)
+                    && Mathf.Approximately(GUI.color.g, originalColor.g)
+                    && Mathf.Approximately(GUI.color.b, originalColor.b)
+                    && Mathf.Approximately(GUI.color.a, originalColor.a),
+                "Window draw should restore the previous GUI.color after the callback");
+            InGameAssert.IsTrue(Mathf.Approximately(GUI.backgroundColor.r, originalBackground.r)
+                    && Mathf.Approximately(GUI.backgroundColor.g, originalBackground.g)
+                    && Mathf.Approximately(GUI.backgroundColor.b, originalBackground.b)
+                    && Mathf.Approximately(GUI.backgroundColor.a, originalBackground.a),
+                "Window draw should restore the previous GUI.backgroundColor after the callback");
+            InGameAssert.IsTrue(Mathf.Approximately(GUI.contentColor.r, originalContent.r)
+                    && Mathf.Approximately(GUI.contentColor.g, originalContent.g)
+                    && Mathf.Approximately(GUI.contentColor.b, originalContent.b)
+                    && Mathf.Approximately(GUI.contentColor.a, originalContent.a),
+                "Window draw should restore the previous GUI.contentColor after the callback");
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// This also drives a real stock quickload, so it is intentionally single-run only.

@@ -29,6 +29,8 @@ namespace Parsek.InGameTests
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
         private GUIStyle wrappedTooltipStyle;
+        private GameScenes opaqueStyleScene;
+        private bool hasOpaqueStyleScene;
 
         private bool shortcutHeld;
         private static TestRunnerShortcut instance;
@@ -111,13 +113,14 @@ namespace Parsek.InGameTests
             if (!EnsureOpaqueStyle(GUI.skin))
                 return;
 
-            windowRect = GUILayout.Window(
-                "ParsekTestRunnerGlobal".GetHashCode(),
-                windowRect,
-                DrawWindow,
-                "Parsek - Test Runner",
-                opaqueStyle,
-                GUILayout.Width(DefaultWindowWidth));
+            windowRect = ParsekUI.RunWithNormalizedWindowGuiColors(() =>
+                GUILayout.Window(
+                    "ParsekTestRunnerGlobal".GetHashCode(),
+                    windowRect,
+                    DrawWindow,
+                    "Parsek - Test Runner",
+                    opaqueStyle,
+                    GUILayout.Width(DefaultWindowWidth)));
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
@@ -174,7 +177,18 @@ namespace Parsek.InGameTests
         private bool EnsureOpaqueStyle(GUISkin skin)
         {
             if (opaqueStyle != null)
-                return true;
+            {
+                if (hasOpaqueStyleScene
+                    && opaqueStyleScene == HighLogic.LoadedScene
+                    && AreAllOpaqueStyleBackgroundsPresent(opaqueStyle))
+                    return true;
+
+                ParsekLog.VerboseRateLimited(Tag, "opaque-style-cache-stale",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Test runner: dropping cached opaque style before rebuild (built={0}, current={1})",
+                        opaqueStyleScene, HighLogic.LoadedScene), 1f);
+                ClearOpaqueStyle();
+            }
 
             if (!IsOpaqueStyleSkinReady(skin))
             {
@@ -184,6 +198,8 @@ namespace Parsek.InGameTests
             }
 
             opaqueStyle = BuildOpaqueStyle(skin.window);
+            opaqueStyleScene = HighLogic.LoadedScene;
+            hasOpaqueStyleScene = true;
             return true;
         }
 
@@ -202,6 +218,7 @@ namespace Parsek.InGameTests
             DestroyOpaqueBackground(opaqueStyle.hover.background, destroyedBackgrounds);
             DestroyOpaqueBackground(opaqueStyle.onHover.background, destroyedBackgrounds);
             opaqueStyle = null;
+            hasOpaqueStyleScene = false;
         }
 
         private static bool IsOpaqueStyleSkinReady(GUISkin skin)

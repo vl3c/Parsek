@@ -529,6 +529,42 @@ namespace Parsek
             return opaqueWindowStyle;
         }
 
+        internal static void ResetWindowGuiColors(
+            out Color previousColor,
+            out Color previousBackgroundColor,
+            out Color previousContentColor)
+        {
+            previousColor = GUI.color;
+            previousBackgroundColor = GUI.backgroundColor;
+            previousContentColor = GUI.contentColor;
+            GUI.color = Color.white;
+            GUI.backgroundColor = Color.white;
+            GUI.contentColor = Color.white;
+        }
+
+        internal static void RestoreWindowGuiColors(
+            Color previousColor,
+            Color previousBackgroundColor,
+            Color previousContentColor)
+        {
+            GUI.color = previousColor;
+            GUI.backgroundColor = previousBackgroundColor;
+            GUI.contentColor = previousContentColor;
+        }
+
+        internal static T RunWithNormalizedWindowGuiColors<T>(Func<T> callback)
+        {
+            ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                return callback();
+            }
+            finally
+            {
+                RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
+        }
+
         // ════════════════════════════════════════════════════════════════
         //  Shared header styles (section bars + column headers)
         // ════════════════════════════════════════════════════════════════
