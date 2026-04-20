@@ -115,39 +115,25 @@ internal static List<OrbitSegment> SnapshotPatchedConicChain(Vessel v, int maxPa
 - Override is restored in a `finally` so an exception during `solver.Update()` can't leave the player's setting wrong.
 - If in future we want a user-facing setting, expose `PatchedConicSolverCaptureLimit` in the Settings window under Recording. Not in scope now.
 
-**Maneuver nodes — critical correctness point:**
+**Maneuver nodes — hard rule:**
 
-`patchedConicSolver.nextPatch` traces the chain assuming planned manoeuvre nodes ARE executed. An abandoned ghost executes nothing. Snapshotting a chain that includes unexecuted-burn transitions would show the ghost following a path it cannot physically take.
+Recordings capture actual traversed trajectories, never hypotheticals. An abandoned ghost executes no planned burns. The captured chain must reflect pure-coast continuation from the current state — no manoeuvre-node deltas.
 
-Resolution: before calling `solver.Update()`, clear nodes from a **working copy** of the solver's state (if possible) or temporarily remove them and restore after:
+Simplest implementation: walk `nextPatch` only up to (and not including) the first patch whose `patchEndTransition == Orbit.PatchTransitionType.MANEUVER`. The resulting chain is pure coast by construction. No node mutation, no restore logic, no risk of touching live player state.
 
-```csharp
-var savedNodes = solver.maneuverNodes.ToList();
-try
-{
-    foreach (var node in savedNodes) node.RemoveSelf();
-    solver.Update();
-    // walk patch chain here
-}
-finally
-{
-    // re-add the nodes so the player's state is unchanged if they return to flight.
-    // (In practice this only matters if scene change is somehow cancelled.)
-    foreach (var node in savedNodes) RestoreManeuverNode(solver, node);
-}
-```
-
-If KSP's API doesn't make node removal cheap/safe, alternative: walk the `nextPatch` chain only up to the **first** patch transition caused by a manoeuvre node (detectable via `patch.patchEndTransition == Orbit.PatchTransitionType.MANEUVER`), and stop there. Then hand off to §5 extrapolation from that patch's endpoint without the planned burn delta-v. Choose whichever is safer after prototyping — document the decision in the implementation commit.
+If a later need arises to capture post-burn predictions (e.g. a user-opt-in "show planned path" overlay), build it as a separate capture path — do not conflate with this one.
 
 **Concurrency / state safety:**
 
 `solver.Update()` is synchronous and normally safe at scene-exit time (player is in flight scene, physics still running). Verify no reentrancy hazard by checking call order in `FinalizeRecordingState` — this runs during `OnSceneChangeRequested` before the scene tears down, so the solver is still valid.
 
-### 1. New terminal state: `TerminalState.Destroyed`
+### 1. Terminal state: `TerminalState.Destroyed` (existing)
 
-Extend the enum in `TerminalState.cs`. Semantically: "the vessel would not exist at the recording's nominal end UT because extrapolation predicts destruction before that UT." Used both for atmo-entry destruction and ground impact.
+`TerminalState.Destroyed` already exists in `TerminalState.cs:9` and is already gated out of the Real Spawn Control candidate list by `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) alongside `Recovered`, `Docked`, `Boarded`, `SubOrbital`. This plan reuses the existing state — no enum change needed.
 
-**Ghost spawn behaviour for `Destroyed`:** do not spawn a ghost at the terminal UT. The ghost is visible during `[lastCoveredUT, destructionUT]` while playing the extrapolated arc, then is removed from the scene.
+Semantically for this plan: "the vessel would not exist at the recording's nominal end UT because extrapolation predicts destruction before that UT." Assigned when an extrapolated arc crosses the body's atmosphere or ground.
+
+**Ghost spawn behaviour for `Destroyed`:** already handled — `ShouldSpawnAtRecordingEnd` returns `(false, "terminal state Destroyed")`. The ghost is visible during `[lastCoveredUT, destructionUT]` while playing the extrapolated arc, then is removed from the scene. It never appears in Real Spawn Control, never triggers RSW spawn.
 
 ### 2. New module: `BallisticExtrapolator`
 
@@ -318,7 +304,7 @@ In the recording format:
 - `ExtrapolatedArcs` (list of `OrbitArc`) — serialise as child ConfigNodes in the `.prec` sidecar.
 - `OrbitSegment.isPredicted` (bool) — marks segments captured from `patchedConicSolver` at scene exit vs segments traversed during recording. Used by playback to style/log them differently and by mid-recording refresh logic to know which segments are safe to discard when re-snapshotting.
 
-`TerminalState` enum gains `Destroyed`. Format version bumps; no legacy migration per the `Format v0 reset` policy in memory.
+`TerminalState` enum already has `Destroyed` — no enum change. Format version bumps for the new serialised fields; no legacy migration per the `Format v0 reset` policy in memory.
 
 ## Edge Cases
 
@@ -416,14 +402,15 @@ Rough phases; each lands as its own PR.
 
 1. **Patched-conic snapshot** — `SnapshotPatchedConicChain` + `OrbitSegment.isPredicted` + unit / in-game tests. Lands first because it's the cheapest real improvement and unblocks everything else.
 2. `BallisticExtrapolator` module + unit tests (no integration).
-3. `TerminalState.Destroyed` enum value + serialisation.
-4. `ExtrapolatedArcs` storage in recording + ConfigNode round-trip tests.
-5. Finalization integration (hook into `FinalizeIndividualRecording`, wire snapshot → extrapolator pickup).
-6. Playback integration (arc rendering + destroyed-state spawn suppression).
-7. RSW / spawn-queue awareness of `Destroyed`.
-8. In-game tests + synthetic recordings.
-9. Threshold calibration pass after first real-use feedback.
-10. (Deferred) Mid-recording refresh of the patched snapshot on SOI change / node edit.
+3. `ExtrapolatedArcs` storage in recording + ConfigNode round-trip tests.
+4. Finalization integration (hook into `FinalizeIndividualRecording`, wire snapshot → extrapolator pickup, assign `TerminalState.Destroyed` on atmo/ground hit).
+5. Playback integration (arc rendering during `[lastCoveredUT, terminalUT]`, ghost despawn at `terminalUT`).
+6. Spawn-queue awareness of `Destroyed` in `ParsekPlaybackPolicy`.
+7. In-game tests + synthetic recordings.
+8. Threshold calibration pass after first real-use feedback.
+9. (Deferred) Mid-recording refresh of the patched snapshot on SOI change / node edit.
+
+Note: RSW visibility needs no changes — `Destroyed` is already blocked by `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` at `GhostPlaybackLogic.cs:3636`.
 
 ## References
 
