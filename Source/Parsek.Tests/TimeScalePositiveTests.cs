@@ -109,6 +109,24 @@ namespace Parsek.Tests
                     new RuntimeTests.TimeScalePositiveProbeSample
                     {
                         TimeScale = 0f,
+                        FlightDriverPause = null,
+                    },
+                });
+
+            Assert.Equal(
+                RuntimeTests.TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable,
+                outcome);
+        }
+
+        [Fact]
+        public void ClassifyTimeScalePositiveSamples_PrefersStockPauseWhenConfirmedPauseExists()
+        {
+            var outcome = RuntimeTests.ClassifyTimeScalePositiveSamples(
+                new List<RuntimeTests.TimeScalePositiveProbeSample>
+                {
+                    new RuntimeTests.TimeScalePositiveProbeSample
+                    {
+                        TimeScale = 0f,
                         FlightDriverPause = true,
                     },
                     new RuntimeTests.TimeScalePositiveProbeSample
@@ -118,9 +136,7 @@ namespace Parsek.Tests
                     },
                 });
 
-            Assert.Equal(
-                RuntimeTests.TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable,
-                outcome);
+            Assert.Equal(RuntimeTests.TimeScalePositiveProbeOutcome.SkipStockPause, outcome);
         }
 
         [Fact]

@@ -399,6 +399,7 @@ namespace Parsek.InGameTests
 
             bool sawPositiveTimeScale = false;
             bool sawPauseProbeUnavailable = false;
+            bool sawConfirmedStockPause = false;
             for (int i = 0; i < samples.Count; i++)
             {
                 if (samples[i].TimeScale > TimeScalePositiveThreshold)
@@ -410,9 +411,16 @@ namespace Parsek.InGameTests
                 if (samples[i].FlightDriverPause == false)
                     return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
 
-                if (!samples[i].FlightDriverPause.HasValue)
+                if (samples[i].FlightDriverPause == true)
+                    sawConfirmedStockPause = true;
+                else if (!samples[i].FlightDriverPause.HasValue)
                     sawPauseProbeUnavailable = true;
             }
+
+            if (sawConfirmedStockPause)
+                return sawPositiveTimeScale
+                    ? TimeScalePositiveProbeOutcome.Passed
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
 
             if (sawPauseProbeUnavailable)
                 return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
