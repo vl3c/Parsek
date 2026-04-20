@@ -1801,11 +1801,18 @@ namespace Parsek
         /// FLIGHT baseline quickload restore so the next OnLoad uses the cold-load
         /// path and rebuilds Parsek state from the restored save + sidecars.
         /// </summary>
-        internal static void PrepareForIsolatedBatchFlightBaselineRestore()
+        internal void UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore()
+        {
+            stateRecorder?.Unsubscribe();
+        }
+
+        internal static void PrepareForIsolatedBatchFlightBaselineRestore(
+            Action unsubscribeLiveRecorder = null)
         {
             ParsekLog.Info("Scenario",
                 "Preparing save-scoped state for isolated FLIGHT batch baseline restore");
 
+            unsubscribeLiveRecorder?.Invoke();
             initialLoadDone = false;
             budgetDeductionEpoch = 0;
             mergeDialogPending = false;

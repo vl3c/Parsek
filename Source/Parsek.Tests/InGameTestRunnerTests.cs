@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Parsek.InGameTests;
 using Xunit;
@@ -168,6 +169,66 @@ namespace Parsek.Tests
                 hasSortRoutine);
 
             Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void CreateBatchFlightParsekSaveSnapshotStaging_MissingSnapshot_DoesNotTouchCurrentDirectory()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "parsek-staging-test-" + Guid.NewGuid().ToString("N"));
+            string currentDirectory = Path.Combine(root, "Parsek");
+            string currentFile = Path.Combine(currentDirectory, "state.txt");
+            try
+            {
+                Directory.CreateDirectory(currentDirectory);
+                File.WriteAllText(currentFile, "live");
+
+                Assert.ThrowsAny<Exception>(() =>
+                    InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(
+                        currentDirectory,
+                        Path.Combine(root, "missing-snapshot")));
+
+                Assert.True(Directory.Exists(currentDirectory));
+                Assert.Equal("live", File.ReadAllText(currentFile));
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                    Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void CreateBatchFlightParsekSaveSnapshotStaging_Activate_ReplacesCurrentDirectoryOnlyWhenInvoked()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "parsek-staging-test-" + Guid.NewGuid().ToString("N"));
+            string currentDirectory = Path.Combine(root, "Parsek");
+            string snapshotDirectory = Path.Combine(root, "ParsekSnapshot");
+            string currentFile = Path.Combine(currentDirectory, "state.txt");
+            string snapshotFile = Path.Combine(snapshotDirectory, "state.txt");
+            try
+            {
+                Directory.CreateDirectory(currentDirectory);
+                Directory.CreateDirectory(snapshotDirectory);
+                File.WriteAllText(currentFile, "live");
+                File.WriteAllText(snapshotFile, "baseline");
+
+                using (var staged = InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(
+                    currentDirectory,
+                    snapshotDirectory))
+                {
+                    Assert.Equal("live", File.ReadAllText(currentFile));
+
+                    staged.Activate();
+
+                    Assert.True(Directory.Exists(currentDirectory));
+                    Assert.Equal("baseline", File.ReadAllText(currentFile));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                    Directory.Delete(root, recursive: true);
+            }
         }
 
         // ---- FormatResultsReport: multi-scene accumulation (per-scene history) ----

@@ -89,6 +89,75 @@ namespace Parsek.InGameTests
             public Vessel.Situations ActiveVesselSituation;
         }
 
+        internal sealed class StagedBatchFlightParsekSaveSnapshot : IDisposable
+        {
+            private readonly string currentParsekSaveDirectory;
+            private readonly string restoreStagingDirectory;
+            private readonly string backupDirectory;
+            private bool currentMovedToBackup;
+            private bool activated;
+
+            internal StagedBatchFlightParsekSaveSnapshot(
+                string currentParsekSaveDirectory,
+                string restoreStagingDirectory,
+                string backupDirectory)
+            {
+                this.currentParsekSaveDirectory = currentParsekSaveDirectory;
+                this.restoreStagingDirectory = restoreStagingDirectory;
+                this.backupDirectory = backupDirectory;
+            }
+
+            internal void Activate()
+            {
+                if (activated)
+                    return;
+
+                bool stagedSnapshotMovedIntoPlace = false;
+                try
+                {
+                    if (Directory.Exists(currentParsekSaveDirectory))
+                    {
+                        DeleteDirectoryRecursive(backupDirectory);
+                        Directory.Move(currentParsekSaveDirectory, backupDirectory);
+                        currentMovedToBackup = true;
+                    }
+
+                    Directory.Move(restoreStagingDirectory, currentParsekSaveDirectory);
+                    stagedSnapshotMovedIntoPlace = true;
+                    activated = true;
+
+                    if (currentMovedToBackup)
+                        DeleteDirectoryRecursive(backupDirectory);
+                }
+                catch
+                {
+                    if (stagedSnapshotMovedIntoPlace && Directory.Exists(currentParsekSaveDirectory))
+                    {
+                        TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
+                    }
+
+                    if (currentMovedToBackup && Directory.Exists(backupDirectory))
+                    {
+                        if (Directory.Exists(currentParsekSaveDirectory))
+                            TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
+
+                        Directory.Move(backupDirectory, currentParsekSaveDirectory);
+                    }
+
+                    throw;
+                }
+            }
+
+            public void Dispose()
+            {
+                if (Directory.Exists(restoreStagingDirectory))
+                    TryDeleteDirectoryRecursive(restoreStagingDirectory);
+
+                if (Directory.Exists(backupDirectory))
+                    TryDeleteDirectoryRecursive(backupDirectory);
+            }
+        }
+
         private List<InGameTestInfo> allTests;
         private readonly List<GameObject> cleanupRegistry = new List<GameObject>();
         private MonoBehaviour coroutineHost;
@@ -827,8 +896,16 @@ namespace Parsek.InGameTests
         private IEnumerator RestoreBatchFlightBaselineCore(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
-            ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore();
-            RestoreBatchFlightParsekSaveSnapshot(baseline);
+            using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
+            {
+                var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
+                    as ParsekScenario;
+                ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
+                    currentScenario != null
+                        ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
+                        : null);
+                stagedSnapshot.Activate();
+            }
             Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
             yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                 previousFlightInstanceId, timeoutSeconds: 15f);
@@ -854,20 +931,31 @@ namespace Parsek.InGameTests
             TryDeleteDirectoryRecursive(batchFlightBaseline.ParsekSaveSnapshotDirectory);
         }
 
-        private static void RestoreBatchFlightParsekSaveSnapshot(FlightBatchBaselineState baseline)
+        private static StagedBatchFlightParsekSaveSnapshot CreateBatchFlightParsekSaveSnapshotStaging(
+            FlightBatchBaselineState baseline)
         {
-            if (baseline == null)
-                return;
-
             string currentParsekSaveDirectory = RecordingPaths.ResolveSaveScopedPath("Parsek");
             InGameAssert.IsTrue(!string.IsNullOrEmpty(currentParsekSaveDirectory),
                 "Automatic FLIGHT batch restore requires a resolvable save-scoped Parsek directory.");
-            InGameAssert.IsTrue(!string.IsNullOrEmpty(baseline.ParsekSaveSnapshotDirectory),
+            InGameAssert.IsNotNull(baseline,
+                "Automatic FLIGHT batch restore requires captured baseline metadata.");
+            return CreateBatchFlightParsekSaveSnapshotStaging(
+                currentParsekSaveDirectory,
+                baseline.ParsekSaveSnapshotDirectory);
+        }
+
+        internal static StagedBatchFlightParsekSaveSnapshot CreateBatchFlightParsekSaveSnapshotStaging(
+            string currentParsekSaveDirectory,
+            string snapshotDirectory)
+        {
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(currentParsekSaveDirectory),
+                "Automatic FLIGHT batch restore requires a resolvable save-scoped Parsek directory.");
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(snapshotDirectory),
                 "Automatic FLIGHT batch restore requires a captured Parsek save snapshot directory.");
-            if (!Directory.Exists(baseline.ParsekSaveSnapshotDirectory))
+            if (!Directory.Exists(snapshotDirectory))
             {
                 InGameAssert.Skip(
-                    $"Automatic FLIGHT batch restore skipped: Parsek save snapshot '{baseline.ParsekSaveSnapshotDirectory}' was missing");
+                    $"Automatic FLIGHT batch restore skipped: Parsek save snapshot '{snapshotDirectory}' was missing");
             }
 
             string parentDirectory = Path.GetDirectoryName(currentParsekSaveDirectory);
@@ -875,56 +963,27 @@ namespace Parsek.InGameTests
                 "Automatic FLIGHT batch restore requires a Parsek save directory parent.");
             Directory.CreateDirectory(parentDirectory);
 
-            string restoreStagingDirectory =
-                CreateBatchFlightTempSiblingDirectory(currentParsekSaveDirectory, "restore");
-            string backupDirectory =
-                CreateBatchFlightTempSiblingDirectory(currentParsekSaveDirectory, "backup");
-            bool currentMovedToBackup = false;
-            bool stagedSnapshotMovedIntoPlace = false;
+            string restoreStagingDirectory = CreateBatchFlightTempSiblingDirectory(
+                currentParsekSaveDirectory, "restore");
+            string backupDirectory = CreateBatchFlightTempSiblingDirectory(
+                currentParsekSaveDirectory, "backup");
 
             try
             {
-                CopyDirectoryRecursive(baseline.ParsekSaveSnapshotDirectory, restoreStagingDirectory);
-
-                if (Directory.Exists(currentParsekSaveDirectory))
-                {
-                    DeleteDirectoryRecursive(backupDirectory);
-                    Directory.Move(currentParsekSaveDirectory, backupDirectory);
-                    currentMovedToBackup = true;
-                }
-
-                Directory.Move(restoreStagingDirectory, currentParsekSaveDirectory);
-                stagedSnapshotMovedIntoPlace = true;
-
-                if (currentMovedToBackup)
-                    DeleteDirectoryRecursive(backupDirectory);
+                CopyDirectoryRecursive(snapshotDirectory, restoreStagingDirectory);
             }
             catch
             {
-                if (stagedSnapshotMovedIntoPlace && Directory.Exists(currentParsekSaveDirectory))
-                {
-                    TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
-                }
-                else if (Directory.Exists(restoreStagingDirectory))
-                {
+                if (Directory.Exists(restoreStagingDirectory))
                     TryDeleteDirectoryRecursive(restoreStagingDirectory);
-                }
-
-                if (currentMovedToBackup && Directory.Exists(backupDirectory))
-                {
-                    if (Directory.Exists(currentParsekSaveDirectory))
-                        TryDeleteDirectoryRecursive(currentParsekSaveDirectory);
-
-                    Directory.Move(backupDirectory, currentParsekSaveDirectory);
-                }
 
                 throw;
             }
-            finally
-            {
-                if (Directory.Exists(restoreStagingDirectory))
-                    TryDeleteDirectoryRecursive(restoreStagingDirectory);
-            }
+
+            return new StagedBatchFlightParsekSaveSnapshot(
+                currentParsekSaveDirectory,
+                restoreStagingDirectory,
+                backupDirectory);
         }
 
         private static string CreateBatchFlightTempSiblingDirectory(string currentParsekSaveDirectory, string suffix)

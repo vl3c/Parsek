@@ -199,8 +199,21 @@ namespace Parsek.Tests
             ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
                 ParsekScenario.ActiveTreeRestoreMode.Quickload;
 
-            ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore();
+            bool unsubscribeCalled = false;
+            bool stateStillPopulatedDuringUnsubscribe = false;
 
+            ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(() =>
+            {
+                unsubscribeCalled = true;
+                stateStillPopulatedDuringUnsubscribe =
+                    RecordingStore.CommittedRecordings.Count > 0
+                    && RecordingStore.HasPendingTree
+                    && GameStateStore.EventCount > 0
+                    && GameStateRecorder.PendingScienceSubjects.Count > 0;
+            });
+
+            Assert.True(unsubscribeCalled);
+            Assert.True(stateStillPopulatedDuringUnsubscribe);
             Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "initialLoadDone"));
             Assert.Equal((uint)0, (uint)GetPrivateStaticField(typeof(ParsekScenario), "budgetDeductionEpoch"));
             Assert.False((bool)GetPrivateStaticField(typeof(ParsekScenario), "vesselSwitchPending"));
