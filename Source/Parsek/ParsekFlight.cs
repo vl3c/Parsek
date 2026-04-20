@@ -6723,13 +6723,19 @@ namespace Parsek
                 ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
                 : null;
             bool sceneExitLifetimeExtended = false;
+            bool sceneExitSuppliedSnapshots = false;
             if (isSceneExit)
             {
+                ConfigNode vesselSnapshotBefore = activeRec.VesselSnapshot;
+                ConfigNode ghostVisualSnapshotBefore = activeRec.GhostVisualSnapshot;
                 sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
                     activeRec,
                     v,
                     commitUT,
                     "EnsureActiveRecordingTerminalState");
+                sceneExitSuppliedSnapshots =
+                    !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
+                    || !ReferenceEquals(ghostVisualSnapshotBefore, activeRec.GhostVisualSnapshot);
                 if (sceneExitLifetimeExtended)
                 {
                     if (activeRec.TerminalStateValue.HasValue
@@ -6740,7 +6746,7 @@ namespace Parsek
                         activeRec.TerminalOrbitBody = null;
                         PopulateTerminalOrbitFromLastSegment(activeRec);
                     }
-                    return true;
+                    return sceneExitSuppliedSnapshots;
                 }
             }
 
@@ -6866,6 +6872,7 @@ namespace Parsek
                 ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
                 : null;
             bool sceneExitLifetimeExtended = false;
+            bool sceneExitSuppliedSnapshots = false;
 
             if (isLeaf && rec.VesselPersistentId != 0 && finalizeVessel == null)
                 ParsekLog.Verbose("Flight",
@@ -6874,11 +6881,16 @@ namespace Parsek
 
             if (isLeaf && isSceneExit && !rec.TerminalStateValue.HasValue)
             {
+                ConfigNode vesselSnapshotBefore = rec.VesselSnapshot;
+                ConfigNode ghostVisualSnapshotBefore = rec.GhostVisualSnapshot;
                 sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
                     rec,
                     finalizeVessel,
                     commitUT,
                     "FinalizeIndividualRecording");
+                sceneExitSuppliedSnapshots =
+                    !ReferenceEquals(vesselSnapshotBefore, rec.VesselSnapshot)
+                    || !ReferenceEquals(ghostVisualSnapshotBefore, rec.GhostVisualSnapshot);
             }
 
             // Determine terminal state for recordings that don't have one yet
@@ -6953,7 +6965,7 @@ namespace Parsek
             // active recording) so the gate above is skipped — but the snapshot is still stale".
             //
             // Reuses finalizeVessel from the lookup above — no double FindVesselByPid.
-            if (!sceneExitLifetimeExtended
+            if (!(sceneExitLifetimeExtended && sceneExitSuppliedSnapshots)
                 && isLeaf
                 && rec.TerminalStateValue.HasValue
                 && finalizeVessel != null)
@@ -7040,7 +7052,7 @@ namespace Parsek
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
                 $"maxDist={rec.MaxDistanceFromLaunch:F0}m " +
                 $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
-            return sceneExitLifetimeExtended;
+            return sceneExitLifetimeExtended && sceneExitSuppliedSnapshots;
         }
 
         /// <summary>

@@ -15,6 +15,10 @@ namespace Parsek
         public List<OrbitSegment> appendedOrbitSegments;
         public int patchedSegmentCount;
         public int extrapolatedSegmentCount;
+        public ConfigNode vesselSnapshot;
+        public ConfigNode ghostVisualSnapshot;
+        public SurfacePosition? terminalPosition;
+        public double? terrainHeightAtEnd;
     }
 
     internal static class IncompleteBallisticSceneExitFinalizer
@@ -92,10 +96,30 @@ namespace Parsek
             recording.TerminalStateValue = result.terminalState;
             recording.ExplicitEndUT = result.terminalUT;
 
-            if (result.terminalState != TerminalState.Landed
-                && result.terminalState != TerminalState.Splashed)
+            if (result.vesselSnapshot != null)
+            {
+                recording.VesselSnapshot = result.vesselSnapshot.CreateCopy();
+                recording.GhostVisualSnapshot = result.ghostVisualSnapshot != null
+                    ? result.ghostVisualSnapshot.CreateCopy()
+                    : recording.VesselSnapshot.CreateCopy();
+            }
+            else if (result.ghostVisualSnapshot != null)
+            {
+                recording.GhostVisualSnapshot = result.ghostVisualSnapshot.CreateCopy();
+            }
+
+            if (result.terminalState == TerminalState.Landed
+                || result.terminalState == TerminalState.Splashed)
+            {
+                recording.TerminalPosition = result.terminalPosition;
+                recording.TerrainHeightAtEnd = result.terrainHeightAtEnd.HasValue
+                    ? result.terrainHeightAtEnd.Value
+                    : double.NaN;
+            }
+            else
             {
                 recording.TerminalPosition = null;
+                recording.TerrainHeightAtEnd = double.NaN;
             }
 
             recording.MarkFilesDirty();

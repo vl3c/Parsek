@@ -37,6 +37,8 @@ namespace Parsek.Tests
                         terminalUT = 420.0,
                         patchedSegmentCount = 1,
                         extrapolatedSegmentCount = 1,
+                        vesselSnapshot = MakeSnapshot("ORBITING"),
+                        ghostVisualSnapshot = MakeSnapshot("ORBITING"),
                         appendedOrbitSegments = new List<OrbitSegment>
                         {
                             new OrbitSegment
@@ -88,6 +90,9 @@ namespace Parsek.Tests
             Assert.Equal(420.0, rec.ExplicitEndUT);
             Assert.Equal(420.0, rec.EndUT);
             Assert.Equal(3, rec.OrbitSegments.Count);
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.Equal("ORBITING", rec.VesselSnapshot.GetValue("sit"));
             Assert.Equal("Kerbin", rec.TerminalOrbitBody);
             Assert.Equal(910000.0, rec.TerminalOrbitSemiMajorAxis);
             Assert.Equal(0.23, rec.TerminalOrbitEccentricity);
@@ -112,6 +117,7 @@ namespace Parsek.Tests
                         terminalUT = 350.0,
                         patchedSegmentCount = 1,
                         extrapolatedSegmentCount = 0,
+                        vesselSnapshot = MakeSnapshot("ORBITING"),
                         appendedOrbitSegments = new List<OrbitSegment>
                         {
                             new OrbitSegment
@@ -159,6 +165,66 @@ namespace Parsek.Tests
             Assert.Equal("Mun", active.TerminalOrbitBody);
             Assert.Equal(250000.0, active.TerminalOrbitSemiMajorAxis);
             Assert.True(active.FilesDirty);
+            Assert.NotNull(active.VesselSnapshot);
+            Assert.Equal("ORBITING", active.VesselSnapshot.GetValue("sit"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_SceneExitHook_SurfaceEndpointPopulatesSurfaceMetadata()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Landed,
+                        terminalUT = 260.0,
+                        vesselSnapshot = MakeSnapshot("LANDED"),
+                        terminalPosition = new SurfacePosition
+                        {
+                            body = "Kerbin",
+                            latitude = 1.25,
+                            longitude = -74.5,
+                            altitude = 12.0,
+                            rotation = UnityEngine.Quaternion.identity,
+                            situation = SurfaceSituation.Landed
+                        },
+                        terrainHeightAtEnd = 8.5
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-landed",
+                VesselName = "Tail Test",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                ExplicitEndUT = double.NaN,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 999.0,
+                    rotation = UnityEngine.Quaternion.identity,
+                    situation = SurfaceSituation.Landed
+                },
+                TerrainHeightAtEnd = 999.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            bool skipLiveResnapshot = ParsekFlight.FinalizeIndividualRecording(
+                rec, commitUT: 200.0, isSceneExit: true);
+
+            Assert.True(skipLiveResnapshot);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.Equal(260.0, rec.ExplicitEndUT);
+            Assert.True(rec.TerminalPosition.HasValue);
+            Assert.Equal(12.0, rec.TerminalPosition.Value.altitude);
+            Assert.Equal(8.5, rec.TerrainHeightAtEnd);
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.Equal("LANDED", rec.VesselSnapshot.GetValue("sit"));
         }
 
         [Fact]
@@ -205,6 +271,13 @@ namespace Parsek.Tests
                 l.Contains("active effective leaf 'active-tail'") &&
                 l.Contains("uses scene-exit extended lifetime") &&
                 l.Contains("skipping live re-snapshot"));
+        }
+
+        private static ConfigNode MakeSnapshot(string sit)
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("sit", sit);
+            return node;
         }
     }
 }
