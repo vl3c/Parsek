@@ -1797,6 +1797,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// In-game test helper: clears save-scoped in-memory state before an isolated
+        /// FLIGHT baseline quickload restore so the next OnLoad uses the cold-load
+        /// path and rebuilds Parsek state from the restored save + sidecars.
+        /// </summary>
+        internal static void PrepareForIsolatedBatchFlightBaselineRestore()
+        {
+            ParsekLog.Info("Scenario",
+                "Preparing save-scoped state for isolated FLIGHT batch baseline restore");
+
+            initialLoadDone = false;
+            budgetDeductionEpoch = 0;
+            mergeDialogPending = false;
+            pendingActiveTreeResumeRewindSave = null;
+            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
+            vesselSwitchPending = false;
+            vesselSwitchPendingFrame = -1;
+
+            RecordingStore.ResetForTesting();
+            GroupHierarchyStore.ResetForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateRecorder.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            RevertDetector.ResetForTesting();
+        }
+
+        /// <summary>
         /// Clears pending trees and stale rewind flags that may have leaked from a
         /// previous save. Static fields survive scene changes, so without this cleanup,
         /// pending state from save A would be auto-committed into save B's timeline.

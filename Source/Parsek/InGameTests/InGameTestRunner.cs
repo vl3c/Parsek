@@ -827,6 +827,7 @@ namespace Parsek.InGameTests
         private IEnumerator RestoreBatchFlightBaselineCore(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
+            ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore();
             RestoreBatchFlightParsekSaveSnapshot(baseline);
             Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
             yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
