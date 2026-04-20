@@ -20,9 +20,12 @@ This plan covers **only the uncovered tail** of an incomplete recording where no
 
 1. Recorded flight frames (highest).
 2. Background-recorder data (if enabled, for the gap it covers).
-3. Kepler extrapolation (this plan) for the remaining uncovered interval.
+3. **KSP patched-conic snapshot** — `vessel.patchedConicSolver`'s pre-computed chain of future patches captured at scene exit (flyby deflections, SOI captures, solver-computed maneuver-node chains).
+4. Kepler extrapolation (this plan) for intervals past the end of the patched chain.
 
-The gap check is **per-segment**, not per-recording — if the background recorder dropped out partway or started late, extrapolate only still-uncovered sub-intervals.
+The gap check is **per-segment**, not per-recording — if the background recorder dropped out partway or started late, fill with the next source in the precedence list only for still-uncovered sub-intervals.
+
+Rationale for (3): KSP's solver already computes flyby deflections, SOI captures, and manoeuvre-node chains using its authoritative patched-conics algorithm. Snapshotting that chain at scene exit gives the ghost a trajectory in map view that matches what the player saw, avoids us re-implementing flyby detection in §5 for cases where KSP already did the work, and produces stable multi-link chains. Extrapolation (4) only fires past the end of the snapshotted chain — typically for short-horizon solver cases or when the chain stops before a natural terminus.
 
 ## Solution
 
@@ -48,6 +51,97 @@ Regime is chosen from the last-frame **state** (altitude, velocity, body), not f
 | **Unbounded / horizon-cap** | Arc never re-encounters a body within N years / M SOI transitions | `Orbiting` (at horizon state) | Ghost spawns normally at horizon state |
 
 ## Detailed Design
+
+### 0. Snapshot the KSP patched-conic chain at scene exit
+
+Parsek today captures only the vessel's **current** orbit in `FlightRecorder.CreateOrbitSegmentFromVessel` (`FlightRecorder.cs:2247-2261`). There are zero references to `patchedConicSolver`, `nextPatch`, or `maxGeometryPatches` in the codebase — KSP's pre-computed flyby / capture chain is completely ignored. This plan changes that.
+
+**Trigger points for snapshot:**
+
+- Primary: scene-exit finalization (`FinalizeRecordingState` → new `SnapshotPatchedConicChain` call before `OrbitSegments.Add`).
+- Also useful: on SOI change (`OnVesselSOIChanged`) to refresh the chain, since the newly-entered SOI re-plans downstream patches.
+- Also useful: on manoeuvre node add/edit/delete, since these re-plan the chain. Cheapest observation hook is `GameEvents.onManeuverAdded` / `onManeuverRemoved` / `onManeuverNodeSelected` equivalent.
+
+Start with scene-exit only (smallest surface area, covers the user's motivating case); add mid-recording refresh hooks in a follow-up once the storage layer is stable.
+
+**Chain walk:**
+
+```csharp
+internal static List<OrbitSegment> SnapshotPatchedConicChain(Vessel v, int maxPatches)
+{
+    var result = new List<OrbitSegment>();
+    var solver = v.patchedConicSolver;
+    if (solver == null) return result;  // no chain available (on rails / no CommNet-equivalent check)
+
+    // Ensure solver has computed enough patches. `maxGeometryPatches` defaults to
+    // whatever the player set in settings; temporarily raise for capture.
+    int savedLimit = solver.maxGeometryPatches;
+    try
+    {
+        solver.maxGeometryPatches = Math.Max(savedLimit, maxPatches);
+        solver.Update();  // re-plan with the new limit
+
+        var patch = v.orbit;
+        int guard = 0;
+        while (patch != null && guard++ < maxPatches)
+        {
+            result.Add(new OrbitSegment {
+                bodyName = patch.referenceBody.bodyName,
+                startUT = patch.StartUT,
+                endUT = patch.EndUT,
+                semiMajorAxis = patch.semiMajorAxis,
+                eccentricity = patch.eccentricity,
+                inclination = patch.inclination,
+                longitudeOfAscendingNode = patch.LAN,
+                argumentOfPeriapsis = patch.argumentOfPeriapsis,
+                meanAnomalyAtEpoch = patch.meanAnomalyAtEpoch,
+                epoch = patch.epoch,
+                isPredicted = true,  // new field
+            });
+            patch = patch.nextPatch;
+        }
+    }
+    finally
+    {
+        solver.maxGeometryPatches = savedLimit;
+    }
+    return result;
+}
+```
+
+**Settings interaction:**
+
+- Parsek **overrides** `maxGeometryPatches` at capture time (temporarily) rather than respecting the player's display setting. The player's setting controls map-view clutter, not what's useful to snapshot. Capture target: `PatchedConicSolverCaptureLimit = 8` (tunable constant; generous enough for Kerbol → Eve → Kerbin chain returns, bounded to prevent runaway on chaotic arcs).
+- Override is restored in a `finally` so an exception during `solver.Update()` can't leave the player's setting wrong.
+- If in future we want a user-facing setting, expose `PatchedConicSolverCaptureLimit` in the Settings window under Recording. Not in scope now.
+
+**Maneuver nodes — critical correctness point:**
+
+`patchedConicSolver.nextPatch` traces the chain assuming planned manoeuvre nodes ARE executed. An abandoned ghost executes nothing. Snapshotting a chain that includes unexecuted-burn transitions would show the ghost following a path it cannot physically take.
+
+Resolution: before calling `solver.Update()`, clear nodes from a **working copy** of the solver's state (if possible) or temporarily remove them and restore after:
+
+```csharp
+var savedNodes = solver.maneuverNodes.ToList();
+try
+{
+    foreach (var node in savedNodes) node.RemoveSelf();
+    solver.Update();
+    // walk patch chain here
+}
+finally
+{
+    // re-add the nodes so the player's state is unchanged if they return to flight.
+    // (In practice this only matters if scene change is somehow cancelled.)
+    foreach (var node in savedNodes) RestoreManeuverNode(solver, node);
+}
+```
+
+If KSP's API doesn't make node removal cheap/safe, alternative: walk the `nextPatch` chain only up to the **first** patch transition caused by a manoeuvre node (detectable via `patch.patchEndTransition == Orbit.PatchTransitionType.MANEUVER`), and stop there. Then hand off to §5 extrapolation from that patch's endpoint without the planned burn delta-v. Choose whichever is safer after prototyping — document the decision in the implementation commit.
+
+**Concurrency / state safety:**
+
+`solver.Update()` is synchronous and normally safe at scene-exit time (player is in flight scene, physics still running). Verify no reentrancy hazard by checking call order in `FinalizeRecordingState` — this runs during `OnSceneChangeRequested` before the scene tears down, so the solver is still valid.
 
 ### 1. New terminal state: `TerminalState.Destroyed`
 
@@ -165,13 +259,26 @@ Single PQS lookup per extrapolation. Fallback to sea level silently if PQS is un
 
 In `ParsekFlight.FinalizeIndividualRecording(isSceneExit:true)`:
 
-After `InferTerminalStateFromTrajectory` decides the baseline state, run a post-pass:
+Order matters — snapshot first, extrapolate only past the end of the snapshot:
 
 ```csharp
-if (ShouldExtrapolate(lastAlt, lastSpeed, lastVertSpeed, inferredState))
+// Step 1: snapshot KSP's patched-conic chain.
+var predicted = SnapshotPatchedConicChain(vessel, PatchedConicSolverCaptureLimit);
+recording.OrbitSegments.AddRange(predicted);
+
+// Step 2: compute the start state for extrapolation.
+// If the patched chain exists, extrapolation starts at the LAST patch's endUT
+// with the state vector at that UT. Otherwise start from the last recorded frame.
+(Vector3d startPos, Vector3d startVel, double startUT, string startBody) =
+    predicted.Count > 0
+        ? StateAtPatchChainEnd(predicted)
+        : StateAtLastRecordedFrame(recording);
+
+// Step 3: decide whether extrapolation is warranted.
+if (ShouldExtrapolate(startAlt, startSpeed, startVertSpeed, inferredState))
 {
     var result = BallisticExtrapolator.Extrapolate(
-        lastPos, lastVel, lastUT, lastBodyName, ExtrapolationLimits.Default);
+        startPos, startVel, startUT, startBody, ExtrapolationLimits.Default);
 
     if (result.terminalState == TerminalState.Destroyed)
     {
@@ -189,6 +296,8 @@ if (ShouldExtrapolate(lastAlt, lastSpeed, lastVertSpeed, inferredState))
 }
 ```
 
+If the patched-conic snapshot already terminates at atmo/ground on a body (e.g. KSP's solver predicted a Mun impact), skip extrapolation entirely — set `TerminalState.Destroyed` and `TerminalUT = lastPatch.EndUT` directly.
+
 ### 8. Integration with playback
 
 Two touchpoints in `GhostPlaybackEngine.cs`:
@@ -205,8 +314,9 @@ Freeze last captured orientation. No tumble simulation. Simple, and reads to the
 
 In the recording format:
 
-- `TerminalUT` (double) — when extrapolation terminates (atmo/ground contact or horizon).
+- `TerminalUT` (double) — when the recording's ghost lifetime ends (atmo/ground contact or horizon).
 - `ExtrapolatedArcs` (list of `OrbitArc`) — serialise as child ConfigNodes in the `.prec` sidecar.
+- `OrbitSegment.isPredicted` (bool) — marks segments captured from `patchedConicSolver` at scene exit vs segments traversed during recording. Used by playback to style/log them differently and by mid-recording refresh logic to know which segments are safe to discard when re-snapshotting.
 
 `TerminalState` enum gains `Destroyed`. Format version bumps; no legacy migration per the `Format v0 reset` policy in memory.
 
@@ -225,6 +335,11 @@ In the recording format:
 - **PQS unavailable for target body**: sea-level fallback; logged.
 - **Recording that spans multiple bodies already (via existing orbit segments)**: extrapolation starts from the **last covered** state — whatever body and UT that was — and chains forward. Existing recorded content is untouched.
 - **Very short extrapolation intervals (e.g. player exits at 1 m altitude with 0.5 m/s descent)**: guard should catch with the "near-ground, low speed" branch. Boundary tuning likely needed during testing.
+- **Player has `maxGeometryPatches` set low for performance**: snapshot override temporarily raises it, captures the chain, restores. Player's map-view experience unaffected.
+- **Maneuver nodes present at scene exit**: `patchedConicSolver.Update()` re-plans through manoeuvre nodes, so the captured chain reflects the player's planned burns. The ghost's future trajectory matches what the player set up — good.
+- **Player deletes/edits nodes after recording**: irrelevant; the snapshot was taken at scene exit and is immutable. Re-recording or mid-recording refresh (future work) would update.
+- **Patched-conic chain terminates mid-space (solver ran out of patches)**: extrapolation picks up at the last patch's `endUT` and chains further via §5 until atmo/ground/horizon. Fills in where KSP's solver stopped.
+- **Patched-conic chain terminates with an impact predicted by the solver**: detect via final patch's closest-approach altitude; short-circuit to `Destroyed` at that UT without running §5.
 
 ## Testing Strategy
 
@@ -246,15 +361,30 @@ In the recording format:
 
 Correction to §3: the cutoff rule is "the first altitude-boundary crossing the arc makes in the direction of decreasing altitude, where boundary is atmoDepth on atmo bodies and terrain/sea-level on non-atmo." Starting in-atmo on an atmo body → boundary is still atmoDepth but we're below it; arc either ascends through it and eventually descends back (terminate on descent crossing) or never reaches it (terminate on ground). The geometric test in §4 needs both surfaces checked for atmo bodies. Update implementation.
 
+### Patched-conic snapshot tests
+
+`Source/Parsek.Tests/PatchedConicSnapshotTests.cs`:
+
+- `Snapshot_SingleOrbitVessel_CapturesOneSegment`
+- `Snapshot_FlybyPredicted_CapturesPreAndPostFlybyPatches` (mock a solver with two patches across SOI transition)
+- `Snapshot_NullSolver_ReturnsEmptyList` (on-rails / invalid state)
+- `Snapshot_RestoresPlayerLimit` (verify `maxGeometryPatches` is restored even if Update() throws)
+- `Snapshot_ImpactPredictedByKSP_TerminalStateIsDestroyed`
+- `Snapshot_IsolatesPredictedFromTraversed` (verify `isPredicted = true` on captured segments)
+
+KSP's `PatchedConicSolver` and `Orbit` are non-trivial to mock — consider a thin `IPatchedConicSource` interface over them for testability, or run these primarily as in-game tests. Decide during implementation.
+
 ### Log-assertion tests
 
-Verify that each decision path logs at `[Extrapolator]` tag with expected data (inputs, chosen regime, terminal outcome).
+Verify that each decision path logs at `[Extrapolator]` or `[PatchedSnapshot]` tag with expected data (inputs, chosen regime, terminal outcome, patch count captured).
 
 ### In-game tests (`InGameTests/RuntimeTests.cs`)
 
 - `ExtrapolationIntegration_PlaneExitMidFlight_GhostFallsAndDespawns` — script a flight, exit at altitude, re-enter to Space Center, verify ghost is visible descending and despawns at impact UT.
 - `ExtrapolationIntegration_SuborbitalExitAtApoapsis_GhostFollowsArc` — suborbital launch, exit at apoapsis, verify ghost plays full descent to atmo entry.
 - `ExtrapolationIntegration_HyperbolicExit_GhostHandsOffToKerbol` — ejection burn, exit before SOI transition, verify ghost appears in Kerbol orbit after transition.
+- `PatchedSnapshotIntegration_MunFlybyExit_GhostTrajectoryMatchesMapView` — set up a Mun flyby trajectory with no planned burns, exit flight before reaching Mun, verify ghost's map-view trajectory shows the same pre- and post-flyby patches the player saw.
+- `PatchedSnapshotIntegration_ManeuverNodeStripped_GhostIgnoresBurn` — player places a manoeuvre node, exits before executing; verify captured chain reflects the trajectory WITHOUT the burn (ghost is abandoned, cannot execute the burn).
 
 ### Synthetic recordings
 
@@ -284,22 +414,27 @@ Load each and verify finalization produces the expected terminal state and arc c
 
 Rough phases; each lands as its own PR.
 
-1. `BallisticExtrapolator` module + unit tests (no integration).
-2. `TerminalState.Destroyed` enum value + serialisation.
-3. `ExtrapolatedArcs` storage in recording + ConfigNode round-trip tests.
-4. Finalization integration (hook into `FinalizeIndividualRecording`).
-5. Playback integration (arc rendering + destroyed-state spawn suppression).
-6. RSW / spawn-queue awareness of `Destroyed`.
-7. In-game tests + synthetic recordings.
-8. Threshold calibration pass after first real-use feedback.
+1. **Patched-conic snapshot** — `SnapshotPatchedConicChain` + `OrbitSegment.isPredicted` + unit / in-game tests. Lands first because it's the cheapest real improvement and unblocks everything else.
+2. `BallisticExtrapolator` module + unit tests (no integration).
+3. `TerminalState.Destroyed` enum value + serialisation.
+4. `ExtrapolatedArcs` storage in recording + ConfigNode round-trip tests.
+5. Finalization integration (hook into `FinalizeIndividualRecording`, wire snapshot → extrapolator pickup).
+6. Playback integration (arc rendering + destroyed-state spawn suppression).
+7. RSW / spawn-queue awareness of `Destroyed`.
+8. In-game tests + synthetic recordings.
+9. Threshold calibration pass after first real-use feedback.
+10. (Deferred) Mid-recording refresh of the patched snapshot on SOI change / node edit.
 
 ## References
 
-- Investigation findings (this conversation, 2026-04-20): current freeze-at-last-frame behaviour for incomplete ballistic recordings.
+- Investigation findings (this conversation, 2026-04-20): current freeze-at-last-frame behaviour for incomplete ballistic recordings; confirmed zero references to `patchedConicSolver` / `nextPatch` / `maxGeometryPatches` in the codebase today.
 - `ParsekFlight.cs:6788` — `FinalizeIndividualRecording`.
 - `ParsekFlight.cs:6983` — `InferTerminalStateFromTrajectory`.
+- `FlightRecorder.cs:2247-2261` — `CreateOrbitSegmentFromVessel` (current orbit-only capture; extended by this plan).
+- `FlightRecorder.cs:4683-4698` — `FinalizeRecordingState` (scene-exit entry point for snapshot).
 - `GhostPlaybackEngine.cs:1561-1597` — `PositionGhostAtRecordingEndpoint`.
 - `GhostExtender.cs:96-128` — `PropagateOrbital` (current ecc < 1.0 limitation).
 - `RecordingEndpointResolver.cs:61-105` — orbit-endpoint resolution.
 - `ParsekPlaybackPolicy.cs:140-270` — deferred spawn queue (impacted by `Destroyed` state).
 - `docs/dev/plans/rsw-departure-aware-spawn-warp.md` — prior plan on spawn-time state divergence; overlapping concerns.
+- KSP API: `PatchedConicSolver`, `Orbit.nextPatch`, `Orbit.patchEndTransition`, `ManeuverNode.RemoveSelf`.
