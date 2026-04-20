@@ -86,6 +86,7 @@ namespace Parsek.InGameTests
         private MonoBehaviour coroutineHost;
         private bool isRunning;
         private Coroutine activeCoroutine;
+        private Coroutine activeTestCoroutine;
         private Coroutine activeInnerCoroutine;
         private FlightBatchBaselineState batchFlightBaseline;
         private bool abortBatchAfterRestoreFailure;
@@ -297,6 +298,9 @@ namespace Parsek.InGameTests
             if (activeInnerCoroutine != null)
                 coroutineHost.StopCoroutine(activeInnerCoroutine);
             activeInnerCoroutine = null;
+            if (activeTestCoroutine != null)
+                coroutineHost.StopCoroutine(activeTestCoroutine);
+            activeTestCoroutine = null;
             if (activeCoroutine != null)
                 coroutineHost.StopCoroutine(activeCoroutine);
             activeCoroutine = null;
@@ -591,7 +595,9 @@ namespace Parsek.InGameTests
                     continue;
                 }
 
-                yield return coroutineHost.StartCoroutine(RunOneTest(test));
+                activeTestCoroutine = coroutineHost.StartCoroutine(RunOneTest(test));
+                yield return activeTestCoroutine;
+                activeTestCoroutine = null;
                 if (test.RestoreBatchFlightBaselineAfterExecution
                     && test.Status != TestStatus.Skipped)
                 {
@@ -607,6 +613,7 @@ namespace Parsek.InGameTests
             CleanupBatchFlightBaselineSave();
             batchFlightBaseline = null;
             abortBatchAfterRestoreFailure = false;
+            activeTestCoroutine = null;
             int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
             ParsekLog.Info(Tag,
                 $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {considered})");
@@ -685,6 +692,7 @@ namespace Parsek.InGameTests
                 batchFlightBaseline = null;
                 abortBatchAfterRestoreFailure = false;
                 activeCoroutine = null;
+                activeTestCoroutine = null;
                 activeInnerCoroutine = null;
                 isRunning = false;
             }
