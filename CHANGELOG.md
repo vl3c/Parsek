@@ -23,11 +23,13 @@ All notable changes to Parsek are documented here.
 - `#472` Added unit coverage for watch-camera retarget angle resolution so preserved pitch/heading stays pinned to the same world orbit direction across ghost handoffs.
 - `#474` Added runtime coverage for fresh ghost watch-pivot centering and ghost audio re-anchoring / stereo-default configuration.
 - `#475` Added regressions for exact-boundary endpoint-body persistence, malformed-snapshot spawn refusal, remaining ghost-body alignment paths, and stale surface-site label cleanup during snapshot repairs.
+- Added `BallisticExtrapolator` regressions for zero-progress SOI guardrails, long-horizon surface-scan narrowing, explicit surface-coordinate injection, and the new start/fallback/terminal logging paths.
 - `#476` Added unit and integration coverage for tracker-unavailable post-walk/commit-time earnings reconciliation, including full sandbox-style skips and partial per-resource gating.
 - `#477` Added unit coverage for coalesced same-UT milestone windows on both the matching path and the missing-event warning path.
 - `#462` Added a regression for mixed null-tagged/tagged post-walk milestone windows so legacy siblings cannot reclaim ownership of a tagged `Progression` burst purely because they appear earlier in the ledger.
 - `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, invariant-culture WARN formatting, and the still-live missing-event warning path.
 - `#467` Added `GameStateRecorder` regression coverage for near-threshold `ReputationChanged` deltas, including the stock-rounded `+/-0.9999995` shape and a control case that still ignores clearly sub-threshold reputation noise.
+- Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 
 ### Enhancements
 
@@ -40,6 +42,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#489` Incomplete ballistic recordings no longer freeze at scene exit. Ghosts now continue suborbital, descent, and flyby coasts to their natural endpoint instead of stopping mid-air.
+- Patched-conic snapshot capture now fails closed when a predicted patch has no reference body or the private solver `patchLimit` hook is unavailable, logs those conditions explicitly, and reports truncation as a boolean tail flag instead of a pseudo-count.
 - `#486` Quickload after a runway takeoff no longer leaves stale future samples or fake save/load discontinuity warnings in the merged recording tree.
 - `#482` KSP.log no longer accumulates spurious recording-id rejection WARN lines during test runs, while real invalid ids in live save/load/delete paths still log at `WARN`.
 - Real-vessel spawn now reconstructs world-space `VESSEL.rot` explicitly from format-v0 surface-relative recording data before `ProtoVessel.Load()`, so `SpawnAtPosition`, EVA/snapshot-prep respawns, chain-tip spawns, and flag ProtoVessel spawns all use `body.bodyTransform.rotation * srfRelRotation` instead of writing raw recorded quaternions. Surface-only fallback selection now leaves orbital snapshot rotations untouched.
@@ -58,10 +62,12 @@ All notable changes to Parsek are documented here.
 - `#468` Post-walk science reconciliation now matches `ScienceTransmission` across the owning recording span for end-anchored committed `ScienceEarning` rows.
 - `#483` Science captured before takeoff now reconciles correctly later in the same flight instead of falling into repeated false science-warning loops in `KSP.log`.
 - `#469` Post-walk earnings reconciliation now skips ledger history the live `GameStateStore` can no longer represent after milestone pruning or epoch changes, eliminating false `"no matching FundsChanged keyed 'Progression'"` WARNs against already-processed milestone rewards while preserving live-tail mismatch detection.
+- `BallisticExtrapolator` now drops the dead `EventCandidate.BodyName` path, removes the duplicate body-radius assignment, guards zero-progress SOI handoff loops, narrows long-horizon cutoff scans around sea-level/periapsis candidates, and emits explicit start / SOI / fallback / horizon / terminal diagnostics instead of failing silently.
 - `#464` Timeline Details no longer renders duplicate gray legacy milestone / strategy lifecycle rows when a matching ledger `GameAction` exists at the same UT and key; the view now keeps the richer action entry and suppresses only the redundant legacy shadow row.
 - `#465` KSC ghost engine/RCS audio now pauses with the stock ESC menu and resumes on unpause. KSC now latches the pause state before replaying runtime part events, so ghosts spawned while ESC is open stay silent instead of restarting looped engine/RCS audio or one-shot part-event audio; tracking-station ghosts were checked and remain map-only (no `AudioSource`s there to pause).
 - `#467` `ReputationChanged` no longer drops stock `+1`/`-1` reputation deltas that arrive as `0.9999995`/`-0.9999995` due to float rounding, so records-milestone reputation legs now reconcile instead of falsely warning as missing.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
+- Incomplete-ballistic scene-exit finalization now rejects unset/invalid terminal states and retrograde `terminalUT` results, logs real-hook declines, preserves hook-authored terminal-orbit metadata, and explains ghost-only surface metadata preservation instead of silently clearing it.
 - `#485` The SPACECENTER strategy-lifecycle readiness probe now waits for stock strategy hydration to settle before deciding whether to fail or skip, and it reports bounded settle/timeout summaries instead of per-strategy exception spam. Unexpected probe failures still log full stack traces.
 
 ---

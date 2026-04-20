@@ -1102,6 +1102,39 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Null-terminal recordings should still create a ghost from a map-visible orbit
+        /// tail even after the recorded points have ended.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithRecordedPointsAndExtendedOrbitTail_Created()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "extended-tail",
+                TerminalStateValue = null,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 200, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 300);
+
+            Assert.True(should);
+            Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("HasOrbitData(Recording)")
+                && l.Contains("extended-tail")
+                && l.Contains("result=False"));
+        }
+
+        /// <summary>
         /// Null terminal state with same-body segment gap: keep showing the orbit ghost.
         /// </summary>
         [Fact]
