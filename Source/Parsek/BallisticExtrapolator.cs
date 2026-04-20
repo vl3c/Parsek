@@ -12,6 +12,7 @@ namespace Parsek
         None = 0,
         MissingBody,
         MissingParentBody,
+        MissingParentFrameResolver,
         DegenerateStateVector,
         PqsUnavailable
     }
@@ -185,21 +186,23 @@ namespace Parsek
                     horizonUT,
                     limits);
 
-                double localSearchEndUT = horizonUT;
+                double localCutoffSearchEndUT = horizonUT;
                 if (parentExit.HasValue)
-                    localSearchEndUT = Math.Min(localSearchEndUT, parentExit.Value.UT);
+                    localCutoffSearchEndUT = Math.Min(localCutoffSearchEndUT, parentExit.Value.UT);
                 if (orbit.IsElliptic && !double.IsInfinity(orbit.Period))
-                    localSearchEndUT = Math.Min(localSearchEndUT, currentState.ut + orbit.Period);
+                    localCutoffSearchEndUT = Math.Min(localCutoffSearchEndUT, currentState.ut + orbit.Period);
 
                 EventCandidate? localCutoff = FindLocalCutoff(
                     orbit,
                     currentBody,
                     currentState.ut,
-                    localSearchEndUT,
+                    localCutoffSearchEndUT,
                     limits,
                     ref result.failureReason);
 
-                double childSearchEndUT = localSearchEndUT;
+                double childSearchEndUT = horizonUT;
+                if (parentExit.HasValue)
+                    childSearchEndUT = Math.Min(childSearchEndUT, parentExit.Value.UT);
                 if (localCutoff.HasValue)
                     childSearchEndUT = Math.Min(childSearchEndUT, localCutoff.Value.UT);
 
@@ -258,6 +261,16 @@ namespace Parsek
                     if (!TryGetBody(bodies, currentBody.ParentBodyName, out ExtrapolationBody parentBody))
                     {
                         result.failureReason = ExtrapolationFailureReason.MissingParentBody;
+                        result.terminalUT = chosen.UT;
+                        result.terminalBodyName = currentBody.Name;
+                        result.terminalPosition = chosen.Position;
+                        result.terminalVelocity = chosen.Velocity;
+                        return result;
+                    }
+                    if (currentBody.ParentFrameState == null)
+                    {
+                        result.failureReason = ExtrapolationFailureReason.MissingParentFrameResolver;
+                        result.terminalState = TerminalState.Orbiting;
                         result.terminalUT = chosen.UT;
                         result.terminalBodyName = currentBody.Name;
                         result.terminalPosition = chosen.Position;
@@ -458,39 +471,15 @@ namespace Parsek
             List<StateSample> samples,
             ref ExtrapolationFailureReason failureReason)
         {
-            StateSample lowestSample = samples[0];
-            for (int i = 1; i < samples.Count; i++)
-            {
-                if (samples[i].Altitude < lowestSample.Altitude)
-                    lowestSample = samples[i];
-            }
-
-            double terrainAltitude = 0.0;
-            if (body.TerrainAltitude != null)
-            {
-                GetLatitudeLongitude(lowestSample.Position, out double latitude, out double longitude);
-                if (body.TerrainAltitude(latitude, longitude, out double sampledAltitude))
-                    terrainAltitude = Math.Max(0.0, sampledAltitude);
-                else if (failureReason == ExtrapolationFailureReason.None)
-                    failureReason = ExtrapolationFailureReason.PqsUnavailable;
-            }
-            else if (failureReason == ExtrapolationFailureReason.None)
-            {
-                failureReason = ExtrapolationFailureReason.PqsUnavailable;
-            }
-
-            if (lowestSample.Altitude > terrainAltitude)
-                return null;
+            double previousSurfaceDelta = GetSurfaceDeltaAtSample(body, samples[0], ref failureReason);
 
             for (int i = 1; i < samples.Count; i++)
             {
-                double previous = samples[i - 1].Altitude - terrainAltitude;
-                double current = samples[i].Altitude - terrainAltitude;
-
-                if (previous > 0.0 && current <= 0.0)
+                double currentSurfaceDelta = GetSurfaceDeltaAtSample(body, samples[i], ref failureReason);
+                if (previousSurfaceDelta > 0.0 && currentSurfaceDelta <= 0.0)
                 {
                     double crossingUT = RefineCrossing(
-                        ut => GetAltitudeAtUT(orbit, ut) - terrainAltitude,
+                        ut => GetSurfaceDeltaAtUT(orbit, body, ut, ref failureReason),
                         samples[i - 1].UT,
                         samples[i].UT);
 
@@ -503,6 +492,8 @@ namespace Parsek
                         Velocity = velocity
                     };
                 }
+
+                previousSurfaceDelta = currentSurfaceDelta;
             }
 
             return null;
@@ -722,6 +713,44 @@ namespace Parsek
         private static double GetAltitudeAtUT(TwoBodyOrbit orbit, double ut)
         {
             return Magnitude(orbit.GetPositionAtUT(ut)) - orbit.BodyRadius;
+        }
+
+        private static double GetSurfaceDeltaAtUT(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody body,
+            double ut,
+            ref ExtrapolationFailureReason failureReason)
+        {
+            orbit.GetStateAtUT(ut, out Vector3d position, out _);
+            var sample = new StateSample
+            {
+                UT = ut,
+                Position = position,
+                Altitude = Magnitude(position) - orbit.BodyRadius
+            };
+            return GetSurfaceDeltaAtSample(body, sample, ref failureReason);
+        }
+
+        private static double GetSurfaceDeltaAtSample(
+            ExtrapolationBody body,
+            StateSample sample,
+            ref ExtrapolationFailureReason failureReason)
+        {
+            double terrainAltitude = 0.0;
+            if (body.TerrainAltitude != null)
+            {
+                GetLatitudeLongitude(sample.Position, out double latitude, out double longitude);
+                if (body.TerrainAltitude(latitude, longitude, out double sampledAltitude))
+                    terrainAltitude = Math.Max(0.0, sampledAltitude);
+                else if (failureReason == ExtrapolationFailureReason.None)
+                    failureReason = ExtrapolationFailureReason.PqsUnavailable;
+            }
+            else if (failureReason == ExtrapolationFailureReason.None)
+            {
+                failureReason = ExtrapolationFailureReason.PqsUnavailable;
+            }
+
+            return sample.Altitude - terrainAltitude;
         }
 
         private static double RefineCrossing(

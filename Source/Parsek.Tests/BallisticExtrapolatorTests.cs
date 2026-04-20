@@ -266,7 +266,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_TerrainAltitude_UsesSingleLookupAndActualSurface()
+        public void Extrapolate_TerrainAltitude_SamplesAlongCrossingAndUsesActualSurface()
         {
             int terrainLookups = 0;
             var bodies = new Dictionary<string, ExtrapolationBody>
@@ -295,8 +295,40 @@ namespace Parsek.Tests
 
             Assert.Equal(TerminalState.Destroyed, result.terminalState);
             Assert.Equal(ExtrapolationFailureReason.None, result.failureReason);
-            Assert.Equal(1, terrainLookups);
+            Assert.True(terrainLookups > 1);
             Assert.InRange(Altitude(result.terminalPosition, MunRadius), 2400.0, 2600.0);
+        }
+
+        [Fact]
+        public void Extrapolate_ParentExitWithoutResolver_FailsCleanly()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Star"] = MakeBody("Star", StarGravParameter, StarRadius),
+                ["Home"] = MakeBody(
+                    "Home",
+                    KerbinGravParameter,
+                    KerbinRadius,
+                    atmosphereDepth: KerbinAtmosphereDepth,
+                    sphereOfInfluence: KerbinSoi,
+                    parentBodyName: "Star")
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Home", KerbinRadius, altitude: 100000.0, tangentialSpeed: 3600.0),
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0005,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(ExtrapolationFailureReason.MissingParentFrameResolver, result.failureReason);
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.Equal("Home", result.terminalBodyName);
+            Assert.Single(result.segments);
+            Assert.Equal(result.segments[0].endUT, result.terminalUT, 6);
         }
 
         [Fact]
