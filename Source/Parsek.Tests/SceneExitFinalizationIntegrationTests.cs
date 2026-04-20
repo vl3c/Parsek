@@ -382,7 +382,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SeedPredictedSegmentOrbitalFrameRotations_PopulatesSnapshotSegments()
+        public void SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments()
         {
             var frozenWorldRotation = new UnityEngine.Quaternion(0.2f, -0.4f, 0.3f, 0.8f);
             var bodies = new Dictionary<string, ExtrapolationBody>
@@ -392,6 +392,12 @@ namespace Parsek.Tests
                     Name = "Kerbin",
                     GravitationalParameter = 3.5316e12,
                     Radius = 600000.0
+                },
+                ["Mun"] = new ExtrapolationBody
+                {
+                    Name = "Mun",
+                    GravitationalParameter = 6.5138398e10,
+                    Radius = 200000.0
                 }
             };
             var segments = new List<OrbitSegment>
@@ -408,6 +414,19 @@ namespace Parsek.Tests
                     argumentOfPeriapsis = 0.0,
                     meanAnomalyAtEpoch = 0.0,
                     epoch = 100.0
+                },
+                new OrbitSegment
+                {
+                    bodyName = "Mun",
+                    startUT = 200.0,
+                    endUT = 260.0,
+                    semiMajorAxis = 260000.0,
+                    eccentricity = 0.02,
+                    inclination = 1.0,
+                    longitudeOfAscendingNode = 20.0,
+                    argumentOfPeriapsis = 30.0,
+                    meanAnomalyAtEpoch = 0.1,
+                    epoch = 200.0
                 }
             };
 
@@ -418,22 +437,47 @@ namespace Parsek.Tests
                 bodies);
 
             Assert.True(BallisticExtrapolator.HasOrbitalFrameRotation(segments[0].orbitalFrameRotation));
+            Assert.True(BallisticExtrapolator.HasOrbitalFrameRotation(segments[1].orbitalFrameRotation));
             Assert.True(BallisticExtrapolator.TryPropagate(
                 segments[0],
                 bodies["Kerbin"].GravitationalParameter,
                 segments[0].startUT,
-                out UnityEngine.Vector3d position,
-                out UnityEngine.Vector3d velocity));
+                out UnityEngine.Vector3d startPosition,
+                out UnityEngine.Vector3d startVelocity));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segments[0],
+                bodies["Kerbin"].GravitationalParameter,
+                segments[0].endUT,
+                out UnityEngine.Vector3d firstBoundaryPosition,
+                out UnityEngine.Vector3d firstBoundaryVelocity));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segments[1],
+                bodies["Mun"].GravitationalParameter,
+                segments[1].startUT,
+                out UnityEngine.Vector3d secondStartPosition,
+                out UnityEngine.Vector3d secondStartVelocity));
 
-            var resolvedWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+            var startWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[0].orbitalFrameRotation,
-                position,
-                velocity);
+                startPosition,
+                startVelocity);
+            var firstBoundaryWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                segments[0].orbitalFrameRotation,
+                firstBoundaryPosition,
+                firstBoundaryVelocity);
+            var secondStartWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                segments[1].orbitalFrameRotation,
+                secondStartPosition,
+                secondStartVelocity);
 
-            Assert.Equal(frozenWorldRotation.x, resolvedWorldRotation.x);
-            Assert.Equal(frozenWorldRotation.y, resolvedWorldRotation.y);
-            Assert.Equal(frozenWorldRotation.z, resolvedWorldRotation.z);
-            Assert.Equal(frozenWorldRotation.w, resolvedWorldRotation.w);
+            Assert.Equal(frozenWorldRotation.x, startWorldRotation.x);
+            Assert.Equal(frozenWorldRotation.y, startWorldRotation.y);
+            Assert.Equal(frozenWorldRotation.z, startWorldRotation.z);
+            Assert.Equal(frozenWorldRotation.w, startWorldRotation.w);
+            Assert.Equal(firstBoundaryWorldRotation.x, secondStartWorldRotation.x);
+            Assert.Equal(firstBoundaryWorldRotation.y, secondStartWorldRotation.y);
+            Assert.Equal(firstBoundaryWorldRotation.z, secondStartWorldRotation.z);
+            Assert.Equal(firstBoundaryWorldRotation.w, secondStartWorldRotation.w);
         }
 
         [Fact]

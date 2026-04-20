@@ -462,31 +462,54 @@ namespace Parsek
                 return;
 
             int seededCount = 0;
+            UnityEngine.Quaternion currentWorldRotation = frozenWorldRotation;
             for (int i = 0; i < segments.Count; i++)
             {
                 OrbitSegment segment = segments[i];
-                if (BallisticExtrapolator.HasOrbitalFrameRotation(segment.orbitalFrameRotation)
-                    || string.IsNullOrEmpty(segment.bodyName)
+                if (string.IsNullOrEmpty(segment.bodyName)
                     || !bodies.TryGetValue(segment.bodyName, out ExtrapolationBody body)
-                    || body == null
-                    || !BallisticExtrapolator.TryPropagate(
-                        segment,
-                        body.GravitationalParameter,
-                        segment.startUT,
-                        out Vector3d position,
-                        out Vector3d velocity)
-                    || !IsFinite(position)
-                    || !IsFinite(velocity))
+                    || body == null)
                 {
                     continue;
                 }
 
-                segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
-                    frozenWorldRotation,
-                    position,
-                    velocity);
-                segments[i] = segment;
-                seededCount++;
+                bool hasOrbitalFrameRotation = BallisticExtrapolator.HasOrbitalFrameRotation(segment.orbitalFrameRotation);
+                if (!hasOrbitalFrameRotation
+                    && BallisticExtrapolator.TryPropagate(
+                        segment,
+                        body.GravitationalParameter,
+                        segment.startUT,
+                        out Vector3d startPosition,
+                        out Vector3d startVelocity)
+                    && IsFinite(startPosition)
+                    && IsFinite(startVelocity))
+                {
+                    segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                        currentWorldRotation,
+                        startPosition,
+                        startVelocity);
+                    segments[i] = segment;
+                    hasOrbitalFrameRotation = true;
+                    seededCount++;
+                }
+
+                if (!hasOrbitalFrameRotation
+                    || !BallisticExtrapolator.TryPropagate(
+                        segment,
+                        body.GravitationalParameter,
+                        segment.endUT,
+                        out Vector3d endPosition,
+                        out Vector3d endVelocity)
+                    || !IsFinite(endPosition)
+                    || !IsFinite(endVelocity))
+                {
+                    continue;
+                }
+
+                currentWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                    segment.orbitalFrameRotation,
+                    endPosition,
+                    endVelocity);
             }
 
             if (seededCount > 0)
