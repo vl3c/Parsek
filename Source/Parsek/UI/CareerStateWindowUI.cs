@@ -977,15 +977,23 @@ namespace Parsek
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
                 return;
-            careerStateWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekCareerState".GetHashCode(),
-                careerStateWindowRect,
-                DrawCareerStateWindow,
-                "Parsek - Career State",
-                opaqueWindowStyle,
-                GUILayout.Width(careerStateWindowRect.width),
-                GUILayout.Height(careerStateWindowRect.height)
-            );
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                careerStateWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekCareerState".GetHashCode(),
+                    careerStateWindowRect,
+                    DrawCareerStateWindow,
+                    "Parsek - Career State",
+                    opaqueWindowStyle,
+                    GUILayout.Width(careerStateWindowRect.width),
+                    GUILayout.Height(careerStateWindowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("CareerState", ref lastCareerStateWindowRect, careerStateWindowRect);
 
             if (careerStateWindowRect.Contains(Event.current.mousePosition))

@@ -72,14 +72,22 @@ namespace Parsek
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
                 return;
-            testRunnerWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekTestRunner".GetHashCode(),
-                testRunnerWindowRect,
-                DrawTestRunnerWindow,
-                "Parsek - Test Runner",
-                opaqueWindowStyle,
-                GUILayout.Width(DefaultWindowWidth)
-            );
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                testRunnerWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekTestRunner".GetHashCode(),
+                    testRunnerWindowRect,
+                    DrawTestRunnerWindow,
+                    "Parsek - Test Runner",
+                    opaqueWindowStyle,
+                    GUILayout.Width(DefaultWindowWidth)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("TestRunner", ref lastTestRunnerWindowRect, testRunnerWindowRect);
 
             if (testRunnerWindowRect.Contains(Event.current.mousePosition))

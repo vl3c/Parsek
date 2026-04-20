@@ -59,15 +59,23 @@ namespace Parsek
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
                 return;
-            windowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekGloopsRecorder".GetHashCode(),
-                windowRect,
-                (id) => DrawWindow(id, flight),
-                "Gloops Flight Recorder",
-                opaqueWindowStyle,
-                GUILayout.Width(windowRect.width),
-                GUILayout.Height(windowRect.height)
-            );
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                windowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekGloopsRecorder".GetHashCode(),
+                    windowRect,
+                    (id) => DrawWindow(id, flight),
+                    "Gloops Flight Recorder",
+                    opaqueWindowStyle,
+                    GUILayout.Width(windowRect.width),
+                    GUILayout.Height(windowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("GloopsRecorder", ref lastWindowRect, windowRect);
 
             if (windowRect.Contains(Event.current.mousePosition))

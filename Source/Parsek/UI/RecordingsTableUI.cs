@@ -358,15 +358,23 @@ namespace Parsek
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
                 return;
-            recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekRecordings".GetHashCode(),
-                recordingsWindowRect,
-                DrawRecordingsWindow,
-                "Parsek - Recordings",
-                opaqueWindowStyle,
-                GUILayout.Width(recordingsWindowRect.width),
-                GUILayout.Height(recordingsWindowRect.height)
-            );
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekRecordings".GetHashCode(),
+                    recordingsWindowRect,
+                    DrawRecordingsWindow,
+                    "Parsek - Recordings",
+                    opaqueWindowStyle,
+                    GUILayout.Width(recordingsWindowRect.width),
+                    GUILayout.Height(recordingsWindowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("Recordings", ref lastRecordingsWindowRect, recordingsWindowRect);
 
             // Group picker popup (rendered outside recordings window to avoid scroll clipping)
