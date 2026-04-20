@@ -33,9 +33,6 @@ namespace Parsek
             var s = $"UT={startUT:F1}-{endUT:F1} body={bodyName ?? "?"} inc={inclination:F2} " +
                     $"ecc={eccentricity:F4} sma={semiMajorAxis:F1}";
 
-            if (isPredicted)
-                s += " predicted=true";
-
             // Append orbital-frame rotation when any component is non-zero (not the default sentinel)
             if (orbitalFrameRotation.x != 0f || orbitalFrameRotation.y != 0f
                 || orbitalFrameRotation.z != 0f || orbitalFrameRotation.w != 0f)
