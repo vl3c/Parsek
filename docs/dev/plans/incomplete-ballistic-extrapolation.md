@@ -180,16 +180,46 @@ internal static class BallisticExtrapolator
 }
 ```
 
-### 3. `ShouldExtrapolate` guard (the "don't launch" safeguard)
+### 3. `ShouldExtrapolate` guard — driven by `vessel.situation`
 
-Thresholds (tunable):
+Stock KSP already classifies each vessel's current situation, and its own unload-time behaviour matches what Parsek wants the ghost to do. Mirror it: drive the extrapolation decision from `vessel.situation` (captured at scene exit), not from altitude/speed heuristics.
 
-- If inferred state is already `Landed` or `Splashed` → **skip** extrapolation (craft is on the ground).
-- If `altitude < 20 m` AND `|horizontalSpeed| < 10 m/s` AND `|verticalSpeed| < 2 m/s` → **skip** (parked / taxiing / stationary).
-- If `altitude < 100 m` AND `|verticalSpeed| > -5 m/s` (not descending meaningfully) AND `|horizontalSpeed| < 40 m/s` → **skip** (low-speed ground handling — catches tumbling a post-landing rover, etc.).
-- Otherwise → **extrapolate**.
+| `Vessel.Situations` value | Extrapolate? | Rationale |
+|---|---|---|
+| `LANDED` | No | Stock holds position on unload; ghost stays put. |
+| `SPLASHED` | No | Stock holds position on unload; ghost stays put. |
+| `PRELAUNCH` | No | On the pad; no motion. |
+| `DOCKED` | No | Different lifecycle; docked to another vessel. |
+| `FLYING` | Yes | In-atmo plane or ballistic — cutoff = first atmo boundary (going up) or ground (going down). |
+| `SUB_ORBITAL` | Yes | Above-atmo ballistic — cutoff = first atmo boundary. |
+| `ORBITING` | Conditional | Extrapolate only if the orbit geometrically intersects atmo/ground (rare); otherwise stable, no extrapolation needed. |
+| `ESCAPING` | Yes | Hyperbolic — SOI handoff to parent body per §5. |
 
-Values logged at decision time with `[Extrapolator]` tag for debugging.
+Implementation:
+
+```csharp
+internal static bool ShouldExtrapolate(Vessel.Situations situation, Orbit orbit, CelestialBody body)
+{
+    switch (situation)
+    {
+        case Vessel.Situations.LANDED:
+        case Vessel.Situations.SPLASHED:
+        case Vessel.Situations.PRELAUNCH:
+        case Vessel.Situations.DOCKED:
+            return false;
+        case Vessel.Situations.FLYING:
+        case Vessel.Situations.SUB_ORBITAL:
+        case Vessel.Situations.ESCAPING:
+            return true;
+        case Vessel.Situations.ORBITING:
+            return OrbitIntersectsCutoffSurface(orbit, body);  // periapsis <= atmo/ground
+        default:
+            return false;
+    }
+}
+```
+
+Decision and input values logged at `[Extrapolator]` tag for debugging. No tunable thresholds.
 
 ### 4. Propagator core
 
@@ -317,13 +347,15 @@ In the recording format:
 - **Gas giants (Jool)**: `body.atmosphere == true` → cutoff at atmo boundary. No solid-surface handling needed; atmo destruction always fires first.
 - **Long-range interplanetary direct impact (inner-Kerbol → Jool)**: patched-conics chain via §5 reaches Jool SOI, enters Jool frame, crosses atmo boundary, terminates with `Destroyed`. One-time cost at finalization; acceptable.
 - **Never-impacts trajectory**: bounded horizon produces `Orbiting` at horizon; ghost spawns at horizon state. No runaway compute.
-- **Parked plane or rover on runway**: caught by `ShouldExtrapolate` guard; extrapolation skipped, recording terminates in `Landed` state as today.
+- **Parked plane or rover on runway**: `vessel.situation == LANDED` → skip extrapolation; recording terminates in `Landed` as today.
+- **Rover mid-drive at scene exit**: `vessel.situation == LANDED` → skip extrapolation. Mirrors stock behaviour, which holds the rover in place on unload.
+- **Plane abandoned at altitude**: `vessel.situation == FLYING` → extrapolate with in-atmo cutoff (ground or first atmo-boundary crossing, whichever comes first).
 - **Mountain impact / sea impact**: terrain sampling handles plain terrain within tens of metres; cliffs may clip briefly before despawn — accepted cosmetic per earlier discussion.
 - **Body rotation during long falls**: propagation in body-inertial frame + lat/lon derivation at terminal UT handles this correctly without special casing.
 - **Horizontal overshoot on plane-drop**: ghost continues arc for kilometres past realistic impact — accepted ("observer assumes residual thrust").
 - **PQS unavailable for target body**: sea-level fallback; logged.
 - **Recording that spans multiple bodies already (via existing orbit segments)**: extrapolation starts from the **last covered** state — whatever body and UT that was — and chains forward. Existing recorded content is untouched.
-- **Very short extrapolation intervals (e.g. player exits at 1 m altitude with 0.5 m/s descent)**: guard should catch with the "near-ground, low speed" branch. Boundary tuning likely needed during testing.
+- **Very short extrapolation intervals**: rare. If `vessel.situation` is FLYING but arc trivially intersects ground within a second, extrapolator runs and produces a tiny arc — acceptable.
 - **Player has `maxGeometryPatches` set low for performance**: snapshot override temporarily raises it, captures the chain, restores. Player's map-view experience unaffected.
 - **Maneuver nodes present at scene exit**: `patchedConicSolver.Update()` re-plans through manoeuvre nodes, so the captured chain reflects the player's planned burns. The ghost's future trajectory matches what the player set up — good.
 - **Player deletes/edits nodes after recording**: irrelevant; the snapshot was taken at scene exit and is immutable. Re-recording or mid-recording refresh (future work) would update.
@@ -336,9 +368,15 @@ In the recording format:
 
 `Source/Parsek.Tests/BallisticExtrapolatorTests.cs`:
 
-- `ShouldExtrapolate_ParkedOnRunway_ReturnsFalse`
-- `ShouldExtrapolate_PlaneAtCruise_ReturnsTrue`
-- `ShouldExtrapolate_AlreadyLanded_ReturnsFalse`
+- `ShouldExtrapolate_Landed_ReturnsFalse`
+- `ShouldExtrapolate_Splashed_ReturnsFalse`
+- `ShouldExtrapolate_Prelaunch_ReturnsFalse`
+- `ShouldExtrapolate_Docked_ReturnsFalse`
+- `ShouldExtrapolate_Flying_ReturnsTrue`
+- `ShouldExtrapolate_SubOrbital_ReturnsTrue`
+- `ShouldExtrapolate_Escaping_ReturnsTrue`
+- `ShouldExtrapolate_OrbitingStable_ReturnsFalse` (periapsis above atmo)
+- `ShouldExtrapolate_OrbitingDecayingIntoAtmo_ReturnsTrue` (periapsis below atmo)
 - `Extrapolate_InAtmoPlaneArc_TerminatesAtGroundImpact` (Kerbin, atmo → atmo boundary crossing fires first? No — in-atmo start, cutoff is atmo boundary which is above start altitude. Actually in-atmo start on an atmo body: the arc needs to cross `atmosphereDepth` going up — if it does, fine; but in-atmo plane at low altitude with no climb energy stays in atmo, eventually hits ground. So we need: for an atmo body, if the starting altitude < atmosphereDepth AND the arc's apoapsis is also < atmosphereDepth, cutoff = ground (sea level / terrain), because atmo-boundary cutoff cannot fire. The rule in §3 needs revision: cutoff is "first altitude crossing of atmoDepth going DOWN from above" OR "first ground contact if the whole arc stays below atmoDepth." Clarify in the implementation.)
 - `Extrapolate_SuborbitalBallistic_TerminatesAtAtmoEntry` (Kerbin suborbital arc above atmosphere, descending back down)
 - `Extrapolate_HyperbolicFromKerbin_HandsOffToKerbol` (ecc > 1 trajectory, verifies SOI handoff)
@@ -400,12 +438,15 @@ Load each and verify finalization produces the expected terminal state and arc c
 - **Q5 crew semantics**: Parsek never marks kerbals dead based on extrapolation. Crew state follows the real (stock KSP) vessel's fate via existing reservation reconciliation. Extrapolation is visual-only.
 - **Q6 mid-recording patch refresh**: scene-exit snapshot only. No refresh on SOI change or maneuver-node edit during recording — the prediction chain has no rendering role until the recording ends.
 
+## Locked Decisions (continued)
+
+- **Q8 destruction visual FX**: Option A, silent disappear at atmo boundary. No FX in phase 1. Revisit only if players find the silent vanish confusing.
+- **Q9 `ShouldExtrapolate` guard**: no thresholds. Decision is a pure switch on `vessel.situation` (stock KSP enum) — mirrors stock's own unload behaviour. LANDED/SPLASHED/PRELAUNCH/DOCKED skip; FLYING/SUB_ORBITAL/ESCAPING extrapolate; ORBITING extrapolates only if the orbit geometrically intersects atmo/ground.
+
 ## Open Questions (deferrable / calibration)
 
-1. How visible should the atmo-entry moment be? Optional: trigger stock re-entry FX at the destruction UT as a visual cue. Nice-to-have, not required.
-2. Tunable thresholds in `ShouldExtrapolate` — expose in settings window or keep as compile-time constants? Recommend constants until user feedback indicates otherwise.
-3. `maxHorizonYears = 50` and `PatchedConicSolverCaptureLimit = 8` — initial defaults, calibrate from playtests once the feature is live.
-4. Map-view styling for `isPredicted = true` segments — dashed line, different colour, or identical to traversed? Recommend identical until there is a specific readability problem.
+1. `maxHorizonYears = 50` and `PatchedConicSolverCaptureLimit = 8` — initial defaults, calibrate from playtests once the feature is live.
+2. Map-view styling for `isPredicted = true` segments — dashed line, different colour, or identical to traversed? Recommend identical until there is a specific readability problem.
 5. `maxHorizonYears = 50` is a guess. Calibrate against the longest realistic interplanetary missions before shipping.
 
 ## Work Breakdown
