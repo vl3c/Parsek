@@ -87,6 +87,8 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Real Spawn Control window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekSpawnControl".GetHashCode(),
                 spawnControlWindowRect,

@@ -62,6 +62,8 @@ namespace Parsek
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             // Pass both Width+Height like every other Parsek window so the shared
             // opaqueWindowStyle padding renders identically (the previous height=10
             // reset + Width-only call caused the title-bar spacing to look off).

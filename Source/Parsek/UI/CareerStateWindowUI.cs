@@ -975,6 +975,8 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Career State window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             careerStateWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekCareerState".GetHashCode(),
                 careerStateWindowRect,

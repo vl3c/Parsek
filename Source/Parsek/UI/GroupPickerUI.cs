@@ -241,6 +241,8 @@ namespace Parsek
             string popupTitle = isGroupPopup ? "Set Parent Group" : "Manage Groups";
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             groupPopupRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekGroupPopup".GetHashCode(),
                 groupPopupRect,

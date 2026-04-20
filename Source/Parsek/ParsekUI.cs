@@ -410,31 +410,83 @@ namespace Parsek
         //  Opaque window style (shared by all sub-windows)
         // ════════════════════════════════════════════════════════════════
 
-        private void EnsureOpaqueWindowStyle()
+        private bool EnsureOpaqueWindowStyle(GUISkin skin)
         {
-            if (opaqueWindowStyle != null) return;
+            if (opaqueWindowStyle != null)
+                return true;
 
-            // Copy KSP's default window style, then make background textures opaque
-            // while preserving all border/highlight details
-            opaqueWindowStyle = new GUIStyle(GUI.skin.window);
-            opaqueWindowStyle.normal.background = MakeOpaqueCopy(opaqueWindowStyle.normal.background);
-            opaqueWindowStyle.onNormal.background = MakeOpaqueCopy(opaqueWindowStyle.onNormal.background);
-            opaqueWindowStyle.focused.background = MakeOpaqueCopy(opaqueWindowStyle.focused.background);
-            opaqueWindowStyle.onFocused.background = MakeOpaqueCopy(opaqueWindowStyle.onFocused.background);
-            opaqueWindowStyle.active.background = MakeOpaqueCopy(opaqueWindowStyle.active.background);
-            opaqueWindowStyle.onActive.background = MakeOpaqueCopy(opaqueWindowStyle.onActive.background);
-            opaqueWindowStyle.hover.background = MakeOpaqueCopy(opaqueWindowStyle.hover.background);
-            opaqueWindowStyle.onHover.background = MakeOpaqueCopy(opaqueWindowStyle.onHover.background);
+            if (!IsOpaqueStyleSkinReady(skin))
+            {
+                ParsekLog.VerboseRateLimited("UI", "opaque-style-skin-not-ready",
+                    "ParsekUI: skin not ready, deferring opaque style rebuild", 1f);
+                return false;
+            }
+
+            opaqueWindowStyle = BuildOpaqueWindowStyle(skin.window);
 
             // Bigger title font + more breathing room above/below the title text so the
             // title bar is not cramped. Applied here because every Parsek window routes
             // through GetOpaqueWindowStyle() — one edit retitles them all.
-            int baseFontSize = GUI.skin.window.fontSize;
-            if (baseFontSize <= 0) baseFontSize = GUI.skin.label.fontSize;   // GUI.skin.window often reports 0
+            int baseFontSize = skin.window.fontSize;
+            if (baseFontSize <= 0) baseFontSize = skin.label.fontSize;       // GUI.skin.window often reports 0
             if (baseFontSize <= 0) baseFontSize = 12;                         // last-resort default
             opaqueWindowStyle.fontSize = baseFontSize + 2;
             var p = opaqueWindowStyle.padding;
             opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
+            return true;
+        }
+
+        private static bool IsOpaqueStyleSkinReady(GUISkin skin)
+        {
+            return skin != null
+                && skin.window != null
+                && skin.window.normal.background != null;
+        }
+
+        private static GUIStyle BuildOpaqueWindowStyle(GUIStyle sourceStyle)
+        {
+            Texture2D normalSource = sourceStyle.normal.background;
+            var style = new GUIStyle(sourceStyle);
+            style.normal.background = MakeOpaqueCopy(normalSource);
+            style.onNormal.background = MakeOpaqueCopy(sourceStyle.onNormal.background ?? normalSource);
+            style.focused.background = MakeOpaqueCopy(sourceStyle.focused.background ?? normalSource);
+            style.onFocused.background = MakeOpaqueCopy(sourceStyle.onFocused.background ?? normalSource);
+            style.active.background = MakeOpaqueCopy(sourceStyle.active.background ?? normalSource);
+            style.onActive.background = MakeOpaqueCopy(sourceStyle.onActive.background ?? normalSource);
+            style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
+            style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
+            return style;
+        }
+
+        private void ClearOpaqueWindowStyle()
+        {
+            if (opaqueWindowStyle == null)
+                return;
+
+            var destroyedBackgrounds = new HashSet<int>();
+            DestroyOpaqueBackground(opaqueWindowStyle.normal.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onNormal.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.focused.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onFocused.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.active.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onActive.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
+            opaqueWindowStyle = null;
+        }
+
+        private static void DestroyOpaqueBackground(
+            Texture2D background,
+            HashSet<int> destroyedBackgrounds)
+        {
+            if (background == null)
+                return;
+
+            int id = background.GetInstanceID();
+            if (!destroyedBackgrounds.Add(id))
+                return;
+
+            Object.Destroy(background);
         }
 
         /// <summary>
@@ -472,7 +524,8 @@ namespace Parsek
         /// </summary>
         public GUIStyle GetOpaqueWindowStyle()
         {
-            EnsureOpaqueWindowStyle();
+            if (!EnsureOpaqueWindowStyle(GUI.skin))
+                return null;
             return opaqueWindowStyle;
         }
 
@@ -957,6 +1010,7 @@ namespace Parsek
             careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
+            ClearOpaqueWindowStyle();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.
         }

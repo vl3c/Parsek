@@ -24,15 +24,15 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** the runner's opaque window style is reset on `GameEvents.onGameSceneLoadRequested`, which fires before the destination scene's IMGUI skin is ready. The next `OnGUI` during the transition sees `opaqueStyle == null`, clones `GUI.skin.window` while `GUI.skin.window.normal.background` is still null/stale, and caches a non-null `GUIStyle` whose backgrounds are all null. From that point the frame renders fully transparent until another scene transition happens to rebuild it at a safer moment.
 
-**Fix:** keep the current scene-reset flow, but gate opaque-style rebuild on `GUI.skin.window.normal.background != null`; if the destination skin is not ready yet, `OnGUI` now returns early and retries on a later frame instead of caching a transparent style. When the normal background is ready but hover/focus/active variants are still null, the builder now falls those states back to the ready normal texture so the cache never freezes in a partially transparent state. Scene-reset cleanup explicitly destroys the copied opaque textures before dropping the cached style, and the new in-game `TestRunner` regression clears any preexisting cache, invokes the private scene-change handler directly, exercises both the missing-background and lagging-state paths, and asserts the cache stays empty until a ready skin is supplied.
+**Fix:** keep the current scene-reset flow, but gate opaque-style rebuild on `GUI.skin.window.normal.background != null`; if the destination skin is not ready yet, `OnGUI` now returns early and retries on a later frame instead of caching a transparent style. When the normal background is ready but hover/focus/active variants are still null, the builder now falls those states back to the ready normal texture so the cache never freezes in a partially transparent state. Scene-reset cleanup explicitly destroys the copied opaque textures before dropping the cached style, and the new in-game `TestRunner` regression clears any preexisting cache, invokes the private scene-change handler directly, exercises both the missing-background and lagging-state paths, and asserts the cache stays empty until a ready skin is supplied. Follow-up 2026-04-20: the original fix only covered the global Ctrl+Shift+T shortcut window; the shared `ParsekUI` cache used by the Settings-hosted Test Runner still needed the same guarded rebuild + fallback logic.
 
-**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`.
 
 **Scope:** Small. No scene-hook swap required; the fix is a guarded rebuild plus cache cleanup and regression coverage.
 
 **Dependencies:** none.
 
-**Resolution:** fixed on 2026-04-19 in `bug/487-test-runner-transparent`. The runner now logs a rate-limited `Test runner: skin not ready, deferring opaque style rebuild` message on the deferred path, so future log captures will show the race if it ever reappears.
+**Resolution:** shortcut path fixed on 2026-04-19 in `bug/487-test-runner-transparent`; shared `ParsekUI` follow-up landed on 2026-04-20 so the Settings-hosted Test Runner and the rest of the Parsek subwindows use the same guarded opaque-style rebuild instead of bypassing the original fix.
 
 **Status:** CLOSED 2026-04-19. Fixed for v0.8.3.
 

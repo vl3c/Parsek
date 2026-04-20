@@ -70,6 +70,8 @@ namespace Parsek
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             testRunnerWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekTestRunner".GetHashCode(),
                 testRunnerWindowRect,
