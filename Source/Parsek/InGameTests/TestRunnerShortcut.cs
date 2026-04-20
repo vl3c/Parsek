@@ -245,21 +245,7 @@ namespace Parsek.InGameTests
 
         private static GUIStyle BuildOpaqueStyle(GUIStyle sourceStyle)
         {
-            // Match ParsekUI's opaque window style: copy KSP skin, force alpha to 1.
-            // KSP can hydrate the normal window background a frame before the other
-            // state variants, so fall back to the ready normal texture for any state
-            // that is still null on this frame.
-            Texture2D normalSource = sourceStyle.normal.background;
-            var style = new GUIStyle(sourceStyle);
-            style.normal.background = MakeOpaqueCopy(normalSource);
-            style.onNormal.background = MakeOpaqueCopy(sourceStyle.onNormal.background ?? normalSource);
-            style.focused.background = MakeOpaqueCopy(sourceStyle.focused.background ?? normalSource);
-            style.onFocused.background = MakeOpaqueCopy(sourceStyle.onFocused.background ?? normalSource);
-            style.active.background = MakeOpaqueCopy(sourceStyle.active.background ?? normalSource);
-            style.onActive.background = MakeOpaqueCopy(sourceStyle.onActive.background ?? normalSource);
-            style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
-            style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
-            return style;
+            return ParsekUI.BuildOpaqueWindowStyleFromSource(sourceStyle);
         }
 
         private static bool AreAllOpaqueStyleBackgroundsPresent(GUIStyle style)
