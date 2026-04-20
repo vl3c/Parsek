@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is4()
+        public void CurrentRecordingFormatVersion_Is5()
         {
-            Assert.Equal(4, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(5, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]

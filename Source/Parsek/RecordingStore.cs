@@ -55,7 +55,8 @@ namespace Parsek
     public static class RecordingStore
     {
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
-        public const int CurrentRecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
+        public const int PredictedOrbitSegmentFormatVersion = 5;
+        public const int CurrentRecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -74,6 +75,7 @@ namespace Parsek
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
         // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
         // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
+        // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -3322,6 +3324,7 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
+            segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {
                 segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
@@ -3351,6 +3354,7 @@ namespace Parsek
             double.TryParse(segNode.GetValue("mna"), ns, ic, out seg.meanAnomalyAtEpoch);
             double.TryParse(segNode.GetValue("epoch"), ns, ic, out seg.epoch);
             seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
+            bool.TryParse(segNode.GetValue("isPredicted"), out seg.isPredicted);
 
             float ofrX, ofrY, ofrZ, ofrW;
             if (float.TryParse(segNode.GetValue("ofrX"), ns, ic, out ofrX) &&
@@ -4090,6 +4094,7 @@ namespace Parsek
                 && a.meanAnomalyAtEpoch == b.meanAnomalyAtEpoch
                 && a.epoch == b.epoch
                 && a.bodyName == b.bodyName
+                && a.isPredicted == b.isPredicted
                 && a.orbitalFrameRotation.x == b.orbitalFrameRotation.x
                 && a.orbitalFrameRotation.y == b.orbitalFrameRotation.y
                 && a.orbitalFrameRotation.z == b.orbitalFrameRotation.z

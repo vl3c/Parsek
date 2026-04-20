@@ -115,7 +115,8 @@ namespace Parsek.Tests.Generators
             double lan = 0, double argPe = 0, double mna = 0, double epoch = 0,
             string body = "Kerbin",
             float ofrX = 0, float ofrY = 0, float ofrZ = 0, float ofrW = 0,
-            float avX = 0, float avY = 0, float avZ = 0)
+            float avX = 0, float avY = 0, float avZ = 0,
+            bool isPredicted = false)
         {
             var ic = CultureInfo.InvariantCulture;
             var seg = new ConfigNode("ORBIT_SEGMENT");
@@ -129,6 +130,7 @@ namespace Parsek.Tests.Generators
             seg.AddValue("mna", mna.ToString("R", ic));
             seg.AddValue("epoch", epoch.ToString("R", ic));
             seg.AddValue("body", body);
+            seg.AddValue("isPredicted", isPredicted ? "True" : "False");
             if (ofrX != 0 || ofrY != 0 || ofrZ != 0 || ofrW != 0)
             {
                 seg.AddValue("ofrX", ofrX.ToString("R", ic));
