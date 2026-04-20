@@ -189,6 +189,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Extrapolate_StableOrbit_CarriesFrozenPlaybackRotationIntoPredictedSegment()
+        {
+            double circularAltitude = 100000.0;
+            double radius = KerbinRadius + circularAltitude;
+            double circularSpeed = Math.Sqrt(KerbinGravParameter / radius);
+            Quaternion frozenRotation = new Quaternion(0.1f, 0.7f, -0.1f, -0.7f);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            BallisticStateVector startState = MakeTangentialState(
+                "Kerbin",
+                KerbinRadius,
+                circularAltitude,
+                circularSpeed);
+            startState.orbitalFrameRotation = frozenRotation;
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                startState,
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0001,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Single(result.segments);
+            Assert.True(TrajectoryMath.HasOrbitalFrameRotation(result.segments[0]));
+            AssertQuaternionEqual(frozenRotation, result.segments[0].orbitalFrameRotation);
+        }
+
+        [Fact]
         public void Extrapolate_HyperbolicHomeEscape_HandsOffToStar()
         {
             var bodies = new Dictionary<string, ExtrapolationBody>
@@ -223,6 +257,50 @@ namespace Parsek.Tests
             Assert.Equal("Star", result.segments[1].bodyName);
             Assert.Equal(result.segments[0].endUT, result.segments[1].startUT, 6);
             Assert.True(result.segments[0].endUT < result.terminalUT);
+        }
+
+        [Fact]
+        public void Extrapolate_SoiTransitions_PreserveFrozenPlaybackRotationAcrossSegments()
+        {
+            Quaternion frozenRotation = new Quaternion(-0.6f, -0.3f, 0.6f, 0.3f);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Star"] = MakeBody("Star", StarGravParameter, StarRadius),
+                ["Home"] = MakeBody(
+                    "Home",
+                    KerbinGravParameter,
+                    KerbinRadius,
+                    atmosphereDepth: KerbinAtmosphereDepth,
+                    sphereOfInfluence: KerbinSoi,
+                    parentBodyName: "Star",
+                    parentFrameState: FixedState(
+                        new Vector3d(200000000.0, 0.0, 0.0),
+                        new Vector3d(0.0, 200.0, 0.0)))
+            };
+
+            BallisticStateVector startState = MakeTangentialState(
+                "Home",
+                KerbinRadius,
+                altitude: 100000.0,
+                tangentialSpeed: 3600.0);
+            startState.orbitalFrameRotation = frozenRotation;
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                startState,
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0005,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(2, result.segments.Count);
+            foreach (OrbitSegment segment in result.segments)
+            {
+                Assert.True(TrajectoryMath.HasOrbitalFrameRotation(segment));
+                AssertQuaternionEqual(frozenRotation, segment.orbitalFrameRotation);
+            }
         }
 
         [Fact]
@@ -594,6 +672,14 @@ namespace Parsek.Tests
         {
             Vector3d delta = a - b;
             return Math.Sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+        }
+
+        private static void AssertQuaternionEqual(Quaternion expected, Quaternion actual, float tolerance = 0.0001f)
+        {
+            Assert.True(Mathf.Abs(expected.x - actual.x) < tolerance, $"x={actual.x} expected={expected.x}");
+            Assert.True(Mathf.Abs(expected.y - actual.y) < tolerance, $"y={actual.y} expected={expected.y}");
+            Assert.True(Mathf.Abs(expected.z - actual.z) < tolerance, $"z={actual.z} expected={expected.z}");
+            Assert.True(Mathf.Abs(expected.w - actual.w) < tolerance, $"w={actual.w} expected={expected.w}");
         }
     }
 }

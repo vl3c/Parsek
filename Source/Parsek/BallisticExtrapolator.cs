@@ -39,6 +39,10 @@ namespace Parsek
         public string bodyName;
         public Vector3d position;
         public Vector3d velocity;
+        // Optional frozen playback attitude. When present, extrapolated segments reuse
+        // this orbital-frame-relative rotation so predicted playback can hold the last
+        // captured attitude instead of falling back to prograde.
+        public Quaternion orbitalFrameRotation;
     }
 
     internal struct ExtrapolationResult
@@ -262,7 +266,14 @@ namespace Parsek
                     && segmentEndUT <= currentState.ut + ImmediateEventEpsilon;
 
                 if (!immediateSoiTransition)
-                    result.segments.Add(CreateSegment(orbit, currentBody.Name, currentState.ut, segmentEndUT));
+                {
+                    result.segments.Add(CreateSegment(
+                        orbit,
+                        currentBody.Name,
+                        currentState.ut,
+                        segmentEndUT,
+                        currentState.orbitalFrameRotation));
+                }
 
                 if (chosen.Kind == EventKind.Destroyed)
                 {
@@ -362,7 +373,8 @@ namespace Parsek
                         ut = chosen.UT,
                         bodyName = parentBody.Name,
                         position = chosen.Position + bodyPosition,
-                        velocity = chosen.Velocity + bodyVelocity
+                        velocity = chosen.Velocity + bodyVelocity,
+                        orbitalFrameRotation = currentState.orbitalFrameRotation
                     };
                     suppressedImmediateChildEntryBodyName = immediateSoiTransition
                         ? currentBody.Name
@@ -390,7 +402,8 @@ namespace Parsek
                         ut = chosen.UT,
                         bodyName = chosen.ChildBody.Name,
                         position = chosen.Position - childPosition,
-                        velocity = chosen.Velocity - childVelocity
+                        velocity = chosen.Velocity - childVelocity,
+                        orbitalFrameRotation = currentState.orbitalFrameRotation
                     };
                     suppressedImmediateParentExitBodyName = immediateSoiTransition
                         ? currentBody.Name
@@ -453,7 +466,8 @@ namespace Parsek
             TwoBodyOrbit orbit,
             string bodyName,
             double startUT,
-            double endUT)
+            double endUT,
+            Quaternion orbitalFrameRotation)
         {
             return new OrbitSegment
             {
@@ -467,7 +481,8 @@ namespace Parsek
                 meanAnomalyAtEpoch = orbit.MeanAnomalyAtEpoch,
                 epoch = orbit.Epoch,
                 bodyName = bodyName,
-                isPredicted = true
+                isPredicted = true,
+                orbitalFrameRotation = orbitalFrameRotation
             };
         }
 
