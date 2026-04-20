@@ -148,6 +148,8 @@ SEGMENT { ...existing fields...; isPredicted = True }
 
 All doubles serialised via `ToString("R", CultureInfo.InvariantCulture)` per project convention. `isPredicted` defaults to `False` for legacy load compatibility.
 
+**Track-section authoritative encoding interaction.** Recordings that use `TrackSection` payloads gate their on-disk encoding through `ShouldWriteSectionAuthoritativeTrajectory` (`RecordingStore.cs:3486-3491`), which requires `HasTrackSectionPayloadMatchingFlatTrajectory` (`RecordingStore.cs:3430-3438`). Appending predicted / extrapolated `OrbitSegment`s extends the flat trajectory beyond what the track sections cover, so `FlatTrajectoryExtendsTrackSectionPayload` returns true and the match check fails — the writer falls back to the flat-trajectory encoding path and persists the full segment list (including extrapolated tail). This fallback is the expected and intended behaviour; it is covered by explicit round-trip tests in the Test Plan to prevent silent regressions.
+
 ## Behavior
 
 ### Scene-exit finalization
@@ -353,6 +355,8 @@ Because `PatchedConicSolver` and `Orbit` are hard to mock, some tests wrap them 
 - `ExplicitEndUT_AfterExtrapolation_IsPersisted` — fails if `ExplicitEndUT` is not persisted or gets recomputed on load from trajectory bounds (which would revert the extrapolated terminus).
 - `LegacyV4Recording_LoadsWithIsPredictedFalse` — fails if old binary `.prec` files fail to load or produce invalid segments when the flag is absent.
 - `V5Recording_RoundTripsThroughBinaryCodec` — fails if the bumped format version is not gated correctly in the encode / decode / version-check path.
+- `TrackSectionRecording_WithExtrapolatedTail_FallsBackToFlatEncoding` — fails if `ShouldWriteSectionAuthoritativeTrajectory` still returns true after extrapolation appends predicted/extrapolated `OrbitSegment`s that extend past the track-section payload. Expected path: `HasTrackSectionPayloadMatchingFlatTrajectory` returns false (`RecordingStore.cs:3430-3438`), so the writer falls back to flat-trajectory encoding and the extrapolated tail is persisted. Confirms the section-authoritative → flat fallback is exercised end-to-end.
+- `TrackSectionRecording_WithExtrapolatedTail_RoundTripsFlatTrajectory` — fails if the fallback path drops the predicted/extrapolated segments on save or loses them on load. Complements the fallback-trigger test above.
 
 ### Log-assertion tests
 
