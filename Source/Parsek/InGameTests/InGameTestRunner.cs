@@ -666,36 +666,26 @@ namespace Parsek.InGameTests
             FlightBatchBaselineState baseline, int previousFlightInstanceId)
         {
             Exception restoreFailure = null;
-            try
-            {
-                yield return coroutineHost.StartCoroutine(
-                    RunCoroutineSafely(
-                        RestoreBatchFlightBaselineCore(
-                            baseline,
-                            previousFlightInstanceId,
-                            "cancelled-batch-restore"),
-                        ex => restoreFailure = ex));
-                if (restoreFailure != null)
-                {
-                    ParsekLog.Warn(Tag,
-                        $"Cancelled run failed to restore isolated batch baseline: {restoreFailure.Message}");
-                }
-            }
-            catch (Exception ex)
+            yield return coroutineHost.StartCoroutine(
+                RunCoroutineSafely(
+                    RestoreBatchFlightBaselineCore(
+                        baseline,
+                        previousFlightInstanceId,
+                        "cancelled-batch-restore"),
+                    ex => restoreFailure = ex));
+            if (restoreFailure != null)
             {
                 ParsekLog.Warn(Tag,
-                    $"Cancelled run failed to restore isolated batch baseline: {ex.Message}");
+                    $"Cancelled run failed to restore isolated batch baseline: {restoreFailure.Message}");
             }
-            finally
-            {
-                CleanupBatchFlightBaselineSave();
-                batchFlightBaseline = null;
-                abortBatchAfterRestoreFailure = false;
-                activeCoroutine = null;
-                activeTestCoroutine = null;
-                activeInnerCoroutine = null;
-                isRunning = false;
-            }
+
+            CleanupBatchFlightBaselineSave();
+            batchFlightBaseline = null;
+            abortBatchAfterRestoreFailure = false;
+            activeCoroutine = null;
+            activeTestCoroutine = null;
+            activeInnerCoroutine = null;
+            isRunning = false;
         }
 
         private IEnumerator RestoreBatchFlightBaselineCore(
