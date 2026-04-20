@@ -10,10 +10,52 @@ namespace Parsek
             if (rec == null)
                 return false;
 
-            if (rec.TerminalPosition.HasValue && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
-            {
-                bodyName = rec.TerminalPosition.Value.body;
+            if (TryGetPersistedEndpointDecision(rec, out _, out bodyName))
                 return true;
+
+            return TryComputeEndpointDecisionFromData(rec, out _, out bodyName);
+        }
+
+        internal static bool TryGetExplicitEndpointBodyName(Recording rec, out string bodyName)
+        {
+            bodyName = null;
+            if (rec == null)
+                return false;
+
+            RecordingEndpointPhase phase;
+            if (TryGetPersistedEndpointDecision(rec, out phase, out bodyName)
+                || TryComputeEndpointDecisionFromData(rec, out phase, out bodyName))
+            {
+                return phase != RecordingEndpointPhase.OrbitSegment
+                    && !string.IsNullOrEmpty(bodyName);
+            }
+
+            bodyName = null;
+            return false;
+        }
+
+        internal static bool TryGetPreferredEndpointBodyName(IPlaybackTrajectory traj, out string bodyName)
+        {
+            bodyName = null;
+            if (traj == null)
+                return false;
+
+            if (TryGetPersistedEndpointDecision(traj, out _, out bodyName))
+                return true;
+
+            if (TryGetTerminalOrbitAlignedOrbitDecision(traj, out bodyName))
+                return true;
+
+            if (ShouldUseOrbitEndpointByHeuristic(traj)
+                && traj.OrbitSegments != null
+                && traj.OrbitSegments.Count > 0)
+            {
+                OrbitSegment lastSegment = traj.OrbitSegments[traj.OrbitSegments.Count - 1];
+                if (!string.IsNullOrEmpty(lastSegment.bodyName))
+                {
+                    bodyName = lastSegment.bodyName;
+                    return true;
+                }
             }
 
             if (ShouldUseOrbitEndpoint(rec))

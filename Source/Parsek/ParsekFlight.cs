@@ -7017,8 +7017,10 @@ namespace Parsek
 
             // Refresh terminal orbit for orbital leaf recordings even if a body was
             // captured earlier. A mid-transition capture can stamp the wrong SOI body,
-            // so we re-read the live vessel here when available and only fall back to the
-            // last orbit segment when it matches the endpoint body. (#475)
+            // but explicit point/surface endpoint data still wins when it already
+            // anchors the recording. We only heal TerminalOrbit* from the last segment
+            // when the recording is orbit-only (or otherwise lacks an explicit
+            // non-orbit endpoint) and the cached tuple is empty/stale. (#475/#484)
             if (isLeaf && rec.TerminalStateValue.HasValue
                 && (rec.TerminalStateValue.Value == TerminalState.Orbiting
                     || rec.TerminalStateValue.Value == TerminalState.SubOrbital
@@ -7691,7 +7693,11 @@ namespace Parsek
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
-        /// a stale cached TerminalOrbitBody on finalize/load. (#219/#475)
+        /// a stale orbit-only cached terminal-orbit tuple on finalize/load. Explicit
+        /// point/surface endpoint data keeps already-populated terminal orbit fields
+        /// authoritative; otherwise, already-populated values are preserved only when
+        /// the full cached tuple already matches the endpoint-aligned segment.
+        /// (#219/#475/#484)
         /// </summary>
         internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
         {
@@ -7703,20 +7709,55 @@ namespace Parsek
                 return false;
 
             bool hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody);
+            bool endpointAligned = hasEndpointBody
+                && string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
             if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
             {
-                return !hasEndpointBody
-                    || string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal);
+                return !hasEndpointBody || endpointAligned;
             }
 
-            if (string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal))
+            bool hasExplicitEndpointBody = RecordingEndpointResolver.TryGetExplicitEndpointBodyName(
+                rec,
+                out string explicitEndpointBody);
+            if (hasExplicitEndpointBody
+                && string.Equals(rec.TerminalOrbitBody, explicitEndpointBody, StringComparison.Ordinal))
+            {
+                ParsekLog.Info("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ShouldPopulateTerminalOrbitFromLastSegment: preserved cached terminal orbit for '{0}' because explicit endpoint body={1} keeps cached orbit authoritative over later segment body={2} sma={3:F1}",
+                        rec.RecordingId ?? "(null)",
+                        explicitEndpointBody,
+                        seg.bodyName,
+                        seg.semiMajorAxis));
                 return false;
+            }
+
+            bool cachedTupleMatchesLastSegment = CachedTerminalOrbitMatchesSegment(rec, seg);
+            if (cachedTupleMatchesLastSegment)
+            {
+                if (endpointAligned)
+                {
+                    ParsekLog.Info("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "ShouldPopulateTerminalOrbitFromLastSegment: preserved cached terminal orbit for '{0}' because cached tuple already matches endpoint-aligned segment body={1} sma={2:F1}",
+                            rec.RecordingId ?? "(null)",
+                            seg.bodyName,
+                            seg.semiMajorAxis));
+                }
+
+                return false;
+            }
+
+            if (hasExplicitEndpointBody)
+            {
+                return string.Equals(seg.bodyName, explicitEndpointBody, StringComparison.Ordinal)
+                    && !string.Equals(rec.TerminalOrbitBody, explicitEndpointBody, StringComparison.Ordinal);
+            }
 
             if (!hasEndpointBody)
                 return false;
 
-            return string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
-                && !string.Equals(rec.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+            return endpointAligned;
         }
 
         internal static void PopulateTerminalOrbitFromLastSegment(Recording rec)
