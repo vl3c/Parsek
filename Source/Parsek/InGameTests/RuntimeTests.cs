@@ -3698,6 +3698,91 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 regression: scene reset must not cache a transparent opaque window
+        /// style while the destination scene skin is still bootstrapping.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Scene reset defers opaque window rebuild until a skin background exists")]
+        public void SceneReset_DefersOpaqueStyleUntilSkinReady()
+        {
+            var shortcut = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(shortcut, "TestRunnerShortcut.Instance must exist");
+
+            MethodInfo onSceneChange = typeof(TestRunnerShortcut).GetMethod(
+                "OnSceneChangeRequested",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(onSceneChange,
+                "Failed to reflect TestRunnerShortcut.OnSceneChangeRequested");
+
+            var readySkin = ScriptableObject.CreateInstance<GUISkin>();
+            var missingBackgroundSkin = ScriptableObject.CreateInstance<GUISkin>();
+            var sourceBackground = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+
+            try
+            {
+                sourceBackground.SetPixels(new[]
+                {
+                    new Color(0.18f, 0.24f, 0.31f, 0.35f),
+                    new Color(0.20f, 0.27f, 0.34f, 0.40f),
+                    new Color(0.22f, 0.29f, 0.36f, 0.45f),
+                    new Color(0.24f, 0.31f, 0.38f, 0.50f),
+                });
+                sourceBackground.Apply();
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Test must start from a cleared opaque-style cache");
+
+                readySkin.window = new GUIStyle();
+                readySkin.window.normal.background = sourceBackground;
+
+                missingBackgroundSkin.window = new GUIStyle();
+
+                bool builtBeforeReset = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtBeforeReset,
+                    "Opaque style should build when a window background exists");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Opaque style must be cached before the scene reset");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Opaque style cache must keep a non-null window background before reset");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Lagging hover/focus/active states must fall back to the ready normal background");
+                InGameAssert.AreNotEqual(sourceBackground.GetInstanceID(),
+                    shortcut.OpaqueWindowBackgroundForTesting.GetInstanceID(),
+                    "Opaque style must keep a copied background texture instead of the live skin texture");
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Scene reset should clear the cached opaque style before the next rebuild");
+
+                bool builtWithMissingBackground = shortcut.TryEnsureOpaqueStyleForTesting(missingBackgroundSkin);
+                InGameAssert.IsFalse(builtWithMissingBackground,
+                    "Opaque style rebuild must defer when the destination scene skin has no window background yet");
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Deferred rebuild must not cache an opaque style with null backgrounds");
+                InGameAssert.IsNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Deferred rebuild must leave the cached opaque background unset");
+
+                bool builtAfterSkinReady = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtAfterSkinReady,
+                    "Opaque style rebuild should succeed once the scene skin is ready");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Ready-skin rebuild must repopulate the cached opaque style");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Ready-skin rebuild must cache a non-null opaque background");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Ready-skin rebuild must populate every window state background");
+            }
+            finally
+            {
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                Object.Destroy(readySkin);
+                Object.Destroy(missingBackgroundSkin);
+                Object.Destroy(sourceBackground);
+            }
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// This also drives a real stock quickload, so it is intentionally single-run only.
@@ -5374,6 +5459,8 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
@@ -5453,5 +5540,7 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 }

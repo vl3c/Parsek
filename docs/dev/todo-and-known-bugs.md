@@ -18,6 +18,26 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~487. Test runner window (Ctrl+Shift+T) goes fully transparent after staying open across a scene transition~~
+
+**Source:** `logs/2026-04-19_2228/KSP.log:9075` plus local repro notes (`Flight pad -> Space Center -> Flight pad` with the runner left open the whole time).
+
+**Concern:** the runner's opaque window style is reset on `GameEvents.onGameSceneLoadRequested`, which fires before the destination scene's IMGUI skin is ready. The next `OnGUI` during the transition sees `opaqueStyle == null`, clones `GUI.skin.window` while `GUI.skin.window.normal.background` is still null/stale, and caches a non-null `GUIStyle` whose backgrounds are all null. From that point the frame renders fully transparent until another scene transition happens to rebuild it at a safer moment.
+
+**Fix:** keep the current scene-reset flow, but gate opaque-style rebuild on `GUI.skin.window.normal.background != null`; if the destination skin is not ready yet, `OnGUI` now returns early and retries on a later frame instead of caching a transparent style. When the normal background is ready but hover/focus/active variants are still null, the builder now falls those states back to the ready normal texture so the cache never freezes in a partially transparent state. Scene-reset cleanup explicitly destroys the copied opaque textures before dropping the cached style, and the new in-game `TestRunner` regression clears any preexisting cache, invokes the private scene-change handler directly, exercises both the missing-background and lagging-state paths, and asserts the cache stays empty until a ready skin is supplied.
+
+**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+
+**Scope:** Small. No scene-hook swap required; the fix is a guarded rebuild plus cache cleanup and regression coverage.
+
+**Dependencies:** none.
+
+**Resolution:** fixed on 2026-04-19 in `bug/487-test-runner-transparent`. The runner now logs a rate-limited `Test runner: skin not ready, deferring opaque style rebuild` message on the deferred path, so future log captures will show the race if it ever reappears.
+
+**Status:** CLOSED 2026-04-19. Fixed for v0.8.3.
+
+---
+
 ## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
 
 **Source:** `logs/2026-04-19_2126/KSP.log` + `saves/c2/persistent.sfs`. User reported: "There was a problem with the runway R0 recording — I did a save/load while on the runway and it caused problems — created two recordings (one landed, one in air) which looked weird."
@@ -175,6 +195,7 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 
 ---
 
+<<<<<<< HEAD
 ## ~~481. `RuntimeTests.TimeScalePositive` intermittently fails in SPACECENTER — `Time.timeScale` observed as 0 during test execution, passes on retry~~
 
 **Source:** `logs/2026-04-19_2126/parsek-test-results.txt:22` + `KSP.log` (three failure timestamps: 21:14:08.662, 21:15:00.972, 21:15:08.916). Passes in EDITOR / FLIGHT / MAINMENU / TRACKSTATION consistently, failed in SPACECENTER in three of eight observed runs (~37% flake rate).
@@ -375,9 +396,9 @@ Per-leg gating (not whole-sweep) is the correct granularity — a save that disa
 
 **Source:** user playtest report — "when recording a trip that ends in Mun orbit, after rewind when watching the ghost in map view, the ghost gets to the Mun encounter but then instead of spawning in Mun orbit, it spawns in a Kerbin SOI eject trajectory."
 
-**Fix shipped:** terminal-orbit capture no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, finalization/load-time backfill only trusts a last `OrbitSegment` when that segment agrees with the recording endpoint body, and spawn-at-end now resolves the body from the actual endpoint before attempting any recorded-orbit propagation. If no endpoint-aligned orbital seed exists, spawn falls back to the endpoint state instead of constructing a wrong Kerbin-frame orbit.
+**Fix shipped:** finalize now persists an authoritative endpoint decision for each recording, so exact-boundary point-vs-orbit outcomes survive save/load without being re-inferred from the old epsilon-only winner check. Resolver/spawn code consumes that persisted decision when present; legacy recordings without the new fields self-heal on load by backfilling from terminal position, endpoint-aligned terminal-orbit data, the last trajectory point, or surface position. Terminal-orbit capture also no longer falls back to `"Kerbin"` when `orbit.referenceBody` is null, and orbit backfill only trusts a last segment when it agrees with the resolved endpoint body. This branch also closes the remaining spawn-correctness holes around that same bug shape: malformed snapshots are now repaired or refused instead of silently defaulting to Kerbin, chain-tip and ghost-map builders resolve orbit/body from the same endpoint-aligned contract as real-vessel spawn, and unsafe snapshot situation rewrites clear stale site labels along with the corrected `sit`.
 
-**Tests:** added xUnit coverage for endpoint-aligned terminal-orbit backfill and endpoint-aligned orbital spawn-seed selection across Kerbin → Mun end-state shapes.
+**Tests:** added xUnit coverage for persisted exact-boundary capture/escape endpoint decisions, legacy endpoint-decision backfill across Kerbin-to-Mun end-state shapes, malformed-snapshot refusal, remaining ghost-builder endpoint alignment, and stale site-label clearing after unsafe snapshot rewrites.
 
 **Status:** done/closed on this branch. Priority was high because the bad cached body could throw the spawned vessel onto a solar-escape path after rewind and effectively destroy the mission outcome.
 
@@ -812,6 +833,8 @@ Timeline dominates (65.7 %) and reentry is a significant secondary contributor (
 **Source:** world-model conversation on #432 (2026-04-17). The aspirational design for Gloops: when the player records a Gloops flight that stages or EVAs, the capture produces a **tree of ghost-only recordings** — main + debris children + crew children — all flagged `IsGhostOnly`, all grouped under a per-flight Gloops parent in the Recordings Manager, and none of them spawning a real vessel at ghost-end. Structurally the same as the normal Parsek recording tree (decouple → debris background recording, EVA → linked crew child), with the ghost-only flag applied uniformly and the vessel-spawn-at-end path skipped.
 
 **Guiding architectural principle:** per `docs/dev/gloops-recorder-design.md`, Gloops is on track to be extracted as a standalone mod on which Parsek will depend. Parsek's recorder and tree infrastructure will become the base that both Gloops and Parsek share — Gloops exposes the trajectory recorder + playback engine, Parsek layers the career-state / tree / DAG / world-presence envelope on top via the `IPlaybackTrajectory` boundary. Multi-recording Gloops must therefore **reuse Parsek's existing recorder, tree, and BackgroundRecorder infrastructure** rather than growing a parallel Gloops-flavored implementation. The ghost-only distinction is a per-recording flag on top of shared machinery, not a separate code path.
+
+**2026-04-19 boundary note:** `GhostPlaybackEngine.ResolveGhostActivationStartUT` no longer casts back to `Recording`; the engine now resolves activation start from playable payload bounds through `PlaybackTrajectoryBoundsResolver` over `IPlaybackTrajectory`. #435 remains otherwise unchanged, but this leak is no longer part of the extraction risk surface.
 
 **Current state (audited 2026-04-17):**
 
