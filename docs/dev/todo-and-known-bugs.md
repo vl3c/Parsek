@@ -169,7 +169,7 @@ Fires three times per invocation of the `SerializationTests.RecordingPathsValida
 
 **Fix:** implemented with an explicit `RecordingIdValidationLogContext` parameter on `ValidateRecordingId`. Expected negative-path runtime/acceptance tests opt into `Test`, which emits the existing rejection message at `VERBOSE`; production callers use the default `Production` context and keep the `WARN` signal for genuinely bad recording ids outside test code. Dedicated xUnit log assertions cover both the production `WARN` branch and the test-context `VERBOSE` branch, including the invalid-file-name-char rejection path.
 
-**Files:** `Source/Parsek/RecordingPaths.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/RecordingPathsLoggingTests.cs`.
+**Files:** `Source/Parsek/RecordingPaths.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/RecordingPathsLoggingTests.cs`, `Source/Parsek.Tests/SyntheticRecordingTests.cs`.
 
 **Scope:** Small. One log-level change; any test-side scope probably doesn't need changing.
 

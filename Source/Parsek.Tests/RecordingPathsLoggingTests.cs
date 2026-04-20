@@ -6,13 +6,19 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class RecordingPathsLoggingTests
+    public class RecordingPathsLoggingTests : IDisposable
     {
         public RecordingPathsLoggingTests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
         }
 
         [Fact]
