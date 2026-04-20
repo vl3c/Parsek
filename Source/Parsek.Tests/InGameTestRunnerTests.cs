@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Parsek.InGameTests;
@@ -357,6 +358,41 @@ namespace Parsek.Tests
                 new DateTime(2026, 4, 17, 10, 0, 0),
                 GameScenes.FLIGHT);
             Assert.Contains("(never run)", string.Join("\n", lines));
+        }
+
+        [Fact]
+        public void RunCoroutineSafely_CapturesNestedCoroutineFailure()
+        {
+            Exception failure = null;
+
+            var safe = InGameTestRunner.RunCoroutineSafely(
+                OuterCoroutineYieldingNestedFailure(),
+                ex => failure = ex);
+
+            ExhaustCoroutine(safe);
+
+            var actual = Assert.IsType<InvalidOperationException>(failure);
+            Assert.Equal("nested boom", actual.Message);
+        }
+
+        private static IEnumerator OuterCoroutineYieldingNestedFailure()
+        {
+            yield return NestedThrowingCoroutine();
+        }
+
+        private static IEnumerator NestedThrowingCoroutine()
+        {
+            yield return null;
+            throw new InvalidOperationException("nested boom");
+        }
+
+        private static void ExhaustCoroutine(IEnumerator routine)
+        {
+            while (routine.MoveNext())
+            {
+                if (routine.Current is IEnumerator nested)
+                    ExhaustCoroutine(nested);
+            }
         }
     }
 }

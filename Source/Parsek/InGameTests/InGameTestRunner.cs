@@ -751,7 +751,7 @@ namespace Parsek.InGameTests
                 && vessel.LandedOrSplashed;
         }
 
-        private static IEnumerator RunCoroutineSafely(
+        internal static IEnumerator RunCoroutineSafely(
             IEnumerator routine, Action<Exception> onFailure)
         {
             if (routine == null)
@@ -859,26 +859,10 @@ namespace Parsek.InGameTests
 
                     IEnumerator SafeEnumerator()
                     {
-                        while (true)
-                        {
-                            bool hasNext;
-                            try
-                            {
-                                hasNext = enumerator.MoveNext();
-                            }
-                            catch (Exception ex)
-                            {
-                                coroutineError = ex;
-                                coroutineRunning = false;
-                                yield break;
-                            }
-                            if (!hasNext)
-                            {
-                                coroutineRunning = false;
-                                yield break;
-                            }
-                            yield return enumerator.Current;
-                        }
+                        Exception nestedFailure = null;
+                        yield return RunCoroutineSafely(enumerator, ex => nestedFailure = ex);
+                        coroutineError = nestedFailure;
+                        coroutineRunning = false;
                     }
 
                     activeInnerCoroutine = coroutineHost.StartCoroutine(SafeEnumerator());
