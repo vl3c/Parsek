@@ -135,6 +135,41 @@ namespace Parsek.Tests
             Assert.Equal(InGameTestRunner.DefaultBatchRestoreNote, note);
         }
 
+        [Theory]
+        [InlineData(Vessel.Situations.PRELAUNCH, true)]
+        [InlineData(Vessel.Situations.LANDED, false)]
+        [InlineData(Vessel.Situations.FLYING, false)]
+        public void ShouldWaitForStockStageManager_OnlyForPrelaunch(
+            Vessel.Situations situation,
+            bool expected)
+        {
+            bool actual = InGameTestRunner.ShouldWaitForStockStageManager(situation);
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData(true, 1, false, false, true)]
+        [InlineData(false, 1, false, false, false)]
+        [InlineData(true, 0, false, false, false)]
+        [InlineData(true, 1, true, false, false)]
+        [InlineData(true, 1, false, true, false)]
+        public void IsStageManagerReadyForActivateNextStage_RequiresStableStockState(
+            bool hasInstance,
+            int stageCount,
+            bool rebuildIndexes,
+            bool hasSortRoutine,
+            bool expected)
+        {
+            bool actual = InGameTestRunner.IsStageManagerReadyForActivateNextStage(
+                hasInstance,
+                stageCount,
+                rebuildIndexes,
+                hasSortRoutine);
+
+            Assert.Equal(expected, actual);
+        }
+
         // ---- FormatResultsReport: multi-scene accumulation (per-scene history) ----
 
         private static InGameTestInfo MakeTest(string category, string name,

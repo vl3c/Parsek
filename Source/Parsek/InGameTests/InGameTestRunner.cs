@@ -72,6 +72,12 @@ namespace Parsek.InGameTests
         internal const string DefaultBatchRestoreNote =
             "Included in Run All + Isolated / Run+ with automatic FLIGHT restore — the runner captures a temporary baseline save and quickloads it after this destructive test. Use a disposable session.";
         private const float BatchBaselineStableMatchSeconds = 0.5f;
+        private static readonly FieldInfo StageManagerSortRoutineField =
+            typeof(KSP.UI.Screens.StageManager).GetField("sortRoutine",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo StageManagerRebuildIndexesField =
+            typeof(KSP.UI.Screens.StageManager).GetField("rebuildIndexes",
+                BindingFlags.Instance | BindingFlags.NonPublic);
 
         private sealed class FlightBatchBaselineState
         {
@@ -763,6 +769,8 @@ namespace Parsek.InGameTests
                 previousFlightInstanceId, timeoutSeconds: 15f);
             yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
             PerformBetweenRunCleanup(cleanupReason);
+            if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
+                yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
         }
 
         private void CleanupBatchFlightBaselineSave()
@@ -832,6 +840,73 @@ namespace Parsek.InGameTests
 
             return expectedSituation == Vessel.Situations.PRELAUNCH
                 && vessel.LandedOrSplashed;
+        }
+
+        internal static bool ShouldWaitForStockStageManager(Vessel.Situations expectedSituation)
+        {
+            return expectedSituation == Vessel.Situations.PRELAUNCH;
+        }
+
+        internal static bool IsStageManagerReadyForActivateNextStage(
+            bool hasInstance,
+            int stageCount,
+            bool rebuildIndexes,
+            bool hasSortRoutine)
+        {
+            return hasInstance
+                && stageCount > 0
+                && !rebuildIndexes
+                && !hasSortRoutine;
+        }
+
+        internal static IEnumerator WaitForStockStageManagerReady(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            float stableMatchStarted = -1f;
+            while (Time.time < deadline)
+            {
+                var stageManager = KSP.UI.Screens.StageManager.Instance;
+                bool hasInstance = stageManager != null;
+                int stageCount = hasInstance ? KSP.UI.Screens.StageManager.StageCount : 0;
+                bool rebuildIndexes = hasInstance
+                    && StageManagerRebuildIndexesField?.GetValue(stageManager) is bool rebuild
+                    && rebuild;
+                bool hasSortRoutine = hasInstance
+                    && StageManagerSortRoutineField?.GetValue(stageManager) is Coroutine;
+                bool ready = IsStageManagerReadyForActivateNextStage(
+                    hasInstance, stageCount, rebuildIndexes, hasSortRoutine);
+                if (ready)
+                {
+                    if (stableMatchStarted < 0f)
+                    {
+                        stableMatchStarted = Time.unscaledTime;
+                    }
+                    else if ((Time.unscaledTime - stableMatchStarted) >= BatchBaselineStableMatchSeconds)
+                    {
+                        yield break;
+                    }
+                }
+                else
+                {
+                    stableMatchStarted = -1f;
+                }
+
+                yield return null;
+            }
+
+            var timedOutStageManager = KSP.UI.Screens.StageManager.Instance;
+            bool timedOutHasInstance = timedOutStageManager != null;
+            int timedOutStageCount = timedOutHasInstance ? KSP.UI.Screens.StageManager.StageCount : 0;
+            bool timedOutRebuildIndexes = timedOutHasInstance
+                && StageManagerRebuildIndexesField?.GetValue(timedOutStageManager) is bool rebuild
+                && rebuild;
+            bool timedOutHasSortRoutine = timedOutHasInstance
+                && StageManagerSortRoutineField?.GetValue(timedOutStageManager) is Coroutine;
+            InGameAssert.Fail(
+                $"WaitForStockStageManagerReady timed out after {timeoutSeconds:F0}s " +
+                $"(hasInstance={timedOutHasInstance}, stageCount={timedOutStageCount}, " +
+                $"rebuildIndexes={timedOutRebuildIndexes}, hasSortRoutine={timedOutHasSortRoutine}, " +
+                $"stableWindow={BatchBaselineStableMatchSeconds:F1}s)");
         }
 
         internal static IEnumerator RunCoroutineSafely(
