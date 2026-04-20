@@ -50,6 +50,9 @@ namespace Parsek.Tests
             GroupHierarchyStore.ResetGroupsForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.ClearPendingQuickloadResumeContext();
+            ParsekScenario.pendingActiveTreeResumeRewindSave = null;
+            FlightRecorder.QuickloadResumeUTProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -447,6 +450,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_LogsResumePrepSummary()
+        {
+            var tree = MakeTree("resume_prep_tree", "Resume Prep Tree", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.ExplicitStartUT = 100.0;
+            activeRec.ExplicitEndUT = 180.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 180.0 });
+            activeRec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 180.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, altitude = 0.0 },
+                    new TrajectoryPoint { ut = 180.0, altitude = 10.0 },
+                },
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var recorder = new FlightRecorder
+            {
+                ActiveTree = tree,
+            };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+            logLines.Clear();
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+            Assert.Equal(150.0, activeRec.ExplicitEndUT);
+            Assert.False(ParsekScenario.MatchesPendingQuickloadResumeContext(tree.Id));
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload resume prep:") &&
+                l.Contains($"activeRec='{activeRec.RecordingId}'") &&
+                l.Contains("cutoffUT=150.00") &&
+                l.Contains("preTrimEndUT=180.00") &&
+                l.Contains("treeTrimmed=True") &&
+                l.Contains("envResyncTarget=Atmospheric"));
+        }
+
+        [Fact]
         public void TrimRecordingPastUT_RemovesFuturePayloadAcrossBuffers()
         {
             var rec = new Recording
@@ -633,6 +682,7 @@ namespace Parsek.Tests
                 checkpoints = new List<OrbitSegment>(),
             });
 
+            logLines.Clear();
             bool trimmed = ParsekScenario.TrimRecordingTreePastUT(tree, 150.0);
 
             Assert.True(trimmed);
@@ -643,6 +693,13 @@ namespace Parsek.Tests
             Assert.Empty(siblingRec.PartEvents);
             Assert.Single(siblingRec.TrackSections);
             Assert.Equal(150.0, siblingRec.TrackSections[0].endUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload tree trim:") &&
+                l.Contains("tree='Trim Tree'") &&
+                l.Contains("cutoffUT=150.00") &&
+                l.Contains("trimmedRecordings=2/2") &&
+                l.Contains("prunedFutureRecordings=0") &&
+                l.Contains("backgroundEntries=0"));
         }
 
         [Fact]
@@ -673,6 +730,7 @@ namespace Parsek.Tests
             });
             tree.BackgroundMap[futureRec.VesselPersistentId] = futureRec.RecordingId;
 
+            logLines.Clear();
             bool trimmed = ParsekScenario.TrimRecordingTreePastUT(tree, 150.0);
 
             Assert.True(trimmed);
@@ -680,6 +738,12 @@ namespace Parsek.Tests
             Assert.Empty(tree.BranchPoints);
             Assert.Null(rootRec.ChildBranchPointId);
             Assert.Empty(tree.BackgroundMap);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload tree trim:") &&
+                l.Contains("tree='Future Branch Tree'") &&
+                l.Contains("prunedFutureRecordings=1") &&
+                l.Contains("prunedBranchPoints=1") &&
+                l.Contains("backgroundEntries=0"));
         }
 
         [Fact]
@@ -711,6 +775,7 @@ namespace Parsek.Tests
             });
             tree.BackgroundMap[futureRec.VesselPersistentId] = futureRec.RecordingId;
 
+            logLines.Clear();
             bool trimmed = ParsekScenario.TrimRecordingTreePastUT(tree, 150.0);
 
             Assert.True(trimmed);
@@ -718,6 +783,12 @@ namespace Parsek.Tests
             Assert.Empty(tree.BranchPoints);
             Assert.Null(rootRec.ChildBranchPointId);
             Assert.Empty(tree.BackgroundMap);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload tree trim:") &&
+                l.Contains("tree='Future Empty Tree'") &&
+                l.Contains("prunedFutureRecordings=1") &&
+                l.Contains("prunedBranchPoints=1") &&
+                l.Contains("backgroundEntries=0"));
         }
 
         [Fact]
@@ -1724,6 +1795,16 @@ namespace Parsek.Tests
             {
                 initialLoadDoneField.SetValue(null, previousInitialLoadDone);
             }
+        }
+
+        private static void InvokePrepareQuickloadResumeStateIfNeeded(FlightRecorder recorder)
+        {
+            MethodInfo method = typeof(FlightRecorder).GetMethod(
+                "PrepareQuickloadResumeStateIfNeeded",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            method.Invoke(recorder, null);
         }
     }
 }

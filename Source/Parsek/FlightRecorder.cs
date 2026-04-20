@@ -14,6 +14,8 @@ namespace Parsek
     /// </summary>
     public class FlightRecorder
     {
+        internal static Func<double> QuickloadResumeUTProviderForTesting;
+
         internal enum VesselSwitchDecision
         {
             None,
@@ -283,7 +285,7 @@ namespace Parsek
                 return;
             }
 
-            double resumeUT = Planetarium.GetUniversalTime();
+            double resumeUT = GetQuickloadResumeUT();
             double preTrimEndUT = activeRec.EndUT;
             bool treeTrimmed = ParsekScenario.TrimRecordingTreePastUT(ActiveTree, resumeUT);
             bool hasTailEnv = TryGetTailTrackSectionEnvironment(activeRec, out SegmentEnvironment tailEnv);
@@ -297,6 +299,14 @@ namespace Parsek
                 $"preTrimEndUT={preTrimEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"treeTrimmed={treeTrimmed}" +
                 (hasTailEnv ? $" envResyncTarget={tailEnv}" : ""));
+        }
+
+        private static double GetQuickloadResumeUT()
+        {
+            if (QuickloadResumeUTProviderForTesting != null)
+                return QuickloadResumeUTProviderForTesting();
+
+            return Planetarium.GetUniversalTime();
         }
 
         internal static bool TryGetTailTrackSectionEnvironment(Recording rec, out SegmentEnvironment env)

@@ -2631,7 +2631,6 @@ namespace Parsek
         private sealed class QuickloadResumeContext
         {
             internal string TreeId;
-            internal string OriginalActiveRecordingId;
         }
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE, consumed by the quickload-resume
@@ -2649,8 +2648,7 @@ namespace Parsek
 
             pendingQuickloadResumeContext = new QuickloadResumeContext
             {
-                TreeId = tree.Id,
-                OriginalActiveRecordingId = tree.ActiveRecordingId
+                TreeId = tree.Id
             };
 
             ParsekLog.Verbose("Scenario",
