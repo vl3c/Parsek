@@ -869,8 +869,8 @@ namespace Parsek.InGameTests
                 bool hasInstance = stageManager != null;
                 int stageCount = hasInstance ? KSP.UI.Screens.StageManager.StageCount : 0;
                 bool rebuildIndexes = hasInstance
-                    && StageManagerRebuildIndexesField?.GetValue(stageManager) is bool rebuild
-                    && rebuild;
+                    && StageManagerRebuildIndexesField?.GetValue(stageManager) is bool rebuildLoop
+                    && rebuildLoop;
                 bool hasSortRoutine = hasInstance
                     && StageManagerSortRoutineField?.GetValue(stageManager) is Coroutine;
                 bool ready = IsStageManagerReadyForActivateNextStage(
