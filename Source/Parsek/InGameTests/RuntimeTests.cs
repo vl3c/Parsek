@@ -539,7 +539,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test stages and launches the active vessel to verify launch auto-record in a disposable FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test stages and launches the active vessel. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Launch auto-record starts exactly once when a PRELAUNCH vessel leaves the pad")]
         public IEnumerator AutoRecordOnLaunch_StartsExactlyOnce()
         {
@@ -615,7 +616,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test forces a crew EVA from the active vessel to verify deferred auto-record in a disposable FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test forces a crew EVA from the active vessel. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Deferred EVA auto-record starts exactly once after switching to the EVA kerbal")]
         public IEnumerator AutoRecordOnEvaFromPad_StartsExactlyOnce()
         {
@@ -844,7 +846,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test fabricates a pending tree and drives the live merge popup in the current FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test fabricates a pending tree and drives the live merge popup in the current FLIGHT session. Use Run All + Isolated or the row play button.",
             Description = "Tree merge popup shows both actions and the discard button clears the pending tree")]
         public IEnumerator TreeMergeDialog_DiscardButton_ClearsPendingTree()
         {
@@ -922,7 +925,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test fabricates a pending tree, drives the deferred FLIGHT merge popup, and commits synthetic timeline state into the current session before cleaning it up.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test fabricates a pending tree, drives the deferred FLIGHT merge popup, and commits synthetic timeline state into the current session before cleaning it up. Use Run All + Isolated or the row play button.",
             Description = "Deferred merge popup commits a pending tree through the real Merge to Timeline path")]
         public IEnumerator TreeMergeDialog_DeferredMergeButton_CommitsPendingTree()
         {
@@ -1597,7 +1601,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one, which mutates the current FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this regression intentionally destroys live ghosts while the camera is watching one. Use Run All + Isolated or the row play button.",
             Description = "Run All cleanup exits watch mode before ghost teardown so Sun.LateUpdate stays exception-free")]
         public IEnumerator RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs()
         {
@@ -4975,7 +4980,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "PlaybackControl", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test commits a synthetic keep-vessel timeline recording, fast-forwards UT, and recovers the spawned vessel during cleanup.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test commits a synthetic keep-vessel timeline recording, fast-forwards UT, and recovers the spawned vessel during cleanup. Use Run All + Isolated or the row play button.",
             Description = "Synthetic Keep Vessel timeline fast-forward starts playback and spawns exactly once")]
         public IEnumerator KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce()
         {

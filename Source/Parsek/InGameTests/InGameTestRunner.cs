@@ -36,6 +36,7 @@ namespace Parsek.InGameTests
         public Type DeclaringType;
         public bool RunLast;
         public bool AllowBatchExecution = true;
+        public bool RestoreBatchFlightBaselineAfterExecution;
         public string BatchSkipReason;
 
         /// <summary>
@@ -68,6 +69,17 @@ namespace Parsek.InGameTests
         private const string Tag = "TestRunner";
         internal const string DefaultBatchSkipReason =
             "Single-run only — excluded from Run All / Run category because it performs a destructive scene transition. Run it from the row play button in a disposable session.";
+        internal const string DefaultBatchRestoreNote =
+            "Included in Run All + Isolated / Run+ with automatic FLIGHT restore — the runner captures a temporary baseline save and quickloads it after this destructive test. Use a disposable session.";
+
+        private sealed class FlightBatchBaselineState
+        {
+            public string SlotName;
+            public int CapturedFlightInstanceId;
+            public Guid ActiveVesselId;
+            public string ActiveVesselName;
+            public Vessel.Situations ActiveVesselSituation;
+        }
 
         private List<InGameTestInfo> allTests;
         private readonly List<GameObject> cleanupRegistry = new List<GameObject>();
@@ -75,6 +87,8 @@ namespace Parsek.InGameTests
         private bool isRunning;
         private Coroutine activeCoroutine;
         private Coroutine activeInnerCoroutine;
+        private FlightBatchBaselineState batchFlightBaseline;
+        private bool abortBatchAfterRestoreFailure;
 
         // Results summary
         public int Passed { get; private set; }
@@ -123,6 +137,7 @@ namespace Parsek.InGameTests
                         DeclaringType = type,
                         RunLast = attr.RunLast,
                         AllowBatchExecution = attr.AllowBatchExecution,
+                        RestoreBatchFlightBaselineAfterExecution = attr.RestoreBatchFlightBaselineAfterExecution,
                         BatchSkipReason = attr.BatchSkipReason
                     });
                 }
@@ -141,6 +156,19 @@ namespace Parsek.InGameTests
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
+        public void RunAllIncludingFlightRestore()
+        {
+            if (isRunning) return;
+            batchFlightBaseline = null;
+            abortBatchAfterRestoreFailure = false;
+            PerformBetweenRunCleanup("run-all+restore");
+            var eligible = PrepareBatchExecutionIncludingFlightRestore(
+                allTests.Where(t => IsEligibleForScene(t)));
+            eligible = PrepareBatchFlightRestoreExecution(eligible);
+            RecountResults();
+            activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
+        }
+
         public void RunCategory(string category)
         {
             if (isRunning) return;
@@ -151,9 +179,24 @@ namespace Parsek.InGameTests
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
+        public void RunCategoryIncludingFlightRestore(string category)
+        {
+            if (isRunning) return;
+            batchFlightBaseline = null;
+            abortBatchAfterRestoreFailure = false;
+            PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
+            var eligible = PrepareBatchExecutionIncludingFlightRestore(allTests
+                .Where(t => t.Category == category && IsEligibleForScene(t)));
+            eligible = PrepareBatchFlightRestoreExecution(eligible);
+            RecountResults();
+            activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
+        }
+
         public void RunSingle(InGameTestInfo test)
         {
             if (isRunning) return;
+            batchFlightBaseline = null;
+            abortBatchAfterRestoreFailure = false;
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(new List<InGameTestInfo> { test }));
         }
 
@@ -256,7 +299,23 @@ namespace Parsek.InGameTests
             activeInnerCoroutine = null;
             if (activeCoroutine != null)
                 coroutineHost.StopCoroutine(activeCoroutine);
+            activeCoroutine = null;
+
+            if (batchFlightBaseline != null)
+            {
+                var baseline = batchFlightBaseline;
+                int previousFlightInstanceId = ParsekFlight.Instance != null
+                    ? ParsekFlight.Instance.GetInstanceID()
+                    : baseline.CapturedFlightInstanceId;
+                ParsekLog.Info(Tag,
+                    $"Test run cancelled; restoring isolated batch baseline from slot '{baseline.SlotName}'");
+                activeCoroutine = coroutineHost.StartCoroutine(
+                    RestoreBatchBaselineAfterCancel(baseline, previousFlightInstanceId));
+                return;
+            }
+
             isRunning = false;
+            abortBatchAfterRestoreFailure = false;
             ParsekLog.Info(Tag, "Test run cancelled");
         }
 
@@ -327,6 +386,7 @@ namespace Parsek.InGameTests
         {
             return tests
                 .OrderBy(t => t.RunLast)
+                .ThenBy(t => t.RestoreBatchFlightBaselineAfterExecution)
                 .ThenBy(t => t.Category, StringComparer.Ordinal)
                 .ThenBy(t => t.Name, StringComparer.Ordinal)
                 .ToList();
@@ -358,6 +418,36 @@ namespace Parsek.InGameTests
             return batch;
         }
 
+        internal static List<InGameTestInfo> PrepareBatchExecutionIncludingFlightRestore(
+            IEnumerable<InGameTestInfo> tests)
+        {
+            var ordered = OrderForBatchExecution(tests);
+            var batch = new List<InGameTestInfo>(ordered.Count);
+            int skippedForBatch = 0;
+
+            foreach (var test in ordered)
+            {
+                if (test.AllowBatchExecution || test.RestoreBatchFlightBaselineAfterExecution)
+                {
+                    batch.Add(test);
+                    continue;
+                }
+
+                test.Status = TestStatus.Skipped;
+                test.ErrorMessage = GetBatchSkipReason(test);
+                test.DurationMs = 0f;
+                skippedForBatch++;
+            }
+
+            if (skippedForBatch > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Isolated batch execution skipped {skippedForBatch} manual-only test(s)");
+            }
+
+            return batch;
+        }
+
         internal static string GetBatchSkipReason(InGameTestInfo test)
         {
             if (test == null || test.AllowBatchExecution)
@@ -366,6 +456,124 @@ namespace Parsek.InGameTests
             return string.IsNullOrEmpty(test.BatchSkipReason)
                 ? DefaultBatchSkipReason
                 : test.BatchSkipReason;
+        }
+
+        internal static string GetBatchExecutionNote(InGameTestInfo test)
+        {
+            if (test == null)
+                return null;
+
+            if (test.RestoreBatchFlightBaselineAfterExecution)
+                return DefaultBatchRestoreNote;
+
+            return GetBatchSkipReason(test);
+        }
+
+        private List<InGameTestInfo> PrepareBatchFlightRestoreExecution(List<InGameTestInfo> ordered)
+        {
+            if (ordered == null || ordered.Count == 0)
+                return ordered ?? new List<InGameTestInfo>();
+
+            if (!ordered.Any(t => t.RestoreBatchFlightBaselineAfterExecution))
+                return ordered;
+
+            string baselineUnavailableReason = GetBatchFlightBaselineUnavailableReason();
+            if (!string.IsNullOrEmpty(baselineUnavailableReason))
+                return SkipBatchFlightRestoreTests(ordered, baselineUnavailableReason);
+
+            try
+            {
+                batchFlightBaseline = CaptureFlightBatchBaseline();
+                int restoreCount = ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution);
+                ParsekLog.Info(Tag,
+                    $"Captured batch FLIGHT baseline slot '{batchFlightBaseline.SlotName}' for {restoreCount} restore-after-run test(s)");
+                return ordered;
+            }
+            catch (InGameTestSkippedException skipEx)
+            {
+                return SkipBatchFlightRestoreTests(ordered, skipEx.Message);
+            }
+            catch (InGameTestFailedException failEx)
+            {
+                return SkipBatchFlightRestoreTests(ordered, failEx.Message);
+            }
+            catch (Exception ex)
+            {
+                return SkipBatchFlightRestoreTests(ordered,
+                    $"Automatic FLIGHT batch restore unavailable: {ex.Message}");
+            }
+        }
+
+        private static string GetBatchFlightBaselineUnavailableReason()
+        {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+                return "Automatic FLIGHT batch restore requires running from the FLIGHT scene.";
+            if (HighLogic.CurrentGame == null)
+                return "Automatic FLIGHT batch restore requires HighLogic.CurrentGame.";
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+                return "Automatic FLIGHT batch restore requires HighLogic.SaveFolder.";
+            if (FlightGlobals.ActiveVessel == null)
+                return "Automatic FLIGHT batch restore requires an active vessel.";
+
+            return null;
+        }
+
+        private static FlightBatchBaselineState CaptureFlightBatchBaseline()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(vessel,
+                "Automatic FLIGHT batch restore requires a live active vessel to capture baseline.");
+
+            string slotName = CreateBatchFlightBaselineSlotName();
+            Helpers.QuickloadResumeHelpers.TriggerQuicksave(slotName);
+
+            return new FlightBatchBaselineState
+            {
+                SlotName = slotName,
+                CapturedFlightInstanceId = ParsekFlight.Instance != null
+                    ? ParsekFlight.Instance.GetInstanceID()
+                    : 0,
+                ActiveVesselId = vessel.id,
+                ActiveVesselName = vessel.vesselName,
+                ActiveVesselSituation = vessel.situation
+            };
+        }
+
+        private static string CreateBatchFlightBaselineSlotName()
+        {
+            return "parsek-test-batch-baseline-"
+                + DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture)
+                + "-"
+                + Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        private static List<InGameTestInfo> SkipBatchFlightRestoreTests(
+            List<InGameTestInfo> ordered, string reason)
+        {
+            var filtered = new List<InGameTestInfo>(ordered.Count);
+            int skipped = 0;
+
+            foreach (var test in ordered)
+            {
+                if (!test.RestoreBatchFlightBaselineAfterExecution)
+                {
+                    filtered.Add(test);
+                    continue;
+                }
+
+                test.Status = TestStatus.Skipped;
+                test.ErrorMessage = reason;
+                test.DurationMs = 0f;
+                skipped++;
+            }
+
+            if (skipped > 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch execution skipped {skipped} restore-after-run test(s): {reason}");
+            }
+
+            return filtered;
         }
 
         private IEnumerator RunBatch(List<InGameTestInfo> tests)
@@ -384,10 +592,21 @@ namespace Parsek.InGameTests
                 }
 
                 yield return coroutineHost.StartCoroutine(RunOneTest(test));
+                if (test.RestoreBatchFlightBaselineAfterExecution
+                    && test.Status != TestStatus.Skipped)
+                {
+                    yield return coroutineHost.StartCoroutine(
+                        RestoreBatchFlightBaselineAfterExecution(test));
+                }
                 RecountResults();
+                if (abortBatchAfterRestoreFailure)
+                    break;
             }
 
             isRunning = false;
+            CleanupBatchFlightBaselineSave();
+            batchFlightBaseline = null;
+            abortBatchAfterRestoreFailure = false;
             int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
             ParsekLog.Info(Tag,
                 $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {considered})");
@@ -397,6 +616,199 @@ namespace Parsek.InGameTests
             // InGameTestInfo.ResultsByScene, which ResetResults preserves, so
             // the file accumulates across KSC / Flight / Tracking Station runs.
             ExportResultsFile(auto: true);
+        }
+
+        private IEnumerator RestoreBatchFlightBaselineAfterExecution(InGameTestInfo test)
+        {
+            if (test == null || !test.RestoreBatchFlightBaselineAfterExecution || batchFlightBaseline == null)
+                yield break;
+
+            int previousFlightInstanceId = ParsekFlight.Instance != null
+                ? ParsekFlight.Instance.GetInstanceID()
+                : batchFlightBaseline.CapturedFlightInstanceId;
+
+            ParsekLog.Info(Tag,
+                $"Restoring batch FLIGHT baseline after {test.Name} from slot '{batchFlightBaseline.SlotName}'");
+
+            Exception restoreFailure = null;
+            yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
+                RestoreBatchFlightBaselineCore(
+                    batchFlightBaseline,
+                    previousFlightInstanceId,
+                    "post-batch-restore:" + test.Name),
+                ex => restoreFailure = ex));
+
+            if (restoreFailure is InGameTestSkippedException skipEx)
+            {
+                FailAndAbortBatchAfterRestore(test,
+                    $"Automatic FLIGHT batch restore skipped after {test.Name}: {skipEx.Message}");
+            }
+            else if (restoreFailure is InGameTestFailedException failEx)
+            {
+                FailAndAbortBatchAfterRestore(test,
+                    $"Automatic FLIGHT batch restore failed after {test.Name}: {failEx.Message}");
+            }
+            else if (restoreFailure != null)
+            {
+                FailAndAbortBatchAfterRestore(test,
+                    $"Automatic FLIGHT batch restore failed after {test.Name}: {restoreFailure.Message}");
+            }
+        }
+
+        private IEnumerator RestoreBatchBaselineAfterCancel(
+            FlightBatchBaselineState baseline, int previousFlightInstanceId)
+        {
+            Exception restoreFailure = null;
+            try
+            {
+                yield return coroutineHost.StartCoroutine(
+                    RunCoroutineSafely(
+                        RestoreBatchFlightBaselineCore(
+                            baseline,
+                            previousFlightInstanceId,
+                            "cancelled-batch-restore"),
+                        ex => restoreFailure = ex));
+                if (restoreFailure != null)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"Cancelled run failed to restore isolated batch baseline: {restoreFailure.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Cancelled run failed to restore isolated batch baseline: {ex.Message}");
+            }
+            finally
+            {
+                CleanupBatchFlightBaselineSave();
+                batchFlightBaseline = null;
+                abortBatchAfterRestoreFailure = false;
+                activeCoroutine = null;
+                activeInnerCoroutine = null;
+                isRunning = false;
+            }
+        }
+
+        private IEnumerator RestoreBatchFlightBaselineCore(
+            FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
+        {
+            Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                previousFlightInstanceId, timeoutSeconds: 15f);
+            yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
+            PerformBetweenRunCleanup(cleanupReason);
+        }
+
+        private void CleanupBatchFlightBaselineSave()
+        {
+            if (batchFlightBaseline == null || string.IsNullOrEmpty(batchFlightBaseline.SlotName))
+                return;
+
+            Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(batchFlightBaseline.SlotName);
+        }
+
+        private static IEnumerator WaitForBatchBaselineVessel(
+            FlightBatchBaselineState baseline, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                Vessel vessel = FlightGlobals.ActiveVessel;
+                if (HighLogic.LoadedScene == GameScenes.FLIGHT
+                    && FlightGlobals.ready
+                    && vessel != null
+                    && vessel.id == baseline.ActiveVesselId
+                    && DoesVesselMatchBatchBaselineSituation(vessel, baseline.ActiveVesselSituation))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            Vessel timedOutVessel = FlightGlobals.ActiveVessel;
+            string actualName = timedOutVessel != null ? timedOutVessel.vesselName : "null";
+            string actualId = timedOutVessel != null ? timedOutVessel.id.ToString() : "null";
+            string actualSituation = timedOutVessel != null
+                ? timedOutVessel.situation.ToString()
+                : "null";
+            InGameAssert.Fail(
+                $"WaitForBatchBaselineVessel timed out after {timeoutSeconds:F0}s " +
+                $"(expectedVessel='{baseline.ActiveVesselName}'/{baseline.ActiveVesselId}, " +
+                $"expectedSituation={baseline.ActiveVesselSituation}, " +
+                $"actualVessel='{actualName}'/{actualId}, actualSituation={actualSituation}, " +
+                $"scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready})");
+        }
+
+        private static bool DoesVesselMatchBatchBaselineSituation(
+            Vessel vessel, Vessel.Situations expectedSituation)
+        {
+            if (vessel == null)
+                return false;
+            if (vessel.situation == expectedSituation)
+                return true;
+
+            return expectedSituation == Vessel.Situations.PRELAUNCH
+                && vessel.LandedOrSplashed;
+        }
+
+        private static IEnumerator RunCoroutineSafely(
+            IEnumerator routine, Action<Exception> onFailure)
+        {
+            if (routine == null)
+                yield break;
+
+            while (true)
+            {
+                bool hasNext;
+                try
+                {
+                    hasNext = routine.MoveNext();
+                }
+                catch (Exception ex)
+                {
+                    onFailure?.Invoke(ex);
+                    yield break;
+                }
+
+                if (!hasNext)
+                    yield break;
+
+                if (routine.Current is IEnumerator nestedRoutine)
+                {
+                    Exception nestedFailure = null;
+                    yield return RunCoroutineSafely(nestedRoutine, ex => nestedFailure = ex);
+                    if (nestedFailure != null)
+                    {
+                        onFailure?.Invoke(nestedFailure);
+                        yield break;
+                    }
+
+                    continue;
+                }
+
+                yield return routine.Current;
+            }
+        }
+
+        private void FailAndAbortBatchAfterRestore(InGameTestInfo test, string restoreMessage)
+        {
+            string combinedMessage = string.IsNullOrEmpty(test.ErrorMessage)
+                ? restoreMessage
+                : test.ErrorMessage + " | " + restoreMessage;
+            test.Status = TestStatus.Failed;
+            test.ErrorMessage = combinedMessage;
+            RecordSceneResult(
+                test,
+                test.RequiredScene == InGameTestAttribute.AnyScene ? GameScenes.FLIGHT : test.RequiredScene,
+                TestStatus.Failed,
+                combinedMessage,
+                test.DurationMs);
+            abortBatchAfterRestoreFailure = true;
+            ParsekLog.Warn(Tag, $"FAILED: {test.Name} - {combinedMessage}");
+            ParsekLog.Warn(Tag,
+                $"Aborting batch after restore failure in {test.Name}; the current session is no longer trusted");
         }
 
         private void RecountResults()
@@ -563,8 +975,13 @@ namespace Parsek.InGameTests
         private static void RecordSceneResult(InGameTestInfo test, TestStatus status,
             string errorMessage, float durationMs)
         {
+            RecordSceneResult(test, HighLogic.LoadedScene, status, errorMessage, durationMs);
+        }
+
+        private static void RecordSceneResult(InGameTestInfo test, GameScenes scene, TestStatus status,
+            string errorMessage, float durationMs)
+        {
             if (test == null) return;
-            var scene = HighLogic.LoadedScene;
             test.ResultsByScene[scene] = new SceneResult
             {
                 Status = status,

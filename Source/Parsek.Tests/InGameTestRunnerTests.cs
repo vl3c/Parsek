@@ -77,6 +77,63 @@ namespace Parsek.Tests
             Assert.Equal(InGameTestRunner.DefaultBatchSkipReason, singleOnly.ErrorMessage);
         }
 
+        [Fact]
+        public void OrderForBatchExecution_PlacesRestoreTestsAfterSharedSessionTests()
+        {
+            var ordered = InGameTestRunner.OrderForBatchExecution(new[]
+            {
+                new InGameTestInfo { Category = "A", Name = "RestoreA", RestoreBatchFlightBaselineAfterExecution = true },
+                new InGameTestInfo { Category = "A", Name = "SharedA" },
+                new InGameTestInfo { Category = "A", Name = "RestoreB", RestoreBatchFlightBaselineAfterExecution = true },
+            });
+
+            Assert.Equal(
+                new[] { "SharedA", "RestoreA", "RestoreB" },
+                ordered.Select(t => t.Name).ToArray());
+        }
+
+        [Fact]
+        public void PrepareBatchExecutionIncludingFlightRestore_IncludesRestoreTestsButSkipsManualOnly()
+        {
+            var batchSafe = new InGameTestInfo { Category = "A", Name = "BatchSafe" };
+            var isolated = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "Isolated",
+                AllowBatchExecution = false,
+                RestoreBatchFlightBaselineAfterExecution = true,
+                BatchSkipReason = "run with restore"
+            };
+            var manualOnly = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "ManualOnly",
+                AllowBatchExecution = false,
+                BatchSkipReason = "manual only"
+            };
+
+            var batch = InGameTestRunner.PrepareBatchExecutionIncludingFlightRestore(
+                new[] { isolated, batchSafe, manualOnly });
+
+            Assert.Equal(new[] { "BatchSafe", "Isolated" }, batch.Select(t => t.Name).ToArray());
+            Assert.Equal(TestStatus.Skipped, manualOnly.Status);
+            Assert.Equal("manual only", manualOnly.ErrorMessage);
+            Assert.Equal(TestStatus.NotRun, isolated.Status);
+        }
+
+        [Fact]
+        public void GetBatchExecutionNote_ReturnsRestoreNoteForIsolatedTests()
+        {
+            var isolated = new InGameTestInfo
+            {
+                RestoreBatchFlightBaselineAfterExecution = true
+            };
+
+            string note = InGameTestRunner.GetBatchExecutionNote(isolated);
+
+            Assert.Equal(InGameTestRunner.DefaultBatchRestoreNote, note);
+        }
+
         // ---- FormatResultsReport: multi-scene accumulation (per-scene history) ----
 
         private static InGameTestInfo MakeTest(string category, string name,
