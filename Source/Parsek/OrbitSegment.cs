@@ -49,6 +49,11 @@ namespace Parsek
                 s += $" angVel={angularVelocity}";
             }
 
+            if (isPredicted)
+            {
+                s += " predicted=true";
+            }
+
             return s;
         }
     }

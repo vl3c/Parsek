@@ -374,6 +374,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DeserializeTrajectoryFrom_V4OrbitSegmentWithoutIsPredicted_DefaultsFalse()
+        {
+            var node = new ConfigNode("PARSEK_RECORDING");
+            node.AddValue("version", "4");
+            node.AddValue("recordingId", "legacy_v4");
+
+            var segNode = node.AddNode("ORBIT_SEGMENT");
+            segNode.AddValue("startUT", "100");
+            segNode.AddValue("endUT", "200");
+            segNode.AddValue("inc", "28.5");
+            segNode.AddValue("ecc", "0.01");
+            segNode.AddValue("sma", "700000");
+            segNode.AddValue("lan", "90");
+            segNode.AddValue("argPe", "45");
+            segNode.AddValue("mna", "0.2");
+            segNode.AddValue("epoch", "100");
+            segNode.AddValue("body", "Kerbin");
+
+            var rec = new Recording { RecordingId = "legacy_v4" };
+            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+
+            Assert.Single(rec.OrbitSegments);
+            Assert.False(rec.OrbitSegments[0].isPredicted);
+        }
+
+        [Fact]
         public void DeserializeTrajectoryFrom_V1WithoutTrackSections_UsesFlatFallbackPath()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
@@ -692,7 +718,11 @@ namespace Parsek.Tests
             };
         }
 
-        private static OrbitSegment MakeOrbitSegment(double startUT, double endUT, double semiMajorAxis)
+        private static OrbitSegment MakeOrbitSegment(
+            double startUT,
+            double endUT,
+            double semiMajorAxis,
+            bool isPredicted = false)
         {
             return new OrbitSegment
             {
@@ -705,7 +735,8 @@ namespace Parsek.Tests
                 argumentOfPeriapsis = 45.0,
                 meanAnomalyAtEpoch = 0.2,
                 epoch = startUT,
-                bodyName = "Kerbin"
+                bodyName = "Kerbin",
+                isPredicted = isPredicted
             };
         }
 
