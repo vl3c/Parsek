@@ -16,11 +16,25 @@ namespace Parsek.InGameTests
             Strategies.StrategySystem system,
             IList<Strategies.Strategy> strategies)
         {
-            if (system == null)
+            return GetGlobalReadinessBlockReason(
+                strategySystemAvailable: system != null,
+                strategyListAvailable: strategies != null,
+                administrationAvailable: Administration.Instance != null);
+        }
+
+        // xUnit cannot safely fake hydrated KSP singletons with FormatterServices:
+        // Unity fake-null semantics make those wrappers compare equal to null. Keep
+        // the stock runtime check above, but expose a plain CLR seam for unit tests.
+        internal static string GetGlobalReadinessBlockReason(
+            bool strategySystemAvailable,
+            bool strategyListAvailable,
+            bool administrationAvailable)
+        {
+            if (!strategySystemAvailable)
                 return StrategySystemNotReadyReason;
-            if (strategies == null)
+            if (!strategyListAvailable)
                 return StrategyListNotReadyReason;
-            if (Administration.Instance == null)
+            if (!administrationAvailable)
                 return AdministrationNotReadyReason;
 
             return null;
@@ -91,11 +105,52 @@ namespace Parsek.InGameTests
             return sb.ToString();
         }
 
+        internal static string BuildReadinessSettledSummary(
+            int attemptCount,
+            int maxAttempts,
+            string diagnostic)
+        {
+            return $"StrategyLifecycle readiness settled after {attemptCount}/{maxAttempts} attempts: " +
+                NormalizeDiagnostic(diagnostic);
+        }
+
+        internal static string BuildReadinessTimeoutSummary(
+            int attemptCount,
+            int maxAttempts,
+            string diagnostic)
+        {
+            return $"StrategyLifecycle readiness timed out after {attemptCount}/{maxAttempts} attempts: " +
+                NormalizeDiagnostic(diagnostic);
+        }
+
+        internal static void LogReadinessSettled(
+            int attemptCount,
+            int maxAttempts,
+            string diagnostic)
+        {
+            ParsekLog.Info("TestRunner",
+                BuildReadinessSettledSummary(attemptCount, maxAttempts, diagnostic));
+        }
+
+        internal static void LogReadinessTimeout(
+            int attemptCount,
+            int maxAttempts,
+            string diagnostic)
+        {
+            ParsekLog.Warn("TestRunner",
+                BuildReadinessTimeoutSummary(attemptCount, maxAttempts, diagnostic));
+        }
+
         internal static bool ShouldFailUnavailableSelection(
-            bool sawProbeException,
+            bool finalProbeHadException,
             bool finalProbeHadRetryableReadinessBlock)
         {
-            return sawProbeException || finalProbeHadRetryableReadinessBlock;
+            return finalProbeHadException || finalProbeHadRetryableReadinessBlock;
+        }
+
+        private static string NormalizeDiagnostic(string diagnostic)
+        {
+            return string.IsNullOrEmpty(diagnostic) ? "(no diagnostic)" : diagnostic;
         }
     }
 }

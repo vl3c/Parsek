@@ -51,7 +51,7 @@ All notable changes to Parsek are documented here.
 - `#465` KSC ghost engine/RCS audio now pauses with the stock ESC menu and resumes on unpause. KSC now latches the pause state before replaying runtime part events, so ghosts spawned while ESC is open stay silent instead of restarting looped engine/RCS audio or one-shot part-event audio; tracking-station ghosts were checked and remain map-only (no `AudioSource`s there to pause).
 - `#467` `ReputationChanged` no longer drops stock `+1`/`-1` reputation deltas that arrive as `0.9999995`/`-0.9999995` due to float rounding, so records-milestone reputation legs now reconcile instead of falsely warning as missing.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
-- `#485` The SPACECENTER strategy-lifecycle readiness probe now treats a missing `Administration.Instance` as retryable stock hydration before it calls stock `CanBeActivated`. Unexpected probe failures still collapse to a single per-poll WARN with VERBOSE per-index detail, and strategy lifecycle exception logs now capture `ex.ToString()` for full stacks.
+- `#485` The SPACECENTER strategy-lifecycle readiness probe now waits for stock strategy hydration to settle before deciding whether to fail or skip, and it reports bounded settle/timeout summaries instead of per-strategy exception spam. Unexpected probe failures still log full stack traces.
 
 ---
 

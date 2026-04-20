@@ -4177,7 +4177,7 @@ namespace Parsek.InGameTests
             public Strategies.Strategy Strategy;
             public string ConfigName;
             public string Diagnostic;
-            public bool SawProbeException;
+            public bool FinalProbeHadException;
             public bool FinalProbeHadRetryableReadinessBlock;
         }
 
@@ -4311,7 +4311,7 @@ namespace Parsek.InGameTests
             result.Strategy = null;
             result.ConfigName = null;
             result.Diagnostic = "no activatable stock strategy available";
-            result.SawProbeException = false;
+            result.FinalProbeHadException = false;
             result.FinalProbeHadRetryableReadinessBlock = false;
 
             for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
@@ -4319,13 +4319,14 @@ namespace Parsek.InGameTests
 
             string stableConfigName = null;
             int stableFrames = 0;
+            bool sawRetryableDelay = false;
             for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
             {
                 var probe = ProbeActivatableStockStrategy();
                 result.Diagnostic = probe.Diagnostic;
-                result.SawProbeException |= probe.HadProbeException;
-                // Track only the final readiness-block state. An early hydration wait
-                // that later clears must not poison a later legitimate skip outcome.
+                // Track only the final retryable state. Early hydration waits or probe
+                // exceptions that later clear must not poison a later legitimate skip.
+                result.FinalProbeHadException = probe.HadProbeException;
                 result.FinalProbeHadRetryableReadinessBlock = probe.HadRetryableReadinessBlock;
                 if (probe.Strategy != null)
                 {
@@ -4340,7 +4341,16 @@ namespace Parsek.InGameTests
                     result.Strategy = probe.Strategy;
                     result.ConfigName = probe.ConfigName;
                     if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                    {
+                        if (sawRetryableDelay)
+                        {
+                            StrategyLifecycleProbeSupport.LogReadinessSettled(
+                                attempt + 1,
+                                StrategyLifecycleProbeRetryFrames,
+                                result.Diagnostic);
+                        }
                         yield break;
+                    }
 
                     yield return null;
                     continue;
@@ -4353,7 +4363,16 @@ namespace Parsek.InGameTests
                 if (!probe.ShouldRetry)
                     yield break;
 
+                sawRetryableDelay = true;
                 yield return null;
+            }
+
+            if (sawRetryableDelay && (result.Strategy == null || string.IsNullOrEmpty(result.ConfigName)))
+            {
+                StrategyLifecycleProbeSupport.LogReadinessTimeout(
+                    StrategyLifecycleProbeRetryFrames,
+                    StrategyLifecycleProbeRetryFrames,
+                    result.Diagnostic);
             }
         }
 
@@ -4384,7 +4403,7 @@ namespace Parsek.InGameTests
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
                 if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                    selection.SawProbeException,
+                    selection.FinalProbeHadException,
                     selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
@@ -4608,7 +4627,7 @@ namespace Parsek.InGameTests
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
                 if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                    selection.SawProbeException,
+                    selection.FinalProbeHadException,
                     selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");

@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.Serialization;
-using KSP.UI.Screens;
 using Parsek.InGameTests;
-using Strategies;
 using Xunit;
 
 namespace Parsek.Tests
@@ -11,21 +8,29 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StrategyLifecycleProbeSupportTests : IDisposable
     {
-        private readonly Administration priorAdministration = Administration.Instance;
+        private readonly List<string> logLines = new List<string>();
+
+        public StrategyLifecycleProbeSupportTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
 
         public void Dispose()
         {
-            Administration.Instance = priorAdministration;
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
         }
 
         [Fact]
         public void GetGlobalReadinessBlockReason_NullStrategySystem_ReturnsSystemReason()
         {
-            Administration.Instance = CreateAdministration();
-
             string reason = StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(
-                system: null,
-                strategies: new List<Strategy>());
+                strategySystemAvailable: false,
+                strategyListAvailable: true,
+                administrationAvailable: true);
 
             Assert.Equal(StrategyLifecycleProbeSupport.StrategySystemNotReadyReason, reason);
         }
@@ -33,11 +38,10 @@ namespace Parsek.Tests
         [Fact]
         public void GetGlobalReadinessBlockReason_NullStrategyList_ReturnsListReason()
         {
-            Administration.Instance = CreateAdministration();
-
             string reason = StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(
-                CreateStrategySystem(),
-                strategies: null);
+                strategySystemAvailable: true,
+                strategyListAvailable: false,
+                administrationAvailable: true);
 
             Assert.Equal(StrategyLifecycleProbeSupport.StrategyListNotReadyReason, reason);
         }
@@ -45,11 +49,10 @@ namespace Parsek.Tests
         [Fact]
         public void GetGlobalReadinessBlockReason_MissingAdministration_ReturnsAdministrationReason()
         {
-            Administration.Instance = null;
-
             string reason = StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(
-                CreateStrategySystem(),
-                new List<Strategy>());
+                strategySystemAvailable: true,
+                strategyListAvailable: true,
+                administrationAvailable: false);
 
             Assert.Equal(StrategyLifecycleProbeSupport.AdministrationNotReadyReason, reason);
         }
@@ -57,11 +60,10 @@ namespace Parsek.Tests
         [Fact]
         public void GetGlobalReadinessBlockReason_WhenReady_ReturnsNull()
         {
-            Administration.Instance = CreateAdministration();
-
             string reason = StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(
-                CreateStrategySystem(),
-                new List<Strategy>());
+                strategySystemAvailable: true,
+                strategyListAvailable: true,
+                administrationAvailable: true);
 
             Assert.Null(reason);
         }
@@ -113,13 +115,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldFailUnavailableSelection_ClearedReadinessBlock_Skips()
+        public void LogReadinessSettled_EmitsInfoWithAttemptCount()
         {
-            // Models the review case: early probes waited on Administration hydration,
-            // but the final probe reached a stable no-strategy outcome. That must stay
-            // a skip, not a hard failure.
+            StrategyLifecycleProbeSupport.LogReadinessSettled(
+                attemptCount: 4,
+                maxAttempts: 30,
+                diagnostic: "selected activatable strategy 'OpenSourceTechProgram'");
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][INFO][TestRunner] StrategyLifecycle readiness settled after 4/30 attempts: " +
+                "selected activatable strategy 'OpenSourceTechProgram'",
+                logLines[0]);
+        }
+
+        [Fact]
+        public void LogReadinessTimeout_EmitsWarnWithAttemptCount()
+        {
+            StrategyLifecycleProbeSupport.LogReadinessTimeout(
+                attemptCount: 30,
+                maxAttempts: 30,
+                diagnostic: StrategyLifecycleProbeSupport.AdministrationNotReadyReason);
+
+            Assert.Single(logLines);
+            Assert.Equal(
+                "[Parsek][WARN][TestRunner] StrategyLifecycle readiness timed out after 30/30 attempts: " +
+                StrategyLifecycleProbeSupport.AdministrationNotReadyReason,
+                logLines[0]);
+        }
+
+        [Fact]
+        public void ShouldFailUnavailableSelection_ClearedTransientIssue_Skips()
+        {
+            // Final-state-only contract: early readiness waits or probe exceptions may
+            // clear, and the later legitimate "no activatable strategy" outcome stays
+            // a skip rather than being poisoned into a hard failure.
             bool shouldFail = StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                sawProbeException: false,
+                finalProbeHadException: false,
                 finalProbeHadRetryableReadinessBlock: false);
 
             Assert.False(shouldFail);
@@ -129,30 +161,20 @@ namespace Parsek.Tests
         public void ShouldFailUnavailableSelection_FinalReadinessBlock_Fails()
         {
             bool shouldFail = StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                sawProbeException: false,
+                finalProbeHadException: false,
                 finalProbeHadRetryableReadinessBlock: true);
 
             Assert.True(shouldFail);
         }
 
         [Fact]
-        public void ShouldFailUnavailableSelection_ProbeException_Fails()
+        public void ShouldFailUnavailableSelection_FinalProbeException_Fails()
         {
             bool shouldFail = StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
-                sawProbeException: true,
+                finalProbeHadException: true,
                 finalProbeHadRetryableReadinessBlock: false);
 
             Assert.True(shouldFail);
-        }
-
-        private static Administration CreateAdministration()
-        {
-            return (Administration)FormatterServices.GetUninitializedObject(typeof(Administration));
-        }
-
-        private static StrategySystem CreateStrategySystem()
-        {
-            return (StrategySystem)FormatterServices.GetUninitializedObject(typeof(StrategySystem));
         }
     }
 }
