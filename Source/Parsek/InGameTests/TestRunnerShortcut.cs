@@ -113,7 +113,7 @@ namespace Parsek.InGameTests
             if (!EnsureOpaqueStyle(GUI.skin))
                 return;
 
-            windowRect = ParsekUI.RunWithNormalizedWindowGuiColors(() =>
+            windowRect = RunWindowWithNormalizedGuiColors(() =>
                 GUILayout.Window(
                     "ParsekTestRunnerGlobal".GetHashCode(),
                     windowRect,
@@ -162,6 +162,11 @@ namespace Parsek.InGameTests
         /// </summary>
         private void OnSceneChangeRequested(GameScenes scene)
         {
+            ResetSceneScopedWindowState();
+        }
+
+        private void ResetSceneScopedWindowState()
+        {
             windowHasInputLock = false;
             ClearOpaqueStyle();
             zeroHeightLabelStyle = null;
@@ -172,6 +177,16 @@ namespace Parsek.InGameTests
         internal bool TryEnsureOpaqueStyleForTesting(GUISkin skin)
         {
             return EnsureOpaqueStyle(skin);
+        }
+
+        internal T RunWindowWithNormalizedGuiColorsForTesting<T>(System.Func<T> callback)
+        {
+            return RunWindowWithNormalizedGuiColors(callback);
+        }
+
+        private static T RunWindowWithNormalizedGuiColors<T>(System.Func<T> callback)
+        {
+            return ParsekUI.RunWithNormalizedWindowGuiColors(callback);
         }
 
         private bool EnsureOpaqueStyle(GUISkin skin)
@@ -187,7 +202,7 @@ namespace Parsek.InGameTests
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Test runner: dropping cached opaque style before rebuild (built={0}, current={1})",
                         opaqueStyleScene, HighLogic.LoadedScene), 1f);
-                ClearOpaqueStyle();
+                ResetSceneScopedWindowState();
             }
 
             if (!IsOpaqueStyleSkinReady(skin))
