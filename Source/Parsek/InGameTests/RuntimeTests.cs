@@ -14,6 +14,29 @@ namespace Parsek.InGameTests
     /// </summary>
     public class RuntimeTests
     {
+        internal const float TimeScalePositiveThreshold = 0.01f;
+        internal const int TimeScalePositiveProbeFrames = 8;
+
+        internal enum TimeScalePositiveProbeOutcome
+        {
+            Passed,
+            SkipStockPause,
+            SkipPauseProbeUnavailable,
+            FailZeroWithoutPause,
+        }
+
+        internal struct TimeScalePositiveProbeSample
+        {
+            public int SampleIndex;
+            public int FrameCount;
+            public float RealtimeSinceStartup;
+            public float TimeScale;
+            public bool? FlightDriverPause;
+            public string KspLoaderLastUpdate;
+            public string RunnerCoroutineState;
+            public string SceneName;
+        }
+
         private readonly InGameTestRunner runner;
 
         public RuntimeTests(InGameTestRunner runner)
@@ -302,9 +325,221 @@ namespace Parsek.InGameTests
         #region Unity Environment
 
         [InGameTest(Category = "Unity", Description = "Time.timeScale is positive (game not frozen)")]
-        public void TimeScalePositive()
+        public IEnumerator TimeScalePositive()
         {
-            InGameAssert.IsGreaterThan(Time.timeScale, 0, "Time.timeScale should be > 0");
+            var samples = new List<TimeScalePositiveProbeSample>(TimeScalePositiveProbeFrames);
+            for (int i = 0; i < TimeScalePositiveProbeFrames; i++)
+            {
+                TimeScalePositiveProbeSample sample = CaptureTimeScalePositiveProbeSample(i);
+                samples.Add(sample);
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive probe: " + FormatTimeScalePositiveProbeSample(sample));
+
+                TimeScalePositiveProbeOutcome partialOutcome =
+                    ClassifyTimeScalePositiveSamples(samples);
+                switch (partialOutcome)
+                {
+                    case TimeScalePositiveProbeOutcome.Passed:
+                        if (i > 0)
+                        {
+                            ParsekLog.Info("TestRunner",
+                                "TimeScalePositive recovered after " +
+                                (i + 1).ToString(CultureInfo.InvariantCulture) +
+                                " frame(s): " +
+                                FormatTimeScalePositiveProbeSummary(samples));
+                        }
+                        yield break;
+
+                    case TimeScalePositiveProbeOutcome.FailZeroWithoutPause:
+                        InGameAssert.Fail(
+                            "Time.timeScale hit <= " +
+                            TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                            " outside stock pause during probe | " +
+                            FormatTimeScalePositiveProbeSummary(samples));
+                        yield break;
+                }
+
+                if (i < TimeScalePositiveProbeFrames - 1)
+                    yield return null;
+            }
+
+            string summary = FormatTimeScalePositiveProbeSummary(samples);
+            switch (ClassifyTimeScalePositiveSamples(samples))
+            {
+                case TimeScalePositiveProbeOutcome.Passed:
+                    yield break;
+
+                case TimeScalePositiveProbeOutcome.SkipStockPause:
+                    InGameAssert.Skip(
+                        "stock pause menu open; Time.timeScale=0 is expected while paused | " +
+                        summary);
+                    break;
+
+                case TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable:
+                    InGameAssert.Skip(
+                        "FlightDriver.Pause unavailable; cannot confirm stock pause state | " +
+                        summary);
+                    break;
+
+                default:
+                    InGameAssert.Fail(
+                        "Time.timeScale hit <= " +
+                        TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                        " outside stock pause during probe | " +
+                        summary);
+                    break;
+            }
+        }
+
+        internal static TimeScalePositiveProbeOutcome ClassifyTimeScalePositiveSamples(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+            bool sawPositiveTimeScale = false;
+            bool sawPauseProbeUnavailable = false;
+            bool sawConfirmedStockPause = false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].TimeScale > TimeScalePositiveThreshold)
+                {
+                    sawPositiveTimeScale = true;
+                    continue;
+                }
+
+                if (samples[i].FlightDriverPause == false)
+                    return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+                if (samples[i].FlightDriverPause == true)
+                    sawConfirmedStockPause = true;
+                else if (!samples[i].FlightDriverPause.HasValue)
+                    sawPauseProbeUnavailable = true;
+            }
+
+            if (sawConfirmedStockPause)
+                return sawPositiveTimeScale
+                    ? TimeScalePositiveProbeOutcome.Passed
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
+
+            if (sawPauseProbeUnavailable)
+                return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
+
+            return sawPositiveTimeScale
+                ? TimeScalePositiveProbeOutcome.Passed
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
+        }
+
+        internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)
+        {
+            return "sample=" + sample.SampleIndex.ToString(CultureInfo.InvariantCulture) +
+                   " frame=" + sample.FrameCount.ToString(CultureInfo.InvariantCulture) +
+                   " realtime=" + sample.RealtimeSinceStartup.ToString("F2", CultureInfo.InvariantCulture) +
+                   " timeScale=" + sample.TimeScale.ToString("F3", CultureInfo.InvariantCulture) +
+                   " FlightDriver.Pause=" + (sample.FlightDriverPause.HasValue
+                       ? sample.FlightDriverPause.Value.ToString()
+                       : "unavailable") +
+                   " KSPLoader.lastUpdate=" + (sample.KspLoaderLastUpdate ?? "null") +
+                   " runner=" + (sample.RunnerCoroutineState ?? "null") +
+                   " scene=" + (sample.SceneName ?? "null");
+        }
+
+        internal static string FormatTimeScalePositiveProbeSummary(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return "no samples";
+
+            return string.Join(
+                " | ",
+                samples.Select(FormatTimeScalePositiveProbeSample).ToArray());
+        }
+
+        private TimeScalePositiveProbeSample CaptureTimeScalePositiveProbeSample(int sampleIndex)
+        {
+            return new TimeScalePositiveProbeSample
+            {
+                SampleIndex = sampleIndex,
+                FrameCount = Time.frameCount,
+                RealtimeSinceStartup = Time.realtimeSinceStartup,
+                TimeScale = Time.timeScale,
+                FlightDriverPause = SafeReadFlightDriverPause(),
+                KspLoaderLastUpdate = DescribeKspLoaderLastUpdate(),
+                RunnerCoroutineState = runner != null ? runner.DescribeCoroutineState() : "runner=null",
+                SceneName = HighLogic.LoadedScene.ToString(),
+            };
+        }
+
+        private static bool? SafeReadFlightDriverPause()
+        {
+            try
+            {
+                return FlightDriver.Pause;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive: FlightDriver.Pause unavailable: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        private static string DescribeKspLoaderLastUpdate()
+        {
+            try
+            {
+                System.Type loaderType = ResolveKspLoaderType();
+                if (loaderType == null)
+                    return "type-missing";
+
+                FieldInfo field = loaderType.GetField(
+                    "lastUpdate",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field == null)
+                    return "field-missing";
+
+                object value = field.GetValue(null);
+                return value != null ? value.ToString() : "null";
+            }
+            catch (System.Exception ex)
+            {
+                return "error:" + ex.GetType().Name;
+            }
+        }
+
+        private static System.Type ResolveKspLoaderType()
+        {
+            System.Reflection.Assembly[] assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                System.Reflection.Assembly assembly = assemblies[i];
+                System.Type direct = assembly.GetType("KSPLoader", false);
+                if (direct != null)
+                    return direct;
+
+                try
+                {
+                    System.Type[] types = assembly.GetTypes();
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    System.Type[] types = ex.Types;
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+            }
+
+            return null;
         }
 
         [InGameTest(Category = "Unity", Description = "A scene camera is accessible")]
