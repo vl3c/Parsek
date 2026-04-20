@@ -29,7 +29,7 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_SceneExitHook_AppendsTailAndExtendsEndUT()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -109,7 +109,7 @@ namespace Parsek.Tests
         public void EnsureActiveRecordingTerminalState_SceneExitHook_ExtendsActiveNonLeafLifetime()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     recording.TerminalOrbitBody = "Mun";
                     recording.TerminalOrbitSemiMajorAxis = 255000.0;
@@ -180,7 +180,7 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_SceneExitHook_SurfaceEndpointPopulatesSurfaceMetadata()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -238,7 +238,7 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_GhostOnlySnapshot_DoesNotSuppressLiveResnapshot()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -442,20 +442,20 @@ namespace Parsek.Tests
                 segments[0],
                 bodies["Kerbin"].GravitationalParameter,
                 segments[0].startUT,
-                out UnityEngine.Vector3d startPosition,
-                out UnityEngine.Vector3d startVelocity));
+                out Vector3d startPosition,
+                out Vector3d startVelocity));
             Assert.True(BallisticExtrapolator.TryPropagate(
                 segments[0],
                 bodies["Kerbin"].GravitationalParameter,
                 segments[0].endUT,
-                out UnityEngine.Vector3d firstBoundaryPosition,
-                out UnityEngine.Vector3d firstBoundaryVelocity));
+                out Vector3d firstBoundaryPosition,
+                out Vector3d firstBoundaryVelocity));
             Assert.True(BallisticExtrapolator.TryPropagate(
                 segments[1],
                 bodies["Mun"].GravitationalParameter,
                 segments[1].startUT,
-                out UnityEngine.Vector3d secondStartPosition,
-                out UnityEngine.Vector3d secondStartVelocity));
+                out Vector3d secondStartPosition,
+                out Vector3d secondStartVelocity));
 
             var startWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[0].orbitalFrameRotation,
@@ -484,7 +484,7 @@ namespace Parsek.Tests
         public void TryApply_HookDecline_LogsWhenUsingNonTestHook()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeHook =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = default(IncompleteBallisticFinalizationResult);
                     return false;
@@ -512,7 +512,7 @@ namespace Parsek.Tests
         public void TryApply_RejectsUnsetTerminalState()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -545,7 +545,7 @@ namespace Parsek.Tests
         public void TryApply_RejectsInvalidTerminalState()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -578,7 +578,7 @@ namespace Parsek.Tests
         public void TryApply_RejectsTerminalUtThatMovesBackwardBeforeCurrentEnd()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -612,7 +612,7 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_SceneExitHook_PreservesHookPopulatedTerminalOrbitMetadata()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     recording.TerminalOrbitBody = "Mun";
                     recording.TerminalOrbitSemiMajorAxis = 250000.0;
@@ -661,7 +661,7 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_SceneExitHook_DoesNotTreatStaleTerminalOrbitAsHookAuthored()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {
@@ -725,7 +725,7 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_GhostOnlySurfaceHook_PreservesExistingSurfaceMetadataAndLogs()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
                     result = new IncompleteBallisticFinalizationResult
                     {

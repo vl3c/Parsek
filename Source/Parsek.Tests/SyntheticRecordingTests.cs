@@ -5159,11 +5159,11 @@ namespace Parsek.Tests
         [Fact]
         public void RecordingPaths_ValidateRecordingId_RejectsInvalidIds()
         {
-            Assert.False(RecordingPaths.ValidateRecordingId(null));
-            Assert.False(RecordingPaths.ValidateRecordingId(""));
-            Assert.False(RecordingPaths.ValidateRecordingId("abc/def"));
-            Assert.False(RecordingPaths.ValidateRecordingId("abc\\def"));
-            Assert.False(RecordingPaths.ValidateRecordingId("abc..def"));
+            Assert.False(RecordingPaths.ValidateRecordingId(null, RecordingIdValidationLogContext.Test));
+            Assert.False(RecordingPaths.ValidateRecordingId("", RecordingIdValidationLogContext.Test));
+            Assert.False(RecordingPaths.ValidateRecordingId("abc/def", RecordingIdValidationLogContext.Test));
+            Assert.False(RecordingPaths.ValidateRecordingId("abc\\def", RecordingIdValidationLogContext.Test));
+            Assert.False(RecordingPaths.ValidateRecordingId("abc..def", RecordingIdValidationLogContext.Test));
             Assert.True(RecordingPaths.ValidateRecordingId("abc123def"));
             Assert.True(RecordingPaths.ValidateRecordingId("a1b2c3d4e5f6"));
         }

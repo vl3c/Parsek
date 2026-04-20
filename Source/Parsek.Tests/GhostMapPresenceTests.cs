@@ -1244,6 +1244,81 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Endpoint-Aligned Orbit Seeds
+
+        [Fact]
+        public void TryResolveGhostProtoOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed()
+        {
+            var traj = new MockTrajectory
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                TerminalOrbitEccentricity = 0.1,
+                TerminalOrbitInclination = 1.0,
+                TerminalOrbitLAN = 2.0,
+                TerminalOrbitArgumentOfPeriapsis = 3.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.4,
+                TerminalOrbitEpoch = 100.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 250000.0,
+                        eccentricity = 0.02,
+                        inclination = 4.0,
+                        longitudeOfAscendingNode = 11.0,
+                        argumentOfPeriapsis = 22.0,
+                        meanAnomalyAtEpoch = 0.7,
+                        epoch = 350.0
+                    }
+                }
+            };
+
+            Assert.True(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+                traj,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argumentOfPeriapsis,
+                out double meanAnomalyAtEpoch,
+                out double epoch,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(250000.0, semiMajorAxis, 10);
+            Assert.Equal(4.0, inclination, 10);
+            Assert.Equal(0.7, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
+        public void TryResolveGhostProtoOrbitSeed_NoEndpointAlignedSeed_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Mun"
+            };
+
+            Assert.False(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
+        }
+
+        #endregion
+
         #region Chain-aware integration
 
         /// <summary>

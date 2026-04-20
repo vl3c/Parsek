@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -13,6 +14,29 @@ namespace Parsek.InGameTests
     /// </summary>
     public class RuntimeTests
     {
+        internal const float TimeScalePositiveThreshold = 0.01f;
+        internal const int TimeScalePositiveProbeFrames = 8;
+
+        internal enum TimeScalePositiveProbeOutcome
+        {
+            Passed,
+            SkipStockPause,
+            SkipPauseProbeUnavailable,
+            FailZeroWithoutPause,
+        }
+
+        internal struct TimeScalePositiveProbeSample
+        {
+            public int SampleIndex;
+            public int FrameCount;
+            public float RealtimeSinceStartup;
+            public float TimeScale;
+            public bool? FlightDriverPause;
+            public string KspLoaderLastUpdate;
+            public string RunnerCoroutineState;
+            public string SceneName;
+        }
+
         private readonly InGameTestRunner runner;
 
         public RuntimeTests(InGameTestRunner runner)
@@ -301,9 +325,221 @@ namespace Parsek.InGameTests
         #region Unity Environment
 
         [InGameTest(Category = "Unity", Description = "Time.timeScale is positive (game not frozen)")]
-        public void TimeScalePositive()
+        public IEnumerator TimeScalePositive()
         {
-            InGameAssert.IsGreaterThan(Time.timeScale, 0, "Time.timeScale should be > 0");
+            var samples = new List<TimeScalePositiveProbeSample>(TimeScalePositiveProbeFrames);
+            for (int i = 0; i < TimeScalePositiveProbeFrames; i++)
+            {
+                TimeScalePositiveProbeSample sample = CaptureTimeScalePositiveProbeSample(i);
+                samples.Add(sample);
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive probe: " + FormatTimeScalePositiveProbeSample(sample));
+
+                TimeScalePositiveProbeOutcome partialOutcome =
+                    ClassifyTimeScalePositiveSamples(samples);
+                switch (partialOutcome)
+                {
+                    case TimeScalePositiveProbeOutcome.Passed:
+                        if (i > 0)
+                        {
+                            ParsekLog.Info("TestRunner",
+                                "TimeScalePositive recovered after " +
+                                (i + 1).ToString(CultureInfo.InvariantCulture) +
+                                " frame(s): " +
+                                FormatTimeScalePositiveProbeSummary(samples));
+                        }
+                        yield break;
+
+                    case TimeScalePositiveProbeOutcome.FailZeroWithoutPause:
+                        InGameAssert.Fail(
+                            "Time.timeScale hit <= " +
+                            TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                            " outside stock pause during probe | " +
+                            FormatTimeScalePositiveProbeSummary(samples));
+                        yield break;
+                }
+
+                if (i < TimeScalePositiveProbeFrames - 1)
+                    yield return null;
+            }
+
+            string summary = FormatTimeScalePositiveProbeSummary(samples);
+            switch (ClassifyTimeScalePositiveSamples(samples))
+            {
+                case TimeScalePositiveProbeOutcome.Passed:
+                    yield break;
+
+                case TimeScalePositiveProbeOutcome.SkipStockPause:
+                    InGameAssert.Skip(
+                        "stock pause menu open; Time.timeScale=0 is expected while paused | " +
+                        summary);
+                    break;
+
+                case TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable:
+                    InGameAssert.Skip(
+                        "FlightDriver.Pause unavailable; cannot confirm stock pause state | " +
+                        summary);
+                    break;
+
+                default:
+                    InGameAssert.Fail(
+                        "Time.timeScale hit <= " +
+                        TimeScalePositiveThreshold.ToString("F2", CultureInfo.InvariantCulture) +
+                        " outside stock pause during probe | " +
+                        summary);
+                    break;
+            }
+        }
+
+        internal static TimeScalePositiveProbeOutcome ClassifyTimeScalePositiveSamples(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+            bool sawPositiveTimeScale = false;
+            bool sawPauseProbeUnavailable = false;
+            bool sawConfirmedStockPause = false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].TimeScale > TimeScalePositiveThreshold)
+                {
+                    sawPositiveTimeScale = true;
+                    continue;
+                }
+
+                if (samples[i].FlightDriverPause == false)
+                    return TimeScalePositiveProbeOutcome.FailZeroWithoutPause;
+
+                if (samples[i].FlightDriverPause == true)
+                    sawConfirmedStockPause = true;
+                else if (!samples[i].FlightDriverPause.HasValue)
+                    sawPauseProbeUnavailable = true;
+            }
+
+            if (sawConfirmedStockPause)
+                return sawPositiveTimeScale
+                    ? TimeScalePositiveProbeOutcome.Passed
+                    : TimeScalePositiveProbeOutcome.SkipStockPause;
+
+            if (sawPauseProbeUnavailable)
+                return TimeScalePositiveProbeOutcome.SkipPauseProbeUnavailable;
+
+            return sawPositiveTimeScale
+                ? TimeScalePositiveProbeOutcome.Passed
+                : TimeScalePositiveProbeOutcome.SkipStockPause;
+        }
+
+        internal static string FormatTimeScalePositiveProbeSample(TimeScalePositiveProbeSample sample)
+        {
+            return "sample=" + sample.SampleIndex.ToString(CultureInfo.InvariantCulture) +
+                   " frame=" + sample.FrameCount.ToString(CultureInfo.InvariantCulture) +
+                   " realtime=" + sample.RealtimeSinceStartup.ToString("F2", CultureInfo.InvariantCulture) +
+                   " timeScale=" + sample.TimeScale.ToString("F3", CultureInfo.InvariantCulture) +
+                   " FlightDriver.Pause=" + (sample.FlightDriverPause.HasValue
+                       ? sample.FlightDriverPause.Value.ToString()
+                       : "unavailable") +
+                   " KSPLoader.lastUpdate=" + (sample.KspLoaderLastUpdate ?? "null") +
+                   " runner=" + (sample.RunnerCoroutineState ?? "null") +
+                   " scene=" + (sample.SceneName ?? "null");
+        }
+
+        internal static string FormatTimeScalePositiveProbeSummary(
+            IList<TimeScalePositiveProbeSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return "no samples";
+
+            return string.Join(
+                " | ",
+                samples.Select(FormatTimeScalePositiveProbeSample).ToArray());
+        }
+
+        private TimeScalePositiveProbeSample CaptureTimeScalePositiveProbeSample(int sampleIndex)
+        {
+            return new TimeScalePositiveProbeSample
+            {
+                SampleIndex = sampleIndex,
+                FrameCount = Time.frameCount,
+                RealtimeSinceStartup = Time.realtimeSinceStartup,
+                TimeScale = Time.timeScale,
+                FlightDriverPause = SafeReadFlightDriverPause(),
+                KspLoaderLastUpdate = DescribeKspLoaderLastUpdate(),
+                RunnerCoroutineState = runner != null ? runner.DescribeCoroutineState() : "runner=null",
+                SceneName = HighLogic.LoadedScene.ToString(),
+            };
+        }
+
+        private static bool? SafeReadFlightDriverPause()
+        {
+            try
+            {
+                return FlightDriver.Pause;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "TimeScalePositive: FlightDriver.Pause unavailable: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        private static string DescribeKspLoaderLastUpdate()
+        {
+            try
+            {
+                System.Type loaderType = ResolveKspLoaderType();
+                if (loaderType == null)
+                    return "type-missing";
+
+                FieldInfo field = loaderType.GetField(
+                    "lastUpdate",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field == null)
+                    return "field-missing";
+
+                object value = field.GetValue(null);
+                return value != null ? value.ToString() : "null";
+            }
+            catch (System.Exception ex)
+            {
+                return "error:" + ex.GetType().Name;
+            }
+        }
+
+        private static System.Type ResolveKspLoaderType()
+        {
+            System.Reflection.Assembly[] assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                System.Reflection.Assembly assembly = assemblies[i];
+                System.Type direct = assembly.GetType("KSPLoader", false);
+                if (direct != null)
+                    return direct;
+
+                try
+                {
+                    System.Type[] types = assembly.GetTypes();
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    System.Type[] types = ex.Types;
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        System.Type type = types[t];
+                        if (type != null && type.Name == "KSPLoader")
+                            return type;
+                    }
+                }
+            }
+
+            return null;
         }
 
         [InGameTest(Category = "Unity", Description = "A scene camera is accessible")]
@@ -1274,12 +1510,19 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(RecordingPaths.ValidateRecordingId("abc-123"),
                 "Simple alphanumeric ID should be valid");
 
-            // Invalid IDs
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(null),
+            // Invalid IDs are intentionally exercised in the test-only logging context
+            // so expected security rejections stay visible without polluting WARN triage.
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    null,
+                    RecordingIdValidationLogContext.Test),
                 "null ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(""),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "",
+                    RecordingIdValidationLogContext.Test),
                 "empty ID should be invalid");
-            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId("../etc/passwd"),
+            InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId(
+                    "../etc/passwd",
+                    RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
         }
     }
@@ -3462,6 +3705,91 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// #487 regression: scene reset must not cache a transparent opaque window
+        /// style while the destination scene skin is still bootstrapping.
+        /// </summary>
+        [InGameTest(Category = "TestRunner",
+            Description = "Scene reset defers opaque window rebuild until a skin background exists")]
+        public void SceneReset_DefersOpaqueStyleUntilSkinReady()
+        {
+            var shortcut = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(shortcut, "TestRunnerShortcut.Instance must exist");
+
+            MethodInfo onSceneChange = typeof(TestRunnerShortcut).GetMethod(
+                "OnSceneChangeRequested",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(onSceneChange,
+                "Failed to reflect TestRunnerShortcut.OnSceneChangeRequested");
+
+            var readySkin = ScriptableObject.CreateInstance<GUISkin>();
+            var missingBackgroundSkin = ScriptableObject.CreateInstance<GUISkin>();
+            var sourceBackground = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+
+            try
+            {
+                sourceBackground.SetPixels(new[]
+                {
+                    new Color(0.18f, 0.24f, 0.31f, 0.35f),
+                    new Color(0.20f, 0.27f, 0.34f, 0.40f),
+                    new Color(0.22f, 0.29f, 0.36f, 0.45f),
+                    new Color(0.24f, 0.31f, 0.38f, 0.50f),
+                });
+                sourceBackground.Apply();
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Test must start from a cleared opaque-style cache");
+
+                readySkin.window = new GUIStyle();
+                readySkin.window.normal.background = sourceBackground;
+
+                missingBackgroundSkin.window = new GUIStyle();
+
+                bool builtBeforeReset = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtBeforeReset,
+                    "Opaque style should build when a window background exists");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Opaque style must be cached before the scene reset");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Opaque style cache must keep a non-null window background before reset");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Lagging hover/focus/active states must fall back to the ready normal background");
+                InGameAssert.AreNotEqual(sourceBackground.GetInstanceID(),
+                    shortcut.OpaqueWindowBackgroundForTesting.GetInstanceID(),
+                    "Opaque style must keep a copied background texture instead of the live skin texture");
+
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Scene reset should clear the cached opaque style before the next rebuild");
+
+                bool builtWithMissingBackground = shortcut.TryEnsureOpaqueStyleForTesting(missingBackgroundSkin);
+                InGameAssert.IsFalse(builtWithMissingBackground,
+                    "Opaque style rebuild must defer when the destination scene skin has no window background yet");
+                InGameAssert.IsFalse(shortcut.HasOpaqueStyleForTesting,
+                    "Deferred rebuild must not cache an opaque style with null backgrounds");
+                InGameAssert.IsNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Deferred rebuild must leave the cached opaque background unset");
+
+                bool builtAfterSkinReady = shortcut.TryEnsureOpaqueStyleForTesting(readySkin);
+                InGameAssert.IsTrue(builtAfterSkinReady,
+                    "Opaque style rebuild should succeed once the scene skin is ready");
+                InGameAssert.IsTrue(shortcut.HasOpaqueStyleForTesting,
+                    "Ready-skin rebuild must repopulate the cached opaque style");
+                InGameAssert.IsNotNull(shortcut.OpaqueWindowBackgroundForTesting,
+                    "Ready-skin rebuild must cache a non-null opaque background");
+                InGameAssert.IsTrue(shortcut.HasAllOpaqueStateBackgroundsForTesting,
+                    "Ready-skin rebuild must populate every window state background");
+            }
+            finally
+            {
+                onSceneChange.Invoke(shortcut, new object[] { HighLogic.LoadedScene });
+                Object.Destroy(readySkin);
+                Object.Destroy(missingBackgroundSkin);
+                Object.Destroy(sourceBackground);
+            }
+        }
+
+        /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// This also drives a real stock quickload, so it is intentionally single-run only.
@@ -3878,16 +4206,134 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"TerminalOrbitBody backfill verified: body={rec.TerminalOrbitBody} " +
-                $"sma={rec.TerminalOrbitSemiMajorAxis:F1}");
+                $"sma={rec.TerminalOrbitSemiMajorAxis.ToString("F1", CultureInfo.InvariantCulture)}");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
-            Description = "#265: Backfill skipped when TerminalOrbitBody already populated")]
-        public void TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite()
+            Description = "#265/#484: endpoint-aligned backfill preserves an already-populated terminal orbit only when the cached tuple already matches")]
+        public void TerminalOrbitBackfill_AlreadyPopulatedMatchingTuple_NoOverwrite()
         {
             var rec = new Recording
             {
                 VesselName = "TestNoOverwrite",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Existing TerminalOrbitBody should not be overwritten");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string preserveLine = captured.LastOrDefault(line =>
+                line.Contains("ShouldPopulateTerminalOrbitFromLastSegment")
+                && line.Contains("preserved cached terminal orbit")
+                && line.Contains("body=Kerbin")
+                && line.Contains("sma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(preserveLine),
+                "Expected preserve INFO log when cached tuple already matches endpoint-aligned segment");
+            InGameAssert.IsTrue(preserveLine.Contains("[INFO][Flight]"),
+                $"Expected preserve log to be INFO/[Flight], got: {preserveLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("healed stale cached terminal orbit")),
+                "Matching cached tuple should preserve, not heal");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody no-overwrite verified: body still Kerbin");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#484 review follow-up: endpoint-aligned backfill heals a stale same-body terminal-orbit tuple instead of preserving by body match alone")]
+        public void TerminalOrbitBackfill_StaleCachedSameBodyTuple_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleSameBodyTuple",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            var captured = new List<string>();
+            var priorSink = ParsekLog.TestSinkForTesting;
+            try
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorSink?.Invoke(line);
+                };
+
+                ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = priorSink;
+            }
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should keep the same body while healing stale tuple fields");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string healLine = captured.LastOrDefault(line =>
+                line.Contains("PopulateTerminalOrbitFromLastSegment")
+                && line.Contains("healed stale cached terminal orbit")
+                && line.Contains("previousBody=Kerbin")
+                && line.Contains("previousSma=250000.0")
+                && line.Contains("newBody=Kerbin")
+                && line.Contains("newSma=700000.0"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(healLine),
+                "Expected stale same-body tuple heal WARN log");
+            InGameAssert.IsTrue(healLine.Contains("[WARN][Flight]"),
+                $"Expected heal log to be WARN/[Flight], got: {healLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line => line.Contains("preserved cached terminal orbit")),
+                "Stale cached tuple should heal, not preserve");
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody stale same-body tuple heal verified: sma 250000 -> 700000");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#475/#484: endpoint-aligned backfill heals a stale cached terminal orbit body when the orbit endpoint extends past the last point")]
+        public void TerminalOrbitBackfill_StaleCachedBody_EndpointAlignedSegment_Overwrites()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestHealStaleBody",
                 VesselPersistentId = 0,
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Mun",
@@ -3905,13 +4351,12 @@ namespace Parsek.InGameTests
 
             ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
 
-            // Backfill should NOT have overwritten the existing values
-            InGameAssert.AreEqual("Mun", rec.TerminalOrbitBody,
-                "Existing TerminalOrbitBody should not be overwritten");
-            InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                "Endpoint-aligned orbit segment should heal a stale cached TerminalOrbitBody");
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
 
             ParsekLog.Verbose("TestRunner",
-                "TerminalOrbitBody no-overwrite verified: body still Mun");
+                "TerminalOrbitBody stale-cache heal verified: body Mun -> Kerbin");
         }
 
         // ======================= BackgroundRecorderSeedSkip (#265) =======================
@@ -4169,6 +4614,7 @@ namespace Parsek.InGameTests
             public string Diagnostic;
             public bool ShouldRetry;
             public bool HadProbeException;
+            public bool HadRetryableReadinessBlock;
         }
 
         private sealed class StrategySelectionResult
@@ -4176,7 +4622,8 @@ namespace Parsek.InGameTests
             public Strategies.Strategy Strategy;
             public string ConfigName;
             public string Diagnostic;
-            public bool SawProbeException;
+            public bool FinalProbeHadException;
+            public bool FinalProbeHadRetryableReadinessBlock;
         }
 
         private static StrategyProbeResult ProbeActivatableStockStrategy()
@@ -4185,21 +4632,20 @@ namespace Parsek.InGameTests
             {
                 Diagnostic = "no activatable stock strategy available",
                 ShouldRetry = false,
-                HadProbeException = false
+                HadProbeException = false,
+                HadRetryableReadinessBlock = false
             };
 
             var system = Strategies.StrategySystem.Instance;
-            if (system == null)
+            var list = system?.Strategies;
+            string globalReadinessReason =
+                StrategyLifecycleProbeSupport.GetGlobalReadinessBlockReason(system, list);
+            if (!string.IsNullOrEmpty(globalReadinessReason))
             {
-                result.Diagnostic = "StrategySystem.Instance is null";
+                result.Diagnostic = globalReadinessReason;
                 result.ShouldRetry = true;
-                return result;
-            }
-            var list = system.Strategies;
-            if (list == null)
-            {
-                result.Diagnostic = "StrategySystem.Strategies is null";
-                result.ShouldRetry = true;
+                result.HadRetryableReadinessBlock = true;
+                StrategyLifecycleProbeSupport.LogReadinessWaiting(globalReadinessReason);
                 return result;
             }
 
@@ -4209,7 +4655,9 @@ namespace Parsek.InGameTests
             int namelessEntries = 0;
             int blockedEntries = 0;
             int probeThrows = 0;
-            string lastProbeFailure = null;
+            int firstProbeFailureIndex = -1;
+            string firstProbeFailureSummary = null;
+            string firstProbeFailureDetail = null;
             for (int i = 0; i < list.Count; i++)
             {
                 var s = list[i];
@@ -4221,6 +4669,7 @@ namespace Parsek.InGameTests
 
                 try
                 {
+                    string probeConfigName = null;
                     if (s.IsActive)
                     {
                         activeEntries++;
@@ -4234,8 +4683,8 @@ namespace Parsek.InGameTests
                         continue;
                     }
 
-                    string configName = config.Name;
-                    if (string.IsNullOrEmpty(configName))
+                    probeConfigName = config.Name;
+                    if (string.IsNullOrEmpty(probeConfigName))
                     {
                         namelessEntries++;
                         continue;
@@ -4249,32 +4698,48 @@ namespace Parsek.InGameTests
                     }
 
                     result.Strategy = s;
-                    result.ConfigName = configName;
-                    result.Diagnostic = $"selected activatable strategy '{configName}'";
+                    result.ConfigName = probeConfigName;
+                    result.Diagnostic = $"selected activatable strategy '{probeConfigName}'";
                     return result;
                 }
                 catch (System.Exception ex)
                 {
                     probeThrows++;
                     result.HadProbeException = true;
-                    lastProbeFailure = $"{ex.GetType().Name}: {ex.Message}";
-                    ParsekLog.Warn("TestRunner",
-                        $"StrategyLifecycle probe skipped strategy index {i} because readiness access threw: {lastProbeFailure}");
+                    if (firstProbeFailureSummary == null)
+                    {
+                        firstProbeFailureIndex = i;
+                        firstProbeFailureSummary =
+                            StrategyLifecycleProbeSupport.FormatExceptionSummary(ex);
+                        firstProbeFailureDetail = ex.ToString();
+                    }
+                    ParsekLog.Verbose("TestRunner",
+                        $"StrategyLifecycle probe exception: index={i} {ex}");
                 }
             }
 
-            result.Diagnostic =
-                $"no CanBeActivated-true stock strategy available (count={list.Count}, null={nullEntries}, " +
-                $"active={activeEntries}, configless={configlessEntries}, nameless={namelessEntries}, " +
-                $"blocked={blockedEntries}, " +
-                $"probeThrows={probeThrows}" +
-                (string.IsNullOrEmpty(lastProbeFailure)
-                    ? ")"
-                    : $", lastProbe='{lastProbeFailure}')");
+            if (probeThrows > 0)
+            {
+                StrategyLifecycleProbeSupport.LogPollExceptions(
+                    list.Count,
+                    probeThrows,
+                    firstProbeFailureIndex,
+                    firstProbeFailureSummary);
+            }
+
+            result.Diagnostic = StrategyLifecycleProbeSupport.BuildProbeDiagnostic(
+                list.Count,
+                nullEntries,
+                activeEntries,
+                configlessEntries,
+                namelessEntries,
+                blockedEntries,
+                probeThrows,
+                firstProbeFailureIndex,
+                firstProbeFailureSummary,
+                firstProbeFailureDetail);
             result.ShouldRetry =
-                system == null
-                || list == null
-                || configlessEntries > 0
+                configlessEntries > 0
                 || namelessEntries > 0
                 || probeThrows > 0;
             return result;
@@ -4288,18 +4753,23 @@ namespace Parsek.InGameTests
             result.Strategy = null;
             result.ConfigName = null;
             result.Diagnostic = "no activatable stock strategy available";
-            result.SawProbeException = false;
+            result.FinalProbeHadException = false;
+            result.FinalProbeHadRetryableReadinessBlock = false;
 
             for (int i = 0; i < StrategyLifecycleProbeWarmupFrames; i++)
                 yield return null;
 
             string stableConfigName = null;
             int stableFrames = 0;
+            bool sawRetryableDelay = false;
             for (int attempt = 0; attempt < StrategyLifecycleProbeRetryFrames; attempt++)
             {
                 var probe = ProbeActivatableStockStrategy();
                 result.Diagnostic = probe.Diagnostic;
-                result.SawProbeException |= probe.HadProbeException;
+                // Track only the final retryable state. Early hydration waits or probe
+                // exceptions that later clear must not poison a later legitimate skip.
+                result.FinalProbeHadException = probe.HadProbeException;
+                result.FinalProbeHadRetryableReadinessBlock = probe.HadRetryableReadinessBlock;
                 if (probe.Strategy != null)
                 {
                     if (probe.ConfigName == stableConfigName)
@@ -4313,7 +4783,16 @@ namespace Parsek.InGameTests
                     result.Strategy = probe.Strategy;
                     result.ConfigName = probe.ConfigName;
                     if (stableFrames >= StrategyLifecycleProbeStableFrames)
+                    {
+                        if (sawRetryableDelay)
+                        {
+                            StrategyLifecycleProbeSupport.LogReadinessSettled(
+                                attempt + 1,
+                                StrategyLifecycleProbeRetryFrames,
+                                result.Diagnostic);
+                        }
                         yield break;
+                    }
 
                     yield return null;
                     continue;
@@ -4326,7 +4805,16 @@ namespace Parsek.InGameTests
                 if (!probe.ShouldRetry)
                     yield break;
 
+                sawRetryableDelay = true;
                 yield return null;
+            }
+
+            if (sawRetryableDelay && (result.Strategy == null || string.IsNullOrEmpty(result.ConfigName)))
+            {
+                StrategyLifecycleProbeSupport.LogReadinessTimeout(
+                    StrategyLifecycleProbeRetryFrames,
+                    StrategyLifecycleProbeRetryFrames,
+                    result.Diagnostic);
             }
         }
 
@@ -4356,7 +4844,9 @@ namespace Parsek.InGameTests
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (selection.SawProbeException)
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
@@ -4411,7 +4901,7 @@ namespace Parsek.InGameTests
             catch (System.Exception ex)
             {
                 InGameAssert.Fail(
-                    $"Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                    $"Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                 yield break;
             }
             yield return null;
@@ -4487,7 +4977,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception innerEx)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx.Message}");
+                            $"StrategyLifecycle mid-test Deactivate threw: {innerEx}");
                     }
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
@@ -4542,7 +5032,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"StrategyLifecycle deactivate-phase teardown threw: {ex.Message}");
+                            $"StrategyLifecycle deactivate-phase teardown threw: {ex}");
                     }
                 }
                 ParsekLog.TestSinkForTesting = priorSink;
@@ -4578,7 +5068,9 @@ namespace Parsek.InGameTests
 
             if (strategy == null || string.IsNullOrEmpty(configName))
             {
-                if (selection.SawProbeException)
+                if (StrategyLifecycleProbeSupport.ShouldFailUnavailableSelection(
+                    selection.FinalProbeHadException,
+                    selection.FinalProbeHadRetryableReadinessBlock))
                 {
                     InGameAssert.Fail($"StrategyLifecycle readiness never stabilized: {selection.Diagnostic}");
                     yield break;
@@ -4618,7 +5110,7 @@ namespace Parsek.InGameTests
                 catch (System.Exception ex)
                 {
                     InGameAssert.Fail(
-                        $"Initial Strategy.Activate threw {ex.GetType().Name} for key='{configName}' after readiness stabilized: {ex.Message}");
+                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
                     yield break;
                 }
                 if (!firstActivate)
@@ -4639,7 +5131,7 @@ namespace Parsek.InGameTests
                 catch (System.Exception ex)
                 {
                     InGameAssert.Fail(
-                        $"Second Strategy.Activate threw {ex.GetType().Name} for already-active key='{configName}': {ex.Message}");
+                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
                     yield break;
                 }
                 InGameAssert.IsFalse(ok,
@@ -4671,7 +5163,7 @@ namespace Parsek.InGameTests
                     catch (System.Exception ex)
                     {
                         ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex.Message}");
+                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
                     }
                 }
                 RestoreFinancials(fundsBefore, sciBefore, repBefore);
@@ -5138,6 +5630,8 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     internal class TestLoopTrajectoryForBug461 : IPlaybackTrajectory
@@ -5217,6 +5711,8 @@ namespace Parsek.InGameTests
         public double TerminalOrbitArgumentOfPeriapsis => 0;
         public double TerminalOrbitMeanAnomalyAtEpoch => 0;
         public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     public class IncompleteBallisticRuntimeTests

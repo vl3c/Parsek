@@ -367,6 +367,53 @@ namespace Parsek.Tests
             Assert.Equal(resumedSegment.semiMajorAxis, currentOrbitSegment.semiMajorAxis);
         }
 
+        [Fact]
+        public void TryApplyRestoreEnvironmentResync_MatchingTailEnvironmentRelabelsOpenSection()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.SurfaceStationary, ReferenceFrame.Absolute, 100.0);
+            recorder.ArmRestoreEnvironmentResync(
+                SegmentEnvironment.Atmospheric,
+                "test matching tail environment");
+
+            bool applied = recorder.TryApplyRestoreEnvironmentResync(
+                SegmentEnvironment.Atmospheric,
+                106.0);
+            recorder.CloseCurrentTrackSection(110.0);
+
+            Assert.True(applied);
+            Assert.Single(recorder.TrackSections);
+            Assert.Equal(
+                SegmentEnvironment.Atmospheric,
+                recorder.TrackSections[0].environment);
+            Assert.Contains(logLines, l =>
+                l.Contains("Restore environment resync") &&
+                l.Contains("treated as restored state"));
+        }
+
+        [Fact]
+        public void TryApplyRestoreEnvironmentResync_NonMatchingTransitionDisarmsWithoutRelabel()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 200.0);
+            recorder.ArmRestoreEnvironmentResync(
+                SegmentEnvironment.SurfaceStationary,
+                "test non-matching transition");
+
+            bool firstAttempt = recorder.TryApplyRestoreEnvironmentResync(
+                SegmentEnvironment.ExoBallistic,
+                205.0);
+            bool secondAttempt = recorder.TryApplyRestoreEnvironmentResync(
+                SegmentEnvironment.SurfaceStationary,
+                206.0);
+            recorder.CloseCurrentTrackSection(210.0);
+
+            Assert.False(firstAttempt);
+            Assert.False(secondAttempt);
+            Assert.Single(recorder.TrackSections);
+            Assert.Equal(
+                SegmentEnvironment.Atmospheric,
+                recorder.TrackSections[0].environment);
+        }
+
         private static void SetCurrentTrackSectionAnchor(FlightRecorder recorder, uint anchorPid)
         {
             var field = typeof(FlightRecorder).GetField(
