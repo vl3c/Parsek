@@ -5293,6 +5293,7 @@ namespace Parsek
         internal static void NormalizeRecordingFormatVersionForPredictedSegments(Recording rec)
         {
             if (rec == null
+                || rec.RecordingFormatVersion < 2
                 || rec.RecordingFormatVersion >= PredictedOrbitSegmentFormatVersion
                 || !HasPredictedOrbitSegments(rec))
                 return;
