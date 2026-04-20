@@ -111,6 +111,10 @@ namespace Parsek.Tests
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
                 (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
                 {
+                    recording.TerminalOrbitBody = "Mun";
+                    recording.TerminalOrbitSemiMajorAxis = 255000.0;
+                    recording.TerminalOrbitEccentricity = 0.04;
+                    recording.TerminalOrbitInclination = 6.0;
                     result = new IncompleteBallisticFinalizationResult
                     {
                         terminalState = TerminalState.Orbiting,
@@ -122,10 +126,10 @@ namespace Parsek.Tests
                         {
                             new OrbitSegment
                             {
-                                bodyName = "Mun",
+                                bodyName = "Kerbin",
                                 startUT = 150.0,
                                 endUT = 350.0,
-                                semiMajorAxis = 250000.0,
+                                semiMajorAxis = 700000.0,
                                 eccentricity = 0.01,
                                 inclination = 5.0
                             }
@@ -163,10 +167,13 @@ namespace Parsek.Tests
             Assert.Equal(350.0, active.ExplicitEndUT);
             Assert.Equal(350.0, active.EndUT);
             Assert.Equal("Mun", active.TerminalOrbitBody);
-            Assert.Equal(250000.0, active.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(255000.0, active.TerminalOrbitSemiMajorAxis);
             Assert.True(active.FilesDirty);
             Assert.NotNull(active.VesselSnapshot);
             Assert.Equal("ORBITING", active.VesselSnapshot.GetValue("sit"));
+            Assert.Contains(logLines, l =>
+                l.Contains("preserving scene-exit terminal orbit") &&
+                l.Contains("active-tail"));
         }
 
         [Fact]
@@ -256,6 +263,233 @@ namespace Parsek.Tests
             Assert.False(skipLiveResnapshot);
             Assert.Null(rec.VesselSnapshot);
             Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("applied ghost-only scene-exit finalization") &&
+                l.Contains("scene-exit-ghost-only"));
+        }
+
+        [Fact]
+        public void TryApply_HookDecline_LogsWhenUsingNonTestHook()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeHook =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-decline"
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer.TryApply(
+                rec,
+                vessel: null,
+                commitUT: 200.0,
+                logContext: "SceneExitTests");
+
+            Assert.False(applied);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Extrapolator]") &&
+                l.Contains("incomplete-ballistic finalization hook declined") &&
+                l.Contains("scene-exit-decline"));
+        }
+
+        [Fact]
+        public void TryApply_RejectsUnsetTerminalState()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalUT = 260.0
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-unset-terminal",
+                ExplicitEndUT = 200.0
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer.TryApply(
+                rec,
+                vessel: null,
+                commitUT: 200.0,
+                logContext: "SceneExitTests");
+
+            Assert.False(applied);
+            Assert.False(rec.TerminalStateValue.HasValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][ERROR][Extrapolator]") &&
+                l.Contains("scene-exit-unset-terminal") &&
+                l.Contains("terminalState was unset/default"));
+        }
+
+        [Fact]
+        public void TryApply_RejectsInvalidTerminalState()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = (TerminalState)999,
+                        terminalUT = 260.0
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-invalid-terminal",
+                ExplicitEndUT = 200.0
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer.TryApply(
+                rec,
+                vessel: null,
+                commitUT: 200.0,
+                logContext: "SceneExitTests");
+
+            Assert.False(applied);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][ERROR][Extrapolator]") &&
+                l.Contains("scene-exit-invalid-terminal") &&
+                l.Contains("terminalState=999 was invalid"));
+        }
+
+        [Fact]
+        public void TryApply_RejectsTerminalUtThatMovesBackwardBeforeCurrentEnd()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 239.0
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-non-monotonic",
+                ExplicitEndUT = 240.0
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer.TryApply(
+                rec,
+                vessel: null,
+                commitUT: 200.0,
+                logContext: "SceneExitTests");
+
+            Assert.False(applied);
+            Assert.Equal(240.0, rec.EndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][ERROR][Extrapolator]") &&
+                l.Contains("scene-exit-non-monotonic") &&
+                l.Contains("terminalUT=239.0 moved backward before max(commitUT=200.0, currentEndUT=240.0)"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_SceneExitHook_PreservesHookPopulatedTerminalOrbitMetadata()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    recording.TerminalOrbitBody = "Mun";
+                    recording.TerminalOrbitSemiMajorAxis = 250000.0;
+                    recording.TerminalOrbitEccentricity = 0.02;
+                    recording.TerminalOrbitInclination = 5.0;
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 350.0,
+                        vesselSnapshot = MakeSnapshot("ORBITING")
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-preserve-orbit",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.1,
+                inclination = 0.5
+            });
+
+            bool skipLiveResnapshot = ParsekFlight.FinalizeIndividualRecording(
+                rec, commitUT: 200.0, isSceneExit: true);
+
+            Assert.True(skipLiveResnapshot);
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(0.02, rec.TerminalOrbitEccentricity);
+            Assert.Equal(5.0, rec.TerminalOrbitInclination);
+            Assert.Contains(logLines, l =>
+                l.Contains("preserving scene-exit terminal orbit") &&
+                l.Contains("scene-exit-preserve-orbit"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_GhostOnlySurfaceHook_PreservesExistingSurfaceMetadataAndLogs()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (recording, vessel, commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Landed,
+                        terminalUT = 280.0,
+                        ghostVisualSnapshot = MakeSnapshot("LANDED")
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-ghost-surface",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 1.25,
+                    longitude = -74.5,
+                    altitude = 12.0,
+                    rotation = UnityEngine.Quaternion.identity,
+                    situation = SurfaceSituation.Landed
+                },
+                TerrainHeightAtEnd = 8.5
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5.0, bodyName = "Kerbin" });
+
+            bool skipLiveResnapshot = ParsekFlight.FinalizeIndividualRecording(
+                rec, commitUT: 200.0, isSceneExit: true);
+
+            Assert.False(skipLiveResnapshot);
+            Assert.True(rec.TerminalPosition.HasValue);
+            Assert.Equal(12.0, rec.TerminalPosition.Value.altitude);
+            Assert.Equal(8.5, rec.TerrainHeightAtEnd);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Extrapolator]") &&
+                l.Contains("scene-exit-ghost-surface") &&
+                l.Contains("keeping existing surface metadata"));
         }
 
         [Fact]

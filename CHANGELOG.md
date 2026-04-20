@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 - `#462` Added a regression for mixed null-tagged/tagged post-walk milestone windows so legacy siblings cannot reclaim ownership of a tagged `Progression` burst purely because they appear earlier in the ledger.
 - `#469` Added post-walk reconciliation regressions for pruned milestone history, stale pre-live-event history after an epoch bump, invariant-culture WARN formatting, and the still-live missing-event warning path.
 - `#467` Added `GameStateRecorder` regression coverage for near-threshold `ReputationChanged` deltas, including the stock-rounded `+/-0.9999995` shape and a control case that still ignores clearly sub-threshold reputation noise.
+- Added focused scene-exit finalization regressions for rejected hook outputs, decline diagnostics, ghost-only surface metadata preservation, and preservation of hook-authored terminal-orbit metadata.
 
 ### Enhancements
 
@@ -52,6 +53,7 @@ All notable changes to Parsek are documented here.
 - `#465` KSC ghost engine/RCS audio now pauses with the stock ESC menu and resumes on unpause. KSC now latches the pause state before replaying runtime part events, so ghosts spawned while ESC is open stay silent instead of restarting looped engine/RCS audio or one-shot part-event audio; tracking-station ghosts were checked and remain map-only (no `AudioSource`s there to pause).
 - `#467` `ReputationChanged` no longer drops stock `+1`/`-1` reputation deltas that arrive as `0.9999995`/`-0.9999995` due to float rounding, so records-milestone reputation legs now reconcile instead of falsely warning as missing.
 - `#479` Stable-terminal finalize re-snapshots now normalize unsafe cached `sit` values on the fresh `BackupVessel()` snapshot before persisting it, so one-frame situation lag no longer leaves `FLYING` / `SUB_ORBITAL` in landed, splashed, or orbiting sidecars.
+- Incomplete-ballistic scene-exit finalization now rejects unset/invalid terminal states and retrograde `terminalUT` results, logs real-hook declines, preserves hook-authored terminal-orbit metadata, and explains ghost-only surface metadata preservation instead of silently clearing it.
 
 ---
 

@@ -6724,6 +6724,7 @@ namespace Parsek
                 : null;
             bool sceneExitLifetimeExtended = false;
             bool sceneExitSuppliedSnapshots = false;
+            bool sceneExitSuppliedTerminalOrbit = false;
             if (isSceneExit)
             {
                 ConfigNode vesselSnapshotBefore = activeRec.VesselSnapshot;
@@ -6735,15 +6736,31 @@ namespace Parsek
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
                     && activeRec.VesselSnapshot != null;
+                sceneExitSuppliedTerminalOrbit =
+                    sceneExitLifetimeExtended && HasAuthoritativeTerminalOrbitMetadata(activeRec);
                 if (sceneExitLifetimeExtended)
                 {
                     if (activeRec.TerminalStateValue.HasValue
-                        && (activeRec.TerminalStateValue.Value == TerminalState.Orbiting
-                            || activeRec.TerminalStateValue.Value == TerminalState.SubOrbital
-                            || activeRec.TerminalStateValue.Value == TerminalState.Docked))
+                        && UsesTerminalOrbitMetadata(activeRec.TerminalStateValue.Value))
                     {
-                        activeRec.TerminalOrbitBody = null;
-                        PopulateTerminalOrbitFromLastSegment(activeRec);
+                        if (sceneExitSuppliedTerminalOrbit)
+                        {
+                            ParsekLog.Verbose("Flight",
+                                $"EnsureActiveRecordingTerminalState: preserving scene-exit terminal orbit for " +
+                                $"'{activeRec.RecordingId}' (body={activeRec.TerminalOrbitBody}, " +
+                                $"terminal={activeRec.TerminalStateValue})");
+                        }
+                        else
+                        {
+                            PopulateTerminalOrbitFromLastSegment(activeRec);
+                            if (string.IsNullOrEmpty(activeRec.TerminalOrbitBody))
+                            {
+                                ParsekLog.Warn("Flight",
+                                    $"EnsureActiveRecordingTerminalState: scene-exit terminal orbit remains empty for " +
+                                    $"'{activeRec.RecordingId}' (terminal={activeRec.TerminalStateValue}, " +
+                                    $"orbitSegments={activeRec.OrbitSegments?.Count ?? 0})");
+                            }
+                        }
                     }
                     return sceneExitSuppliedSnapshots;
                 }
@@ -6872,6 +6889,7 @@ namespace Parsek
                 : null;
             bool sceneExitLifetimeExtended = false;
             bool sceneExitSuppliedSnapshots = false;
+            bool sceneExitSuppliedTerminalOrbit = false;
 
             if (isLeaf && rec.VesselPersistentId != 0 && finalizeVessel == null)
                 ParsekLog.Verbose("Flight",
@@ -6889,6 +6907,8 @@ namespace Parsek
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, rec.VesselSnapshot)
                     && rec.VesselSnapshot != null;
+                sceneExitSuppliedTerminalOrbit =
+                    sceneExitLifetimeExtended && HasAuthoritativeTerminalOrbitMetadata(rec);
             }
 
             // Determine terminal state for recordings that don't have one yet
@@ -6978,15 +6998,17 @@ namespace Parsek
             // so we re-read the live vessel here when available and only fall back to the
             // last orbit segment when it matches the endpoint body. (#475)
             if (isLeaf && rec.TerminalStateValue.HasValue
-                && (rec.TerminalStateValue.Value == TerminalState.Orbiting
-                    || rec.TerminalStateValue.Value == TerminalState.SubOrbital
-                    || rec.TerminalStateValue.Value == TerminalState.Docked))
+                && UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value))
             {
+                bool preserveSceneExitTerminalOrbit =
+                    sceneExitLifetimeExtended && sceneExitSuppliedTerminalOrbit;
                 string bodyBeforeRefresh = rec.TerminalOrbitBody;
                 if (!sceneExitLifetimeExtended && finalizeVessel != null)
                     CaptureTerminalOrbit(rec, finalizeVessel);
-                if (sceneExitLifetimeExtended)
-                    rec.TerminalOrbitBody = null;
+                else if (preserveSceneExitTerminalOrbit)
+                    ParsekLog.Verbose("Flight",
+                        $"FinalizeIndividualRecording: preserving scene-exit terminal orbit for '{rec.RecordingId}' " +
+                        $"(body={rec.TerminalOrbitBody}, terminal={rec.TerminalStateValue})");
 
                 if (!string.IsNullOrEmpty(rec.TerminalOrbitBody)
                     && !string.Equals(rec.TerminalOrbitBody, bodyBeforeRefresh, StringComparison.Ordinal))
@@ -6997,7 +7019,7 @@ namespace Parsek
                         $"(terminal={rec.TerminalStateValue})");
                 }
 
-                if (ShouldPopulateTerminalOrbitFromLastSegment(rec))
+                if (!preserveSceneExitTerminalOrbit && ShouldPopulateTerminalOrbitFromLastSegment(rec))
                 {
                     string bodyBeforeFallback = rec.TerminalOrbitBody;
                     PopulateTerminalOrbitFromLastSegment(rec);
@@ -7152,6 +7174,20 @@ namespace Parsek
             return state == TerminalState.Landed
                 || state == TerminalState.Splashed
                 || state == TerminalState.Orbiting;
+        }
+
+        private static bool UsesTerminalOrbitMetadata(TerminalState state)
+        {
+            return state == TerminalState.Orbiting
+                || state == TerminalState.SubOrbital
+                || state == TerminalState.Docked;
+        }
+
+        private static bool HasAuthoritativeTerminalOrbitMetadata(Recording rec)
+        {
+            // Body presence is the minimum signal that the hook intentionally
+            // stamped a terminal-orbit tuple instead of leaving default-zero fields.
+            return rec != null && !string.IsNullOrEmpty(rec.TerminalOrbitBody);
         }
 
         private static bool TryRefreshStableTerminalSnapshot(

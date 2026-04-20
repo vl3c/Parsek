@@ -18,6 +18,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~481. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
+
+**Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
+
+**Concern:** `IncompleteBallisticSceneExitFinalizer.TryApply()` only rejected `terminalUT = NaN`; a hook that returned `true` with an unset/default terminal state or a `terminalUT` earlier than the current commit/end boundary could still be applied. The caller-side scene-exit lifetime-extension path also force-nulled/backfilled `TerminalOrbitBody`, so a hook that had already stamped authoritative terminal-orbit data directly on the `Recording` could be overwritten by the last `OrbitSegment`. Separately, a ghost-only surface result with no new `TerminalPosition` could wipe existing surface metadata without any explanatory log.
+
+**Fix:** the hook contract is now validated before apply: `terminalState` must be set to a defined enum, `terminalUT` must stay monotonic against `max(commitUT, current EndUT)`, and real hook declines emit a VERBOSE diagnostic. Scene-exit lifetime extension now preserves hook-authored terminal-orbit metadata instead of force-backfilling over it, and ghost-only surface finalization keeps existing surface metadata (or leaves it unavailable) with an explicit WARN explaining what happened. Focused xUnit coverage lives in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
+
+**Status:** CLOSED 2026-04-20. Fixed on `task/ibx-finalization`.
+
+---
+
 ## ~~480. `FlightIntegrationTests.ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents` / `FailedActivation_DoesNotEmitEvent` NRE ~2ms into SPACECENTER run on a career save with an activatable stock strategy~~
 
 **Source:** `logs/2026-04-19_0123_test-report/parsek-test-results.txt` + `KSP.log:9471-9474`.
