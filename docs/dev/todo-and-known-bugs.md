@@ -32,7 +32,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Dependencies:** none.
 
-**Resolution:** shortcut path fixed on 2026-04-19 in `bug/487-test-runner-transparent`; shared `ParsekUI` follow-up landed on 2026-04-20 so the Settings-hosted Test Runner and the rest of the Parsek subwindows use the same guarded opaque-style rebuild instead of bypassing the original fix.
+**Resolution:** shortcut path fixed on 2026-04-19 in `bug/487-test-runner-transparent`; shared `ParsekUI` follow-up landed on 2026-04-20 so the Settings-hosted Test Runner and the rest of the Parsek subwindows use the same guarded opaque-style rebuild instead of bypassing the original fix. Later the same day, a second follow-up hardened the live draw path itself by normalizing IMGUI tint state during window draws and by dropping stale shortcut caches that survive into a different scene, which matches the real scene-change repro more closely than the original missing-skin regression alone.
 
 **Status:** CLOSED 2026-04-19. Fixed for v0.8.3.
 
