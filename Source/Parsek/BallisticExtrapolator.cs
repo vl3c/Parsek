@@ -87,7 +87,6 @@ namespace Parsek
         {
             public EventKind Kind;
             public double UT;
-            public string BodyName;
             public Vector3d Position;
             public Vector3d Velocity;
             public ExtrapolationBody ChildBody;
