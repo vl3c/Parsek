@@ -465,27 +465,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConvertScienceSubjects_CaptureBeforeRecordingStart_ClampsToRecordingStart()
-        {
-            var subjects = new List<PendingScienceSubject>
-            {
-                new PendingScienceSubject
-                {
-                    subjectId = "goo@LaunchPad",
-                    science = 1.5f,
-                    captureUT = 88.7,
-                    reasonKey = "ScienceTransmission",
-                    recordingId = "rec"
-                }
-            };
-
-            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
-
-            Assert.Single(actions);
-            Assert.Equal(100.3f, actions[0].StartUT);
-        }
-
-        [Fact]
         public void ConvertScienceSubjects_CrossRecordingCapture_FallsBackToRecordingStart()
         {
             var subjects = new List<PendingScienceSubject>

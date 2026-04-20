@@ -262,8 +262,6 @@ namespace Parsek
                 return defaultStartUT;
             if (captureUt == 0.0 && defaultStartUT > 0.0)
                 return defaultStartUT;
-            if (captureUt < defaultStartUT)
-                return defaultStartUT;
             if (captureUt > endUT)
                 return defaultStartUT;
 

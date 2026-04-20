@@ -2638,7 +2638,7 @@ namespace Parsek.Tests
             Assert.Single(milestoneMatches);
             Assert.Contains("within science window [10.0,204.4]", scienceMatches[0]);
             Assert.Contains("id=mysteryGoo@KerbinSrfLandedLaunchPad", scienceMatches[0]);
-            Assert.Contains("within 0.1s of ut=204.4", milestoneMatches[0]);
+            Assert.Contains("within 0.1s of ut=204.5", milestoneMatches[0]);
             Assert.Contains("id=Kerbin/Escape", milestoneMatches[0]);
         }
 
