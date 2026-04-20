@@ -486,7 +486,7 @@ namespace Parsek
             if (!destroyedBackgrounds.Add(id))
                 return;
 
-            Object.Destroy(background);
+            UnityEngine.Object.Destroy(background);
         }
 
         /// <summary>
