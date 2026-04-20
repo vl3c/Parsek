@@ -37,6 +37,7 @@ namespace Parsek.Tests
                 longitude = 23.4,
                 altitude = 1234.5,
                 rotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f),
+                rotationRecorded = true,
                 situation = SurfaceSituation.Landed
             };
 
@@ -53,6 +54,7 @@ namespace Parsek.Tests
             Assert.Equal(0.2f, restored.rotation.y, 0.00001f);
             Assert.Equal(0.3f, restored.rotation.z, 0.00001f);
             Assert.Equal(0.9f, restored.rotation.w, 0.00001f);
+            Assert.True(restored.HasRecordedRotation);
             Assert.Equal(SurfaceSituation.Landed, restored.situation);
         }
 
@@ -66,6 +68,7 @@ namespace Parsek.Tests
                 longitude = -50.0,
                 altitude = 0.5,
                 rotation = new Quaternion(0f, 0f, 0f, 1f),
+                rotationRecorded = true,
                 situation = SurfaceSituation.Splashed
             };
 
@@ -75,6 +78,33 @@ namespace Parsek.Tests
             var restored = SurfacePosition.LoadFrom(node);
 
             Assert.Equal(SurfaceSituation.Splashed, restored.situation);
+        }
+
+        [Fact]
+        public void SurfacePosition_LoadFromLegacyNodeWithoutRotation_MarksRotationUnrecorded()
+        {
+            var node = new ConfigNode("TEST");
+            node.AddValue("body", "Kerbin");
+            node.AddValue("lat", "10");
+            node.AddValue("lon", "20");
+            node.AddValue("alt", "30");
+            node.AddValue("situation", ((int)SurfaceSituation.Landed).ToString(CultureInfo.InvariantCulture));
+
+            var restored = SurfacePosition.LoadFrom(node);
+
+            Assert.False(restored.HasRecordedRotation);
+            Assert.Equal(0f, restored.rotation.x);
+            Assert.Equal(0f, restored.rotation.y);
+            Assert.Equal(0f, restored.rotation.z);
+            Assert.Equal(1f, restored.rotation.w);
+        }
+
+        [Fact]
+        public void SurfacePosition_DefaultStruct_DoesNotClaimRecordedRotation()
+        {
+            var pos = default(SurfacePosition);
+
+            Assert.False(pos.HasRecordedRotation);
         }
 
         // --- BranchPoint serialization ---
