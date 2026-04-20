@@ -22,14 +22,13 @@ Stock KSP destroys unloaded vessels on atmosphere entry. Ghost playback should m
 
 This plan covers **only the uncovered tail** of an incomplete recording where no recorded data and no background-recorder data cover the interval `[lastCoveredUT, terminalUT]`. It does not replace, rewrite, or overlap recorded frames. Precedence:
 
-1. Recorded flight frames (highest).
-2. Background-recorder data (if enabled, for the gap it covers).
-3. **KSP patched-conic snapshot** — `vessel.patchedConicSolver`'s pre-computed chain of future patches captured at scene exit (flyby deflections, SOI captures, solver-computed maneuver-node chains).
-4. Kepler extrapolation (this plan) for intervals past the end of the patched chain.
+1. Recorded flight frames (highest). Covers whatever the in-flight recorder captured — either the main active vessel or any tree child handled by `BackgroundRecorder` while flight was active.
+2. **KSP patched-conic snapshot** — `vessel.patchedConicSolver`'s pre-computed chain of future patches captured at scene exit (flyby deflections, SOI captures).
+3. Kepler extrapolation (this plan) for intervals past the end of the patched chain.
 
-The gap check is **per-segment**, not per-recording — if the background recorder dropped out partway or started late, fill with the next source in the precedence list only for still-uncovered sub-intervals.
+Parsek's `BackgroundRecorder` is an in-flight multi-vessel recorder (tree children during active flight), not a cross-scene background system. It stops when flight ends. Recordings produced by it are treated exactly the same as the main recording — a `BackgroundRecorder`-produced child recording that ends incomplete at scene exit gets the same snapshot + extrapolation treatment.
 
-Rationale for (3): KSP's solver already computes flyby deflections, SOI captures, and manoeuvre-node chains using its authoritative patched-conics algorithm. Snapshotting that chain at scene exit gives the ghost a trajectory in map view that matches what the player saw, avoids us re-implementing flyby detection in §5 for cases where KSP already did the work, and produces stable multi-link chains. Extrapolation (4) only fires past the end of the snapshotted chain — typically for short-horizon solver cases or when the chain stops before a natural terminus.
+Rationale for (2): KSP's solver already computes flyby deflections and SOI captures using its authoritative patched-conics algorithm. Snapshotting that chain at scene exit gives the ghost a trajectory in map view that matches what the player saw, avoids us re-implementing flyby detection in §5 for cases where KSP already did the work, and produces stable multi-link chains. Extrapolation (3) only fires past the end of the snapshotted chain — typically for short-horizon solver cases or when the chain stops before a natural terminus.
 
 ## Solution
 
@@ -403,9 +402,10 @@ Load each and verify finalization produces the expected terminal state and arc c
 
 ## Open Questions (deferrable / calibration)
 
-1. Should background-recorder integration be scoped in this plan or deferred? Current text treats background data as a pre-extrapolation source but does not modify background-recorder code. Recommend deferring.
-2. How visible should the atmo-entry moment be? Optional: trigger stock re-entry FX at the destruction UT as a visual cue. Nice-to-have, not required.
-3. Tunable thresholds in `ShouldExtrapolate` — expose in settings window or keep as compile-time constants? Recommend constants until user feedback indicates otherwise.
+1. How visible should the atmo-entry moment be? Optional: trigger stock re-entry FX at the destruction UT as a visual cue. Nice-to-have, not required.
+2. Tunable thresholds in `ShouldExtrapolate` — expose in settings window or keep as compile-time constants? Recommend constants until user feedback indicates otherwise.
+3. `maxHorizonYears = 50` and `PatchedConicSolverCaptureLimit = 8` — initial defaults, calibrate from playtests once the feature is live.
+4. Map-view styling for `isPredicted = true` segments — dashed line, different colour, or identical to traversed? Recommend identical until there is a specific readability problem.
 5. `maxHorizonYears = 50` is a guess. Calibrate against the longest realistic interplanetary missions before shipping.
 
 ## Work Breakdown
