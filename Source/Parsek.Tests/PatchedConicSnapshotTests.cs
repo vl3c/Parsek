@@ -83,11 +83,11 @@ namespace Parsek.Tests
             Assert.Equal(120, result.Segments[0].startUT);
             Assert.Equal(200, result.Segments[0].endUT);
             Assert.True(result.StoppedBeforeManeuver);
-            Assert.Equal(1, result.TruncatedPatchCount);
+            Assert.True(result.HasTruncatedTail);
         }
 
         [Fact]
-        public void Snapshot_CaptureLimitReached_ReportsTruncation()
+        public void Snapshot_CaptureLimitReached_ReportsTruncatedTail()
         {
             var thirdPatch = MakePatch(300, 400, body: "Mun");
             var secondPatch = MakePatch(200, 300, body: "Kerbin", transition: PatchedConicTransitionType.Encounter);
@@ -106,7 +106,7 @@ namespace Parsek.Tests
             Assert.Equal(2, result.CapturedPatchCount);
             Assert.Equal(2, result.Segments.Count);
             Assert.False(result.StoppedBeforeManeuver);
-            Assert.Equal(1, result.TruncatedPatchCount);
+            Assert.True(result.HasTruncatedTail);
         }
 
         [Fact]
@@ -146,6 +146,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Snapshot_PatchLimitUnavailable_FailsInsteadOfSilentlyProceeding()
+        {
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                HasPatchLimitAccess = false,
+                RootPatch = MakePatch(100, 200)
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 8, "No Reflection Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.PatchLimitUnavailable, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Equal(4, source.PatchLimit);
+            Assert.Contains(logLines, line =>
+                line.Contains("[PatchedSnapshot]") &&
+                line.Contains("patchLimit reflection unavailable"));
+        }
+
+        [Fact]
+        public void Snapshot_MissingPatchBody_FailsWithoutKerbinFallback()
+        {
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = MakePatch(100, 200, body: null)
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 8, "Null Body Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.MissingPatchBody, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Equal(4, source.PatchLimit);
+            Assert.Null(result.LastCapturedBodyName);
+            Assert.Contains(logLines, line =>
+                line.Contains("[PatchedSnapshot]") &&
+                line.Contains("missing-reference-body"));
+        }
+
+        [Fact]
         public void Snapshot_LogsPatchCount_AtWalkComplete()
         {
             var source = new FakePatchedConicSnapshotSource(2)
@@ -158,7 +198,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, line =>
                 line.Contains("[PatchedSnapshot]") &&
                 line.Contains("captured=1") &&
-                line.Contains("truncated=0") &&
+                line.Contains("hasTruncatedTail=False") &&
                 line.Contains("stoppedBeforeManeuver=False"));
         }
 
@@ -195,6 +235,7 @@ namespace Parsek.Tests
 
             public string VesselName => "Fake Vessel";
             public bool IsAvailable { get; set; } = true;
+            public bool HasPatchLimitAccess { get; set; } = true;
             public bool ThrowOnUpdate { get; set; }
             public IPatchedConicOrbitPatch RootPatch { get; set; }
 

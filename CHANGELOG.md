@@ -37,6 +37,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#489` Incomplete ballistic recordings no longer freeze at scene exit. Ghosts now continue suborbital, descent, and flyby coasts to their natural endpoint instead of stopping mid-air.
+- Patched-conic snapshot capture now fails closed when a predicted patch has no reference body or the private solver `patchLimit` hook is unavailable, logs those conditions explicitly, and reports truncation as a boolean tail flag instead of a pseudo-count.
 - `#463` Deferred warp-end spawns now replay already-due `FlagEvents` for the spawned recording, so flags planted mid-recording still materialise even if you time-warp past that recording while watching something else.
 - `#466` `RecalculateAndPatch` now defers KSP state patching while a live, active, or pending flight tree is still uncommitted, so mid-flight/load-time recalculations no longer snap funds back down to the committed-ledger target. Discard paths now explicitly recalculate once the pending tree is gone.
 - `#470` Funds recalculation no longer logs `FundsSpending: -0, source=Other` for zero-cost replay entries during module walks. The no-op action still participates in affordability/balance tracking; only the useless VERBOSE line is suppressed.

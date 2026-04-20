@@ -9,7 +9,9 @@ namespace Parsek
     {
         None = 0,
         NullSolver = 1,
-        UpdateFailed = 2
+        UpdateFailed = 2,
+        PatchLimitUnavailable = 3,
+        MissingPatchBody = 4
     }
 
     internal enum PatchedConicTransitionType
@@ -28,7 +30,7 @@ namespace Parsek
         public List<OrbitSegment> Segments;
         public PatchedConicSnapshotFailureReason FailureReason;
         public int CapturedPatchCount;
-        public int TruncatedPatchCount;
+        public bool HasTruncatedTail;
         public bool StoppedBeforeManeuver;
         public int OriginalPatchLimit;
         public int AppliedPatchLimit;
@@ -39,6 +41,7 @@ namespace Parsek
     {
         string VesselName { get; }
         bool IsAvailable { get; }
+        bool HasPatchLimitAccess { get; }
         int PatchLimit { get; set; }
         IPatchedConicOrbitPatch RootPatch { get; }
         void Update();
@@ -62,6 +65,11 @@ namespace Parsek
 
     internal static class PatchedConicSnapshot
     {
+        private const string MissingPatchBodySentinel = "(missing-reference-body)";
+
+        // Eight patches covers the common stock chains we need at finalize time
+        // (current orbit, transfer, encounter/capture, and a few follow-on legs)
+        // without expanding solver work for long multi-SOI plans.
         internal const int PatchedConicSolverCaptureLimit = 8;
 
         internal static PatchedConicSnapshotResult SnapshotPatchedConicChain(
@@ -110,34 +118,61 @@ namespace Parsek
                 return result;
             }
 
-            result.OriginalPatchLimit = source.PatchLimit;
-            result.AppliedPatchLimit = Math.Max(result.OriginalPatchLimit, normalizedLimit);
+            if (!source.HasPatchLimitAccess)
+            {
+                result.FailureReason = PatchedConicSnapshotFailureReason.PatchLimitUnavailable;
+                ParsekLog.Warn("PatchedSnapshot",
+                    $"SnapshotPatchedConicChain: vessel={safeVesselName} patchLimit reflection unavailable; aborting predicted snapshot capture");
+                return result;
+            }
 
-            ParsekLog.Info("PatchedSnapshot",
-                $"SnapshotPatchedConicChain: vessel={safeVesselName} snapshotUT={snapshotUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"patchLimit={result.OriginalPatchLimit} captureLimit={normalizedLimit}");
-
+            bool patchLimitRaised = false;
             try
             {
-                if (result.AppliedPatchLimit != result.OriginalPatchLimit)
-                    source.PatchLimit = result.AppliedPatchLimit;
+                result.OriginalPatchLimit = source.PatchLimit;
+                result.AppliedPatchLimit = Math.Max(result.OriginalPatchLimit, normalizedLimit);
 
+                ParsekLog.Info("PatchedSnapshot",
+                    $"SnapshotPatchedConicChain: vessel={safeVesselName} snapshotUT={snapshotUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"patchLimit={result.OriginalPatchLimit} captureLimit={normalizedLimit}");
+
+                if (result.AppliedPatchLimit != result.OriginalPatchLimit)
+                {
+                    source.PatchLimit = result.AppliedPatchLimit;
+                    patchLimitRaised = true;
+                }
+
+                // Stock solver refresh is only trustworthy while the scene is actively
+                // simming. If a future caller snapshots during a paused/menu frame,
+                // the chain may still reflect stale pre-pause solver state.
                 source.Update();
 
                 IPatchedConicOrbitPatch patch = source.RootPatch;
                 while (patch != null && result.CapturedPatchCount < normalizedLimit)
                 {
+                    string bodyName = patch.BodyName;
+                    if (string.IsNullOrEmpty(bodyName))
+                    {
+                        int failedPatchIndex = result.CapturedPatchCount;
+                        ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.MissingPatchBody);
+                        ParsekLog.Warn("PatchedSnapshot",
+                            $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                            $"body={MissingPatchBodySentinel}; aborting predicted snapshot capture");
+                        return result;
+                    }
+
                     bool stopsBeforeManeuver = patch.EndTransition == PatchedConicTransitionType.Maneuver;
                     result.Segments.Add(ToOrbitSegment(
                         patch,
-                        result.CapturedPatchCount == 0 ? snapshotUT : double.NaN));
-                    result.LastCapturedBodyName = patch.BodyName;
+                        result.CapturedPatchCount == 0 ? snapshotUT : double.NaN,
+                        bodyName));
+                    result.LastCapturedBodyName = bodyName;
                     result.CapturedPatchCount++;
 
                     if (stopsBeforeManeuver)
                     {
                         result.StoppedBeforeManeuver = true;
-                        result.TruncatedPatchCount++;
+                        result.HasTruncatedTail = true;
                         break;
                     }
 
@@ -145,33 +180,56 @@ namespace Parsek
                 }
 
                 if (!result.StoppedBeforeManeuver && patch != null && result.CapturedPatchCount >= normalizedLimit)
-                    result.TruncatedPatchCount++;
+                    result.HasTruncatedTail = true;
 
                 ParsekLog.Verbose("PatchedSnapshot",
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} captured={result.CapturedPatchCount} " +
-                    $"truncated={result.TruncatedPatchCount} stoppedBeforeManeuver={result.StoppedBeforeManeuver} " +
+                    $"hasTruncatedTail={result.HasTruncatedTail} stoppedBeforeManeuver={result.StoppedBeforeManeuver} " +
                     $"lastBody={result.LastCapturedBodyName ?? "(none)"}");
             }
             catch (Exception ex)
             {
-                result.Segments.Clear();
-                result.CapturedPatchCount = 0;
-                result.TruncatedPatchCount = 0;
-                result.StoppedBeforeManeuver = false;
-                result.LastCapturedBodyName = null;
-                result.FailureReason = PatchedConicSnapshotFailureReason.UpdateFailed;
+                ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.UpdateFailed);
                 ParsekLog.Error("PatchedSnapshot",
                     $"SnapshotPatchedConicChain: vessel={safeVesselName} Update() failed ({ex.GetType().Name}: {ex.Message})");
             }
             finally
             {
-                source.PatchLimit = result.OriginalPatchLimit;
+                if (patchLimitRaised)
+                {
+                    try
+                    {
+                        source.PatchLimit = result.OriginalPatchLimit;
+                    }
+                    catch (Exception ex)
+                    {
+                        ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.UpdateFailed);
+                        ParsekLog.Error("PatchedSnapshot",
+                            $"SnapshotPatchedConicChain: vessel={safeVesselName} failed to restore patchLimit={result.OriginalPatchLimit} " +
+                            $"({ex.GetType().Name}: {ex.Message})");
+                    }
+                }
             }
 
             return result;
         }
 
-        private static OrbitSegment ToOrbitSegment(IPatchedConicOrbitPatch patch, double clampStartUT)
+        private static void ResetFailedResult(
+            ref PatchedConicSnapshotResult result,
+            PatchedConicSnapshotFailureReason failureReason)
+        {
+            result.Segments.Clear();
+            result.CapturedPatchCount = 0;
+            result.HasTruncatedTail = false;
+            result.StoppedBeforeManeuver = false;
+            result.LastCapturedBodyName = null;
+            result.FailureReason = failureReason;
+        }
+
+        private static OrbitSegment ToOrbitSegment(
+            IPatchedConicOrbitPatch patch,
+            double clampStartUT,
+            string bodyName)
         {
             double startUT = patch.StartUT;
             if (!double.IsNaN(clampStartUT) && clampStartUT > startUT)
@@ -192,7 +250,7 @@ namespace Parsek
                 argumentOfPeriapsis = patch.ArgumentOfPeriapsis,
                 meanAnomalyAtEpoch = patch.MeanAnomalyAtEpoch,
                 epoch = patch.Epoch,
-                bodyName = patch.BodyName,
+                bodyName = bodyName,
                 isPredicted = true
             };
         }
@@ -215,22 +273,29 @@ namespace Parsek
                 && vessel.patchedConicSolver != null
                 && vessel.orbit != null;
 
+            public bool HasPatchLimitAccess => PatchLimitField != null
+                && vessel?.patchedConicSolver != null;
+
             public int PatchLimit
             {
                 get
                 {
-                    if (PatchLimitField == null || vessel?.patchedConicSolver == null)
-                        return 0;
+                    if (!HasPatchLimitAccess)
+                        throw new InvalidOperationException("patchLimit reflection unavailable");
 
                     object value = PatchLimitField.GetValue(vessel.patchedConicSolver);
-                    return value is int patchLimit
-                        ? patchLimit
-                        : 0;
+                    if (!(value is int patchLimit))
+                    {
+                        throw new InvalidOperationException(
+                            $"patchLimit reflection returned unexpected value '{value ?? "(null)"}'");
+                    }
+
+                    return patchLimit;
                 }
                 set
                 {
-                    if (PatchLimitField == null || vessel?.patchedConicSolver == null)
-                        return;
+                    if (!HasPatchLimitAccess)
+                        throw new InvalidOperationException("patchLimit reflection unavailable");
 
                     PatchLimitField.SetValue(vessel.patchedConicSolver, value);
                 }
@@ -264,7 +329,7 @@ namespace Parsek
             public double ArgumentOfPeriapsis => patch.argumentOfPeriapsis;
             public double MeanAnomalyAtEpoch => patch.meanAnomalyAtEpoch;
             public double Epoch => patch.epoch;
-            public string BodyName => patch.referenceBody != null ? patch.referenceBody.name : "Kerbin";
+            public string BodyName => patch.referenceBody?.name;
             public PatchedConicTransitionType EndTransition => MapTransition(patch.patchEndTransition);
             public IPatchedConicOrbitPatch NextPatch => patch.nextPatch != null
                 ? new VesselPatchedConicOrbitPatch(patch.nextPatch)
