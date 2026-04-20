@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
+- `#482` Added xUnit coverage for recording-path validation log routing, including the dedicated production-`WARN` branch and the explicit test-context `VERBOSE` branch (now including invalid file-name chars).
 - Added spawn-rotation regressions for the explicit format-v0 surface-relative reconstruction path, including SpawnAtPosition node-prep coverage for Kerbin/Mun fixtures, snapshot-override rotation rewrites, terminal-surface-pose precedence, and the surface-only fallback gate.
 - `#487` Added an in-game `TestRunner` regression that drives the scene-reset + missing-skin path, clears any preexisting cache before the initial build, and asserts lagging hover/focus/active states fall back to the ready normal window background instead of caching a transparent frame.
 - `#461` Added in-game loop-cycle reuse visibility regressions that drive the full `UpdatePlayback -> UpdateLoopingPlayback` boundary path, pinning both the same-frame visible reactivation case and the hidden-by-zone deferred/inactive case.
@@ -38,6 +39,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#482` KSP.log no longer accumulates spurious recording-id rejection WARN lines during test runs, while real invalid ids in live save/load/delete paths still log at `WARN`.
 - Real-vessel spawn now reconstructs world-space `VESSEL.rot` explicitly from format-v0 surface-relative recording data before `ProtoVessel.Load()`, so `SpawnAtPosition`, EVA/snapshot-prep respawns, chain-tip spawns, and flag ProtoVessel spawns all use `body.bodyTransform.rotation * srfRelRotation` instead of writing raw recorded quaternions. Surface-only fallback selection now leaves orbital snapshot rotations untouched.
 - `#487` The Ctrl+Shift+T test runner window now defers opaque-style rebuilds until the destination scene's IMGUI skin exposes a real normal window background, and any lagging hover/focus/active variants fall back to that ready background instead of being cached as transparent states. Scene-reset cleanup also destroys the copied opaque textures before rebuilding to avoid leaking them across repeated transitions.
 - `#463` Deferred warp-end spawns now replay already-due `FlagEvents` for the spawned recording, so flags planted mid-recording still materialise even if you time-warp past that recording while watching something else.
