@@ -382,6 +382,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SeedPredictedSegmentOrbitalFrameRotations_PopulatesSnapshotSegments()
+        {
+            var frozenWorldRotation = new UnityEngine.Quaternion(0.2f, -0.4f, 0.3f, 0.8f);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0
+                }
+            };
+            var segments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    bodyName = "Kerbin",
+                    startUT = 100.0,
+                    endUT = 200.0,
+                    semiMajorAxis = 700000.0,
+                    eccentricity = 0.01,
+                    inclination = 0.0,
+                    longitudeOfAscendingNode = 0.0,
+                    argumentOfPeriapsis = 0.0,
+                    meanAnomalyAtEpoch = 0.0,
+                    epoch = 100.0
+                }
+            };
+
+            IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations(
+                "scene-exit-snapshot-ofr",
+                segments,
+                frozenWorldRotation,
+                bodies);
+
+            Assert.True(BallisticExtrapolator.HasOrbitalFrameRotation(segments[0].orbitalFrameRotation));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segments[0],
+                bodies["Kerbin"].GravitationalParameter,
+                segments[0].startUT,
+                out UnityEngine.Vector3d position,
+                out UnityEngine.Vector3d velocity));
+
+            var resolvedWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                segments[0].orbitalFrameRotation,
+                position,
+                velocity);
+
+            Assert.Equal(frozenWorldRotation.x, resolvedWorldRotation.x);
+            Assert.Equal(frozenWorldRotation.y, resolvedWorldRotation.y);
+            Assert.Equal(frozenWorldRotation.z, resolvedWorldRotation.z);
+            Assert.Equal(frozenWorldRotation.w, resolvedWorldRotation.w);
+        }
+
+        [Fact]
         public void TryApply_HookDecline_LogsWhenUsingNonTestHook()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeHook =

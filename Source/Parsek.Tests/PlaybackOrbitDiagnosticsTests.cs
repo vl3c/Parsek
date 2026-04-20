@@ -55,18 +55,53 @@ namespace Parsek.Tests
                 startUT = 100.0,
                 endUT = 200.0,
                 bodyName = "Kerbin",
-                semiMajorAxis = 700000.0
+                semiMajorAxis = 700000.0,
+                isPredicted = false
             });
             traj.OrbitSegments.Add(new OrbitSegment
             {
                 startUT = 200.0,
                 endUT = 500.0,
                 bodyName = "Kerbin",
-                semiMajorAxis = 710000.0
+                semiMajorAxis = 710000.0,
+                isPredicted = true
             });
 
             Assert.True(PlaybackOrbitDiagnostics.TryGetRecordedPayloadEndUT(traj, out double endUT));
             Assert.Equal(200.0, endUT);
+        }
+
+        [Fact]
+        public void TryGetRecordedPayloadEndUT_UsesLaterRecordedOrbitPayloadAlongsideTrackSections()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-track-plus-orbit"
+            };
+
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin", rotation = Quaternion.identity }
+                }
+            });
+
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 200.0,
+                endUT = 450.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = false
+            });
+
+            Assert.True(PlaybackOrbitDiagnostics.TryGetRecordedPayloadEndUT(traj, out double endUT));
+            Assert.Equal(450.0, endUT);
         }
 
         [Fact]

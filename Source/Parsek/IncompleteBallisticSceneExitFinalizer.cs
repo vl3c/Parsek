@@ -128,6 +128,11 @@ namespace Parsek
             if (snapshot.Segments != null && snapshot.Segments.Count > 0)
             {
                 appendedSegments.AddRange(snapshot.Segments);
+                SeedPredictedSegmentOrbitalFrameRotations(
+                    recording.RecordingId,
+                    appendedSegments,
+                    vessel.transform != null ? vessel.transform.rotation : UnityEngine.Quaternion.identity,
+                    bodies);
                 result.patchedSegmentCount = snapshot.CapturedPatchCount;
             }
             else if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None)
@@ -445,6 +450,55 @@ namespace Parsek
                 orbitalFrameRotation = segment.orbitalFrameRotation
             };
             return true;
+        }
+
+        internal static void SeedPredictedSegmentOrbitalFrameRotations(
+            string recordingId,
+            IList<OrbitSegment> segments,
+            UnityEngine.Quaternion frozenWorldRotation,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies)
+        {
+            if (segments == null || bodies == null)
+                return;
+
+            int seededCount = 0;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (BallisticExtrapolator.HasOrbitalFrameRotation(segment.orbitalFrameRotation)
+                    || string.IsNullOrEmpty(segment.bodyName)
+                    || !bodies.TryGetValue(segment.bodyName, out ExtrapolationBody body)
+                    || body == null
+                    || !BallisticExtrapolator.TryPropagate(
+                        segment,
+                        body.GravitationalParameter,
+                        segment.startUT,
+                        out Vector3d position,
+                        out Vector3d velocity)
+                    || !IsFinite(position)
+                    || !IsFinite(velocity))
+                {
+                    continue;
+                }
+
+                segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                    frozenWorldRotation,
+                    position,
+                    velocity);
+                segments[i] = segment;
+                seededCount++;
+            }
+
+            if (seededCount > 0)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "TryFinalizeRecording: seeded orbital-frame rotation on {0}/{1} predicted segments for '{2}'",
+                        seededCount,
+                        segments.Count,
+                        recordingId ?? "(null)"));
+            }
         }
 
         private static bool TryBuildStartStateFromVessel(

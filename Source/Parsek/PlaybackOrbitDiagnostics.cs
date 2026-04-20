@@ -15,16 +15,10 @@ namespace Parsek
             if (traj == null)
                 return false;
 
+            bool found = false;
             if (TryGetTrackSectionPayloadEndUT(traj.TrackSections, out double trackSectionEndUT))
             {
                 endUT = trackSectionEndUT;
-                return true;
-            }
-
-            bool found = false;
-            if (traj.Points != null && traj.Points.Count > 0)
-            {
-                endUT = traj.Points[traj.Points.Count - 1].ut;
                 found = true;
             }
 
@@ -32,6 +26,12 @@ namespace Parsek
             {
                 if (!found || orbitEndUT > endUT)
                     endUT = orbitEndUT;
+                found = true;
+            }
+
+            if (!found && traj.Points != null && traj.Points.Count > 0)
+            {
+                endUT = traj.Points[traj.Points.Count - 1].ut;
                 found = true;
             }
 
