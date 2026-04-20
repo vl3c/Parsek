@@ -16,7 +16,9 @@ Stock KSP destroys unloaded vessels on atmosphere entry. Ghost playback should m
 
 ## Core principles
 
-**Ghosts are real vessels in the player's mind.** They are on real trajectories at real times, and the player expects to see where they are going — not just fragments. Map-view rendering should match the stock patched-conic display used for the player's own active vessel: the full predicted chain across all SOIs, drawn simultaneously, each segment in its body's frame.
+**Ghosts are real vessels in the player's mind.** They are on real trajectories at real times, and the player expects to see where they are going — not just fragments.
+
+**Current-SOI-only map rendering.** At any playback UT, a ghost has one "current SOI" (the body whose sphere contains it). Draw the ghost's orbit line only in that current SOI, from the ghost's current position forward. Hide everything else for that ghost: past traversed segments (cleared to reduce clutter; this is already current behaviour) and future segments in SOIs the ghost has not reached yet. When the ghost crosses an SOI boundary during playback, the drawn line switches to the new body's frame automatically. Map camera focus is irrelevant — whatever the ghost's current-SOI line is, it is drawn, and the camera frames it wherever the user has it pointed. This is simpler than stock's patched-conic display for active vessels (which shows the full chain simultaneously), and is the right trade-off for ghosts, since the player is watching rather than planning.
 
 **Only stable terminal states spawn.** The existing gate in `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs:3636`) already rejects every non-stable state (SubOrbital, Destroyed, Docked, Boarded, Recovered) from both RSW and the deferred spawn queue. This plan does not change that gate — it only changes what terminal state the recording ends up with after extrapolation. If the extrapolated arc terminates at atmo/ground → `Destroyed` (blocked). If it terminates at horizon in a stable orbit → `Orbiting` (spawns normally). Same rule, new inputs.
 
@@ -327,11 +329,11 @@ Three touchpoints in `GhostPlaybackEngine.cs`:
 
 2. **Destroyed-state spawn suppression.** If `terminalState == Destroyed`, the ghost's visual lifetime ends at `terminalUT` and the existing spawn gate (`ShouldSpawnAtRecordingEnd`) already blocks spawn. No new suppression code needed.
 
-3. **Map-view rendering of future predicted segments.** All snapshotted `isPredicted` orbit segments and all `ExtrapolatedArcs` are drawn simultaneously across their respective body frames, matching stock's patched-conic display for the active vessel. Rendering rule:
+3. **Map-view rendering of predicted segments — current SOI only.** At each playback UT, identify the ghost's current SOI body (the body whose sphere contains the ghost's position). Among all `OrbitSegments` (recorded + `isPredicted`) and all `ExtrapolatedArcs`, draw **only the segment whose body matches the current SOI and whose UT interval contains the playback head**. Draw it from the playback head forward to the segment's `endUT`. All other segments (past SOIs, future SOIs, other body frames) are hidden.
 
-   **Show the future chain only when the playback head is currently on a coast segment (orbit line drawn).** If the head is on a thrust segment (icon only, no line), hide the future chain — a disconnected line floating ahead in space is worse than no line. The transition is automatic: as the ghost enters its next coast segment, the predicted chain pops back into view; entering a thrust segment hides it again.
+   On top of that, apply the coast-vs-thrust visibility rule: only draw the line when the playback head is on a coast segment (Kepler orbit line is cheap); during a thrust segment the ghost renders as icon only and no line is drawn — point-based custom-curve reconstruction is too expensive to render continuously per-frame per-ghost.
 
-   Point-based custom-curve reconstruction for thrust segments is too expensive to render continuously per-frame per-ghost; Kepler orbit lines are cheap (one-time computation from orbital elements). This is the accepted trade-off and drives the "icon only during thrust" behaviour.
+   When the ghost crosses an SOI boundary during playback, the drawn line switches from the old body's frame to the new body's frame automatically (the next segment in the chain takes over). Past segments are never re-drawn; that is existing behaviour and reduces clutter.
 
 ### 9. Attitude during extrapolation
 
