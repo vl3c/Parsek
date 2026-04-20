@@ -1102,14 +1102,15 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Recorded points ending before the current UT should not block map-view orbit
-        /// rendering when OrbitSegments extend the timeline.
+        /// Null-terminal recordings should still create a ghost from a map-visible orbit
+        /// tail even after the recorded points have ended.
         /// </summary>
         [Fact]
         public void ShouldCreate_NullTerminal_WithRecordedPointsAndExtendedOrbitTail_Created()
         {
             var rec = new Recording
             {
+                RecordingId = "extended-tail",
                 TerminalStateValue = null,
                 Points = new List<TrajectoryPoint>
                 {
@@ -1126,6 +1127,11 @@ namespace Parsek.Tests
 
             Assert.True(should);
             Assert.Null(reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("HasOrbitData(Recording)")
+                && l.Contains("extended-tail")
+                && l.Contains("result=False"));
         }
 
         /// <summary>
