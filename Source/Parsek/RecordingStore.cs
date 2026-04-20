@@ -5273,6 +5273,8 @@ namespace Parsek
 
         internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
         {
+            NormalizeRecordingFormatVersionForPredictedSegments(rec);
+
             if (rec != null && rec.RecordingFormatVersion >= 2)
             {
                 TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
@@ -5286,6 +5288,46 @@ namespace Parsek
             precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
             SerializeTrajectoryInto(precNode, rec);
             SafeWriteConfigNode(precNode, path);
+        }
+
+        internal static void NormalizeRecordingFormatVersionForPredictedSegments(Recording rec)
+        {
+            if (rec == null
+                || rec.RecordingFormatVersion >= PredictedOrbitSegmentFormatVersion
+                || !HasPredictedOrbitSegments(rec))
+                return;
+
+            rec.RecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
+        }
+
+        private static bool HasPredictedOrbitSegments(Recording rec)
+        {
+            if (rec?.OrbitSegments != null)
+            {
+                for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                {
+                    if (rec.OrbitSegments[i].isPredicted)
+                        return true;
+                }
+            }
+
+            if (rec?.TrackSections == null)
+                return false;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                List<OrbitSegment> checkpoints = rec.TrackSections[i].checkpoints;
+                if (checkpoints == null)
+                    continue;
+
+                for (int j = 0; j < checkpoints.Count; j++)
+                {
+                    if (checkpoints[j].isPredicted)
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         internal static bool ShouldWriteReadableSidecarMirrors()

@@ -381,7 +381,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void V4BinaryTrajectorySidecar_OmittedPredictedFlag_DefaultsFalseOnLoad()
+        public void V4BinaryTrajectorySidecar_WithPredictedSegments_UpgradesToV5AndPreservesFlag()
         {
             var legacy = new Recording
             {
@@ -396,13 +396,14 @@ namespace Parsek.Tests
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
-            Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, legacy.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording { RecordingId = legacy.RecordingId };
             RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Single(restored.OrbitSegments);
-            Assert.False(restored.OrbitSegments[0].isPredicted);
+            Assert.True(restored.OrbitSegments[0].isPredicted);
             Assert.Equal(legacy.OrbitSegments[0].startUT, restored.OrbitSegments[0].startUT);
             Assert.Equal(legacy.OrbitSegments[0].orbitalFrameRotation.x, restored.OrbitSegments[0].orbitalFrameRotation.x);
             Assert.Equal(legacy.OrbitSegments[0].angularVelocity.z, restored.OrbitSegments[0].angularVelocity.z);
