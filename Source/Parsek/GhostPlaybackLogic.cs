@@ -1840,11 +1840,11 @@ namespace Parsek
             var restores = active ? new List<(int moduleIndex, float power)>() : null;
             foreach (var info in state.audioInfos.Values)
             {
-                if (info == null || info.partPersistentId != persistentId || info.audioSource == null)
+                if (info == null || info.partPersistentId != persistentId || ReferenceEquals(info.audioSource, null))
                     continue;
 
                 if (!active && info.audioSource.isPlaying)
-                    info.audioSource.Stop();
+                    StopLoopedGhostAudio(info, "part-inactive");
 
                 info.audioSource.gameObject.SetActive(active);
 
@@ -2491,8 +2491,8 @@ namespace Parsek
             foreach (var info in state.audioInfos.Values)
             {
                 if (info.partPersistentId != partPersistentId) continue;
-                if (info.audioSource != null && info.audioSource.isPlaying)
-                    info.audioSource.Stop();
+                if (!ReferenceEquals(info.audioSource, null) && info.audioSource.isPlaying)
+                    StopLoopedGhostAudio(info, "part-removed");
             }
         }
 
@@ -2537,8 +2537,8 @@ namespace Parsek
             {
                 foreach (var info in state.audioInfos.Values)
                 {
-                    if (info.audioSource != null && info.audioSource.isPlaying)
-                        info.audioSource.Stop();
+                    if (!ReferenceEquals(info.audioSource, null) && info.audioSource.isPlaying)
+                        StopLoopedGhostAudio(info, "muted");
                 }
             }
             if (state.oneShotAudio?.audioSource != null)
