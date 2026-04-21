@@ -7702,6 +7702,26 @@ namespace Parsek
             }
         }
 
+        private const double TerminalOrbitTupleMatchTolerance = 1e-6;
+
+        private static bool TerminalOrbitScalarMatches(double cachedValue, double segmentValue)
+            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitTupleMatchTolerance;
+
+        private static bool CachedTerminalOrbitMatchesSegment(Recording rec, OrbitSegment seg)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                return false;
+
+            return string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitInclination, seg.inclination)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitEccentricity, seg.eccentricity)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitSemiMajorAxis, seg.semiMajorAxis)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitLAN, seg.longitudeOfAscendingNode)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitArgumentOfPeriapsis, seg.argumentOfPeriapsis)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitMeanAnomalyAtEpoch, seg.meanAnomalyAtEpoch)
+                && TerminalOrbitScalarMatches(rec.TerminalOrbitEpoch, seg.epoch);
+        }
+
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal

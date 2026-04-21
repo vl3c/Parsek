@@ -18,6 +18,9 @@ namespace Parsek
             return TryComputeEndpointDecisionFromData(rec, out _, out bodyName);
         }
 
+        internal static string GetPreferredEndpointBodyName(Recording rec)
+            => TryGetPreferredEndpointBodyName(rec, out string bodyName) ? bodyName : null;
+
         internal static bool TryGetExplicitEndpointBodyName(Recording rec, out string bodyName)
         {
             bodyName = null;
@@ -78,6 +81,9 @@ namespace Parsek
 
             return false;
         }
+
+        internal static string GetPreferredEndpointBodyName(IPlaybackTrajectory traj)
+            => TryGetPreferredEndpointBodyName(traj, out string bodyName) ? bodyName : null;
 
         internal static bool RefreshEndpointDecision(
             Recording rec,
