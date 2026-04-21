@@ -138,6 +138,8 @@ Local verification on this combined branch is now healthy enough to be useful: `
 
 **Update (2026-04-21):** `Quickload_MidRecording_ResumesSameActiveRecordingId` no longer depends on a manually pre-armed recording. From an idle `PRELAUNCH` vessel it now enables launch auto-record, stages, waits for a real in-flight `ActiveRecordingId` plus at least one recorded trajectory point, and only then drives F5/F9, so the isolated cohort still covers a true mid-recording resume instead of a synthetic pad-start recorder.
 
+**Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
+
 **Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
 
 **Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
