@@ -76,6 +76,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Ballistic orbital-frame storage now normalizes as well as canonicalizes the saved quaternions, so SOI handoffs keep the same represented world attitude instead of drifting when a frozen playback rotation started as a scaled quaternion.
 - Body-index repair now falls back to explicit reference/name scans over the loaded body list when the test seam or Unity equality path cannot resolve a `CelestialBody` directly, so landed snapshot repairs can still rewrite `ORBIT.REF` deterministically in both live KSP and headless seam tests.
 - Flat-trajectory extension detection now accepts a real appended orbit-segment suffix immediately after the rebuilt checkpoint payload, so current-format predicted tails beyond track sections still take the intended flat-binary fallback path while malformed suffixes keep failing closed.
 - Session-merge flat-copy preservation now requires a safe appended suffix beyond the rebuilt track-section payload, so duplicated or non-monotonic flat tails fall back to track-section rebuild instead of leaking bad copies into merged recordings.

@@ -114,6 +114,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~513. SOI attitude preservation still drifted when a frozen playback quaternion arrived as a scaled-but-non-unit value~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** the orbital-frame path already canonicalized quaternion sign, but it kept whatever magnitude the incoming frozen playback quaternion had. A scaled-but-non-unit orbital-frame quaternion still represents the same attitude after normalization, but carrying that scale through the SOI reframe path let the preserved world rotation drift enough for the continuity regression to fail.
+
+**Fix:** `BallisticExtrapolator` now normalizes and canonicalizes orbital-frame quaternions at the encode/decode seam, so frozen playback attitudes keep a stable unit representation across `ComputeOrbitalFrameRotationFromState()` and `ResolveWorldRotation()`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.

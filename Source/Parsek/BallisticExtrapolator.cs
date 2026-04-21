@@ -472,7 +472,7 @@ namespace Parsek
                 return Quaternion.identity;
 
             Vector3d radialOut = position / radius;
-            return CanonicalizeQuaternionSign(
+            return NormalizeAndCanonicalizeQuaternion(
                 TrajectoryMath.ComputeOrbitalFrameRotation(worldRotation, velocity, radialOut));
         }
 
@@ -489,7 +489,7 @@ namespace Parsek
                 position,
                 velocity);
             Quaternion orbitalFrame = TrajectoryMath.PureInverse(inverseOrbitalFrame);
-            return CanonicalizeQuaternionSign(
+            return NormalizeAndCanonicalizeQuaternion(
                 TrajectoryMath.PureMultiply(orbitalFrame, orbitalFrameRotation));
         }
 
@@ -530,6 +530,11 @@ namespace Parsek
             }
 
             return quaternion;
+        }
+
+        private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)
+        {
+            return CanonicalizeQuaternionSign(TrajectoryMath.PureNormalize(quaternion));
         }
 
         internal static bool TryPropagate(
