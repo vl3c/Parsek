@@ -10,6 +10,10 @@ namespace Parsek
     /// </summary>
     public static class VesselSpawner
     {
+        internal delegate bool ResolveBodyNameByIndexDelegate(int index, out string name);
+        internal delegate bool ResolveBodyByNameDelegate(string bodyName, out CelestialBody body);
+        internal delegate bool ResolveBodyIndexDelegate(CelestialBody body, out int index);
+
         // Proximity offset removed — spawn collision detection now uses bounding box
         // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
 
@@ -19,6 +23,10 @@ namespace Parsek
         /// to prevent infinite retry loops (bug #110).
         /// </summary>
         internal const int MaxCollisionBlocks = 150;
+
+        internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
+        internal static ResolveBodyByNameDelegate BodyResolverForTesting;
+        internal static ResolveBodyIndexDelegate BodyIndexResolverForTesting;
 
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
@@ -2625,34 +2633,100 @@ namespace Parsek
             if (!int.TryParse(rawRef, NumberStyles.Integer, CultureInfo.InvariantCulture, out int bodyIndex))
                 return false;
 
-            if (FlightGlobals.Bodies == null
-                || bodyIndex < 0
-                || bodyIndex >= FlightGlobals.Bodies.Count)
+            return TryResolveBodyNameByIndex(bodyIndex, out bodyName);
+        }
+
+        internal static bool TryResolveBodyNameByIndex(int bodyIndex, out string bodyName)
+        {
+            bodyName = null;
+
+            ResolveBodyNameByIndexDelegate resolver = BodyNameResolverForTesting;
+            if (resolver != null)
             {
-                return false;
+                return resolver(bodyIndex, out bodyName);
             }
 
-            CelestialBody body = FlightGlobals.Bodies[bodyIndex];
-            if (body == null || string.IsNullOrEmpty(body.name))
+            try
+            {
+                if (FlightGlobals.Bodies == null
+                    || bodyIndex < 0
+                    || bodyIndex >= FlightGlobals.Bodies.Count)
+                {
+                    return false;
+                }
+
+                CelestialBody body = FlightGlobals.Bodies[bodyIndex];
+                if (body == null || string.IsNullOrEmpty(body.name))
+                    return false;
+
+                bodyName = body.name;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+
+                ParsekLog.Verbose("Spawner",
+                    $"TryResolveBodyNameByIndex: FlightGlobals body registry unavailable for REF={bodyIndex}");
+                return false;
+            }
+        }
+
+        internal static bool TryResolveBodyByName(string bodyName, out CelestialBody body)
+        {
+            body = null;
+            if (string.IsNullOrEmpty(bodyName))
                 return false;
 
-            bodyName = body.name;
-            return true;
+            ResolveBodyByNameDelegate resolver = BodyResolverForTesting;
+            if (resolver != null)
+            {
+                return resolver(bodyName, out body);
+            }
+
+            try
+            {
+                body = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+                return body != null;
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+
+                ParsekLog.Verbose("Spawner",
+                    $"TryResolveBodyByName: FlightGlobals body registry unavailable for '{bodyName}'");
+                body = null;
+                return false;
+            }
+        }
+
+        private static bool IsHeadlessBodyRegistryFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is System.Security.SecurityException)
+                    return true;
+            }
+
+            return false;
         }
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)
         {
+            string resolvedContext = DescribeSpawnValidationContext(rec, logContext);
             if (rec?.VesselSnapshot == null)
             {
                 ParsekLog.Error("Spawner",
-                    $"BuildValidatedRespawnSnapshot: missing VesselSnapshot for {logContext ?? rec?.VesselName ?? "(unknown)"}");
+                    $"BuildValidatedRespawnSnapshot: missing VesselSnapshot for {resolvedContext}");
                 return null;
             }
 
             ConfigNode snapshot = rec.VesselSnapshot.CreateCopy();
             CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
 
-            if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, logContext))
+            if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, resolvedContext))
                 return null;
 
             return snapshot;
@@ -2681,7 +2755,7 @@ namespace Parsek
             if (snapshot == null)
             {
                 ParsekLog.Error("Spawner",
-                    $"RespawnValidatedRecording: refusing spawn for {logContext ?? rec?.VesselName ?? "(unknown)"}");
+                    $"RespawnValidatedRecording: refusing spawn for {DescribeSpawnValidationContext(rec, logContext)}");
                 return 0;
             }
 
@@ -2722,17 +2796,16 @@ namespace Parsek
             if (!hasEndpointBody)
             {
                 ParsekLog.Error("Spawner",
-                    $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                    $"Spawn validation failed for {logContext}: " +
                     $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) " +
                     $"and no authoritative endpoint body is available");
                 return false;
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == endpointBodyName);
-            if (body == null)
+            if (!TryResolveBodyByName(endpointBodyName, out CelestialBody body))
             {
                 ParsekLog.Error("Spawner",
-                    $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                    $"Spawn validation failed for {logContext}: " +
                     $"endpoint body '{endpointBodyName}' was resolved but is not loaded");
                 return false;
             }
@@ -2746,7 +2819,7 @@ namespace Parsek
                 OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
                 ApplySurfaceOrbitToSnapshot(snapshot, body);
                 ParsekLog.Warn("Spawner",
-                    $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                    $"Spawn validation repaired snapshot for {logContext} " +
                     $"using endpoint surface coordinates on body '{endpointBodyName}'");
                 return true;
             }
@@ -2774,7 +2847,7 @@ namespace Parsek
                 }
 
                 ParsekLog.Warn("Spawner",
-                    $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                    $"Spawn validation repaired snapshot for {logContext} " +
                     $"using endpoint-aligned orbit data on body '{endpointBodyName}'");
                 return true;
             }
@@ -2790,14 +2863,14 @@ namespace Parsek
                     orbit.UpdateFromStateVectors(worldPos, velocity, body, currentUT);
                     ReplaceSnapshotOrbitNode(snapshot, orbit, body);
                     ParsekLog.Warn("Spawner",
-                        $"Spawn validation repaired snapshot for {logContext ?? rec.VesselName ?? "(unknown)"} " +
+                        $"Spawn validation repaired snapshot for {logContext} " +
                         $"using endpoint state vectors on body '{endpointBodyName}'");
                     return true;
                 }
             }
 
             ParsekLog.Error("Spawner",
-                $"Spawn validation failed for {logContext ?? rec.VesselName ?? "(unknown)"}: " +
+                $"Spawn validation failed for {logContext}: " +
                 $"snapshot provenance is malformed and endpoint data cannot reconstruct a usable orbit/body " +
                 $"(endpointBody={endpointBodyName}, endpointCoords={hasEndpointCoords}, landedLike={landedLike})");
             return false;
@@ -2823,6 +2896,8 @@ namespace Parsek
         private static void SaveOrbitToNode(Orbit orbit, ConfigNode node, CelestialBody body)
         {
             var ic = CultureInfo.InvariantCulture;
+            if (!TryResolveBodyIndex(body, out int bodyIndex))
+                bodyIndex = -1;
             node.AddValue("SMA", orbit.semiMajorAxis.ToString("R", ic));
             node.AddValue("ECC", orbit.eccentricity.ToString("R", ic));
             node.AddValue("INC", orbit.inclination.ToString("R", ic));
@@ -2830,12 +2905,12 @@ namespace Parsek
             node.AddValue("LAN", orbit.LAN.ToString("R", ic));
             node.AddValue("MNA", orbit.meanAnomalyAtEpoch.ToString("R", ic));
             node.AddValue("EPH", orbit.epoch.ToString("R", ic));
-            node.AddValue("REF", FlightGlobals.Bodies.IndexOf(body).ToString(ic));
+            node.AddValue("REF", bodyIndex.ToString(ic));
         }
 
         private static void ReplaceSnapshotOrbitNode(ConfigNode snapshot, Orbit orbit, CelestialBody body)
         {
-            if (snapshot == null || orbit == null || body == null)
+            if (snapshot == null || orbit == null || object.ReferenceEquals(body, null))
                 return;
 
             snapshot.RemoveNode("ORBIT");
@@ -2846,12 +2921,15 @@ namespace Parsek
 
         private static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
         {
-            if (snapshot == null || body == null || FlightGlobals.Bodies == null)
+            if (snapshot == null || object.ReferenceEquals(body, null))
                 return;
 
-            int bodyIndex = FlightGlobals.Bodies.IndexOf(body);
-            if (bodyIndex < 0)
+            if (!TryResolveBodyIndex(body, out int bodyIndex))
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ApplySurfaceOrbitToSnapshot: unable to resolve body index for '{body.name ?? "(unknown)"}'");
                 return;
+            }
 
             snapshot.RemoveNode("ORBIT");
             ConfigNode orbitNode = new ConfigNode("ORBIT");
@@ -2864,6 +2942,49 @@ namespace Parsek
             orbitNode.AddValue("EPH", "0");
             orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
             snapshot.AddNode(orbitNode);
+        }
+
+        private static bool TryResolveBodyIndex(CelestialBody body, out int index)
+        {
+            index = -1;
+            if (object.ReferenceEquals(body, null))
+                return false;
+
+            ResolveBodyIndexDelegate resolver = BodyIndexResolverForTesting;
+            if (resolver != null && resolver(body, out index))
+                return true;
+
+            try
+            {
+                if (FlightGlobals.Bodies == null)
+                    return false;
+
+                string bodyName = body.name;
+                for (int i = 0; i < FlightGlobals.Bodies.Count; i++)
+                {
+                    CelestialBody candidate = FlightGlobals.Bodies[i];
+                    if (object.ReferenceEquals(candidate, body))
+                    {
+                        index = i;
+                        return true;
+                    }
+
+                    if (!object.ReferenceEquals(candidate, null)
+                        && !string.IsNullOrEmpty(bodyName)
+                        && string.Equals(candidate.name, bodyName, StringComparison.Ordinal))
+                    {
+                        index = i;
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -3125,16 +3246,7 @@ namespace Parsek
                 return true;
             }
 
-            return TryGetPreferredRecordedOrbitSeedForSpawn(
-                rec,
-                out inclination,
-                out eccentricity,
-                out semiMajorAxis,
-                out lan,
-                out argumentOfPeriapsis,
-                out meanAnomalyAtEpoch,
-                out epoch,
-                out bodyName);
+            return false;
         }
 
         internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)
@@ -3266,6 +3378,16 @@ namespace Parsek
                     $"TryResolveRecordedTerminalOrbitSpawnState failed: {ex.Message}");
                 return false;
             }
+        }
+
+        private static string DescribeSpawnValidationContext(Recording rec, string logContext)
+        {
+            string vesselName = rec != null ? rec.VesselName : null;
+            if (string.IsNullOrEmpty(logContext))
+                return string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName;
+            if (string.IsNullOrEmpty(vesselName) || string.Equals(logContext, vesselName, StringComparison.Ordinal))
+                return logContext;
+            return $"{logContext} ({vesselName})";
         }
 
         private static bool IsFinite(Vector3d value)

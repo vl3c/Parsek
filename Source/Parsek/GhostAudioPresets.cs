@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -13,6 +14,12 @@ namespace Parsek
         internal const float MediumThrustThreshold = 50f;  // kN
         internal const int MaxAudioSourcesPerGhost = 4;
         internal const float OneShotVolumeScale = 0.5f;
+        internal const int BaselineGameAudioPriority = 128;
+        internal const int RocketLoopAudioPriority = 144;
+        internal const int QuietLoopAudioPriority = 160;
+        internal const int JetLoopAudioPriority = 176;
+        internal const int MaxDistancePriorityPenalty = 64;
+        internal const int MaxAudioSourcePriority = 255;
         private const double ResolutionLogIntervalSeconds = 5.0;
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>
@@ -106,6 +113,80 @@ namespace Parsek
             return propType == "XenonGas" ||
                    propType == "ElectricCharge" ||
                    propType == "IntakeAir";
+        }
+
+        internal static GhostAudioPriorityClass ClassifyLoopedPriority(IList<Propellant> propellants)
+        {
+            return ClassifyLoopedPriority(ClassifyPropellantType(propellants));
+        }
+
+        internal static GhostAudioPriorityClass ClassifyLoopedPriority(string propType)
+        {
+            switch (propType)
+            {
+                case "IntakeAir":
+                    return GhostAudioPriorityClass.JetEngine;
+                case "XenonGas":
+                case "ElectricCharge":
+                    return GhostAudioPriorityClass.QuietEngine;
+                default:
+                    return GhostAudioPriorityClass.RocketEngine;
+            }
+        }
+
+        internal static GhostAudioPriorityClass ClassifyOneShotPriority(PartEventType eventType)
+        {
+            switch (eventType)
+            {
+                case PartEventType.Destroyed:
+                    return GhostAudioPriorityClass.Explosion;
+                default:
+                    return GhostAudioPriorityClass.QuietEngine;
+            }
+        }
+
+        internal static int GetBasePriority(GhostAudioPriorityClass priorityClass)
+        {
+            switch (priorityClass)
+            {
+                case GhostAudioPriorityClass.Explosion:
+                    return BaselineGameAudioPriority;
+                case GhostAudioPriorityClass.RocketEngine:
+                    return RocketLoopAudioPriority;
+                case GhostAudioPriorityClass.QuietEngine:
+                    return QuietLoopAudioPriority;
+                case GhostAudioPriorityClass.JetEngine:
+                    return JetLoopAudioPriority;
+                default:
+                    return QuietLoopAudioPriority;
+            }
+        }
+
+        internal static int ComputeRuntimePriority(
+            GhostAudioPriorityClass priorityClass, double distanceMeters)
+        {
+            int priority = GetBasePriority(priorityClass) + ComputeDistancePriorityPenalty(distanceMeters);
+            if (priority > MaxAudioSourcePriority)
+                return MaxAudioSourcePriority;
+            if (priority < 0)
+                return 0;
+            return priority;
+        }
+
+        internal static int ComputeDistancePriorityPenalty(double distanceMeters)
+        {
+            if (double.IsNaN(distanceMeters) || double.IsInfinity(distanceMeters))
+                return 0;
+
+            float minDistance = DistanceThresholds.GhostAudio.RolloffMinDistanceMeters;
+            float maxDistance = DistanceThresholds.GhostAudio.RolloffMaxDistanceMeters;
+            if (maxDistance <= minDistance || distanceMeters <= minDistance)
+                return 0;
+            if (distanceMeters >= maxDistance)
+                return MaxDistancePriorityPenalty;
+
+            double t = (distanceMeters - minDistance) / (maxDistance - minDistance);
+            return (int)Math.Round(t * MaxDistancePriorityPenalty, MidpointRounding.AwayFromZero);
         }
 
         internal static string ResolveEngineAudioClip(

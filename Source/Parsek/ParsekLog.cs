@@ -49,7 +49,11 @@ namespace Parsek
         [ThreadStatic]
         internal static Func<double> ClockOverrideForTesting;
         [ThreadStatic]
+        // Test-only override: receives the rendered line and suppresses Debug.Log.
         internal static Action<string> TestSinkForTesting;
+        [ThreadStatic]
+        // Test-only observer: receives the rendered line but still lets Debug.Log run.
+        internal static Action<string> TestObserverForTesting;
         [ThreadStatic]
         internal static bool? VerboseOverrideForTesting;
 
@@ -72,6 +76,7 @@ namespace Parsek
             SuppressLogging = false;
             ClockOverrideForTesting = null;
             TestSinkForTesting = null;
+            TestObserverForTesting = null;
             VerboseOverrideForTesting = null;
             ScreenMessageSinkForTesting = null;
             ResetRateLimitsForTesting();
@@ -218,6 +223,7 @@ namespace Parsek
             string safeSubsystem = string.IsNullOrEmpty(subsystem) ? "General" : subsystem;
             string safeMessage = string.IsNullOrEmpty(message) ? "(empty)" : message;
             string line = $"[Parsek][{level}][{safeSubsystem}] {safeMessage}";
+            TestObserverForTesting?.Invoke(line);
             if (TestSinkForTesting != null)
             {
                 TestSinkForTesting(line);

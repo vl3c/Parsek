@@ -1,4 +1,6 @@
+using UnityEngine;
 using Xunit;
+using System.Security;
 
 namespace Parsek.Tests
 {
@@ -24,8 +26,63 @@ namespace Parsek.Tests
             }
             finally
             {
-                ui.Cleanup();
+                try
+                {
+                    ui.Cleanup();
+                }
+                catch (SecurityException)
+                {
+                    // Headless xUnit still lacks Unity GUI teardown; the smoke test only
+                    // cares that KSC mode constructed and exposed the sub-window.
+                }
             }
+        }
+
+        [Fact]
+        public void NormalizeOpaqueWindowTitleTextColors_ReplacesDarkFocusedStatesWithReadableBaseColor()
+        {
+            Color normal = Color.black;
+            Color hover = Color.black;
+            Color focused = Color.black;
+            Color active = Color.black;
+            Color onNormal = Color.black;
+            Color onHover = Color.black;
+            Color onFocused = Color.black;
+            Color onActive = Color.black;
+
+            Color sourceNormal = new Color(0.92f, 0.92f, 0.92f, 1f);
+            Color sourceOnNormal = new Color(0.82f, 0.82f, 0.82f, 1f);
+
+            ParsekUI.NormalizeOpaqueWindowTitleTextColors(
+                sourceNormal,
+                sourceOnNormal,
+                ref normal,
+                ref hover,
+                ref focused,
+                ref active,
+                ref onNormal,
+                ref onHover,
+                ref onFocused,
+                ref onActive);
+
+            Assert.Equal(sourceNormal, normal);
+            Assert.Equal(sourceNormal, hover);
+            Assert.Equal(sourceNormal, focused);
+            Assert.Equal(sourceNormal, active);
+            Assert.Equal(sourceOnNormal, onNormal);
+            Assert.Equal(sourceOnNormal, onHover);
+            Assert.Equal(sourceOnNormal, onFocused);
+            Assert.Equal(sourceOnNormal, onActive);
+        }
+
+        [Fact]
+        public void ResolveReadableWindowTitleTextColor_FallsBackToWhiteWhenBothCandidatesAreDark()
+        {
+            Color resolved = ParsekUI.ResolveReadableWindowTitleTextColor(
+                new Color(0.1f, 0.1f, 0.1f, 1f),
+                new Color(0.2f, 0.2f, 0.2f, 1f));
+
+            Assert.Equal(Color.white, resolved);
         }
     }
 }

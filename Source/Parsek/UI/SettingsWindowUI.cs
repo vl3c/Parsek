@@ -62,18 +62,28 @@ namespace Parsek
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
             // Pass both Width+Height like every other Parsek window so the shared
             // opaqueWindowStyle padding renders identically (the previous height=10
             // reset + Width-only call caused the title-bar spacing to look off).
-            settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekSettings".GetHashCode(),
-                settingsWindowRect,
-                DrawSettingsWindow,
-                "Parsek - Settings",
-                opaqueWindowStyle,
-                GUILayout.Width(settingsWindowRect.width),
-                GUILayout.Height(settingsWindowRect.height)
-            );
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekSettings".GetHashCode(),
+                    settingsWindowRect,
+                    DrawSettingsWindow,
+                    "Parsek - Settings",
+                    opaqueWindowStyle,
+                    GUILayout.Width(settingsWindowRect.width),
+                    GUILayout.Height(settingsWindowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
 
             if (settingsWindowRect.Contains(Event.current.mousePosition))

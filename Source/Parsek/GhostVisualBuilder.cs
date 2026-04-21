@@ -2373,9 +2373,10 @@ namespace Parsek
         #region Ghost Audio FX
 
         /// <summary>
-        /// Build AudioSource components for engine and RCS modules on a ghost part.
-        /// Returns a list of AudioGhostInfo (one per engine + RCS module), capped at
-        /// MaxAudioSourcesPerGhost across the entire ghost.
+        /// Build AudioSource components for engine modules on a ghost part.
+        /// Returns a list of AudioGhostInfo (one per engine module). Playback later
+        /// enforces the per-ghost concurrent looped-audio cap at runtime so engines
+        /// that activate later in the recording still have a source available.
         /// </summary>
         internal static List<AudioGhostInfo> TryBuildAudioFX(
             Part prefab, uint persistentId, string partName, GameObject ghostRoot)
@@ -2387,6 +2388,9 @@ namespace Parsek
             if (partTransform == null) return null;
 
             var result = new List<AudioGhostInfo>();
+            // Keep one looped source per engine module. The 4-sound cap now lives in
+            // GhostPlaybackLogic.EnforceLoopedAudioPlaybackCap so late-activating engines
+            // are not discarded at build time.
 
             // Engine audio
             var engines = prefab.Modules.GetModules<ModuleEngines>();
@@ -2394,6 +2398,8 @@ namespace Parsek
             {
                 for (int i = 0; i < engines.Count; i++)
                 {
+                    GhostAudioPriorityClass priorityClass =
+                        GhostAudioPresets.ClassifyLoopedPriority(engines[i].propellants);
                     string clipPath = GhostAudioPresets.ResolveEngineAudioClip(
                         prefab,
                         i,
@@ -2411,11 +2417,16 @@ namespace Parsek
                         continue;
                     }
 
-                    var source = CreateGhostAudioSource(partTransform.gameObject, clip, loop: true);
+                    var source = CreateGhostAudioSource(
+                        partTransform.gameObject,
+                        clip,
+                        loop: true,
+                        priorityClass);
                     result.Add(new AudioGhostInfo
                     {
                         partPersistentId = persistentId,
                         moduleIndex = i,
+                        priorityClass = priorityClass,
                         audioSource = source,
                         clip = clip,
                         volumeCurve = GhostAudioPresets.BuildVolumeCurve(useQuietVolumeCurve),
@@ -2450,7 +2461,12 @@ namespace Parsek
             var sourceObject = new GameObject("ghost_audio_oneshot");
             sourceObject.transform.SetParent(ghostRoot.transform, false);
             var source = sourceObject.AddComponent<AudioSource>();
-            ApplyGhostAudioDefaults(source, loop: false);
+            // Seed a neutral baseline; PlayOneShotAtGhost refreshes distance-sensitive
+            // one-shot priority immediately before playback.
+            ApplyGhostAudioDefaults(
+                source,
+                loop: false,
+                GhostAudioPresets.BaselineGameAudioPriority);
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
 
             ParsekLog.Verbose("GhostAudio", $"Built one-shot audio source on '{ghostRoot.name}'");
@@ -2490,7 +2506,8 @@ namespace Parsek
             }
         }
 
-        private static AudioSource CreateGhostAudioSource(GameObject go, AudioClip clip, bool loop)
+        private static AudioSource CreateGhostAudioSource(
+            GameObject go, AudioClip clip, bool loop, GhostAudioPriorityClass priorityClass)
         {
             if (go == null)
                 return null;
@@ -2501,12 +2518,15 @@ namespace Parsek
             sourceObject.transform.SetParent(go.transform, false);
             var source = sourceObject.AddComponent<AudioSource>();
             source.clip = clip;
-            ApplyGhostAudioDefaults(source, loop);
+            ApplyGhostAudioDefaults(
+                source,
+                loop,
+                GhostAudioPresets.ComputeRuntimePriority(priorityClass, distanceMeters: 0.0));
             source.volume = 0f;
             return source;
         }
 
-        private static void ApplyGhostAudioDefaults(AudioSource source, bool loop)
+        private static void ApplyGhostAudioDefaults(AudioSource source, bool loop, int priority)
         {
             if (source == null)
                 return;
@@ -2515,7 +2535,7 @@ namespace Parsek
             source.panStereo = 0f;
             source.dopplerLevel = 0f;
             ConfigureGhostRolloff(source);
-            source.priority = 128; // same as KSP default — compete equally for voice channels
+            source.priority = priority;
             source.loop = loop;
             source.playOnAwake = false;
         }
@@ -2528,7 +2548,7 @@ namespace Parsek
             source.transform.SetParent(anchor, false);
             source.transform.localPosition = Vector3.zero;
             source.transform.localRotation = Quaternion.identity;
-            ApplyGhostAudioDefaults(source, source.loop);
+            ApplyGhostAudioDefaults(source, source.loop, source.priority);
         }
 
         private static void ConfigureGhostRolloff(AudioSource source)
@@ -6779,6 +6799,66 @@ namespace Parsek
             sparkCleanup.material = sparkMat;
 
             sparkPs.Play();
+        }
+
+        // Cached FieldInfo for FXMonger's private static `fetch` singleton. Reading this
+        // field directly mirrors FXMonger.Explode's own null-check (`if (!(fetch != null)) return;`)
+        // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
+        private static System.Reflection.FieldInfo fxMongerFetchField;
+
+        private static bool IsFxMongerLive()
+        {
+            if (fxMongerFetchField == null)
+            {
+                fxMongerFetchField = typeof(FXMonger).GetField(
+                    "fetch",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                if (fxMongerFetchField == null)
+                    return false;
+            }
+            // Unity's == operator treats destroyed objects as null, so this stays correct
+            // across scene transitions that clear FXMonger.fetch in OnDestroy.
+            return (fxMongerFetchField.GetValue(null) as FXMonger) != null;
+        }
+
+        /// <summary>
+        /// Tries to queue KSP's stock explosion effect.
+        /// Returns false when the stock controller is unavailable or the call throws.
+        /// </summary>
+        internal static bool TryTriggerStockExplosionFx(
+            Vector3 worldPosition,
+            double power,
+            out string failureReason,
+            System.Func<bool> isFxMongerAvailable = null,
+            System.Action<Vector3, double> explode = null)
+        {
+            bool stockFxAvailable = isFxMongerAvailable != null
+                ? isFxMongerAvailable()
+                : IsFxMongerLive();
+            if (!stockFxAvailable)
+            {
+                failureReason = "no live FXMonger instance";
+                return false;
+            }
+
+            try
+            {
+                if (explode != null)
+                    explode(worldPosition, power);
+                else
+                    // Passing null for `source` is safe: decompiled FXMonger only stores the Part
+                    // in its queued ProtoExplosion.sources list for merge bookkeeping and never
+                    // dereferences it. Ghost explosions have no owning Part to supply.
+                    FXMonger.Explode(null, worldPosition, power);
+
+                failureReason = null;
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
         }
 
         /// <summary>

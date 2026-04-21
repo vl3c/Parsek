@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Parsek.Tests.Generators;
 using Xunit;
 
@@ -297,6 +299,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CrewContainsKerbalNamed_MatchingCrewMember_ReturnsTrue()
+        {
+            var crew = CreateCrewList("Jeb Kerman", "Bill Kerman");
+
+            Assert.True(ParsekFlight.CrewContainsKerbalNamed(crew, "Jeb Kerman"));
+        }
+
+        [Fact]
+        public void CrewContainsKerbalNamed_NullCrew_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.CrewContainsKerbalNamed(null, "Jeb Kerman"));
+        }
+
+        [Fact]
+        public void CrewContainsKerbalNamed_NullEntry_Ignored()
+        {
+            var crew = CreateCrewList("Bill Kerman");
+            crew.Insert(0, null);
+
+            Assert.True(ParsekFlight.CrewContainsKerbalNamed(crew, "Bill Kerman"));
+        }
+
+        [Fact]
+        public void CrewContainsKerbalNamed_MissingCrewMember_ReturnsFalse()
+        {
+            var crew = CreateCrewList("Bill Kerman", "Bob Kerman");
+
+            Assert.False(ParsekFlight.CrewContainsKerbalNamed(crew, "Jeb Kerman"));
+        }
+
+        [Fact]
         public void FormatPlaqueWithDate_AppendsDateToText()
         {
             string result = ParsekFlight.FormatPlaqueWithDate("First landing!", "Year 1, Day 12, 3:45:30");
@@ -335,6 +368,24 @@ namespace Parsek.Tests
         {
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
+        }
+
+        private static List<ProtoCrewMember> CreateCrewList(params string[] names)
+        {
+            var crew = new List<ProtoCrewMember>(names.Length);
+            for (int i = 0; i < names.Length; i++)
+                crew.Add(CreateCrewMember(names[i]));
+
+            return crew;
+        }
+
+        private static ProtoCrewMember CreateCrewMember(string name)
+        {
+            var crew = (ProtoCrewMember)FormatterServices.GetUninitializedObject(typeof(ProtoCrewMember));
+            var field = typeof(ProtoCrewMember).GetField("_name", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(crew, name);
+            return crew;
         }
     }
 }

@@ -32,6 +32,17 @@ namespace Parsek
             DecoupleCreatedVessel
         }
 
+        internal enum AutoRecordLaunchDecision
+        {
+            SkipAlreadyRecording,
+            SkipInactiveVessel,
+            SkipBounce,
+            SkipNotLaunchTransition,
+            SkipDisabled,
+            StartFromPrelaunch,
+            StartFromSettledLanded
+        }
+
         internal static ParsekFlight Instance { get; private set; }
 
         /// <summary>
@@ -102,10 +113,9 @@ namespace Parsek
         private Recording previewRecording;
         internal int lastPlaybackIndex = 0;
 
-        // Ghost state is owned by the engine (T25). These properties forward to engine fields
+        // Ghost state is owned by the engine (T25). This property forwards to the engine field
         // so existing ParsekFlight code accesses engine-owned collections transparently.
         private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
-        private List<GameObject> activeExplosions => engine.activeExplosions;
 
         // Cached TimelineGhosts dictionary — rebuilt once per frame on first access (T20)
         private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
@@ -1010,14 +1020,26 @@ namespace Parsek
             if (showUI)
             {
                 windowRect.height = 0f;
-                windowRect = ClickThruBlocker.GUILayoutWindow(
-                    GetInstanceID(),
-                    windowRect,
-                    ui.DrawWindow,
-                    "Parsek",
-                    ui.GetOpaqueWindowStyle(),
-                    GUILayout.Width(250)
-                );
+                var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
+                if (opaqueWindowStyle == null)
+                    return;
+
+                ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+                try
+                {
+                    windowRect = ClickThruBlocker.GUILayoutWindow(
+                        GetInstanceID(),
+                        windowRect,
+                        ui.DrawWindow,
+                        "Parsek",
+                        opaqueWindowStyle,
+                        GUILayout.Width(250)
+                    );
+                }
+                finally
+                {
+                    ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+                }
                 ui.LogMainWindowPosition(windowRect);
                 ui.DrawRecordingsWindowIfOpen(windowRect);
                 ui.DrawTimelineWindowIfOpen(windowRect);
@@ -4015,48 +4037,50 @@ namespace Parsek
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
             if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            double currentUT = Planetarium.GetUniversalTime();
 
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
                 (data.to == Vessel.Situations.LANDED || data.to == Vessel.Situations.SPLASHED))
             {
-                lastLandedUT = Planetarium.GetUniversalTime();
+                lastLandedUT = currentUT;
             }
 
-            if (IsRecording) return;
-            if (data.host != FlightGlobals.ActiveVessel)
-            {
-                ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
-                    $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
-                return;
-            }
+            var launchDecision = EvaluateAutoRecordLaunchDecision(
+                isRecording: IsRecording,
+                isActiveVessel: data.host == FlightGlobals.ActiveVessel,
+                fromSituation: data.from,
+                autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
+                lastLandedUt: lastLandedUT,
+                currentUt: currentUT,
+                landedSettleThreshold: LandedSettleThreshold);
 
-            bool isPrelaunch = data.from == Vessel.Situations.PRELAUNCH;
-            bool isSettledLaunch = false;
-            if (!isPrelaunch && data.from == Vessel.Situations.LANDED)
+            switch (launchDecision)
             {
-                double settledTime = lastLandedUT >= 0
-                    ? Planetarium.GetUniversalTime() - lastLandedUT
-                    : 0;
-                isSettledLaunch = settledTime >= LandedSettleThreshold;
-                if (!isSettledLaunch)
-                {
+                case AutoRecordLaunchDecision.SkipAlreadyRecording:
+                    return;
+
+                case AutoRecordLaunchDecision.SkipInactiveVessel:
+                    ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
+                        $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
+                    return;
+
+                case AutoRecordLaunchDecision.SkipBounce:
+                    double settledTime = lastLandedUT >= 0
+                        ? currentUT - lastLandedUT
+                        : 0;
                     ParsekLog.VerboseRateLimited("Flight", "sit-change-bounce",
                         $"OnVesselSituationChange: LANDED → {data.to} after {settledTime:F1}s (< {LandedSettleThreshold}s settle threshold)");
-                }
-            }
+                    return;
 
-            if (!isPrelaunch && !isSettledLaunch)
-            {
-                if (data.from != Vessel.Situations.LANDED) // already logged above for LANDED bounces
+                case AutoRecordLaunchDecision.SkipNotLaunchTransition:
                     ParsekLog.VerboseRateLimited("Flight", "sit-change-not-launch",
                         $"OnVesselSituationChange: not a launch transition ({data.from} → {data.to})");
-                return;
-            }
-            if (ParsekSettings.Current?.autoRecordOnLaunch == false)
-            {
-                ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
-                return;
+                    return;
+
+                case AutoRecordLaunchDecision.SkipDisabled:
+                    ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
+                    return;
             }
 
             StartRecording();
@@ -4122,14 +4146,15 @@ namespace Parsek
                 return;
             }
 
-            if (data.from?.vessel == null)
+            bool hasSourceVessel = data.from?.vessel != null;
+            if (!ShouldQueueAutoRecordOnEva(
+                hasSourceVessel,
+                autoRecordOnEvaEnabled: ParsekSettings.Current?.autoRecordOnEva != false))
             {
-                ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
-                return;
-            }
-            if (ParsekSettings.Current?.autoRecordOnEva == false)
-            {
-                ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
+                if (!hasSourceVessel)
+                    ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
+                else
+                    ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
                 return;
             }
 
@@ -4145,6 +4170,72 @@ namespace Parsek
             if (crew != null && crew.Count > 0) return crew[0].name;
             if (data.to.vessel != null) return data.to.vessel.vesselName;
             return null;
+        }
+
+        internal static AutoRecordLaunchDecision EvaluateAutoRecordLaunchDecision(
+            bool isRecording,
+            bool isActiveVessel,
+            Vessel.Situations fromSituation,
+            bool autoRecordOnLaunchEnabled,
+            double lastLandedUt,
+            double currentUt,
+            double landedSettleThreshold)
+        {
+            if (isRecording)
+                return AutoRecordLaunchDecision.SkipAlreadyRecording;
+
+            if (!isActiveVessel)
+                return AutoRecordLaunchDecision.SkipInactiveVessel;
+
+            if (fromSituation == Vessel.Situations.PRELAUNCH)
+            {
+                return autoRecordOnLaunchEnabled
+                    ? AutoRecordLaunchDecision.StartFromPrelaunch
+                    : AutoRecordLaunchDecision.SkipDisabled;
+            }
+
+            if (fromSituation == Vessel.Situations.LANDED)
+            {
+                double settledTime = lastLandedUt >= 0
+                    ? currentUt - lastLandedUt
+                    : 0;
+                if (settledTime < landedSettleThreshold)
+                    return AutoRecordLaunchDecision.SkipBounce;
+
+                return autoRecordOnLaunchEnabled
+                    ? AutoRecordLaunchDecision.StartFromSettledLanded
+                    : AutoRecordLaunchDecision.SkipDisabled;
+            }
+
+            return AutoRecordLaunchDecision.SkipNotLaunchTransition;
+        }
+
+        internal static bool ShouldQueueAutoRecordOnEva(
+            bool hasSourceVessel,
+            bool autoRecordOnEvaEnabled)
+        {
+            return hasSourceVessel && autoRecordOnEvaEnabled;
+        }
+
+        internal static bool ShouldStartDeferredAutoRecordEva(
+            bool pendingAutoRecord,
+            bool isRecording,
+            bool hasActiveVessel,
+            bool activeVesselIsEva)
+        {
+            return pendingAutoRecord && !isRecording && hasActiveVessel && activeVesselIsEva;
+        }
+
+        internal static bool ShouldIgnoreFlightReadyReset(
+            bool hasActiveRecorder,
+            bool hasActiveTree,
+            bool hasPendingTree,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode)
+        {
+            return hasActiveRecorder
+                && hasActiveTree
+                && !hasPendingTree
+                && restoreMode == ParsekScenario.ActiveTreeRestoreMode.None;
         }
 
         void OnVesselGoOnRails(Vessel v)
@@ -4571,16 +4662,20 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(placedBy) || recordedVessel == null) return false;
 
-            // Check crew roster — works for both EVA kerbals and crewed vessels
-            var crew = recordedVessel.GetVesselCrew();
-            if (crew != null)
+            return CrewContainsKerbalNamed(recordedVessel.GetVesselCrew(), placedBy);
+        }
+
+        internal static bool CrewContainsKerbalNamed(List<ProtoCrewMember> crew, string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName) || crew == null)
+                return false;
+
+            for (int i = 0; i < crew.Count; i++)
             {
-                for (int i = 0; i < crew.Count; i++)
-                {
-                    if (crew[i].name == placedBy)
-                        return true;
-                }
+                if (crew[i]?.name == kerbalName)
+                    return true;
             }
+
             return false;
         }
 
@@ -4629,6 +4724,18 @@ namespace Parsek
                 return;
             }
 
+            var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
+            if (ShouldIgnoreFlightReadyReset(
+                hasActiveRecorder: recorder != null && recorder.IsRecording,
+                hasActiveTree: activeTree != null,
+                hasPendingTree: RecordingStore.HasPendingTree,
+                restoreMode: restoreMode))
+            {
+                ParsekLog.Info("Flight",
+                    "OnFlightReady: live recorder/tree already own the current flight — skipping reset");
+                return;
+            }
+
             // Reset scene-scoped state from the previous flight BEFORE the restore
             // coroutine runs. ResetFlightReadyState clears activeTree, backgroundRecorder,
             // chainManager, pendingSplitRecorder, etc. — all scene-scoped state that must
@@ -4650,7 +4757,6 @@ namespace Parsek
             //   - VesselSwitch (#266): tree was pre-transitioned at stash time, just
             //     reinstall it and (optionally) promote the new active vessel from
             //     BackgroundMap.
-            var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
             if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
             {
                 ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
@@ -5617,8 +5723,12 @@ namespace Parsek
         /// </summary>
         private void HandleDeferredAutoRecordEva()
         {
-            if (!pendingAutoRecord || IsRecording ||
-                FlightGlobals.ActiveVessel == null || !FlightGlobals.ActiveVessel.isEVA)
+            bool hasActiveVessel = FlightGlobals.ActiveVessel != null;
+            if (!ShouldStartDeferredAutoRecordEva(
+                pendingAutoRecord,
+                IsRecording,
+                hasActiveVessel,
+                activeVesselIsEva: hasActiveVessel && FlightGlobals.ActiveVessel.isEVA))
                 return;
 
             StartRecording();
@@ -5674,6 +5784,25 @@ namespace Parsek
 
         public void StartRecording()
         {
+            // Always-tree mode makes a chain continuation without a live tree impossible.
+            // If we reach StartRecording with orphaned chain/transient state, treat it as
+            // stale session residue and start a fresh tree-backed recording instead of
+            // silently creating a live recorder with no ActiveRecordingId.
+            if (activeTree == null
+                && (chainManager.ActiveTreeId != null
+                    || chainManager.ActiveChainId != null
+                    || chainManager.PendingContinuation
+                    || chainManager.PendingBoundaryAnchor.HasValue))
+            {
+                ParsekLog.Warn("Flight",
+                    $"StartRecording: clearing stale chain state without active tree " +
+                    $"(treeId={chainManager.ActiveTreeId ?? "null"}, " +
+                    $"chainId={chainManager.ActiveChainId ?? "null"}, " +
+                    $"pendingContinuation={chainManager.PendingContinuation}, " +
+                    $"hasBoundaryAnchor={chainManager.PendingBoundaryAnchor.HasValue})");
+                chainManager.ClearAll();
+            }
+
             // Chain continuations (atmosphere/SOI splits, dock/undock, boarding) are NOT
             // new launches — they must not capture a fresh rewind save.  The rewind save
             // belongs to the chain root only.  chainManager.ActiveChainId is set by
@@ -7180,9 +7309,10 @@ namespace Parsek
 
             // Refresh terminal orbit for orbital leaf recordings even if a body was
             // captured earlier. A mid-transition capture can stamp the wrong SOI body,
-            // so we treat TerminalOrbit* as a healable cache: re-read the live vessel
-            // when available and only preserve cached orbit data when the full cached
-            // tuple already matches the endpoint-aligned last orbit segment. (#475/#484)
+            // so TerminalOrbit* behaves as a healable cache. Explicit point/surface
+            // endpoint data still wins when it already anchors the recording; otherwise
+            // we only preserve cached orbit data when the full tuple already matches the
+            // endpoint-aligned last orbit segment. (#475/#484)
             if (isLeaf && rec.TerminalStateValue.HasValue
                 && UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value))
             {
@@ -7205,7 +7335,15 @@ namespace Parsek
                         $"(terminal={rec.TerminalStateValue})");
                 }
 
-                if (!preserveSceneExitTerminalOrbit && ShouldPopulateTerminalOrbitFromLastSegment(rec))
+                // Evaluate the same-UT point-anchor guard after any live-vessel
+                // refresh. If CaptureTerminalOrbit just rewrote TerminalOrbitBody,
+                // that refreshed body should stay authoritative instead of letting
+                // stale point metadata from a prior SOI suppress the finalize path.
+                bool handledSameUtPointAnchor = !preserveSceneExitTerminalOrbit
+                    && TryHandleFinalizeSameUtPointAnchoredTerminalOrbit(rec);
+                if (!handledSameUtPointAnchor
+                    && !preserveSceneExitTerminalOrbit
+                    && ShouldPopulateTerminalOrbitFromLastSegment(rec))
                 {
                     string bodyBeforeFallback = rec.TerminalOrbitBody;
                     PopulateTerminalOrbitFromLastSegment(rec);
@@ -7934,10 +8072,10 @@ namespace Parsek
             }
         }
 
-        private const double TerminalOrbitTupleMatchTolerance = 1e-6;
+        private const double TerminalOrbitNumericTolerance = 1e-6;
 
         private static bool TerminalOrbitScalarMatches(double cachedValue, double segmentValue)
-            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitTupleMatchTolerance;
+            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitNumericTolerance;
 
         private static bool CachedTerminalOrbitMatchesSegment(Recording rec, OrbitSegment seg)
         {
@@ -7954,12 +8092,163 @@ namespace Parsek
                 && TerminalOrbitScalarMatches(rec.TerminalOrbitEpoch, seg.epoch);
         }
 
+        private static void CopyTerminalOrbitFromSegment(Recording rec, OrbitSegment seg)
+        {
+            rec.TerminalOrbitInclination = seg.inclination;
+            rec.TerminalOrbitEccentricity = seg.eccentricity;
+            rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
+            rec.TerminalOrbitLAN = seg.longitudeOfAscendingNode;
+            rec.TerminalOrbitArgumentOfPeriapsis = seg.argumentOfPeriapsis;
+            rec.TerminalOrbitMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
+            rec.TerminalOrbitEpoch = seg.epoch;
+            rec.TerminalOrbitBody = seg.bodyName;
+        }
+
+        private static bool TryGetSameUtPointAnchoredTerminalOrbitBody(
+            Recording rec,
+            OrbitSegment seg,
+            out string pointBody,
+            out double pointUT)
+        {
+            pointBody = null;
+            pointUT = 0.0;
+
+            if (rec?.Points == null || rec.Points.Count == 0
+                || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+            {
+                return false;
+            }
+
+            // Only the terminal point is authoritative for this finalize-only
+            // same-UT check; earlier points may legitimately belong to a prior SOI.
+            TrajectoryPoint lastPoint = rec.Points[rec.Points.Count - 1];
+            pointBody = lastPoint.bodyName;
+            pointUT = lastPoint.ut;
+            if (string.IsNullOrEmpty(pointBody)
+                || !string.Equals(pointBody, rec.TerminalOrbitBody, StringComparison.Ordinal)
+                || string.Equals(pointBody, seg.bodyName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return Math.Abs(seg.startUT - pointUT) <= TerminalOrbitNumericTolerance;
+        }
+
+        private static bool TryGetLastMatchingBodyOrbitSegment(
+            Recording rec,
+            string bodyName,
+            out OrbitSegment matchingSeg)
+        {
+            matchingSeg = default;
+            if (rec?.OrbitSegments == null || string.IsNullOrEmpty(bodyName))
+                return false;
+
+            // Skip the conflicting last segment and walk backward through earlier
+            // orbit evidence on the point-anchored body.
+            for (int i = rec.OrbitSegments.Count - 2; i >= 0; i--)
+            {
+                OrbitSegment candidate = rec.OrbitSegments[i];
+                if (candidate.semiMajorAxis > 0.0
+                    && string.Equals(candidate.bodyName, bodyName, StringComparison.Ordinal))
+                {
+                    matchingSeg = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void LogPreservedSameUtPointAnchor(
+            Recording rec,
+            OrbitSegment conflictingSeg,
+            string pointBody,
+            double pointUT)
+        {
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FinalizeIndividualRecording: preserved same-UT point-anchored terminal orbit for '{0}' pointBody={1} conflictingSegmentBody={2} conflictingSegmentStartUT={3:F3} pointUT={4:F3}",
+                    rec?.RecordingId ?? "(null)",
+                    pointBody,
+                    conflictingSeg.bodyName,
+                    conflictingSeg.startUT,
+                    pointUT));
+        }
+
+        private static void LogSuspiciousSameUtPointAnchorPreserve(
+            Recording rec,
+            OrbitSegment conflictingSeg,
+            string pointBody,
+            double pointUT)
+        {
+            ParsekLog.Warn("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FinalizeIndividualRecording: preserved same-UT point-anchored terminal orbit for '{0}' without matching-body heal evidence despite cachedSma={1:F1} pointBody={2} conflictingSegmentBody={3} conflictingSegmentStartUT={4:F3} pointUT={5:F3}",
+                    rec?.RecordingId ?? "(null)",
+                    rec?.TerminalOrbitSemiMajorAxis ?? double.NaN,
+                    pointBody,
+                    conflictingSeg.bodyName,
+                    conflictingSeg.startUT,
+                    pointUT));
+        }
+
+        private static bool TryHandleFinalizeSameUtPointAnchoredTerminalOrbit(Recording rec)
+        {
+            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return false;
+
+            OrbitSegment conflictingSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+            if (!TryGetSameUtPointAnchoredTerminalOrbitBody(
+                rec,
+                conflictingSeg,
+                out string pointBody,
+                out double pointUT))
+            {
+                return false;
+            }
+
+            if (TryGetLastMatchingBodyOrbitSegment(rec, pointBody, out OrbitSegment matchingSeg))
+            {
+                if (CachedTerminalOrbitMatchesSegment(rec, matchingSeg))
+                {
+                    LogPreservedSameUtPointAnchor(rec, conflictingSeg, pointBody, pointUT);
+                }
+                else
+                {
+                    string previousBody = rec.TerminalOrbitBody;
+                    double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
+                    CopyTerminalOrbitFromSegment(rec, matchingSeg);
+                    ParsekLog.Warn("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "FinalizeIndividualRecording: healed same-UT point-anchored terminal orbit for '{0}' previousBody={1} previousSma={2:F1} healedBody={3} healedSma={4:F1} matchingSegmentEndUT={5:F3} conflictingSegmentBody={6} conflictingSegmentStartUT={7:F3} pointUT={8:F3}",
+                            rec.RecordingId ?? "(null)",
+                            previousBody ?? "(empty)",
+                            previousSemiMajorAxis,
+                            matchingSeg.bodyName,
+                            matchingSeg.semiMajorAxis,
+                            matchingSeg.endUT,
+                            conflictingSeg.bodyName,
+                            conflictingSeg.startUT,
+                            pointUT));
+                }
+
+                return true;
+            }
+
+            if (rec.TerminalOrbitSemiMajorAxis <= 0.0)
+                LogSuspiciousSameUtPointAnchorPreserve(rec, conflictingSeg, pointBody, pointUT);
+            else
+                LogPreservedSameUtPointAnchor(rec, conflictingSeg, pointBody, pointUT);
+            return true;
+        }
+
         /// <summary>
         /// Returns whether the last endpoint-aligned OrbitSegment should repopulate
         /// terminal orbit fields, either for unloaded/destroyed vessels or to heal
-        /// a stale cached terminal-orbit tuple on finalize/load. Already-populated
-        /// values are preserved only when the full cached tuple already matches the
-        /// endpoint-aligned segment.
+        /// a stale cached terminal-orbit tuple on finalize/load. Explicit point/surface
+        /// endpoint data keeps already-populated terminal orbit fields authoritative;
+        /// otherwise, already-populated values are preserved only when the full cached
+        /// tuple already matches the endpoint-aligned segment.
         /// (#219/#475/#484)
         /// </summary>
         internal static bool ShouldPopulateTerminalOrbitFromLastSegment(Recording rec)
@@ -7979,6 +8268,22 @@ namespace Parsek
                 return !hasEndpointBody || endpointAligned;
             }
 
+            bool hasExplicitEndpointBody = RecordingEndpointResolver.TryGetExplicitEndpointBodyName(
+                rec,
+                out string explicitEndpointBody);
+            if (hasExplicitEndpointBody
+                && string.Equals(rec.TerminalOrbitBody, explicitEndpointBody, StringComparison.Ordinal))
+            {
+                ParsekLog.Info("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ShouldPopulateTerminalOrbitFromLastSegment: preserved cached terminal orbit for '{0}' because explicit endpoint body={1} keeps cached orbit authoritative over later segment body={2} sma={3:F1}",
+                        rec.RecordingId ?? "(null)",
+                        explicitEndpointBody,
+                        seg.bodyName,
+                        seg.semiMajorAxis));
+                return false;
+            }
+
             bool cachedTupleMatchesLastSegment = CachedTerminalOrbitMatchesSegment(rec, seg);
             if (cachedTupleMatchesLastSegment)
             {
@@ -7993,6 +8298,12 @@ namespace Parsek
                 }
 
                 return false;
+            }
+
+            if (hasExplicitEndpointBody)
+            {
+                return string.Equals(seg.bodyName, explicitEndpointBody, StringComparison.Ordinal)
+                    && !string.Equals(rec.TerminalOrbitBody, explicitEndpointBody, StringComparison.Ordinal);
             }
 
             if (!hasEndpointBody)
@@ -8010,14 +8321,7 @@ namespace Parsek
             double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
             bool healingStaleCachedTuple = !string.IsNullOrEmpty(previousBody)
                 && !CachedTerminalOrbitMatchesSegment(rec, seg);
-            rec.TerminalOrbitInclination = seg.inclination;
-            rec.TerminalOrbitEccentricity = seg.eccentricity;
-            rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
-            rec.TerminalOrbitLAN = seg.longitudeOfAscendingNode;
-            rec.TerminalOrbitArgumentOfPeriapsis = seg.argumentOfPeriapsis;
-            rec.TerminalOrbitMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
-            rec.TerminalOrbitEpoch = seg.epoch;
-            rec.TerminalOrbitBody = seg.bodyName;
+            CopyTerminalOrbitFromSegment(rec, seg);
 
             if (healingStaleCachedTuple)
             {
@@ -8626,9 +8930,11 @@ namespace Parsek
                 {
                     Vector3 pos = ghostObject.transform.position;
                     float len = GhostVisualBuilder.ComputeGhostLength(ghostObject);
+                    double power = Mathf.Clamp01(len / 20f);
                     ParsekLog.Info("ExplosionFx",
-                        $"Manual preview explosion for \"{previewRecording.VesselName}\" " +
-                        $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m");
+                        $"Stock FXMonger.Explode for manual preview \"{previewRecording.VesselName}\" " +
+                        $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m " +
+                        $"power={power.ToString("F2", CultureInfo.InvariantCulture)}");
                     // Hide ghost parts before explosion renders
                     if (previewGhostState != null)
                         GhostPlaybackLogic.HideAllGhostParts(previewGhostState);
@@ -8638,9 +8944,13 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    var explosion = GhostVisualBuilder.SpawnExplosionFx(pos, len);
-                    if (explosion != null)
-                        activeExplosions.Add(explosion);
+                    if (!GhostVisualBuilder.TryTriggerStockExplosionFx(pos, power, out string stockFxFailure))
+                    {
+                        ParsekLog.Warn("ExplosionFx",
+                            $"FXMonger.Explode did not queue stock FX for manual preview " +
+                            $"\"{previewRecording.VesselName}\"; falling back to custom FX: {stockFxFailure}");
+                        GhostVisualBuilder.SpawnExplosionFx(pos, len);
+                    }
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);

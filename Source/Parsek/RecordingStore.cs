@@ -257,8 +257,9 @@ namespace Parsek
 
         // Set true by StashPendingTree during OnSceneChangeRequested.
         // Checked by ParsekScenario.OnLoad to distinguish a freshly-stashed pending
-        // (from the current revert — should show dialog) from a stale pending left
-        // over from a previous flight (should be discarded per #64).
+        // from the current scene transition (keep it long enough for revert-vs-
+        // quickload-vs-non-flight dispatch) from a stale pending left over from a
+        // previous flight (discard per #64).
         internal static bool PendingStashedThisTransition;
 
         // Merged to timeline — these auto-playback during flight.
@@ -3449,7 +3450,8 @@ namespace Parsek
             ConfigNode parent,
             OrbitSegment seg,
             CultureInfo ic,
-            int recordingFormatVersion = CurrentRecordingFormatVersion)
+            int recordingFormatVersion = CurrentRecordingFormatVersion,
+            bool writeLegacyPredictedFlag = false)
         {
             ConfigNode segNode = parent.AddNode("ORBIT_SEGMENT");
             segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
@@ -3462,8 +3464,11 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
-            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
+            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion
+                || (writeLegacyPredictedFlag && seg.isPredicted))
+            {
                 segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
+            }
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {
                 segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
@@ -3616,14 +3621,41 @@ namespace Parsek
                     return false;
             }
 
-            if (!TrajectoryPointListIsMonotonicNonDecreasing(flatPoints)
-                || !OrbitSegmentListIsMonotonicNonDecreasing(flatOrbitSegments))
+            bool pointsExtend = false;
+            if (flatPoints.Count > rebuiltPoints.Count)
             {
-                return false;
+                int suffixStart = FindSafeTrajectoryPointSuffixStart(flatPoints, rebuiltPoints);
+                if (suffixStart < 0)
+                    return false;
+
+                var extendedPoints = new List<TrajectoryPoint>(rebuiltPoints);
+                AppendTrajectoryPointSuffix(extendedPoints, flatPoints, suffixStart);
+                if (!TrajectoryPointListIsMonotonicNonDecreasing(extendedPoints))
+                    return false;
+
+                pointsExtend = extendedPoints.Count > rebuiltPoints.Count;
+                if (!pointsExtend)
+                    return false;
             }
 
-            return flatPoints.Count > rebuiltPoints.Count
-                || flatOrbitSegments.Count > rebuiltOrbitSegments.Count;
+            bool orbitSegmentsExtend = false;
+            if (flatOrbitSegments.Count > rebuiltOrbitSegments.Count)
+            {
+                int suffixStart = FindSafeOrbitSegmentSuffixStart(flatOrbitSegments, rebuiltOrbitSegments);
+                if (suffixStart < 0)
+                    return false;
+
+                var extendedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
+                AppendOrbitSegmentSuffix(extendedOrbitSegments, flatOrbitSegments, suffixStart);
+                if (!OrbitSegmentListIsMonotonicNonDecreasing(extendedOrbitSegments))
+                    return false;
+
+                orbitSegmentsExtend = extendedOrbitSegments.Count > rebuiltOrbitSegments.Count;
+                if (!orbitSegmentsExtend)
+                    return false;
+            }
+
+            return pointsExtend || orbitSegmentsExtend;
         }
 
         internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
@@ -3932,12 +3964,15 @@ namespace Parsek
             return true;
         }
 
-        private static bool TrajectoryPointListIsMonotonicNonDecreasing(List<TrajectoryPoint> points)
+        private static bool TrajectoryPointListIsMonotonicNonDecreasing(
+            List<TrajectoryPoint> points,
+            int startIndex = 1)
         {
             if (points == null)
                 return true;
 
-            for (int i = 1; i < points.Count; i++)
+            int firstIndexToCheck = Math.Max(1, startIndex);
+            for (int i = firstIndexToCheck; i < points.Count; i++)
             {
                 if (points[i].ut < points[i - 1].ut)
                     return false;
@@ -3962,12 +3997,15 @@ namespace Parsek
             return true;
         }
 
-        private static bool OrbitSegmentListIsMonotonicNonDecreasing(List<OrbitSegment> orbitSegments)
+        private static bool OrbitSegmentListIsMonotonicNonDecreasing(
+            List<OrbitSegment> orbitSegments,
+            int startIndex = 1)
         {
             if (orbitSegments == null)
                 return true;
 
-            for (int i = 1; i < orbitSegments.Count; i++)
+            int firstIndexToCheck = Math.Max(1, startIndex);
+            for (int i = firstIndexToCheck; i < orbitSegments.Count; i++)
             {
                 if (orbitSegments[i].startUT < orbitSegments[i - 1].startUT)
                     return false;
@@ -4125,6 +4163,13 @@ namespace Parsek
                 if (flatOrbitSegments[start].startUT < minStartUT)
                     continue;
 
+                if (start == rebuiltOrbitSegments.Count)
+                {
+                    if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(flatOrbitSegments, start))
+                        continue;
+                    return start;
+                }
+
                 if (flatOrbitSegments[start].startUT == minStartUT
                     && !OrbitSegmentEquals(flatOrbitSegments[start], rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1]))
                 {
@@ -4257,7 +4302,12 @@ namespace Parsek
                     SerializePoint(targetNode, rec.Points[i], ic);
 
                 for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic, rec.RecordingFormatVersion);
+                    SerializeOrbitSegment(
+                        targetNode,
+                        rec.OrbitSegments[s],
+                        ic,
+                        rec.RecordingFormatVersion,
+                        writeLegacyPredictedFlag: true);
             }
             else
             {
@@ -4634,7 +4684,12 @@ namespace Parsek
                     if (checkpoints != null)
                     {
                         for (int s = 0; s < checkpoints.Count; s++)
-                            SerializeOrbitSegment(tsNode, checkpoints[s], ic, recordingFormatVersion);
+                            SerializeOrbitSegment(
+                                tsNode,
+                                checkpoints[s],
+                                ic,
+                                recordingFormatVersion,
+                                writeLegacyPredictedFlag: false);
                     }
                 }
 

@@ -36,37 +36,408 @@ Carryover follow-ups (tracked in the design doc under Known Limitations / Future
 
 # Known Bugs
 
+## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
+
+**Concern:** `RecordingStore.FlatTrajectoryExtendsTrackSectionPayload()` accepted any longer flat copy whose prefix matched the rebuilt track-section payload. That let a malformed tail like `[0,10,20,0,10,20]` count as a valid extension, so merge preserved the bad flat copy instead of rebuilding from the authoritative sections.
+
+**Fix:** flat-tail preservation now requires a safe suffix boundary that appends new points / orbit segments after the rebuilt payload and remains monotonic after dedupe stitching. If the suffix cannot satisfy that shape, merge falls back to rebuilding the flat trajectory from track sections.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~506. Headless `ParsekUI` xUnit coverage still touched Unity GUI object APIs after the shared opaque-window fix~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.NormalizeOpaqueWindowTitleTextColors_ReplacesDarkFocusedStatesWithReadableBaseColor` and `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI`.
+
+**Concern:** the production title-color normalization path is pure color selection, but the xUnit regression still constructed `GUIStyle` directly in plain .NET, which trips Unity native GUI calls. The `ParsekUI` smoke test also called `Cleanup()`, and the shared opaque-window fix now tears down copied textures during cleanup, which likewise touches Unity GUI objects that do not exist in headless xUnit.
+
+**Fix:** extracted a pure color-based `NormalizeOpaqueWindowTitleTextColors(...)` helper that the `GUIStyle` overload delegates to, so xUnit can assert the same focused/active text-color normalization without constructing `GUIStyle`. `ParsekUI` opaque-background teardown now also treats wrapped headless `SecurityException` chains as a no-op during cleanup, so the KSC smoke test can still verify the accessor wiring without crashing in teardown.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~507. The new headless body-index seam coverage did not actually hit the production resolver, and the landed surface-repair fixture forgot to install the seam at all~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the seam test was only calling its own helper instead of `VesselSpawner.TryResolveBodyIndex(...)`, so it could pass or fail without telling us whether the production override was wired correctly. Separately, the landed surface-repair fixture resolved body names through the new seam but never installed the matching body-index override, so the `REF` rewrite stayed on the stale orbit body even though the endpoint repair path was otherwise correct.
+
+**Fix:** the seam test now invokes the private production resolver via reflection, the landed surface-repair fixture installs `BodyIndexResolverForTesting`, and the fixture-local body-index resolver now uses the install order list directly instead of dictionary enumeration.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~508. Several remaining xUnit failures were assertion drift, not live logic regressions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `Bug219_PopulateTerminalOrbitFromLastSegmentTests.*DoesNotOverwrite`, `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`, and `SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments`.
+
+**Concern:** the two Bug219 preserve tests were filtering with `Contains("PopulateTerminalOrbitFromLastSegment")`, which also matches the newer `ShouldPopulateTerminalOrbitFromLastSegment...` preserve diagnostic and turns a passing preserve path into a false failure. The orbital-frame continuity tests were also comparing raw quaternion components on non-unit rotations, so equivalent preserved attitudes could fail the exact tuple check after canonicalization / recomposition even though the represented rotation stayed the same.
+
+**Fix:** tightened the Bug219 filter to the exact `PopulateTerminalOrbitFromLastSegment:` production prefix, and the orbital-frame assertions now normalize and canonicalize both quaternions before comparing components. That keeps the regressions pinned to real behavior changes instead of representational float drift.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~509. Safe flat-tail detection rejected the valid “predicted orbit segment appended after the checkpoint payload” shape~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** the first safe-suffix hardening pass correctly rejected duplicated / non-monotonic tails, but it also rejected the valid current-format case where the flat trajectory only appends one new orbit segment immediately after the rebuilt checkpoint payload. That made the helper report no safe extension even though the writer should still use the flat-binary fallback path for the extra predicted segment.
+
+**Fix:** `FindSafeOrbitSegmentSuffixStart()` now accepts the immediate post-payload suffix slot directly when the remainder of the flat orbit-segment list is monotonic. That keeps malformed tails rejected while preserving the intended “extra predicted orbit tail” fallback contract.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~510. A few xUnit follow-ups were still test-harness drift after the earlier cleanup pass~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI`, `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride`, `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`, and the two Bug219 preserve tests.
+
+**Concern:** `ParsekUI` cleanup still touched GUI-style state before the narrower destroy-site catch could run, the body-index override test was relying on `List<T>.IndexOf()` for Unity objects instead of explicit reference matching, and the Bug219 preserve tests were still matching `ShouldPopulateTerminalOrbitFromLastSegment...` because the substring filter was too broad.
+
+**Fix:** wrapped the whole opaque-style cleanup pass in the same headless-safe guard, restored the body-index seam helper to explicit `ReferenceEquals` matching over the installed test bodies, and tightened the Bug219 negative log assertions to the exact `[Flight] PopulateTerminalOrbitFromLastSegment:` prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~511. Body-index repair could still fail even after the new seam landed because Unity object equality was too brittle for headless test bodies~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the new body-index seam covered the right production path, but the fallback still depended on Unity object equality / `IndexOf(body)` semantics. In headless seam tests, uninitialized `CelestialBody` instances can fail those equality checks even when the body is present in the injected list, so landed repair leaves the stale `ORBIT.REF` untouched.
+
+**Fix:** `TryResolveBodyIndex()` now treats the seam as the first choice but falls back to an explicit scan of the loaded body list using `ReferenceEquals` and then stable body-name matching. That keeps the live path deterministic and makes the headless seam tests exercise the same repair outcome.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~512. The predicted-tail flat-fallback regression fixture appended its extra orbit segment at an earlier absolute UT than the checkpoint payload it was supposed to extend~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** after the safe-suffix hardening, the helper correctly rejected malformed non-monotonic tails. The test fixture, however, was still appending its “extra predicted tail” segment at `630 -> 930` even though the section-authoritative codec fixture lives around `20030 -> 20630`. That made the test assert a malformed earlier segment instead of a real tail beyond the track-section payload.
+
+**Fix:** the test now derives the appended predicted segment from the current last flat orbit segment's `endUT`, so it extends the payload exactly the way the production fallback path is supposed to handle.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~513. SOI attitude preservation still drifted when a frozen playback quaternion arrived as a scaled-but-non-unit value~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** the orbital-frame path already canonicalized quaternion sign, but it kept whatever magnitude the incoming frozen playback quaternion had. A scaled-but-non-unit orbital-frame quaternion still represents the same attitude after normalization, but carrying that scale through the SOI reframe path let the preserved world rotation drift enough for the continuity regression to fail.
+
+**Fix:** `BallisticExtrapolator` now normalizes and canonicalizes orbital-frame quaternions at the encode/decode seam, so frozen playback attitudes keep a stable unit representation across `ComputeOrbitalFrameRotationFromState()` and `ResolveWorldRotation()`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~514. Two remaining xUnit failures were still test-harness drift, not production regressions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI` and the two Bug219 preserve tests.
+
+**Concern:** the `ParsekUI` KSC smoke test still called `Cleanup()` unguarded in a headless process even though the test only cares about constructor wiring, and the Bug219 negative log assertions were still matching the longer `ShouldPopulateTerminalOrbitFromLastSegment...` diagnostic because the filter was not anchored to the full production prefix.
+
+**Fix:** the KSC smoke test now treats headless `SecurityException` teardown as irrelevant to the constructor/accessor assertion, and the Bug219 negative log assertions now match the full `[Parsek][INFO][Flight] PopulateTerminalOrbitFromLastSegment:` prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~515. The new body-index seam test still used Unity null semantics, so the xUnit override declined valid synthetic bodies and left landed snapshot repair on the stale orbit~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the production seam was already correct, but the xUnit helper backing `BodyIndexResolverForTesting` still used `body == null`. For synthetic `CelestialBody` instances created with `FormatterServices`, Unity's overloaded null semantics can report a perfectly valid test fixture as null, so the override returned `false` and the landed repair path never rewrote `ORBIT.REF`.
+
+**Fix:** the body-index test helper now uses `object.ReferenceEquals(body, null)` and reference-based list matching, so the override consistently resolves the installed synthetic bodies and the landed surface-repair fixture exercises the real production seam.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~516. Hyperbolic predicted segments could rebuild the SOI handoff on the wrong outbound branch because true anomaly reconstruction used plain `Atan`~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** after the earlier quaternion normalization/canonicalization follow-up, the remaining SOI rotation failure was not in the attitude seam anymore. The parent-body segment itself was reconstructing its hyperbolic start state with `2 * Atan(...)`, which folds the outbound branch into the wrong quadrant for some escape states. That changed the rebuilt parent-frame velocity vector at the exact handoff UT, so the preserved world rotation was being compared against the wrong orbital frame even though the stored quaternion itself was stable.
+
+**Fix:** `BallisticExtrapolator.TwoBodyOrbit.GetStateAtUT()` now reconstructs hyperbolic true anomaly with the equivalent `Atan2` form that preserves the correct branch/quadrant. Added a direct regression that asserts the parent-body predicted segment starts from the exact transformed SOI boundary state before checking the preserved frozen playback attitude.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~517. Headless landed snapshot repair still treated synthetic endpoint bodies as null inside the final ORBIT rewrite helpers~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** even after the body-index resolver seam was fixed, the landed repair path still passed a synthetic `CelestialBody` into `ApplySurfaceOrbitToSnapshot()` and `ReplaceSnapshotOrbitNode()`, and those helpers were still using Unity's overloaded `body == null` check. In headless xUnit that pseudo-null check can reject a perfectly valid test fixture before the repaired `ORBIT` node is written, leaving the stale `SMA=700000` snapshot in place.
+
+**Fix:** the headless-sensitive orbit rewrite helpers now use `object.ReferenceEquals(body, null)`, so the synthetic endpoint body reaches the real surface-orbit rewrite path and the repaired `REF` value is written through the same production helper as live KSP.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~518. Equatorial hyperbolic SOI handoffs still serialized the parent segment with the wrong periapsis heading because `argumentOfPeriapsis` was left at zero when the ascending node was undefined~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_HyperbolicHomeEscape_PreservesParentSegmentStartState` and `Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** the remaining SOI handoff failures were not in the quaternion seam anymore. The parent segment is an equatorial eccentric/hyperbolic orbit, so the ascending node is undefined, but `TwoBodyOrbit.TryCreate()` still left `argumentOfPeriapsis = 0` in that case. That discards the real periapsis heading from the eccentricity vector, so `TryPropagate(segment, startUT)` rebuilds the parent segment on the wrong in-plane orientation and the preserved frozen attitude is resolved against the wrong world state.
+
+**Fix:** equatorial eccentric/hyperbolic segment creation now derives periapsis orientation directly from `atan2(eccentricityVector.y, eccentricityVector.x)` when the ascending node is undefined. The regression keeps asserting both the exact parent-segment start-state preservation and the frozen playback world-rotation continuity across the SOI handoff.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~519. The final SOI attitude xUnit failure was comparing exact quaternion components even when the handoff preserved the same rotation as `q` versus `-q`~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** after the hyperbolic handoff fixes, the only remaining mismatch was an exact sign-flip on the normalized quaternion (`q` versus `-q`). Those two tuples represent the same 3D rotation, so component-by-component comparison was stricter than the actual continuity contract the tests are meant to enforce.
+
+**Fix:** the shared SOI/finalization quaternion test helpers now compare normalized rotation equivalence using the absolute quaternion dot product instead of raw component equality, so the assertions fail only when the represented rotation changes, not when the same rotation chooses the opposite sign.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~520. `FinalizeIndividualRecording` overwrites a correctly-set terminal orbit body when a same-UT orbit segment reports a different body, even if `Points` anchor the original body~~
+
+**Source:** port attempt from the superseded `Parsek-fix-batch-terminalorbit` on 2026-04-21. When its `FinalizeIndividualRecording_LeafWithExistingTerminalOrbit_DoesNotOverwriteFromLaterOrbitEndpoint` test was run against current `main`, the assertion `Assert.Equal("Mun", rec.TerminalOrbitBody)` failed with an actual value of `"Kerbin"`.
+
+**Concern:** with a leaf recording where `TerminalOrbitBody = "Mun"`, one `Points` entry at `ut=1000, bodyName="Mun"`, and one `OrbitSegment` on `"Kerbin"` spanning `startUT=1000, endUT=2000`, `FinalizeIndividualRecording` overwrites the cached terminal orbit from Mun to Kerbin. Main's heal path was otherwise correct for the "orbit-only stale body" case (covered by the ported `LeafWithOrbitOnlyEndpoint_HealsStaleTerminalOrbitBody` test), so the gap was specific to "the last point still anchors one body at the segment start, but the later segment claims another".
+
+**Fix:** `FinalizeIndividualRecording()` now handles the same-UT point-anchor case before it reaches the shared `PopulateTerminalOrbitFromLastSegment()` helper. If the last point shares the last segment's `startUT`, the point body matches the cached `TerminalOrbitBody`, and the later segment reports another body, finalize keeps that cached body authoritative; if there is earlier same-body orbit evidence, finalize heals the stale tuple from the last matching-body segment instead of from the conflicting later segment. The shared helper itself is unchanged, so `#484` / `#497` keep their intended load/backfill behavior.
+
+**Resolution:** landed on 2026-04-21 in the dedicated issue-520 worktree. Added two `FinalizeIndividualRecording` xUnit regressions (preserve and stale-tuple-heal-from-matching-body) and updated the existing in-game finalize-backfill test so the same-UT point-anchor case now asserts finalize-specific preserve logs while the orbit-only heal case still asserts the shared stale-cache repair path.
+
+**Files:** `Source/Parsek/ParsekFlight.cs`, `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs`, `Source/Parsek.Tests/BugFixTests.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
+
+**Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
+
+**Fix:** opaque-window rebuilds are now gated on a ready normal background, lagging hover/focus/active states fall back to the ready normal texture instead of freezing a transparent cache, shared `ParsekUI` windows invalidate stale opaque styles across scene changes, and focused/active title-bar text colors are normalized so the opaque title bar stays readable after focus changes. The in-game regressions cover the missing-skin / lagging-state path, and the xUnit coverage now checks the readable title-text states too.
+
+**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek.Tests/ParsekUITests.cs`.
+
+**Resolution:** shortcut path fixed on 2026-04-19 in `bug/487-test-runner-transparent`; the shared `ParsekUI` follow-up landed on 2026-04-20 so the Settings-hosted Test Runner and the rest of the Parsek subwindows now use the same guarded opaque-style rebuild instead of bypassing the original fix. A later live repro confirmed the transparent background was gone, and the final follow-up normalized title-bar text colors when window focus changed.
+**Status:** CLOSED. Fixed for v0.8.3.
+
+---
+
+## ~~489. Headless xUnit finalization tests tripped the live incomplete-ballistic extrapolator through `FlightGlobals` before they reached their real fallback assertions~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `Bug278FinalizeLimboTests.FinalizeIndividualRecording_*` and `EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`.
+
+**Concern:** `#442` wired `IncompleteBallisticSceneExitFinalizer.TryApply()` into the default scene-exit finalization path. In headless xUnit, Unity's native `FlightGlobals` runtime is unavailable, so the default extrapolator could trip `FlightGlobals` static initialization before the tests ever reached the branches they were actually written to assert. That turned pre-existing fallback tests into engine-startup failures unrelated to their purpose.
+
+**Fix:** `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording()` now probes `FlightGlobals.fetch` / `FlightGlobals.ready` behind a guarded cache and emits a focused `VERBOSE` line when the Unity runtime is unavailable. Permanent headless probe failures are cached so xUnit does not keep tripping the static initializer, but transient `ready=false` scene states are not cached, so a teardown frame cannot disable later live scene-exit finalization in the same KSP session. The default finalizer now also treats wrapped headless `SecurityException` chains as the same guarded decline path inside `TryFinalizeRecording()`, while the outer `TryApply()` fallback logs the same wrapped failure without permanently poisoning the cached runtime-availability state for later live KSP sessions. The Bug278 fixture explicitly resets the static finalizer seam between tests so cached/headless state cannot leak across unrelated fallback assertions. Hook / override-based tests still bypass the guard exactly as before. Added regression coverage in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~497. Legacy exact-boundary recordings stopped backfilling an orbit endpoint after the same-UT stale-orbit guard landed~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingEndpointPersistenceTests.LoadRecordingFiles_LegacyRecording_BackfillsEndpointDecisionFromTerminalOrbitAlignedSegment`.
+
+**Concern:** the stricter same-UT terminal-orbit guard was correct for live stale-cache overwrite prevention, but `RecordingStore.LoadRecordingFilesFromPathsInternal()` also uses endpoint backfill on recordings that have no persisted endpoint phase yet. That made exact-boundary legacy files fall back to the last point body instead of persisting the recorded terminal-orbit body on load.
+
+**Fix:** `RecordingEndpointResolver.BackfillEndpointDecision()` now has a narrow legacy backfill path that only applies when there is no persisted endpoint decision, the recording already has an orbital terminal state, and the last orbit segment matches the cached terminal-orbit body. It logs the exact-boundary override and persists `EndpointPhase=OrbitSegment` without weakening the stricter live same-UT rejection used by `PopulateTerminalOrbitFromLastSegment()`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~498. Headless surface-snapshot repair still reached `FlightGlobals.Bodies` when it rewrote a landed ORBIT node~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the first headless body-registry seam covered snapshot `REF` decoding and body-name lookup, but `ApplySurfaceOrbitToSnapshot()` still used `FlightGlobals.Bodies.IndexOf(body)` when it rewrote a landed snapshot to `SMA=0/ECC=1`. In headless xUnit that left the stale orbit node untouched even though the endpoint repair path had already resolved the correct body through the test seam.
+
+**Fix:** `VesselSpawner` now resolves body indexes through a dedicated `BodyIndexResolverForTesting` seam, and both `ApplySurfaceOrbitToSnapshot()` and `SaveOrbitToNode()` use that helper instead of reading `FlightGlobals.Bodies` directly. The headless tests inject the same Kerbin/Mun registry for name, body, and index lookups, and the surface-repair path now emits a focused `VERBOSE` line if no body index can be resolved.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~499. Preserving legacy predicted orbit flags regressed two different recording-store paths~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `TrackSectionSerializationTests.SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag` and `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** the earlier `isPredicted` preservation fix broadened `SerializeOrbitSegment()` itself, so legacy `TRACK_SECTION` checkpoints started writing `isPredicted=True` even in format v4, while the accompanying fallback guard became strict enough to reject perfectly valid flat tails whose appended suffix simply used older/non-monotonic test UTs. Those are different surfaces with different compatibility rules: legacy flat sidecars must preserve predicted orbit flags, but legacy track-section checkpoints must not grow the field retroactively.
+
+**Fix:** `SerializeOrbitSegment()` now takes an explicit `writeLegacyPredictedFlag` switch. Flat trajectory sidecars opt in so legacy round-trips keep `isPredicted`, while `SerializeTrackSections()` leaves the flag omitted before `PredictedOrbitSegmentFormatVersion`. `FlatTrajectoryExtendsTrackSectionPayload()` also went back to its intended job: detect whether the flat lists extend the rebuilt section payload, without rejecting the suffix for unrelated monotonicity that only matters in the later healing paths.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~500. Post-walk partial-tracker integration still asserted the pre-`compared=` summary format~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
+
+**Concern:** the production reconciliation summary now includes `compared=` and `cutoffUT=`, but this fixture was still matching the older shorter string. That made the test fail even though the intended science-mismatch warning still fired and the reconciliation counters were correct.
+
+**Fix:** updated the fixture to assert the current summary shape explicitly, including `compared=1` and `cutoffUT=null`, while still pinning the underlying science-mismatch warning. That keeps the test anchored to the real production log contract instead of the older format.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~501. Orbital-frame continuity started comparing equivalent quaternions with unstable raw signs across SOI and scene-exit frame reconstructions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments` and `SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments`.
+
+**Concern:** the new orbital-frame encode/decode seam correctly preserved attitude in world space, but it did not canonicalize quaternion sign. Once the code started comparing raw quaternion components across different frame reconstructions, two equivalent orientations could show up with different signs and fail exact component assertions even though the underlying rotation was unchanged.
+
+**Fix:** `BallisticExtrapolator` now canonicalizes quaternion sign when it computes or resolves orbital-frame-relative rotations. That keeps SOI handoffs and scene-exit seeded predicted tails on a deterministic raw-component representation without changing the represented world rotation.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~502. Narrowed sea-level impact scans could end exactly on the predicted crossing and miss the sign-change bracket entirely~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_LongHorizonSeaLevelImpact_NarrowsSurfaceScan`.
+
+**Concern:** when `FindLocalCutoff()` found an analytic sea-level crossing, it narrowed the dense scan window to end exactly at that UT. If the analytic estimate landed slightly early, every sampled surface delta in the window could still stay positive, so `FindSurfaceCrossing()` never saw the `>0 -> <=0` bracket it needs and the extrapolator fell through to `Orbiting` instead of `Destroyed`.
+
+**Fix:** the sea-level narrowed window now extends one cutoff sample step past the predicted crossing while staying clamped to the requested `endUT`. That preserves the narrowing optimization but guarantees the sampler still has room to capture the sign-change bracket when the analytic crossing lands a little early.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~504. `QuickloadResumeTests` stopped compiling after merging `main` because the fixture still seeded the old facility-upgrade enum name~~
+
+**Source:** post-merge `dotnet build --no-restore` failure on `Parsek-fix-xunit-failures` (2026-04-21): `CS0117` on `GameStateEventType.FacilityUpgrade`.
+
+**Concern:** `GameStateEventType` now exposes `FacilityUpgraded` / `FacilityDowngraded`, but the quickload-resume fixture was still seeding the removed `FacilityUpgrade` member. That is a pure test-side drift after merging `main`, but it stops the entire `Parsek.Tests` build before any of the real xUnit failures can run.
+
+**Fix:** updated the fixture to seed `GameStateEventType.FacilityUpgraded`, which matches the current production enum contract while preserving the exact milestone/event setup that the baseline-restore test needs.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the failing logic under test was spawn-safety provenance repair, but the setup path decoded the snapshot's `ORBIT.REF` by reading `FlightGlobals.Bodies[refIndex]` directly. In headless xUnit that pulls in Unity's body registry before the test can even reach its real assertion, so a body-name lookup detail masks the actual endpoint-body decision logic.
+
+**Fix:** `VesselSpawner` now routes snapshot `REF` decoding through `TryResolveBodyNameByIndex()`, with an internal `BodyNameResolverForTesting` override for headless tests. The later endpoint-body repair path now likewise resolves the loaded `CelestialBody` through `TryResolveBodyByName()`, with a matching `BodyResolverForTesting` override, so the stale-orbit / mismatch tests do not have to touch `FlightGlobals.Bodies` just to reach their real assertions. Production still defaults to the real Unity body registry, but both fallback lookups now decline with a focused `VERBOSE` log even when the headless `FlightGlobals` failure arrives through a deeper wrapped exception chain instead of a direct `TypeInitializationException(SecurityException)`. xUnit injects `{0: Kerbin, 1: Mun}` plus the matching test-body objects and pins both seams with direct regressions.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~491. Endpoint-aligned spawn-orbit selection could fall back across a body mismatch, while spawn-validation logs hid the vessel name behind generic caller context~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersTerminalOrbitMatchingEndpointBody`, `...ReturnsFalseWhenNoOrbitSeedMatchesEndpointBody`, and the snapshot-validation log assertions that expected vessel names like `Malformed Snapshot` / `Surface Repair`.
+
+**Concern:** `TryGetEndpointAlignedRecordedOrbitSeedForSpawn()` delegated to the strict endpoint-body resolver first, then silently fell back to the older preferred-seed resolver even when that fallback pointed at a different body. That let a Kerbin terminal orbit leak into a Mun endpoint decision instead of returning false. In the same area, `BuildValidatedRespawnSnapshot()` and friends logged only the external caller label when one was supplied, so a generic context like `spawn-test` hid the actual vessel name the tests and triage needed.
+
+**Fix:** endpoint-aligned orbit selection now stays strict: orbit-segment endpoints still prefer the last matching segment, non-orbit endpoints only accept a matching terminal-orbit tuple when the recording is still in an orbital terminal state, and if nothing matches the resolved endpoint body the helper returns false instead of broadening the search. The terminal-orbit-aligned branch now also refuses a same-UT conflicting last trajectory point on another body unless the final orbit segment truly extends past that point, and it emits a `VERBOSE` line with the conflicting bodies/UTs when that happens. That prevents landed/splashed recordings from reusing stale terminal-orbit tuples during malformed-snapshot repair or same-UT boundary cases. Spawn-validation messages now format context as `caller (VesselName)` when both exist, so repair/refusal logs keep the human vessel identity visible without dropping the caller label.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~492. Spawn-rotation coverage used Unity quaternion APIs directly inside headless xUnit tests~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: all ten `SpawnRotationTests.*`.
+
+**Concern:** the code under test is fine, but the test bodies themselves construct expected rotations with `Quaternion.Euler(...)`. That forces plain `net472` xUnit to execute Unity-native ECalls that only exist in a live KSP runtime, so the tests fail before they reach the actual spawn-rotation assertions.
+
+**Fix:** moved the full spawn-rotation suite into `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs` under `Category = "SpawnRotation"` / `Scene = GameScenes.FLIGHT`, preserving the same helper/log assertions with `InGameAssert` and Unity-backed quaternion semantics, including the explicit null-body warning/no-rotation-mutation regression that was briefly dropped in the first port. The old xUnit file is deleted instead of being left behind as skipped coverage.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~493. `TrimBoringTail` treated identity terminal rotations as authored surface poses and refused to trim stable landed tails~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingOptimizerTests.TrimBoringTail_LandedStableTerminalState_StillTrims`.
+
+**Concern:** `TryGetTerminalSurfaceReference()` read `SurfacePosition.HasRecordedRotation`, which treats identity as recorded when `rotationRecorded` is absent. The later point matcher only treats non-identity rotations as meaningful, so a perfectly upright landed tail compared "recorded identity" on the terminal pose against "no meaningful rotation" on the tail points and bailed instead of trimming.
+
+**Fix:** `RecordingOptimizer` now normalizes terminal/surface poses the same way it already normalizes tail points: identity rotations are ignored for trim matching even when the serialized `SurfacePosition` reports them as recorded. The optimizer emits a focused `VERBOSE` line when it drops that identity rotation so the behavior stays pinned in tests.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~494. Legacy text trajectory sidecars silently dropped `OrbitSegment.isPredicted` on round-trip~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.TextTrajectorySidecar_PredictedOrbitSegment_RoundTrips`.
+
+**Concern:** `SerializeOrbitSegment()` only wrote `isPredicted` once the recording format version reached the modern predicted-orbit threshold. That made legacy text sidecars serialize the orbital geometry correctly but silently clear the predicted flag during round-trip, which is exactly the kind of state drift the sidecar tests are supposed to catch.
+
+**Fix:** text sidecar serialization now writes `isPredicted` whenever a segment is actually predicted, regardless of the legacy recording-format version. Older readers ignore the extra key, while current deserialization preserves the flag and the old-format round-trip keeps its predicted tail semantics intact.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~495. Flat-binary fallback detection rejected valid predicted tails because it re-validated monotonicity across the already-matched track-section prefix~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** `FlatTrajectoryExtendsTrackSectionPayload()` first proves that the rebuilt track-section payload matches the flat trajectory prefix, then immediately re-checks monotonicity across the whole flat list. That can reject a valid extension case purely because the already-matched prefix has its own duplicated boundary shape, which means the code never reaches the intended flat-binary fallback path for a real predicted tail beyond the checkpoint payload.
+
+**Fix:** the extension detector now applies its monotonicity guard only from the first appended point / orbit segment beyond the rebuilt track-section payload, while still checking the stitched boundary against the last rebuilt element. That keeps the defense against non-monotonic appended tails without misclassifying legitimate fallback cases that only extend a known-good section-authoritative prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~496. Partial-tracker post-walk integration coverage seeded untagged events and created a spurious reputation mismatch~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
+
+**Concern:** the test is meant to prove that when funds tracking is disabled, post-walk reconciliation still ignores the funds leg while correctly matching the tracked reputation leg and warning only on the mismatched science leg. But the fixture seeded all three observed events without a `recordingId`, and non-science post-walk reconciliation is recording-scoped. That makes the reputation event miss scope matching for the wrong reason, so the test can fail with a spurious rep warning even when the production code is behaving correctly.
+
+**Fix:** the partial-tracker fixture now tags its seeded `FundsChanged`, `ReputationChanged`, and `ScienceChanged` events with `recordingId = "rec-partial"`, matching the action under test. That restores the intended coverage shape: funds remains ignored because tracking is disabled, reputation matches cleanly, and the test isolates the science mismatch it was written to pin.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~503. `AutoRecordDecisionTests` stopped compiling after merging `main` because a public xUnit theory exposed the internal restore-mode enum directly~~
+
+**Source:** post-merge `dotnet test` compile failure on `Parsek-fix-xunit-failures` (2026-04-21): `CS0051` on `AutoRecordDecisionTests.ShouldIgnoreFlightReadyReset_RestoreOrMissingLiveState_ReturnsFalse(...)`.
+
+**Concern:** `ParsekScenario.ActiveTreeRestoreMode` is intentionally internal production state, but the merged xUnit theory surfaced it directly as a public method parameter. C# rejects that accessibility mismatch before the test run even starts, so the whole branch stops at compile time for a pure test-fixture reason.
+
+**Fix:** the theory now passes the restore mode as `(int)ActiveTreeRestoreMode.X` inline-data casts and casts back to the enum at the production call site. That preserves the exact coverage without widening production visibility or introducing test-only public surfaces, and keeps each case readable by its enum name at the `[InlineData]` call site instead of surfacing raw magic integers.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
-
-**Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
-
-**Concern:** `IncompleteBallisticSceneExitFinalizer.TryApply()` only rejected `terminalUT = NaN`; a hook that returned `true` with an unset/default terminal state or a `terminalUT` earlier than the current commit/end boundary could still be applied. The caller-side scene-exit lifetime-extension path also force-nulled/backfilled `TerminalOrbitBody`, so a hook that had already stamped authoritative terminal-orbit data directly on the `Recording` could be overwritten by the last `OrbitSegment`. Separately, a ghost-only surface result with no new `TerminalPosition` could wipe existing surface metadata without any explanatory log.
-
-**Fix:** the hook contract is now validated before apply: `terminalState` must be set to a defined enum, `terminalUT` must stay monotonic against `max(commitUT, current EndUT)`, and real hook declines emit a VERBOSE diagnostic. Scene-exit lifetime extension now preserves hook-authored terminal-orbit metadata instead of force-backfilling over it, and ghost-only surface finalization keeps existing surface metadata (or leaves it unavailable) with an explicit WARN explaining what happened. Focused xUnit coverage lives in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
-
-**Status:** CLOSED 2026-04-20. Fixed for v0.8.3.
-
----
-
-## ~~487. Test runner window (Ctrl+Shift+T) goes fully transparent after staying open across a scene transition~~
-
-**Source:** `logs/2026-04-19_2228/KSP.log:9075` plus local repro notes (`Flight pad -> Space Center -> Flight pad` with the runner left open the whole time).
-
-**Concern:** the runner's opaque window style is reset on `GameEvents.onGameSceneLoadRequested`, which fires before the destination scene's IMGUI skin is ready. The next `OnGUI` during the transition sees `opaqueStyle == null`, clones `GUI.skin.window` while `GUI.skin.window.normal.background` is still null/stale, and caches a non-null `GUIStyle` whose backgrounds are all null. From that point the frame renders fully transparent until another scene transition happens to rebuild it at a safer moment.
-
-**Fix:** keep the current scene-reset flow, but gate opaque-style rebuild on `GUI.skin.window.normal.background != null`; if the destination skin is not ready yet, `OnGUI` now returns early and retries on a later frame instead of caching a transparent style. When the normal background is ready but hover/focus/active variants are still null, the builder now falls those states back to the ready normal texture so the cache never freezes in a partially transparent state. Scene-reset cleanup explicitly destroys the copied opaque textures before dropping the cached style, and the new in-game `TestRunner` regression clears any preexisting cache, invokes the private scene-change handler directly, exercises both the missing-background and lagging-state paths, and asserts the cache stays empty until a ready skin is supplied.
-
-**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
-
-**Scope:** Small. No scene-hook swap required; the fix is a guarded rebuild plus cache cleanup and regression coverage.
-
-**Dependencies:** none.
-
-**Resolution:** fixed on 2026-04-19 in `bug/487-test-runner-transparent`. The runner now logs a rate-limited `Test runner: skin not ready, deferring opaque style rebuild` message on the deferred path, so future log captures will show the race if it ever reappears.
-
-**Status:** CLOSED 2026-04-19. Fixed for v0.8.3.
-
----
 
 ## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
 
@@ -158,6 +529,220 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 **Resolution (2026-04-19):** Closed on `bug/484-terminal-orbit-preserve`. Investigation confirmed the current code contract comes from `#475`, not `#289`: `TerminalOrbit*` is a healable cache, not immutable finalized metadata. `PopulateTerminalOrbitFromLastSegment` now preserves existing data only when the full cached terminal-orbit tuple already matches the endpoint-aligned last `OrbitSegment`; stale same-body tuples and stale different-body tuples both heal from that segment. The FLIGHT and xUnit regressions were tightened to pin all three cases explicitly: preserve-on-full-match, heal-on-stale-same-body, and heal-on-stale-different-body.
 
 **Status:** CLOSED. Fixed for v0.8.3.
+
+---
+
+## ~~489. Manual-only runtime coverage for deferred merge commit and `Keep Vessel` playback existed locally; both now have live KSP validation~~
+
+**Source:** local audit work on `audit-test-coverage-2026-04-19` after `#488` closed. New tests now exist in `Source/Parsek/InGameTests/RuntimeTests.cs`:
+
+- `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+- `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+
+**What landed already:** the first test drives `ParsekScenario.ShowDeferredMergeDialog()` in `FLIGHT`, presses the real `Merge to Timeline` button, and asserts the synthetic pending tree moves into `RecordingStore.CommittedTrees` / `CommittedRecordings`. That path has now passed in a live KSP run. The second test commits a synthetic one-recording tree, calls `ParsekFlight.FastForwardToRecording(...)`, waits for a live ghost, and asserts the end-of-recording vessel spawn happens exactly once before cleanup/recovery.
+
+**Resolution:** the deferred-merge canary passed live earlier, and the later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closed the `Keep Vessel` side too. The first attempt hit the expected idle-flight guard and logged `SKIPPED`, but the actual row-play rerun passed once the session was idle. `KSP.log` shows the patched synthetic endpoint outside the KSC exclusion zone (`padDist≈240m`), a landed deferred spawn (`Vessel spawn for #2 ... sit=LANDED`), the runtime assertion log `Keep-vessel runtime: ... spawnedPid=...`, and the final `PASSED: FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce (6132.6ms)` line. That means both manual-only audit canaries are now live-validated.
+
+**Remaining gap after closure:**
+
+The next runtime scenario worth adding is no longer these synthetic canaries. It is the stock `record -> revert -> soft-unstash / no merge` flow, followed by the real non-revert scene-exit deferred merge path.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** CLOSED. Fixed for the audit branch; the next open player-flow gaps are the stock revert soft-unstash transition and the non-revert deferred merge path.
+
+---
+
+## ~~490. Manual-only stock `Revert to Launch` runtime coverage existed locally; it now has live KSP validation~~
+
+**Source:** follow-up audit work after closing `#489`, aligned with shipped #434 behavior and the current user guide text.
+
+**What landed already:** `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` now exists in `Source/Parsek/InGameTests/RuntimeTests.cs`. It starts a real recording on a prelaunch vessel, stages the active vessel, drives stock `FlightDriver.RevertToLaunch`, waits for the fresh FLIGHT scene, and asserts that:
+
+- the reverted mission did not commit into `RecordingStore.CommittedRecordings` / `CommittedTrees`
+- no Parsek `ParsekMerge` popup appears after the revert
+- the pending tree was soft-unstashed rather than committed or hard-discarded
+- the log stream contains the expected fresh-pending keep + soft-unstash lines from the #434 path
+
+**Why this matters:** the audit roadmap used to describe the next gap as `record -> revert -> merge`, but that is no longer the shipped product contract. The current documented behavior is: revert soft-unstashes; if the player wants the merge dialog they take a non-revert exit such as `Space Center`. This runtime canary is the missing end-to-end proof for the actual shipped revert path.
+
+**Resolution:** the direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:57` now closes this. `parsek-test-results.txt` records `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` as `FLIGHT PASSED (7318.7ms)`. `KSP.log` contains the full shipped #434 revert sequence in one live pass: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then `Revert flow runtime: ... committedBefore=2 committedAfter=2`, and finally the `PASSED:` row. That means the canary now has real evidence for the current product contract: stock revert soft-unstashes, does not open the Parsek merge dialog, and does not commit the reverted mission into the timeline.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED. Fixed for the audit branch; the next open runtime player-flow gap is the non-revert scene-exit deferred merge path.
+
+---
+
+## 491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path
+
+**Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
+
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). The next step is partially landed: `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` now exist locally, build cleanly, and drive the real `record -> launch -> stock save-and-exit to Space Center -> deferred merge dialog -> merge/discard` flow end-to-end. What is still missing is live KSP evidence for those two manual-only tests.
+
+**Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
+
+**Proposed next step:** from `Parsek-audit-test-coverage`, build `Source/Parsek/Parsek.csproj`, then run both `SceneExitMerge` tests individually from a disposable prelaunch flight:
+
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
+
+Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and close this item once both branches have clean live evidence.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
+## 492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence
+
+**Source:** audit follow-up after implementing the first `PartEventTiming` tests in the audit worktree.
+
+**Current state:** the branch now contains `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`. These are deterministic `FLIGHT` runtime tests that build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. They build cleanly, but they have not been run in a live KSP session yet.
+
+**Why this matters:** the audit's remaining part-event gap was no longer "can ghost FX build at all?" Existing `PartEventFX` checks already cover that. The narrower missing confidence was timing: do visible state changes happen at the right moment? These two tests are the first concrete attempt to pin that down.
+
+**Proposed next step:** from a normal `FLIGHT` session in the audit build, run:
+
+- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`
+- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`
+
+Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pass cleanly.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
+## 493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode
+
+**Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
+
+**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. A live run from `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` passed with `FLIGHT captured=170 Passed=132 Failed=0 Skipped=38` plus the two `SPACECENTER` scene-exit tests passing separately. The widened isolated-batch cohort is:
+
+- `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
+- `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
+- `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
+- `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
+- `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+- `FlightIntegrationTests.BridgeSurvivesSceneTransition`
+- `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
+- `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
+
+`SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
+
+Local verification on this combined branch is now healthy enough to be useful: `dotnet build Source/Parsek/Parsek.csproj --no-restore` succeeds, and the focused `InGameTestRunnerTests` / terminal-orbit xUnit slices pass. The remaining confidence signal is live KSP evidence when the isolated cohort changes again.
+
+**Update (2026-04-21):** `Quickload_MidRecording_ResumesSameActiveRecordingId` no longer depends on a manually pre-armed recording. From an idle `PRELAUNCH` vessel it now enables launch auto-record, stages, waits for a real in-flight `ActiveRecordingId` plus at least one recorded trajectory point, and only then drives F5/F9, so the isolated cohort still covers a true mid-recording resume instead of a synthetic pad-start recorder.
+
+**Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
+
+**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging, waits through transient-null `FlightInputHandler.state` until the input state stays stable, and then waits for the first real trajectory point even on already-live recordings. That keeps the stock staging rebuild guard without re-opening the null-input throttle/stage race, and it avoids failing purely because recording went live one sample before the first point landed.
+
+**Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
+
+**Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
+
+- the `[isolated]` tests above run in one session without manual reloads
+- the runner quickloads the baseline back between destructive tests
+- the widened isolated FLIGHT canaries (`QuickloadResume` bridge/mid-recording and `RevertFlow`) survive batch restore cleanly enough to keep the session usable
+- `SceneExitMerge` remains manual-only until the live post-run vessel/crash contamination is eliminated
+
+**Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
+## 494. Coverage-reporting scaffold exists, but there is still no validated baseline coverage report
+
+**Source:** audit backlog item 1 in `docs/dev/test-coverage-audit-2026-04-19.md` plus the latest collection bundles `logs/2026-04-21_2041_live-collect-now/` and `logs/2026-04-21_2042_live-collect-script/`.
+
+**Current state (2026-04-21 follow-up):** the sibling `audit-coverage-baseline-2026-04-21` worktree hardened `scripts/test-coverage.ps1` into a real validation harness rather than a thin wrapper. In that worktree it now bootstraps missing Windows `dotnet` path variables, clears stale `coverage.*` artifacts before each run, captures `dotnet test` output to `TestResults/Coverage/dotnet-test.log`, structurally validates every advertised output format (`json`, `lcov`, `opencover`, `cobertura`, `teamcity`), rejects data-empty Cobertura payloads, writes `coverage-summary.txt` for Cobertura, and preserves `dotnet test`'s native exit code when report validation is blocked. The newest packet still does **not** close this item: `logs/2026-04-21_2042_live-collect-script/log-validation.txt` is a failed plain xUnit/log validation run on `main`, not a coverage run, and the bundle contains no coverage artifact. A direct rerun of `scripts/test-coverage.ps1` in that sibling audit worktree now fails in a controlled way on a separate test-project compile blocker (`Source/Parsek.Tests/AutoRecordDecisionTests.cs(199,21)` there), so there is still no successful baseline report to archive.
+
+**Why this matters:** the repo still cannot answer "what is the current mechanical coverage baseline?" with a real artifact instead of a doc claim.
+
+**Proposed next step:** once the separate test-project restore/compile blockers are resolved on a clean worktree, run `scripts/test-coverage.ps1` end-to-end, keep the generated coverage artifact(s) with the log packet, and record the baseline summary in the audit doc once the pipeline is repeatable. Do **not** fold this into `Parsek-fix-xunit-failures`; that branch can change which tests pass, but this item is specifically about validating the reporting path itself and capturing the first trustworthy baseline.
+
+**Files:** `Source/Parsek.Tests/Parsek.Tests.csproj`, `scripts/test-coverage.ps1`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - RUNNER HARDENED, END-TO-END VALIDATION / BASELINE CAPTURE PENDING.
+
+---
+
+## ~~495. No subsystem coverage matrix yet ties production areas to headless, runtime, log, and manual coverage~~ CLOSED 2026-04-21
+
+**Source:** audit backlog item 2 in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Resolution (2026-04-21):** CLOSED for v0.8.3. The repo now has a living [test-coverage-matrix.md](test-coverage-matrix.md) that maps major current-tree production subsystems to the four safety nets the project actually uses today: headless xUnit, in-game runtime, `KSP.log` contract validation, and manual scenario checklists.
+
+Review follow-up tightened the first version before closeout: the missing group-hierarchy / visibility subsystem row was added, the stale `done/part-coverage-catalog.md` manual reference was removed, and the diagnostics row now anchors to production observability surfaces rather than framing `LogValidation/*` as a production owner.
+
+**Why this matters:** future audit work now has one current-tree place to answer "which safety net covers this subsystem today?" instead of reconstructing that view from prose and grep each time.
+
+**Files:** `docs/dev/test-coverage-matrix.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-21). Fixed for v0.8.3.
+
+---
+
+## 496. Thinly covered IMGUI windows still need extracted pure helpers and headless tests
+
+**Source:** audit backlog item 4 plus the "Priority 3" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Current state (2026-04-21 follow-up):** the sibling `audit-ui-helpers-2026-04-21` worktree landed the first slice, but the item is not fully closed. In that worktree, `TestRunnerUI` and the Ctrl+Shift+T shortcut window now share a pure `TestRunnerPresentation` helper for scene eligibility, top summary text, category labels, per-row labels, batch-mode notices, and tooltip assembly, with direct headless coverage in `Source/Parsek.Tests/TestRunnerPresentationTests.cs`. The rest of the original audit target list (`SettingsWindowUI`, `SpawnControlUI`, `GroupPickerUI`) is still untouched in this follow-up.
+
+**Why this matters:** UI regressions here are still disproportionately likely to be caught only in live KSP because the logic is embedded in draw code instead of living behind pure helpers that xUnit can pin directly.
+
+**Proposed next step:** keep applying the same pattern to the remaining thin IMGUI shells: extract text generation, sorting/filtering, selection state, button enable/disable rules, and status formatting into pure helpers, then add focused headless tests for those helpers before adding more surface-level runtime scenarios.
+
+**Files:** `Source/Parsek/UI/SettingsWindowUI.cs`, `Source/Parsek/UI/SpawnControlUI.cs`, `Source/Parsek/UI/GroupPickerUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/TestRunnerPresentation.cs`, `Source/Parsek.Tests/TestRunnerPresentationTests.cs`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - PARTIAL PROGRESS (`TestRunnerUI` / `TestRunnerShortcut` extracted; other IMGUI targets still pending).
+
+---
+
+## 497. Runtime-heavy builders and codecs still lack explicit ownership-style test bundles
+
+**Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+
+**Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
+
+**Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
+
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
+
+---
+
+## ~~498. `validate-ksp-log.ps1` and exported in-game results are still not standardized release evidence~~ CLOSED 2026-04-21
+
+**Source:** audit backlog item 6 plus the "Priority 5" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
+
+**Resolution (2026-04-21):** CLOSED for v0.8.3. Release-closeout evidence is now an explicit documented process instead of an implied convention. [manual-testing/test-general.md](manual-testing/test-general.md) defines the named release scenario bundle and the required artifacts, and [development-workflow.md](development-workflow.md) points release/RC closeout at the same bundle flow.
+
+The active process now requires:
+
+- collecting the packet with `scripts/collect-logs.py`
+- starting from a fresh `parsek-test-results.txt` export (`Reset` before the evidence run)
+- requiring the named runtime rows in that file to be present and `PASSED`
+- requiring `scripts/validate-ksp-log.ps1` to pass on the bundled `KSP.log`
+- requiring `scripts/validate-release-bundle.py` to pass on the collected folder
+- verifying the deployed `GameData/Parsek/Plugins/Parsek.dll` against the worktree build via the `.claude/CLAUDE.md` UTF-16 / size+mtime recipe before trusting any in-game evidence
+
+Review follow-up also corrected the release doc wording to the shipped deferred merge-dialog scene-exit semantics, made the reset / fresh-session boundary explicit so stale cumulative PASS rows do not count as valid evidence, and added an explicit bundle-validation artifact (`release-bundle-validation.txt`) on top of `log-validation.txt`.
+
+**Why this matters:** release conversations now have one canonical evidence bundle instead of relying on memory or ad-hoc packet selection.
+
+**Files:** `scripts/collect-logs.py`, `scripts/validate-ksp-log.ps1`, `scripts/validate-release-bundle.py`, `docs/dev/manual-testing/test-general.md`, `docs/dev/development-workflow.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED (2026-04-21). Fixed for v0.8.3.
 
 ---
 

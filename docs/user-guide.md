@@ -109,6 +109,7 @@ Top of the window:
 
 Each entry row shows UT, a description, and (for `RecordingStart` entries) the following buttons:
 
+- **W** - watch button in flight. Enabled only when the recording currently has an active same-body ghost within the watch cutoff; otherwise shown grayed out. A watched row shows **W\***.
 - **R** / **FF** - same rewind / fast-forward buttons as the Recordings Manager.
 - **L** - loop toggle. Only shown for past or active recordings that Parsek considers logically loopable (launches, atmospheric descents, surface departures, docking segments), or for any recording that is already looping. Active loops display in green text.
 - **GoTo** - jumps to the same recording in the Recordings Manager (opening it and un-hiding the recording if necessary).
@@ -156,7 +157,7 @@ A recording with **Loop** checked replays on a fixed launch-to-launch period: th
 
 ### Watch Mode
 
-Click **W** on a recording (or on a group header) to enter watch mode — the KSP camera follows the ghost vessel instead of the active vessel. A watched row shows **W\*** and any group containing the watched recording also shows **W\***. Press `[`, `]`, or click W again to exit. Press **V** while watching to toggle the camera between Free Orbit (stock behavior) and Horizon-Locked (ground stays at the bottom of the screen; picked automatically near planetary surfaces, free in orbit).
+Click **W** on a recording in either the Timeline or the Recordings Manager (or on a group header in the Recordings Manager) to enter watch mode — the KSP camera follows the ghost vessel instead of the active vessel. A watched row shows **W\*** and any group containing the watched recording also shows **W\***. Press `[`, `]`, or click W again to exit. Press **V** while watching to toggle the camera between Free Orbit (stock behavior) and Horizon-Locked (ground stays at the bottom of the screen; picked automatically near planetary surfaces, free in orbit).
 
 Clicking **W** on a group header cycles through the group's watchable vessels: each press advances to the next member with an active same-body in-range ghost.
 

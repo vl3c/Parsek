@@ -228,6 +228,36 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Zero exponent makes each positive combinable antenna contribute its full power.
+        /// Guards: exponent=0 does not collapse or distort the combination formula.
+        /// </summary>
+        [Fact]
+        public void ComputeCombinedPower_ZeroExponent_SumsPositiveCombinablePower()
+        {
+            var specs = new List<AntennaSpec>
+            {
+                new AntennaSpec
+                {
+                    partName = "strongRelay",
+                    antennaPower = 1000,
+                    antennaCombinable = true,
+                    antennaCombinableExponent = 0
+                },
+                new AntennaSpec
+                {
+                    partName = "smallRelay",
+                    antennaPower = 250,
+                    antennaCombinable = true,
+                    antennaCombinableExponent = 0
+                }
+            };
+
+            double result = GhostCommNetRelay.ComputeCombinedAntennaPower(specs);
+
+            Assert.Equal(1250.0, result, 5);
+        }
+
+        /// <summary>
         /// All antennas with zero power returns 0.
         /// Guards: zero-power edge case doesn't cause division by zero.
         /// </summary>

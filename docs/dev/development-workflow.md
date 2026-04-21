@@ -438,6 +438,18 @@ After all phases pass automated review, do a manual in-game verification:
 - Launch KSP, load test career, verify in-game behavior
 - Check KSP.log: `grep "[Parsek]" "Kerbal Space Program/KSP.log"`
 - Run log validator: `pwsh -File scripts/validate-ksp-log.ps1`
+- Verify the deployed `GameData/Parsek/Plugins/Parsek.dll` against your
+  worktree build using the `.claude/CLAUDE.md` DLL-check recipe before trusting
+  any in-game result. For release / RC evidence, compare against the Release
+  output (`Source/Parsek/bin/Release/Parsek.dll`), not the local Debug build.
+- For release or RC closeout, reset the in-game test results before each
+  evidence run, then capture the required bundles from
+  `docs/dev/manual-testing/test-general.md` with
+  `python scripts/collect-logs.py <label>`. Keep the emitted `KSP.log`,
+  `Player.log`, `parsek-test-results.txt`, and `log-validation.txt`, then run
+  `python scripts/validate-release-bundle.py <bundle-dir>` and keep the emitted
+  `release-bundle-validation.txt`; the validators are per-bundle gates, not
+  end-of-run spot checks.
 
 ---
 
