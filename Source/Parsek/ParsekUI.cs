@@ -494,35 +494,22 @@ namespace Parsek
             if (style == null || sourceStyle == null)
                 return;
 
-            Color normalTextColor = style.normal.textColor;
-            Color hoverTextColor = style.hover.textColor;
-            Color focusedTextColor = style.focused.textColor;
-            Color activeTextColor = style.active.textColor;
-            Color onNormalTextColor = style.onNormal.textColor;
-            Color onHoverTextColor = style.onHover.textColor;
-            Color onFocusedTextColor = style.onFocused.textColor;
-            Color onActiveTextColor = style.onActive.textColor;
-
-            NormalizeOpaqueWindowTitleTextColors(
+            Color baseTextColor = ResolveReadableWindowTitleTextColor(
                 sourceStyle.normal.textColor,
+                sourceStyle.onNormal.textColor);
+            Color toggledTextColor = ResolveReadableWindowTitleTextColor(
                 sourceStyle.onNormal.textColor,
-                ref normalTextColor,
-                ref hoverTextColor,
-                ref focusedTextColor,
-                ref activeTextColor,
-                ref onNormalTextColor,
-                ref onHoverTextColor,
-                ref onFocusedTextColor,
-                ref onActiveTextColor);
+                sourceStyle.normal.textColor);
 
-            style.normal.textColor = normalTextColor;
-            style.hover.textColor = hoverTextColor;
-            style.focused.textColor = focusedTextColor;
-            style.active.textColor = activeTextColor;
-            style.onNormal.textColor = onNormalTextColor;
-            style.onHover.textColor = onHoverTextColor;
-            style.onFocused.textColor = onFocusedTextColor;
-            style.onActive.textColor = onActiveTextColor;
+            style.normal.textColor = baseTextColor;
+            style.hover.textColor = baseTextColor;
+            style.focused.textColor = baseTextColor;
+            style.active.textColor = baseTextColor;
+
+            style.onNormal.textColor = toggledTextColor;
+            style.onHover.textColor = toggledTextColor;
+            style.onFocused.textColor = toggledTextColor;
+            style.onActive.textColor = toggledTextColor;
         }
 
         internal static void NormalizeOpaqueWindowTitleTextColors(
@@ -599,7 +586,6 @@ namespace Parsek
                 if (!IsHeadlessUiObjectFailure(ex))
                     throw;
             }
-
             opaqueWindowStyle = null;
             hasOpaqueWindowStyleScene = false;
         }
