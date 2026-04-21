@@ -135,6 +135,7 @@ namespace Parsek
     {
         public uint partPersistentId;
         public int moduleIndex;
+        public int selectionOrder; // stable build-order tie-break for runtime playback cap
         public GhostAudioPriorityClass priorityClass;
         public AudioSource audioSource;
         public AudioClip clip;

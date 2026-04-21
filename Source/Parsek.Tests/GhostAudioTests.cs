@@ -177,6 +177,33 @@ namespace Parsek.Tests
                 info => Assert.Equal(GhostAudioPriorityClass.JetEngine, info.priorityClass));
         }
 
+        [Fact]
+        public void SetEngineAudio_MutedStillTracksLatestPower()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(42, 1);
+            var info = new AudioGhostInfo
+            {
+                partPersistentId = 42,
+                moduleIndex = 1,
+                currentPower = 1f
+            };
+            var state = new GhostPlaybackState
+            {
+                audioMuted = true,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    { key, info }
+                }
+            };
+
+            GhostPlaybackLogic.SetEngineAudio(
+                state,
+                new PartEvent { partPersistentId = 42, moduleIndex = 1 },
+                power: 0f);
+
+            Assert.Equal(0f, info.currentPower);
+        }
+
         #endregion
 
         #region Thrust Classification

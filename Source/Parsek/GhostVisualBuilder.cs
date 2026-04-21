@@ -2373,7 +2373,7 @@ namespace Parsek
         #region Ghost Audio FX
 
         /// <summary>
-        /// Build AudioSource components for engine and RCS modules on a ghost part.
+        /// Build AudioSource components for engine modules on a ghost part.
         /// Returns a list of AudioGhostInfo (one per engine module). Playback later
         /// enforces the per-ghost concurrent looped-audio cap at runtime so engines
         /// that activate later in the recording still have a source available.
@@ -2388,6 +2388,9 @@ namespace Parsek
             if (partTransform == null) return null;
 
             var result = new List<AudioGhostInfo>();
+            // Keep one looped source per engine module. The 4-sound cap now lives in
+            // GhostPlaybackLogic.EnforceLoopedAudioPlaybackCap so late-activating engines
+            // are not discarded at build time.
 
             // Engine audio
             var engines = prefab.Modules.GetModules<ModuleEngines>();
@@ -2458,12 +2461,12 @@ namespace Parsek
             var sourceObject = new GameObject("ghost_audio_oneshot");
             sourceObject.transform.SetParent(ghostRoot.transform, false);
             var source = sourceObject.AddComponent<AudioSource>();
+            // Seed a neutral baseline; PlayOneShotAtGhost refreshes distance-sensitive
+            // one-shot priority immediately before playback.
             ApplyGhostAudioDefaults(
                 source,
                 loop: false,
-                GhostAudioPresets.ComputeRuntimePriority(
-                    GhostAudioPriorityClass.Explosion,
-                    distanceMeters: 0.0));
+                GhostAudioPresets.BaselineGameAudioPriority);
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
 
             ParsekLog.Verbose("GhostAudio", $"Built one-shot audio source on '{ghostRoot.name}'");
