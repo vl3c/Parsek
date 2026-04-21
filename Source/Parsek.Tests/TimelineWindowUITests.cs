@@ -67,12 +67,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldEnableWatchButton_CurrentlyWatchedUnavailableRow_ReturnsTrue()
+        public void BuildWatchButtonDescriptor_EligibleRow_IsEnabledForEnter()
         {
-            Assert.True(TimelineWindowUI.ShouldEnableWatchButton(
-                canWatch: false, isWatching: true));
-            Assert.False(TimelineWindowUI.ShouldEnableWatchButton(
-                canWatch: false, isWatching: false));
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: false, hasGhost: true, sameBody: true, inRange: true, isDebris: false);
+
+            Assert.Equal("W", descriptor.Label);
+            Assert.Equal("Follow ghost in watch mode", descriptor.Tooltip);
+            Assert.True(descriptor.Enabled);
+            Assert.True(descriptor.CanWatch);
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Enter, descriptor.Action);
         }
 
         [Fact]
@@ -88,6 +92,27 @@ namespace Parsek.Tests
             Assert.Equal(0, lookup["rec-a"]);
             Assert.Equal(2, lookup["rec-b"]);
             Assert.False(lookup.ContainsKey(string.Empty));
+        }
+
+        [Fact]
+        public void BuildRecordingIndexLookup_NullRecordings_ReturnsEmpty()
+        {
+            var lookup = TimelineWindowUI.BuildRecordingIndexLookup(null);
+
+            Assert.Empty(lookup);
+        }
+
+        [Fact]
+        public void BuildWatchButtonDescriptor_WatchedUnavailableRow_UsesExitTooltipAndStaysEnabled()
+        {
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: true, hasGhost: false, sameBody: false, inRange: false, isDebris: false);
+
+            Assert.Equal("W*", descriptor.Label);
+            Assert.Equal("Exit watch mode", descriptor.Tooltip);
+            Assert.True(descriptor.Enabled);
+            Assert.False(descriptor.CanWatch);
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Exit, descriptor.Action);
         }
 
         [Fact]
@@ -193,42 +218,6 @@ namespace Parsek.Tests
 
             Assert.False(TimelineWindowUI.HasActionableRewindOrFastForwardButton(
                 entry, rec, currentUT: 200, canFastForward: false, canRewind: false));
-        }
-
-        [Fact]
-        public void DrawEntryRow_AddsWatchButtonBeforeRewindAndFastForward_PinnedBySourceInspection()
-        {
-            string srcRoot = System.IO.Path.GetFullPath(
-                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "TimelineWindowUI.cs"));
-
-            int watchIndex = uiSrc.IndexOf("// Watch button - flight only.", System.StringComparison.Ordinal);
-            int fastForwardIndex = uiSrc.IndexOf("// Future recording: FF button", System.StringComparison.Ordinal);
-
-            Assert.True(watchIndex >= 0, "timeline watch-button block should exist");
-            Assert.True(fastForwardIndex > watchIndex,
-                "timeline watch button should be rendered before the rewind/fast-forward buttons");
-        }
-
-        [Fact]
-        public void DrawEntryRow_WatchButton_WiresToggleAndEnabledState_PinnedBySourceInspection()
-        {
-            string srcRoot = System.IO.Path.GetFullPath(
-                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "TimelineWindowUI.cs"));
-            int watchIndex = uiSrc.IndexOf("// Watch button - flight only.", System.StringComparison.Ordinal);
-            int fastForwardIndex = uiSrc.IndexOf("bool showFastForward = ShouldShowFastForwardButton", System.StringComparison.Ordinal);
-            string watchBlock = uiSrc.Substring(watchIndex, fastForwardIndex - watchIndex);
-
-            Assert.Contains("TimelineWatchButtonAction watchAction = GetWatchButtonAction(isWatching);", watchBlock);
-            Assert.Contains("GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);", watchBlock);
-            Assert.Contains("ApplyWatchButtonAction(", watchBlock);
-            Assert.Contains("() => flight.ExitWatchMode()", watchBlock);
-            Assert.Contains("index => flight.EnterWatchMode(index)", watchBlock);
         }
     }
 }

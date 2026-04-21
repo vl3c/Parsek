@@ -311,12 +311,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldEnableWatchButton_KeepsWatchedUnavailableRowsClickable()
+        {
+            Assert.True(RecordingsTableUI.ShouldEnableWatchButton(
+                canWatch: false, isWatching: true));
+            Assert.False(RecordingsTableUI.ShouldEnableWatchButton(
+                canWatch: false, isWatching: false));
+        }
+
+        [Fact]
+        public void UpdateWatchButtonTransitionCache_TracksFirstChangeAndSuppressesDuplicates()
+        {
+            var cache = new Dictionary<string, bool>();
+
+            Assert.True(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, "rec-1", true));
+            Assert.False(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, "rec-1", true));
+            Assert.True(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, "rec-1", false));
+            Assert.False(cache["rec-1"]);
+        }
+
+        [Fact]
+        public void UpdateWatchButtonTransitionCache_EmptyKey_DoesNotMutateCache()
+        {
+            var cache = new Dictionary<string, bool>();
+
+            Assert.False(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, string.Empty, true));
+            Assert.Empty(cache);
+        }
+
+        [Fact]
         public void GetWatchButtonTooltip_ExplainsNoGhost()
         {
             string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
                 isWatching: false, hasGhost: false, sameBody: true, inRange: true, isDebris: false);
 
             Assert.Contains("No active ghost", tooltip);
+        }
+
+        [Fact]
+        public void GetWatchButtonTooltip_WatchingPrioritizesExit()
+        {
+            string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
+                isWatching: true, hasGhost: false, sameBody: false, inRange: false, isDebris: false);
+
+            Assert.Equal("Exit watch mode", tooltip);
         }
 
         [Fact]
