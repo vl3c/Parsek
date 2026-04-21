@@ -30,7 +30,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## ~~494. Legacy exact-boundary recordings stopped backfilling an orbit endpoint after the same-UT stale-orbit guard landed~~
+## ~~497. Legacy exact-boundary recordings stopped backfilling an orbit endpoint after the same-UT stale-orbit guard landed~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingEndpointPersistenceTests.LoadRecordingFiles_LegacyRecording_BackfillsEndpointDecisionFromTerminalOrbitAlignedSegment`.
 
@@ -42,7 +42,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## ~~495. Headless surface-snapshot repair still reached `FlightGlobals.Bodies` when it rewrote a landed ORBIT node~~
+## ~~498. Headless surface-snapshot repair still reached `FlightGlobals.Bodies` when it rewrote a landed ORBIT node~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
 
@@ -54,7 +54,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## ~~496. Preserving legacy predicted orbit flags regressed two different recording-store paths~~
+## ~~499. Preserving legacy predicted orbit flags regressed two different recording-store paths~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `TrackSectionSerializationTests.SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag` and `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
 
@@ -66,7 +66,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## ~~497. Post-walk partial-tracker integration still asserted the pre-`compared=` summary format~~
+## ~~500. Post-walk partial-tracker integration still asserted the pre-`compared=` summary format~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
 

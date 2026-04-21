@@ -3315,7 +3315,8 @@ namespace Parsek
             ConfigNode parent,
             OrbitSegment seg,
             CultureInfo ic,
-            int recordingFormatVersion = CurrentRecordingFormatVersion)
+            int recordingFormatVersion = CurrentRecordingFormatVersion,
+            bool writeLegacyPredictedFlag = false)
         {
             ConfigNode segNode = parent.AddNode("ORBIT_SEGMENT");
             segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
@@ -3328,8 +3329,11 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
-            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion || seg.isPredicted)
+            if (recordingFormatVersion >= PredictedOrbitSegmentFormatVersion
+                || (writeLegacyPredictedFlag && seg.isPredicted))
+            {
                 segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
+            }
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {
                 segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
@@ -3480,12 +3484,6 @@ namespace Parsek
             {
                 if (!OrbitSegmentEquals(rebuiltOrbitSegments[i], flatOrbitSegments[i]))
                     return false;
-            }
-
-            if (!TrajectoryPointListIsMonotonicNonDecreasing(flatPoints, rebuiltPoints.Count)
-                || !OrbitSegmentListIsMonotonicNonDecreasing(flatOrbitSegments, rebuiltOrbitSegments.Count))
-            {
-                return false;
             }
 
             return flatPoints.Count > rebuiltPoints.Count
@@ -4129,7 +4127,12 @@ namespace Parsek
                     SerializePoint(targetNode, rec.Points[i], ic);
 
                 for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic, rec.RecordingFormatVersion);
+                    SerializeOrbitSegment(
+                        targetNode,
+                        rec.OrbitSegments[s],
+                        ic,
+                        rec.RecordingFormatVersion,
+                        writeLegacyPredictedFlag: true);
             }
             else
             {
@@ -4506,7 +4509,12 @@ namespace Parsek
                     if (checkpoints != null)
                     {
                         for (int s = 0; s < checkpoints.Count; s++)
-                            SerializeOrbitSegment(tsNode, checkpoints[s], ic, recordingFormatVersion);
+                            SerializeOrbitSegment(
+                                tsNode,
+                                checkpoints[s],
+                                ic,
+                                recordingFormatVersion,
+                                writeLegacyPredictedFlag: false);
                     }
                 }
 
