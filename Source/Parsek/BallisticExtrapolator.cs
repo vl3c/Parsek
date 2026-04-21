@@ -1261,6 +1261,11 @@ namespace Parsek
             return 0.5 * Math.Log((1.0 + value) / (1.0 - value));
         }
 
+        private static double Asinh(double value)
+        {
+            return Math.Log(value + Math.Sqrt((value * value) + 1.0));
+        }
+
         private static double Acosh(double value)
         {
             return Math.Log(value + Math.Sqrt((value - 1.0) * (value + 1.0)));
@@ -1391,11 +1396,15 @@ namespace Parsek
                 }
                 else if (eccentricity > 1.0 + OrbitEpsilon)
                 {
-                    double halfAngle = Math.Tan(trueAnomaly * 0.5);
-                    double factor = Math.Sqrt((eccentricity - 1.0) / (eccentricity + 1.0));
-                    double hyperbolicArgument = Clamp(factor * halfAngle, -0.999999999, 0.999999999);
-                    double hyperbolicAnomaly = 2.0 * Atanh(hyperbolicArgument);
-                    meanAnomaly = eccentricity * Math.Sinh(hyperbolicAnomaly) - hyperbolicAnomaly;
+                    double denominator = 1.0 + eccentricity * Math.Cos(trueAnomaly);
+                    if (Math.Abs(denominator) <= StateVectorEpsilon)
+                        return false;
+
+                    double sinhHyperbolicAnomaly = Math.Sqrt((eccentricity * eccentricity) - 1.0)
+                        * Math.Sin(trueAnomaly)
+                        / denominator;
+                    double hyperbolicAnomaly = Asinh(sinhHyperbolicAnomaly);
+                    meanAnomaly = eccentricity * sinhHyperbolicAnomaly - hyperbolicAnomaly;
                 }
                 else
                 {

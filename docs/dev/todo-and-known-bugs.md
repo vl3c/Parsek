@@ -174,6 +174,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~518. Hyperbolic segment serialization still distorted high-escape SOI handoffs because it seeded mean anomaly through a clamped `atanh(tan(nu/2))` shortcut~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_HyperbolicHomeEscape_PreservesParentSegmentStartState` and `Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** the earlier quadrant-safe `GetStateAtUT()` follow-up fixed one half of the hyperbolic round-trip, but `TwoBodyOrbit.TryCreate()` was still deriving the serialized hyperbolic mean anomaly from a clamped `atanh(factor * tan(nu/2))` path. Near a real SOI escape boundary that clamp can distort the outgoing branch badly enough that `TryPropagate(segment, startUT)` no longer reproduces the transformed parent-frame handoff state, which in turn makes the frozen-attitude continuity check fail.
+
+**Fix:** hyperbolic segment creation now derives `H` from the direct `sinh(H)` relation and computes mean anomaly from that unclamped value. The new regression keeps asserting both the exact parent-segment start-state preservation and the frozen playback world-rotation continuity across the SOI handoff.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
