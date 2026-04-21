@@ -77,7 +77,7 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            int maxPerRec = GhostPlaybackEngine.MaxOverlapGhostsPerRecording;
+            int maxPerRec = GhostPlayback.MaxOverlapGhostsPerRecording;
             var ghostGOs = flight.Engine.GetGhostGameObjects();
             int violations = 0;
 

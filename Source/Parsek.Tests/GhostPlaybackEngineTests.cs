@@ -797,7 +797,7 @@ namespace Parsek.Tests
         {
             var engine = new GhostPlaybackEngine(null);
             double result = engine.GetLoopIntervalSeconds(null, 42.0);
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, result);
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, result);
         }
 
         #endregion
@@ -1859,14 +1859,14 @@ namespace Parsek.Tests
         [Fact]
         public void MaxOverlapGhostsPerRecording_IsReasonable()
         {
-            Assert.True(GhostPlaybackEngine.MaxOverlapGhostsPerRecording > 0);
-            Assert.True(GhostPlaybackEngine.MaxOverlapGhostsPerRecording <= 20);
+            Assert.True(GhostPlayback.MaxOverlapGhostsPerRecording > 0);
+            Assert.True(GhostPlayback.MaxOverlapGhostsPerRecording <= 20);
         }
 
         [Fact]
         public void OverlapExplosionHoldSeconds_IsPositive()
         {
-            Assert.True(GhostPlaybackEngine.OverlapExplosionHoldSeconds > 0);
+            Assert.True(GhostPlayback.OverlapExplosionHoldSeconds > 0);
         }
 
         #endregion

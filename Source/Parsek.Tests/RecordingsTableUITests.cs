@@ -232,11 +232,13 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            // Per-row guard: the watchKey local must be tested for null/empty
-            // BEFORE the cache lookup, otherwise the empty-id case falls into
-            // the spam loop pattern.
+            // Per-row guard: the watchKey local must be routed through
+            // UpdateWatchButtonTransitionCache, which guards null/empty keys
+            // internally (covered by
+            // UpdateWatchButtonTransitionCache_EmptyKey_DoesNotMutateCache).
+            // Otherwise the empty-id case falls into the spam loop pattern.
             Assert.Contains("string watchKey = rec.RecordingId;", uiSrc);
-            Assert.Contains("!string.IsNullOrEmpty(watchKey)", uiSrc);
+            Assert.Contains("UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey", uiSrc);
 
             // Group guard: same shape — mainRecId must be non-empty before
             // we add to the dict. The fix replaced a "?? \"\"" coalesce with
@@ -296,12 +298,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsWatchButtonEnabled_RequiresGhostSameBodyRangeAndNonDebris()
+        {
+            Assert.True(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: true, inRange: true, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: false, sameBody: true, inRange: true, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: false, inRange: true, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: true, inRange: false, isDebris: false));
+            Assert.False(RecordingsTableUI.IsWatchButtonEnabled(
+                hasGhost: true, sameBody: true, inRange: true, isDebris: true));
+        }
+
+        [Fact]
+        public void ShouldEnableWatchButton_KeepsWatchedUnavailableRowsClickable()
+        {
+            Assert.True(RecordingsTableUI.ShouldEnableWatchButton(
+                canWatch: false, isWatching: true));
+            Assert.False(RecordingsTableUI.ShouldEnableWatchButton(
+                canWatch: false, isWatching: false));
+        }
+
+        [Fact]
+        public void UpdateWatchButtonTransitionCache_TracksFirstChangeAndSuppressesDuplicates()
+        {
+            var cache = new Dictionary<string, bool>();
+
+            Assert.True(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, "rec-1", true));
+            Assert.False(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, "rec-1", true));
+            Assert.True(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, "rec-1", false));
+            Assert.False(cache["rec-1"]);
+        }
+
+        [Fact]
+        public void UpdateWatchButtonTransitionCache_EmptyKey_DoesNotMutateCache()
+        {
+            var cache = new Dictionary<string, bool>();
+
+            Assert.False(RecordingsTableUI.UpdateWatchButtonTransitionCache(cache, string.Empty, true));
+            Assert.Empty(cache);
+        }
+
+        [Fact]
         public void GetWatchButtonTooltip_ExplainsNoGhost()
         {
             string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
                 isWatching: false, hasGhost: false, sameBody: true, inRange: true, isDebris: false);
 
             Assert.Contains("No active ghost", tooltip);
+        }
+
+        [Fact]
+        public void GetWatchButtonTooltip_WatchingPrioritizesExit()
+        {
+            string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
+                isWatching: true, hasGhost: false, sameBody: false, inRange: false, isDebris: false);
+
+            Assert.Equal("Exit watch mode", tooltip);
         }
 
         [Fact]

@@ -629,6 +629,32 @@ namespace Parsek
             }
         }
 
+        internal static bool IsWatchButtonEnabled(
+            bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+        {
+            return hasGhost && sameBody && inRange && !isDebris;
+        }
+
+        internal static bool ShouldEnableWatchButton(bool canWatch, bool isWatching)
+        {
+            return canWatch || isWatching;
+        }
+
+        internal static bool UpdateWatchButtonTransitionCache(
+            Dictionary<string, bool> lastCanWatchByRecId, string watchKey, bool canWatch)
+        {
+            if (lastCanWatchByRecId == null || string.IsNullOrEmpty(watchKey))
+                return false;
+
+            bool previousCanWatch;
+            if (lastCanWatchByRecId.TryGetValue(watchKey, out previousCanWatch)
+                && previousCanWatch == canWatch)
+                return false;
+
+            lastCanWatchByRecId[watchKey] = canWatch;
+            return true;
+        }
+
         internal static string GetWatchButtonReason(
             bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
@@ -643,6 +669,8 @@ namespace Parsek
         internal static string GetWatchButtonTooltip(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
+            if (isWatching)
+                return "Exit watch mode";
             if (isDebris)
                 return "Debris is not watchable";
             if (!hasGhost)
@@ -651,7 +679,7 @@ namespace Parsek
                 return "Ghost is on a different body";
             if (!inRange)
                 return "Ghost is beyond camera cutoff";
-            return isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
+            return "Follow ghost in watch mode";
         }
 
         private string BuildWatchObservabilitySuffix(ParsekFlight flight, int index)
@@ -1371,7 +1399,7 @@ namespace Parsek
                 bool sameBody = flight.IsGhostOnSameBody(ri);
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
-                bool canWatch = hasGhost && sameBody && inRange && !rec.IsDebris;
+                bool canWatch = IsWatchButtonEnabled(hasGhost, sameBody, inRange, rec.IsDebris);
 
                 // Bug #279: log enabled/disabled transitions at INFO level so future
                 // playtests can distinguish "user didn't try" from "UI was broken".
@@ -1383,11 +1411,8 @@ namespace Parsek
                 // doesn't inherit the previous occupant's cached canWatch and emit
                 // a spurious transition log line.
                 string watchKey = rec.RecordingId;
-                bool prevCanWatch;
-                if (!string.IsNullOrEmpty(watchKey)
-                    && (!lastCanWatchByRecId.TryGetValue(watchKey, out prevCanWatch) || prevCanWatch != canWatch))
+                if (UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey, canWatch))
                 {
-                    lastCanWatchByRecId[watchKey] = canWatch;
                     string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, rec.IsDebris);
                     ParsekLog.Info("UI",
                         $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
@@ -1395,7 +1420,7 @@ namespace Parsek
                         $"{BuildWatchObservabilitySuffix(flight, ri)}");
                 }
 
-                GUI.enabled = canWatch;
+                GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);
                 string watchLabel = isWatching ? "W*" : "W";
                 string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
@@ -3530,7 +3555,7 @@ namespace Parsek
                     var settings = ParsekSettings.Current;
                     double gv = settings != null
                         ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                        : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                        : LoopTiming.DefaultLoopIntervalSeconds;
                     var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                     disabledText = ParsekUI.FormatLoopValue(gv, gu) + UnitSuffix(gu);
                 }
@@ -3551,7 +3576,7 @@ namespace Parsek
                 var settings = ParsekSettings.Current;
                 double globalVal = settings != null
                     ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                    : GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+                    : LoopTiming.DefaultLoopIntervalSeconds;
                 GUI.enabled = false;
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                 GUILayout.TextField(ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
@@ -3564,14 +3589,14 @@ namespace Parsek
                 bool displayClamped;
                 double displayedSeconds = ComputeDisplayedLoopPeriod(
                     rec.LoopIntervalSeconds, loopDuration,
-                    GhostPlaybackEngine.MaxOverlapGhostsPerRecording,
+                    GhostPlayback.MaxOverlapGhostsPerRecording,
                     out displayClamped);
                 string displayText = FormatLoopPeriodDisplayText(
                     displayedSeconds, rec.LoopTimeUnit, displayClamped);
                 string clampTooltip = displayClamped
                     ? BuildLoopPeriodClampTooltip(
                         rec.LoopIntervalSeconds, displayedSeconds, loopDuration,
-                        GhostPlaybackEngine.MaxOverlapGhostsPerRecording)
+                        GhostPlayback.MaxOverlapGhostsPerRecording)
                     : string.Empty;
                 if (loopPeriodFocusedRi != ri)
                 {
@@ -3664,7 +3689,7 @@ namespace Parsek
         {
             double displayValue = ParsekUI.ConvertFromSeconds(storedSeconds, unit);
             if (double.IsNaN(displayValue) || double.IsInfinity(displayValue))
-                displayValue = ParsekUI.ConvertFromSeconds(GhostPlaybackLogic.MinCycleDuration, unit);
+                displayValue = ParsekUI.ConvertFromSeconds(LoopTiming.MinCycleDuration, unit);
             if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
                 return displayValue.ToString("G17", CultureInfo.InvariantCulture);
 
@@ -3683,10 +3708,10 @@ namespace Parsek
 
             bool invalidStored = double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds);
             double minAdjustedSeconds = invalidStored
-                ? GhostPlaybackLogic.MinCycleDuration
-                : Math.Max(storedSeconds, GhostPlaybackLogic.MinCycleDuration);
+                ? LoopTiming.MinCycleDuration
+                : Math.Max(storedSeconds, LoopTiming.MinCycleDuration);
             bool minAdjusted = invalidStored
-                || storedSeconds < GhostPlaybackLogic.MinCycleDuration - 1e-6;
+                || storedSeconds < LoopTiming.MinCycleDuration - 1e-6;
             bool capAdjusted = loopDurationSeconds > 0.0 && cap > 0
                 && effectiveSeconds - minAdjustedSeconds > 1e-6;
 
@@ -3695,7 +3720,7 @@ namespace Parsek
                 ? "invalid"
                 : storedSeconds.ToString("0.######", CultureInfo.InvariantCulture);
             string durationText = loopDurationSeconds.ToString("0.######", CultureInfo.InvariantCulture);
-            string minText = GhostPlaybackLogic.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
+            string minText = LoopTiming.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
 
             if (capAdjusted && minAdjusted)
             {
@@ -3752,14 +3777,14 @@ namespace Parsek
                 else
                 {
                     // Defensively clamp below-minimum to MinCycleDuration.
-                    if (newSeconds < GhostPlaybackLogic.MinCycleDuration)
+                    if (newSeconds < LoopTiming.MinCycleDuration)
                     {
                         ParsekLog.Info("UI",
                             $"Recording '{rec.VesselName}' loop period clamped from " +
                             $"{newSeconds.ToString("F1", ic)}s to " +
-                            $"{GhostPlaybackLogic.MinCycleDuration.ToString("F1", ic)}s " +
+                            $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s " +
                             "(MinCycleDuration)");
-                        newSeconds = GhostPlaybackLogic.MinCycleDuration;
+                        newSeconds = LoopTiming.MinCycleDuration;
                     }
                     rec.LoopIntervalSeconds = newSeconds;
                     ParsekLog.Info("UI",

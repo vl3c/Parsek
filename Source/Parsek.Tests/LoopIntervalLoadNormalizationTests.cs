@@ -143,7 +143,7 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
-            Assert.Equal(GhostPlaybackLogic.DefaultLoopIntervalSeconds, loaded.LoopIntervalSeconds);
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, loaded.LoopIntervalSeconds);
         }
 
         [Fact]
@@ -337,9 +337,9 @@ namespace Parsek.Tests
             {
                 double resolved = GhostPlaybackLogic.ResolveLoopInterval(
                     loaded,
-                    globalAutoInterval: GhostPlaybackLogic.DefaultLoopIntervalSeconds,
-                    defaultInterval: GhostPlaybackLogic.DefaultLoopIntervalSeconds,
-                    minCycleDuration: GhostPlaybackLogic.MinCycleDuration);
+                    globalAutoInterval: LoopTiming.DefaultLoopIntervalSeconds,
+                    defaultInterval: LoopTiming.DefaultLoopIntervalSeconds,
+                    minCycleDuration: LoopTiming.MinCycleDuration);
                 Assert.Equal(68.0, resolved);
             }
 
