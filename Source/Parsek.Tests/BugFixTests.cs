@@ -2425,6 +2425,10 @@ namespace Parsek.Tests
 
             Assert.Equal("Kerbin", rec.TerminalOrbitBody);
             Assert.Equal(500000, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l =>
+                l.Contains("TryGetTerminalOrbitAlignedOrbitDecision")
+                && l.Contains("terminalBody=Kerbin")
+                && l.Contains("pointBody=Mun"));
         }
 
         [Fact]

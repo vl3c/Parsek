@@ -604,6 +604,21 @@ namespace Parsek
                 return false;
             }
 
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                TrajectoryPoint lastPoint = traj.Points[traj.Points.Count - 1];
+                if (!string.IsNullOrEmpty(lastPoint.bodyName)
+                    && !string.Equals(lastPoint.bodyName, traj.TerminalOrbitBody, StringComparison.Ordinal)
+                    && lastSegment.endUT <= lastPoint.ut + EndpointEpsilon)
+                {
+                    ParsekLog.Verbose("EndpointDecision",
+                        "TryGetTerminalOrbitAlignedOrbitDecision: rejected terminal-orbit match " +
+                        $"terminalBody={traj.TerminalOrbitBody} pointBody={lastPoint.bodyName} " +
+                        $"segmentEndUT={lastSegment.endUT:F3} pointUT={lastPoint.ut:F3}");
+                    return false;
+                }
+            }
+
             bodyName = traj.TerminalOrbitBody;
             return true;
         }
