@@ -1395,10 +1395,9 @@ namespace Parsek.Tests
                 out _,
                 out _,
                 out _));
-            Assert.Contains(logLines, l =>
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("TryGetTerminalOrbitAlignedOrbitDecision")
-                && l.Contains("terminalBody=Kerbin")
-                && l.Contains("pointBody=Mun"));
+                && l.Contains("rejected terminal-orbit match"));
         }
 
         #endregion

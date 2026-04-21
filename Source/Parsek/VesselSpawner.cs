@@ -2657,14 +2657,11 @@ namespace Parsek
                 bodyName = body.name;
                 return true;
             }
-            catch (System.Security.SecurityException)
+            catch (Exception ex)
             {
-                ParsekLog.Verbose("Spawner",
-                    $"TryResolveBodyNameByIndex: FlightGlobals body registry unavailable for REF={bodyIndex}");
-                return false;
-            }
-            catch (TypeInitializationException ex) when (ex.InnerException is System.Security.SecurityException)
-            {
+                if (!IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+
                 ParsekLog.Verbose("Spawner",
                     $"TryResolveBodyNameByIndex: FlightGlobals body registry unavailable for REF={bodyIndex}");
                 return false;
@@ -2688,20 +2685,27 @@ namespace Parsek
                 body = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
                 return body != null;
             }
-            catch (System.Security.SecurityException)
+            catch (Exception ex)
             {
+                if (!IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+
                 ParsekLog.Verbose("Spawner",
                     $"TryResolveBodyByName: FlightGlobals body registry unavailable for '{bodyName}'");
                 body = null;
                 return false;
             }
-            catch (TypeInitializationException ex) when (ex.InnerException is System.Security.SecurityException)
+        }
+
+        private static bool IsHeadlessBodyRegistryFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
             {
-                ParsekLog.Verbose("Spawner",
-                    $"TryResolveBodyByName: FlightGlobals body registry unavailable for '{bodyName}'");
-                body = null;
-                return false;
+                if (current is System.Security.SecurityException)
+                    return true;
             }
+
+            return false;
         }
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)

@@ -247,20 +247,16 @@ namespace Parsek
 
                 return applied;
             }
-            catch (System.Security.SecurityException ex)
+            catch (Exception ex)
             {
+                string diagnostic = TryDescribeHeadlessFlightGlobalsFailure(ex);
+                if (diagnostic == null)
+                    throw;
+
                 flightGlobalsRuntimeAvailableForTesting = false;
                 ParsekLog.Verbose("Extrapolator",
                     $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recording?.RecordingId ?? "(null)"}' " +
-                    $"({ex.GetType().Name}) — skipping default scene-exit extrapolation");
-                return false;
-            }
-            catch (TypeInitializationException ex) when (ex.InnerException is System.Security.SecurityException)
-            {
-                flightGlobalsRuntimeAvailableForTesting = false;
-                ParsekLog.Verbose("Extrapolator",
-                    $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recording?.RecordingId ?? "(null)"}' " +
-                    $"({ex.InnerException.GetType().Name}) — skipping default scene-exit extrapolation");
+                    $"({diagnostic}) — skipping default scene-exit extrapolation");
                 return false;
             }
         }
@@ -271,7 +267,6 @@ namespace Parsek
             if (diagnostic == null)
                 return false;
 
-            flightGlobalsRuntimeAvailableForTesting = false;
             ParsekLog.Verbose("Extrapolator",
                 $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' " +
                 $"({diagnostic}) — skipping default scene-exit extrapolation");

@@ -114,6 +114,28 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
+            Description = "Spawn rotation prep leaves rot unchanged and warns when body resolution is unavailable")]
+        public static void TryApplySpawnRotationFromSurfaceRelative_NullBody_LeavesRotUnchangedAndWarns()
+        {
+            List<string> logLines = CaptureLogLines(() =>
+            {
+                var snapshot = new ConfigNode("VESSEL");
+                snapshot.AddValue("rot", "1,0,0,0");
+
+                bool applied = VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+                    snapshot,
+                    body: null,
+                    surfaceRelativeRotation: Quaternion.identity,
+                    context: "missing body test");
+
+                InGameAssert.IsFalse(applied, "Expected null-body spawn prep to decline");
+                InGameAssert.AreEqual("1,0,0,0", snapshot.GetValue("rot"));
+            });
+
+            AssertContains(logLines, "[Spawner]", "Spawn rotation prep skipped", "missing body test");
+        }
+
+        [InGameTest(Category = "SpawnRotation", Scene = GameScenes.FLIGHT,
             Description = "Terminal surface pose takes precedence over the last trajectory point when choosing a spawn rotation frame")]
         public static void TryGetPreferredSpawnRotationFrame_SurfaceTerminal_PrefersTerminalSurfacePoseAndBody()
         {
