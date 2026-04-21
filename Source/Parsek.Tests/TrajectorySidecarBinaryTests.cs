@@ -109,6 +109,11 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "section-authoritative.prec");
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 9);
 
+            BinaryTrajectoryEnvelope envelope = ReadEnvelopeHeader(path);
+            Assert.True(envelope.SectionAuthoritative);
+            Assert.Equal(0, envelope.PointCount);
+            Assert.Equal(0, envelope.OrbitSegmentCount);
+
             TrajectorySidecarProbe probe;
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
@@ -324,8 +329,38 @@ namespace Parsek.Tests
         {
             Recording rec = BuildSectionAuthoritativeFixture();
             rec.RecordingId = "flat-fallback";
-            rec.OrbitSegments.Add(MakeOrbitSegment(630, 930, isPredicted: true));
+            double tailStartUt = rec.OrbitSegments[rec.OrbitSegments.Count - 1].endUT;
+            rec.OrbitSegments.Add(MakeOrbitSegment(tailStartUt, tailStartUt + 300, isPredicted: true));
             return rec;
+        }
+
+        private static BinaryTrajectoryEnvelope ReadEnvelopeHeader(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader = new BinaryReader(stream, Encoding.UTF8))
+            {
+                string magic = Encoding.ASCII.GetString(reader.ReadBytes(4));
+                Assert.Equal("PRKB", magic);
+
+                reader.ReadInt32(); // version
+                reader.ReadInt32(); // sidecarEpoch
+                reader.ReadString(); // recordingId
+                byte flags = reader.ReadByte();
+
+                int stringCount = reader.ReadInt32();
+                for (int i = 0; i < stringCount; i++)
+                    reader.ReadString();
+
+                int pointCount = reader.ReadInt32();
+                int orbitSegmentCount = pointCount == 0 ? reader.ReadInt32() : -1;
+
+                return new BinaryTrajectoryEnvelope
+                {
+                    SectionAuthoritative = (flags & 0x1) != 0,
+                    PointCount = pointCount,
+                    OrbitSegmentCount = orbitSegmentCount
+                };
+            }
         }
 
         private static OrbitSegment MakeOrbitSegment(double startUT, double endUT, bool isPredicted)
@@ -424,6 +459,13 @@ namespace Parsek.Tests
             Assert.Equal(expected.checkpoints.Count, actual.checkpoints.Count);
             for (int i = 0; i < expected.checkpoints.Count; i++)
                 AssertOrbitSegmentEqual(expected.checkpoints[i], actual.checkpoints[i]);
+        }
+
+        private sealed class BinaryTrajectoryEnvelope
+        {
+            public bool SectionAuthoritative { get; set; }
+            public int PointCount { get; set; }
+            public int OrbitSegmentCount { get; set; }
         }
     }
 }
