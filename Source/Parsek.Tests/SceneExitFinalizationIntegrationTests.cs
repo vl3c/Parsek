@@ -757,6 +757,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_SceneExitHook_SameUtPointAnchor_StaysOnSceneExitPreservePath()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    recording.TerminalOrbitBody = "Mun";
+                    recording.TerminalOrbitSemiMajorAxis = 250000.0;
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 350.0,
+                        vesselSnapshot = MakeSnapshot("ORBITING")
+                    };
+                    return true;
+                };
+
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-preserve-same-ut-point-anchor",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Mun" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+                semiMajorAxis = 700000.0
+            });
+
+            bool skipLiveResnapshot = ParsekFlight.FinalizeIndividualRecording(
+                rec, commitUT: 200.0, isSceneExit: true);
+
+            Assert.True(skipLiveResnapshot);
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l =>
+                l.Contains("preserving scene-exit terminal orbit") &&
+                l.Contains("scene-exit-preserve-same-ut-point-anchor"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("same-UT point-anchored terminal orbit") &&
+                l.Contains("scene-exit-preserve-same-ut-point-anchor"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("PopulateTerminalOrbitFromLastSegment") &&
+                l.Contains("scene-exit-preserve-same-ut-point-anchor"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_SceneExitHook_DoesNotTreatStaleTerminalOrbitAsHookAuthored()
         {
             IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =

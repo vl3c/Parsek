@@ -6246,12 +6246,12 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
-            Description = "#475/#484: endpoint-aligned backfill heals a stale cached terminal orbit body when the orbit endpoint extends past the last point")]
-        public void TerminalOrbitBackfill_StaleCachedBody_EndpointAlignedSegment_Overwrites()
+            Description = "#520: same-UT point anchors keep a correct cached terminal orbit body authoritative over a conflicting later orbit segment")]
+        public void TerminalOrbitBackfill_SameUtPointAnchor_PreservesCachedBody()
         {
             var rec = new Recording
             {
-                VesselName = "TestHealStaleBody",
+                VesselName = "TestPreserveSameUtPointAnchor",
                 VesselPersistentId = 0,
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Mun",
@@ -6284,12 +6284,26 @@ namespace Parsek.InGameTests
                 ParsekLog.TestSinkForTesting = priorSink;
             }
 
-            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
-                "Endpoint-aligned orbit segment should heal a stale cached TerminalOrbitBody");
-            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            InGameAssert.AreEqual("Mun", rec.TerminalOrbitBody,
+                "Same-UT point anchor should keep the cached TerminalOrbitBody authoritative");
+            InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+            string preserveLine = captured.LastOrDefault(line =>
+                line.Contains("FinalizeIndividualRecording: preserved same-UT point-anchored terminal orbit")
+                && line.Contains("pointBody=Mun")
+                && line.Contains("conflictingSegmentBody=Kerbin")
+                && line.Contains("conflictingSegmentStartUT=1000.000")
+                && line.Contains("pointUT=1000.000"));
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(preserveLine),
+                "Expected same-UT point-anchor preserve INFO log");
+            InGameAssert.IsTrue(preserveLine.Contains("[INFO][Flight]"),
+                $"Expected preserve log to be INFO/[Flight], got: {preserveLine ?? "(null)"}");
+            InGameAssert.IsFalse(captured.Any(line =>
+                    line.Contains("PopulateTerminalOrbitFromLastSegment")
+                    && line.Contains("healed stale cached terminal orbit")),
+                "Same-UT point-anchor preserve path should not heal from the conflicting later segment");
 
             ParsekLog.Verbose("TestRunner",
-                "TerminalOrbitBody stale-cache heal verified: body Mun -> Kerbin");
+                "TerminalOrbitBody same-UT point-anchor preserve verified: body remains Mun");
         }
 
         [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,

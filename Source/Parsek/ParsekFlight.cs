@@ -7159,7 +7159,15 @@ namespace Parsek
                         $"(terminal={rec.TerminalStateValue})");
                 }
 
-                if (!preserveSceneExitTerminalOrbit && ShouldPopulateTerminalOrbitFromLastSegment(rec))
+                // Evaluate the same-UT point-anchor guard after any live-vessel
+                // refresh. If CaptureTerminalOrbit just rewrote TerminalOrbitBody,
+                // that refreshed body should stay authoritative instead of letting
+                // stale point metadata from a prior SOI suppress the finalize path.
+                bool handledSameUtPointAnchor = !preserveSceneExitTerminalOrbit
+                    && TryHandleFinalizeSameUtPointAnchoredTerminalOrbit(rec);
+                if (!handledSameUtPointAnchor
+                    && !preserveSceneExitTerminalOrbit
+                    && ShouldPopulateTerminalOrbitFromLastSegment(rec))
                 {
                     string bodyBeforeFallback = rec.TerminalOrbitBody;
                     PopulateTerminalOrbitFromLastSegment(rec);
@@ -7888,10 +7896,10 @@ namespace Parsek
             }
         }
 
-        private const double TerminalOrbitTupleMatchTolerance = 1e-6;
+        private const double TerminalOrbitNumericTolerance = 1e-6;
 
         private static bool TerminalOrbitScalarMatches(double cachedValue, double segmentValue)
-            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitTupleMatchTolerance;
+            => Math.Abs(cachedValue - segmentValue) <= TerminalOrbitNumericTolerance;
 
         private static bool CachedTerminalOrbitMatchesSegment(Recording rec, OrbitSegment seg)
         {
@@ -7906,6 +7914,156 @@ namespace Parsek
                 && TerminalOrbitScalarMatches(rec.TerminalOrbitArgumentOfPeriapsis, seg.argumentOfPeriapsis)
                 && TerminalOrbitScalarMatches(rec.TerminalOrbitMeanAnomalyAtEpoch, seg.meanAnomalyAtEpoch)
                 && TerminalOrbitScalarMatches(rec.TerminalOrbitEpoch, seg.epoch);
+        }
+
+        private static void CopyTerminalOrbitFromSegment(Recording rec, OrbitSegment seg)
+        {
+            rec.TerminalOrbitInclination = seg.inclination;
+            rec.TerminalOrbitEccentricity = seg.eccentricity;
+            rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
+            rec.TerminalOrbitLAN = seg.longitudeOfAscendingNode;
+            rec.TerminalOrbitArgumentOfPeriapsis = seg.argumentOfPeriapsis;
+            rec.TerminalOrbitMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
+            rec.TerminalOrbitEpoch = seg.epoch;
+            rec.TerminalOrbitBody = seg.bodyName;
+        }
+
+        private static bool TryGetSameUtPointAnchoredTerminalOrbitBody(
+            Recording rec,
+            OrbitSegment seg,
+            out string pointBody,
+            out double pointUT)
+        {
+            pointBody = null;
+            pointUT = 0.0;
+
+            if (rec?.Points == null || rec.Points.Count == 0
+                || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+            {
+                return false;
+            }
+
+            // Only the terminal point is authoritative for this finalize-only
+            // same-UT check; earlier points may legitimately belong to a prior SOI.
+            TrajectoryPoint lastPoint = rec.Points[rec.Points.Count - 1];
+            pointBody = lastPoint.bodyName;
+            pointUT = lastPoint.ut;
+            if (string.IsNullOrEmpty(pointBody)
+                || !string.Equals(pointBody, rec.TerminalOrbitBody, StringComparison.Ordinal)
+                || string.Equals(pointBody, seg.bodyName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return Math.Abs(seg.startUT - pointUT) <= TerminalOrbitNumericTolerance;
+        }
+
+        private static bool TryGetLastMatchingBodyOrbitSegment(
+            Recording rec,
+            string bodyName,
+            out OrbitSegment matchingSeg)
+        {
+            matchingSeg = default;
+            if (rec?.OrbitSegments == null || string.IsNullOrEmpty(bodyName))
+                return false;
+
+            // Skip the conflicting last segment and walk backward through earlier
+            // orbit evidence on the point-anchored body.
+            for (int i = rec.OrbitSegments.Count - 2; i >= 0; i--)
+            {
+                OrbitSegment candidate = rec.OrbitSegments[i];
+                if (candidate.semiMajorAxis > 0.0
+                    && string.Equals(candidate.bodyName, bodyName, StringComparison.Ordinal))
+                {
+                    matchingSeg = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void LogPreservedSameUtPointAnchor(
+            Recording rec,
+            OrbitSegment conflictingSeg,
+            string pointBody,
+            double pointUT)
+        {
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FinalizeIndividualRecording: preserved same-UT point-anchored terminal orbit for '{0}' pointBody={1} conflictingSegmentBody={2} conflictingSegmentStartUT={3:F3} pointUT={4:F3}",
+                    rec?.RecordingId ?? "(null)",
+                    pointBody,
+                    conflictingSeg.bodyName,
+                    conflictingSeg.startUT,
+                    pointUT));
+        }
+
+        private static void LogSuspiciousSameUtPointAnchorPreserve(
+            Recording rec,
+            OrbitSegment conflictingSeg,
+            string pointBody,
+            double pointUT)
+        {
+            ParsekLog.Warn("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FinalizeIndividualRecording: preserved same-UT point-anchored terminal orbit for '{0}' without matching-body heal evidence despite cachedSma={1:F1} pointBody={2} conflictingSegmentBody={3} conflictingSegmentStartUT={4:F3} pointUT={5:F3}",
+                    rec?.RecordingId ?? "(null)",
+                    rec?.TerminalOrbitSemiMajorAxis ?? double.NaN,
+                    pointBody,
+                    conflictingSeg.bodyName,
+                    conflictingSeg.startUT,
+                    pointUT));
+        }
+
+        private static bool TryHandleFinalizeSameUtPointAnchoredTerminalOrbit(Recording rec)
+        {
+            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return false;
+
+            OrbitSegment conflictingSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+            if (!TryGetSameUtPointAnchoredTerminalOrbitBody(
+                rec,
+                conflictingSeg,
+                out string pointBody,
+                out double pointUT))
+            {
+                return false;
+            }
+
+            if (TryGetLastMatchingBodyOrbitSegment(rec, pointBody, out OrbitSegment matchingSeg))
+            {
+                if (CachedTerminalOrbitMatchesSegment(rec, matchingSeg))
+                {
+                    LogPreservedSameUtPointAnchor(rec, conflictingSeg, pointBody, pointUT);
+                }
+                else
+                {
+                    string previousBody = rec.TerminalOrbitBody;
+                    double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
+                    CopyTerminalOrbitFromSegment(rec, matchingSeg);
+                    ParsekLog.Warn("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "FinalizeIndividualRecording: healed same-UT point-anchored terminal orbit for '{0}' previousBody={1} previousSma={2:F1} healedBody={3} healedSma={4:F1} matchingSegmentEndUT={5:F3} conflictingSegmentBody={6} conflictingSegmentStartUT={7:F3} pointUT={8:F3}",
+                            rec.RecordingId ?? "(null)",
+                            previousBody ?? "(empty)",
+                            previousSemiMajorAxis,
+                            matchingSeg.bodyName,
+                            matchingSeg.semiMajorAxis,
+                            matchingSeg.endUT,
+                            conflictingSeg.bodyName,
+                            conflictingSeg.startUT,
+                            pointUT));
+                }
+
+                return true;
+            }
+
+            if (rec.TerminalOrbitSemiMajorAxis <= 0.0)
+                LogSuspiciousSameUtPointAnchorPreserve(rec, conflictingSeg, pointBody, pointUT);
+            else
+                LogPreservedSameUtPointAnchor(rec, conflictingSeg, pointBody, pointUT);
+            return true;
         }
 
         /// <summary>
@@ -7987,14 +8145,7 @@ namespace Parsek
             double previousSemiMajorAxis = rec.TerminalOrbitSemiMajorAxis;
             bool healingStaleCachedTuple = !string.IsNullOrEmpty(previousBody)
                 && !CachedTerminalOrbitMatchesSegment(rec, seg);
-            rec.TerminalOrbitInclination = seg.inclination;
-            rec.TerminalOrbitEccentricity = seg.eccentricity;
-            rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
-            rec.TerminalOrbitLAN = seg.longitudeOfAscendingNode;
-            rec.TerminalOrbitArgumentOfPeriapsis = seg.argumentOfPeriapsis;
-            rec.TerminalOrbitMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
-            rec.TerminalOrbitEpoch = seg.epoch;
-            rec.TerminalOrbitBody = seg.bodyName;
+            CopyTerminalOrbitFromSegment(rec, seg);
 
             if (healingStaleCachedTuple)
             {
