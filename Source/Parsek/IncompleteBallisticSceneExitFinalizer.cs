@@ -56,23 +56,38 @@ namespace Parsek
             Stopwatch stopwatch = Stopwatch.StartNew();
             var finalize = TryFinalizeHook ?? TryFinalizeOverrideForTesting ?? TryFinalizeRecording;
             bool usingHook = TryFinalizeHook != null;
-            if (!finalize(recording, vessel, commitUT, out var result))
+            bool usingDefaultFinalize = TryFinalizeHook == null && TryFinalizeOverrideForTesting == null;
+            IncompleteBallisticFinalizationResult result;
+            try
             {
-                if (usingHook)
+                if (!finalize(recording, vessel, commitUT, out result))
                 {
-                    double currentEndUT = recording != null ? recording.EndUT : double.NaN;
-                    ParsekLog.Verbose("Extrapolator",
-                        string.Format(
-                            CultureInfo.InvariantCulture,
-                            "{0}: incomplete-ballistic finalization hook declined for '{1}' " +
-                            "(commitUT={2:F1}, currentEndUT={3:F1}, vesselFound={4})",
-                            logContext ?? "SceneExitFinalizer",
-                            recording?.RecordingId ?? "(null)",
-                            commitUT,
-                            currentEndUT,
-                            vessel != null));
+                    if (usingHook)
+                    {
+                        double currentEndUT = recording != null ? recording.EndUT : double.NaN;
+                        ParsekLog.Verbose("Extrapolator",
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "{0}: incomplete-ballistic finalization hook declined for '{1}' " +
+                                "(commitUT={2:F1}, currentEndUT={3:F1}, vesselFound={4})",
+                                logContext ?? "SceneExitFinalizer",
+                                recording?.RecordingId ?? "(null)",
+                                commitUT,
+                                currentEndUT,
+                                vessel != null));
+                    }
+                    return false;
                 }
-                return false;
+            }
+            catch (Exception ex)
+            {
+                if (usingDefaultFinalize
+                    && TryHandleHeadlessFlightGlobalsFailure(recording != null ? recording.RecordingId : null, ex))
+                {
+                    return false;
+                }
+
+                throw;
             }
 
             if (!ValidateResult(recording, commitUT, result, logContext))
@@ -248,6 +263,30 @@ namespace Parsek
                     $"({ex.InnerException.GetType().Name}) — skipping default scene-exit extrapolation");
                 return false;
             }
+        }
+
+        private static bool TryHandleHeadlessFlightGlobalsFailure(string recordingId, Exception ex)
+        {
+            string diagnostic = TryDescribeHeadlessFlightGlobalsFailure(ex);
+            if (diagnostic == null)
+                return false;
+
+            flightGlobalsRuntimeAvailableForTesting = false;
+            ParsekLog.Verbose("Extrapolator",
+                $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' " +
+                $"({diagnostic}) — skipping default scene-exit extrapolation");
+            return true;
+        }
+
+        private static string TryDescribeHeadlessFlightGlobalsFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is System.Security.SecurityException)
+                    return current.GetType().Name;
+            }
+
+            return null;
         }
 
         internal static bool IsFlightGlobalsRuntimeAvailable(string recordingId)

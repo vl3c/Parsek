@@ -2641,19 +2641,34 @@ namespace Parsek
                 return resolver(bodyIndex, out bodyName);
             }
 
-            if (FlightGlobals.Bodies == null
-                || bodyIndex < 0
-                || bodyIndex >= FlightGlobals.Bodies.Count)
+            try
             {
+                if (FlightGlobals.Bodies == null
+                    || bodyIndex < 0
+                    || bodyIndex >= FlightGlobals.Bodies.Count)
+                {
+                    return false;
+                }
+
+                CelestialBody body = FlightGlobals.Bodies[bodyIndex];
+                if (body == null || string.IsNullOrEmpty(body.name))
+                    return false;
+
+                bodyName = body.name;
+                return true;
+            }
+            catch (System.Security.SecurityException)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"TryResolveBodyNameByIndex: FlightGlobals body registry unavailable for REF={bodyIndex}");
                 return false;
             }
-
-            CelestialBody body = FlightGlobals.Bodies[bodyIndex];
-            if (body == null || string.IsNullOrEmpty(body.name))
+            catch (TypeInitializationException ex) when (ex.InnerException is System.Security.SecurityException)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"TryResolveBodyNameByIndex: FlightGlobals body registry unavailable for REF={bodyIndex}");
                 return false;
-
-            bodyName = body.name;
-            return true;
+            }
         }
 
         internal static bool TryResolveBodyByName(string bodyName, out CelestialBody body)
@@ -2668,8 +2683,25 @@ namespace Parsek
                 return resolver(bodyName, out body);
             }
 
-            body = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
-            return body != null;
+            try
+            {
+                body = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+                return body != null;
+            }
+            catch (System.Security.SecurityException)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"TryResolveBodyByName: FlightGlobals body registry unavailable for '{bodyName}'");
+                body = null;
+                return false;
+            }
+            catch (TypeInitializationException ex) when (ex.InnerException is System.Security.SecurityException)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"TryResolveBodyByName: FlightGlobals body registry unavailable for '{bodyName}'");
+                body = null;
+                return false;
+            }
         }
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)
