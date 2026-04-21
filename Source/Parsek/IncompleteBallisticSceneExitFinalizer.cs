@@ -27,6 +27,9 @@ namespace Parsek
 
     internal static class IncompleteBallisticSceneExitFinalizer
     {
+        private static bool? flightGlobalsRuntimeAvailableForTesting;
+        internal static Func<(bool runtimeAvailable, bool cacheResult, string diagnostic)> FlightGlobalsRuntimeAvailabilityOverrideForTesting;
+
         internal delegate bool TryFinalizeDelegate(
             Recording recording,
             Vessel vessel,
@@ -38,6 +41,8 @@ namespace Parsek
 
         internal static void ResetForTesting()
         {
+            flightGlobalsRuntimeAvailableForTesting = null;
+            FlightGlobalsRuntimeAvailabilityOverrideForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
         }
@@ -51,23 +56,38 @@ namespace Parsek
             Stopwatch stopwatch = Stopwatch.StartNew();
             var finalize = TryFinalizeHook ?? TryFinalizeOverrideForTesting ?? TryFinalizeRecording;
             bool usingHook = TryFinalizeHook != null;
-            if (!finalize(recording, vessel, commitUT, out var result))
+            bool usingDefaultFinalize = TryFinalizeHook == null && TryFinalizeOverrideForTesting == null;
+            IncompleteBallisticFinalizationResult result;
+            try
             {
-                if (usingHook)
+                if (!finalize(recording, vessel, commitUT, out result))
                 {
-                    double currentEndUT = recording != null ? recording.EndUT : double.NaN;
-                    ParsekLog.Verbose("Extrapolator",
-                        string.Format(
-                            CultureInfo.InvariantCulture,
-                            "{0}: incomplete-ballistic finalization hook declined for '{1}' " +
-                            "(commitUT={2:F1}, currentEndUT={3:F1}, vesselFound={4})",
-                            logContext ?? "SceneExitFinalizer",
-                            recording?.RecordingId ?? "(null)",
-                            commitUT,
-                            currentEndUT,
-                            vessel != null));
+                    if (usingHook)
+                    {
+                        double currentEndUT = recording != null ? recording.EndUT : double.NaN;
+                        ParsekLog.Verbose("Extrapolator",
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "{0}: incomplete-ballistic finalization hook declined for '{1}' " +
+                                "(commitUT={2:F1}, currentEndUT={3:F1}, vesselFound={4})",
+                                logContext ?? "SceneExitFinalizer",
+                                recording?.RecordingId ?? "(null)",
+                                commitUT,
+                                currentEndUT,
+                                vessel != null));
+                    }
+                    return false;
                 }
-                return false;
+            }
+            catch (Exception ex)
+            {
+                if (usingDefaultFinalize
+                    && TryHandleHeadlessFlightGlobalsFailure(recording != null ? recording.RecordingId : null, ex))
+                {
+                    return false;
+                }
+
+                throw;
             }
 
             if (!ValidateResult(recording, commitUT, result, logContext))
@@ -100,128 +120,217 @@ namespace Parsek
             out IncompleteBallisticFinalizationResult result)
         {
             result = default(IncompleteBallisticFinalizationResult);
-
-            if (recording == null || vessel == null || vessel.orbit == null)
-                return false;
-
-            CelestialBody referenceBody = vessel.orbit.referenceBody;
-            if (referenceBody == null || string.IsNullOrEmpty(referenceBody.name))
+            try
             {
-                ParsekLog.Warn("Extrapolator",
-                    $"TryFinalizeRecording: '{recording.RecordingId}' missing reference body; skipping scene-exit extrapolation");
-                return false;
-            }
+                if (!IsFlightGlobalsRuntimeAvailable(recording != null ? recording.RecordingId : null))
+                    return false;
 
-            double cutoffAltitude = GetBallisticCutoffAltitude(referenceBody);
-            if (!BallisticExtrapolator.ShouldExtrapolate(
-                    vessel.situation,
-                    vessel.orbit.eccentricity,
-                    vessel.orbit.PeA,
-                    cutoffAltitude))
-                return false;
+                if (recording == null || vessel == null || vessel.orbit == null)
+                    return false;
 
-            if (!TryBuildExtrapolationBodies(recording.RecordingId, commitUT, out var bodies))
-                return false;
-
-            var appendedSegments = new List<OrbitSegment>();
-            var snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(vessel, commitUT);
-            if (snapshot.Segments != null && snapshot.Segments.Count > 0)
-            {
-                appendedSegments.AddRange(snapshot.Segments);
-                SeedPredictedSegmentOrbitalFrameRotations(
-                    recording.RecordingId,
-                    appendedSegments,
-                    vessel.transform != null ? vessel.transform.rotation : UnityEngine.Quaternion.identity,
-                    bodies);
-                result.patchedSegmentCount = snapshot.CapturedPatchCount;
-            }
-            else if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None)
-            {
-                ParsekLog.Warn("Extrapolator",
-                    $"TryFinalizeRecording: patched-conic snapshot failed for '{recording.RecordingId}' " +
-                    $"with {snapshot.FailureReason}; falling back to live orbit state");
-            }
-
-            ConfigNode snapshotNode = VesselSpawner.TryBackupSnapshot(vessel);
-            if (snapshotNode != null)
-            {
-                result.vesselSnapshot = snapshotNode;
-                result.ghostVisualSnapshot = snapshotNode.CreateCopy();
-            }
-
-            if (snapshot.StoppedBeforeManeuver && appendedSegments.Count > 0)
-            {
-                OrbitSegment terminalSegment = appendedSegments[appendedSegments.Count - 1];
-                StampTerminalOrbitFromSegment(recording, terminalSegment);
-                result.appendedOrbitSegments = appendedSegments;
-                result.terminalState = TerminalState.Orbiting;
-                result.terminalUT = terminalSegment.endUT;
-                return true;
-            }
-
-            if (TryShortCircuitSolverPredictedImpact(
-                recording.RecordingId,
-                appendedSegments,
-                bodies,
-                out double impactTerminalUT))
-            {
-                result.appendedOrbitSegments = appendedSegments;
-                result.terminalState = TerminalState.Destroyed;
-                result.terminalUT = impactTerminalUT;
-                return true;
-            }
-
-            BallisticStateVector startState;
-            if (appendedSegments.Count > 0)
-            {
-                OrbitSegment lastSegment = appendedSegments[appendedSegments.Count - 1];
-                if (!TryBuildStartStateFromSegment(lastSegment, bodies, out startState))
+                CelestialBody referenceBody = vessel.orbit.referenceBody;
+                if (referenceBody == null || string.IsNullOrEmpty(referenceBody.name))
                 {
                     ParsekLog.Warn("Extrapolator",
-                        $"TryFinalizeRecording: failed to propagate terminal predicted segment for '{recording.RecordingId}' " +
-                        $"(body={lastSegment.bodyName ?? "(null)"}, endUT={lastSegment.endUT:F1})");
+                        $"TryFinalizeRecording: '{recording.RecordingId}' missing reference body; skipping scene-exit extrapolation");
                     return false;
                 }
+
+                double cutoffAltitude = GetBallisticCutoffAltitude(referenceBody);
+                if (!BallisticExtrapolator.ShouldExtrapolate(
+                        vessel.situation,
+                        vessel.orbit.eccentricity,
+                        vessel.orbit.PeA,
+                        cutoffAltitude))
+                    return false;
+
+                if (!TryBuildExtrapolationBodies(recording.RecordingId, commitUT, out var bodies))
+                    return false;
+
+                var appendedSegments = new List<OrbitSegment>();
+                var snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(vessel, commitUT);
+                if (snapshot.Segments != null && snapshot.Segments.Count > 0)
+                {
+                    appendedSegments.AddRange(snapshot.Segments);
+                    SeedPredictedSegmentOrbitalFrameRotations(
+                        recording.RecordingId,
+                        appendedSegments,
+                        vessel.transform != null ? vessel.transform.rotation : UnityEngine.Quaternion.identity,
+                        bodies);
+                    result.patchedSegmentCount = snapshot.CapturedPatchCount;
+                }
+                else if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None)
+                {
+                    ParsekLog.Warn("Extrapolator",
+                        $"TryFinalizeRecording: patched-conic snapshot failed for '{recording.RecordingId}' " +
+                        $"with {snapshot.FailureReason}; falling back to live orbit state");
+                }
+
+                ConfigNode snapshotNode = VesselSpawner.TryBackupSnapshot(vessel);
+                if (snapshotNode != null)
+                {
+                    result.vesselSnapshot = snapshotNode;
+                    result.ghostVisualSnapshot = snapshotNode.CreateCopy();
+                }
+
+                if (snapshot.StoppedBeforeManeuver && appendedSegments.Count > 0)
+                {
+                    OrbitSegment terminalSegment = appendedSegments[appendedSegments.Count - 1];
+                    StampTerminalOrbitFromSegment(recording, terminalSegment);
+                    result.appendedOrbitSegments = appendedSegments;
+                    result.terminalState = TerminalState.Orbiting;
+                    result.terminalUT = terminalSegment.endUT;
+                    return true;
+                }
+
+                if (TryShortCircuitSolverPredictedImpact(
+                    recording.RecordingId,
+                    appendedSegments,
+                    bodies,
+                    out double impactTerminalUT))
+                {
+                    result.appendedOrbitSegments = appendedSegments;
+                    result.terminalState = TerminalState.Destroyed;
+                    result.terminalUT = impactTerminalUT;
+                    return true;
+                }
+
+                BallisticStateVector startState;
+                if (appendedSegments.Count > 0)
+                {
+                    OrbitSegment lastSegment = appendedSegments[appendedSegments.Count - 1];
+                    if (!TryBuildStartStateFromSegment(lastSegment, bodies, out startState))
+                    {
+                        ParsekLog.Warn("Extrapolator",
+                            $"TryFinalizeRecording: failed to propagate terminal predicted segment for '{recording.RecordingId}' " +
+                            $"(body={lastSegment.bodyName ?? "(null)"}, endUT={lastSegment.endUT:F1})");
+                        return false;
+                    }
+                }
+                else if (!TryBuildStartStateFromVessel(vessel, commitUT, out startState))
+                {
+                    ParsekLog.Warn("Extrapolator",
+                        $"TryFinalizeRecording: failed to sample live vessel orbit for '{recording.RecordingId}' at commitUT={commitUT:F1}");
+                    return false;
+                }
+
+                ExtrapolationResult extrapolated = BallisticExtrapolator.Extrapolate(startState, bodies);
+                if (extrapolated.segments != null)
+                {
+                    for (int i = 0; i < extrapolated.segments.Count; i++)
+                    {
+                        OrbitSegment segment = extrapolated.segments[i];
+                        if (segment.endUT > segment.startUT)
+                            appendedSegments.Add(segment);
+                    }
+                }
+
+                result.appendedOrbitSegments = appendedSegments.Count > 0 ? appendedSegments : null;
+                result.extrapolatedSegmentCount = extrapolated.segments != null
+                    ? extrapolated.segments.Count
+                    : 0;
+                result.terminalState = extrapolated.terminalState;
+                result.terminalUT = extrapolated.terminalUT;
+
+                if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
+                    StampTerminalOrbitFromSegment(recording, appendedSegments[appendedSegments.Count - 1]);
+
+                bool applied = appendedSegments.Count > 0
+                    || (!double.IsNaN(result.terminalUT)
+                        && (double.IsNaN(recording.EndUT) || result.terminalUT > recording.EndUT));
+                if (!applied)
+                {
+                    ParsekLog.Warn("Extrapolator",
+                        $"TryFinalizeRecording: no extended lifetime produced for '{recording.RecordingId}' " +
+                        $"(terminal={result.terminalState}, terminalUT={result.terminalUT:F1}, failure={extrapolated.failureReason})");
+                }
+
+                return applied;
             }
-            else if (!TryBuildStartStateFromVessel(vessel, commitUT, out startState))
+            catch (Exception ex)
             {
-                ParsekLog.Warn("Extrapolator",
-                    $"TryFinalizeRecording: failed to sample live vessel orbit for '{recording.RecordingId}' at commitUT={commitUT:F1}");
+                string diagnostic = TryDescribeHeadlessFlightGlobalsFailure(ex);
+                if (diagnostic == null)
+                    throw;
+
+                flightGlobalsRuntimeAvailableForTesting = false;
+                ParsekLog.Verbose("Extrapolator",
+                    $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recording?.RecordingId ?? "(null)"}' " +
+                    $"({diagnostic}) — skipping default scene-exit extrapolation");
                 return false;
             }
+        }
 
-            ExtrapolationResult extrapolated = BallisticExtrapolator.Extrapolate(startState, bodies);
-            if (extrapolated.segments != null)
+        private static bool TryHandleHeadlessFlightGlobalsFailure(string recordingId, Exception ex)
+        {
+            string diagnostic = TryDescribeHeadlessFlightGlobalsFailure(ex);
+            if (diagnostic == null)
+                return false;
+
+            ParsekLog.Verbose("Extrapolator",
+                $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' " +
+                $"({diagnostic}) — skipping default scene-exit extrapolation");
+            return true;
+        }
+
+        private static string TryDescribeHeadlessFlightGlobalsFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
             {
-                for (int i = 0; i < extrapolated.segments.Count; i++)
+                if (current is System.Security.SecurityException)
+                    return current.GetType().Name;
+            }
+
+            return null;
+        }
+
+        internal static bool IsFlightGlobalsRuntimeAvailable(string recordingId)
+        {
+            if (flightGlobalsRuntimeAvailableForTesting.HasValue)
+            {
+                if (!flightGlobalsRuntimeAvailableForTesting.Value)
                 {
-                    OrbitSegment segment = extrapolated.segments[i];
-                    if (segment.endUT > segment.startUT)
-                        appendedSegments.Add(segment);
+                    ParsekLog.Verbose("Extrapolator",
+                        $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' — " +
+                        "skipping default scene-exit extrapolation");
+                }
+                return flightGlobalsRuntimeAvailableForTesting.Value;
+            }
+
+            bool runtimeAvailable;
+            bool cacheResult;
+            string diagnostic;
+            if (FlightGlobalsRuntimeAvailabilityOverrideForTesting != null)
+            {
+                (runtimeAvailable, cacheResult, diagnostic) = FlightGlobalsRuntimeAvailabilityOverrideForTesting();
+            }
+            else
+            {
+                try
+                {
+                    bool hasFetch = FlightGlobals.fetch != null;
+                    bool ready = FlightGlobals.ready;
+                    runtimeAvailable = hasFetch && ready;
+                    cacheResult = runtimeAvailable;
+                    diagnostic = $"fetch={hasFetch}, ready={ready}";
+                }
+                catch (Exception ex)
+                {
+                    runtimeAvailable = false;
+                    cacheResult = true;
+                    diagnostic = ex.GetType().Name;
                 }
             }
 
-            result.appendedOrbitSegments = appendedSegments.Count > 0 ? appendedSegments : null;
-            result.extrapolatedSegmentCount = extrapolated.segments != null
-                ? extrapolated.segments.Count
-                : 0;
-            result.terminalState = extrapolated.terminalState;
-            result.terminalUT = extrapolated.terminalUT;
-
-            if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
-                StampTerminalOrbitFromSegment(recording, appendedSegments[appendedSegments.Count - 1]);
-
-            bool applied = appendedSegments.Count > 0
-                || (!double.IsNaN(result.terminalUT)
-                    && (double.IsNaN(recording.EndUT) || result.terminalUT > recording.EndUT));
-            if (!applied)
+            if (cacheResult)
+                flightGlobalsRuntimeAvailableForTesting = runtimeAvailable;
+            if (!runtimeAvailable)
             {
-                ParsekLog.Warn("Extrapolator",
-                    $"TryFinalizeRecording: no extended lifetime produced for '{recording.RecordingId}' " +
-                    $"(terminal={result.terminalState}, terminalUT={result.terminalUT:F1}, failure={extrapolated.failureReason})");
+                ParsekLog.Verbose("Extrapolator",
+                    $"TryFinalizeRecording: FlightGlobals runtime unavailable for '{recordingId ?? "(null)"}' " +
+                    $"({diagnostic}) — skipping default scene-exit extrapolation");
             }
-
-            return applied;
+            return runtimeAvailable;
         }
 
         private static bool ValidateResult(
