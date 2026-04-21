@@ -18,7 +18,11 @@ Each retained bundle must include:
 - `KSP.log`
 - `Player.log`
 - `parsek-test-results.txt`
-- `log-validation.txt` (saved output from `pwsh -File scripts/validate-ksp-log.ps1`)
+- `log-validation.txt`
+
+Use `python scripts/collect-logs.py <label>` as the standard bundling path.
+That script copies `KSP.log`, `Player.log`, `parsek-test-results.txt`, and
+writes `log-validation.txt` into the timestamped bundle under `logs/`.
 
 ### `release-auto-record`
 
@@ -43,7 +47,8 @@ Each retained bundle must include:
 
 ### `release-scene-transitions`
 
-- Manual scope: `Scene Transitions` in this file
+- Manual scope: `Scene Transitions` in this file, specifically the deferred
+  merge-dialog `Space Center` exit path plus the `Missed EndUT` check
 - Exported runtime evidence:
   - `RuntimeTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
   - `RuntimeTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
@@ -53,11 +58,16 @@ Each retained bundle must include:
 
 `validate-ksp-log` is part of the release gate, not an optional follow-up:
 
-- Run `pwsh -File scripts/validate-ksp-log.ps1` immediately after each bundle
-  while that bundle's `KSP.log` is still the latest session log
-- Save the validator output as `log-validation.txt`
-- Treat any non-zero exit, missing `log-validation.txt`, or missing named
-  `parsek-test-results.txt` rows as a failed bundle
+- Reset the in-game test results immediately before each release bundle
+  (`Reset` in the Test Runner) or gather each bundle from a fresh KSP session.
+  `parsek-test-results.txt` is cumulative, so stale rows from an earlier run do
+  not count as evidence for the current bundle.
+- Use `python scripts/collect-logs.py <label>` immediately after each bundle
+  while that bundle's `KSP.log` is still the latest session log. The script
+  runs the validator and saves its output as `log-validation.txt`.
+- Treat any non-zero validator result, missing `log-validation.txt`, or missing
+  required rows after the explicit reset/fresh-session boundary as a failed
+  bundle.
 
 ## Recording + Timeline (core flow)
 
@@ -189,9 +199,13 @@ Each retained bundle must include:
 
 ## Scene Transitions
 
-### Abort Mission
+### Exit To Space Center (deferred merge dialog)
 1. Record a flight, then Esc → Space Center (without reverting)
-2. Verify: recording auto-committed to timeline (no merge dialog)
+2. Verify: the deferred `ParsekMerge` dialog appears because the shipped
+   default is `Auto-merge recordings = off`
+3. Choose `Merge to Timeline` once and verify the pending tree commits
+4. Repeat on a disposable run and choose `Discard` once, verifying the pending
+   tree clears without a new committed recording
 
 ### Missed EndUT
 1. Merge a recording with "Keep Vessel"
