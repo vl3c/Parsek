@@ -339,9 +339,9 @@ namespace Parsek.Tests
 
             // Funds tracking is intentionally disabled for this test, so the post-walk
             // hook must ignore the funds leg but still reconcile the tracked rep/sci legs.
-            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 99999);
-            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward", 0, 7);
-            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged, "ContractReward", 0, 8.5);
+            AddKeyedEvent(500.0, GameStateEventType.FundsChanged, "ContractReward", 25000, 99999, "rec-partial");
+            AddKeyedEvent(500.0, GameStateEventType.ReputationChanged, "ContractReward", 0, 7, "rec-partial");
+            AddKeyedEvent(500.0, GameStateEventType.ScienceChanged, "ContractReward", 0, 8.5, "rec-partial");
 
             LedgerOrchestrator.RecalculateAndPatch(utCutoff: null);
 

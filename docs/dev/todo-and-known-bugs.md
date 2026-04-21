@@ -102,6 +102,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~496. Partial-tracker post-walk integration coverage seeded untagged events and created a spurious reputation mismatch~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
+
+**Concern:** the test is meant to prove that when funds tracking is disabled, post-walk reconciliation still ignores the funds leg while correctly matching the tracked reputation leg and warning only on the mismatched science leg. But the fixture seeded all three observed events without a `recordingId`, and non-science post-walk reconciliation is recording-scoped. That makes the reputation event miss scope matching for the wrong reason, so the test can fail with a spurious rep warning even when the production code is behaving correctly.
+
+**Fix:** the partial-tracker fixture now tags its seeded `FundsChanged`, `ReputationChanged`, and `ScienceChanged` events with `recordingId = "rec-partial"`, matching the action under test. That restores the intended coverage shape: funds remains ignored because tracking is disabled, reputation matches cleanly, and the test isolates the science mismatch it was written to pin.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 **Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
