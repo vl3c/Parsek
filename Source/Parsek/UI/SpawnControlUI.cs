@@ -87,15 +87,25 @@ namespace Parsek
                 MinWindowWidth, MinWindowHeight, "Real Spawn Control window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekSpawnControl".GetHashCode(),
-                spawnControlWindowRect,
-                (id) => DrawSpawnControlWindow(id, flight),
-                "Parsek - Real Spawn Control",
-                opaqueWindowStyle,
-                GUILayout.Width(spawnControlWindowRect.width),
-                GUILayout.Height(spawnControlWindowRect.height)
-            );
+            if (opaqueWindowStyle == null)
+                return;
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekSpawnControl".GetHashCode(),
+                    spawnControlWindowRect,
+                    (id) => DrawSpawnControlWindow(id, flight),
+                    "Parsek - Real Spawn Control",
+                    opaqueWindowStyle,
+                    GUILayout.Width(spawnControlWindowRect.width),
+                    GUILayout.Height(spawnControlWindowRect.height)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
             parentUI.LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
 
             if (spawnControlWindowRect.Contains(Event.current.mousePosition))

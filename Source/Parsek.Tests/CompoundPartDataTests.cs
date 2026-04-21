@@ -162,9 +162,10 @@ namespace Parsek.Tests
             partData.AddValue("rot", "0,0,0,1");
 
             CompoundPartData data;
-            GhostVisualBuilder.TryParseCompoundPartData(
+            bool result = GhostVisualBuilder.TryParseCompoundPartData(
                 partNode, MakeLinkedMeshConfig(), isCompoundPart: false, 100, "fuelLine", out data);
 
+            Assert.True(result);
             Assert.Equal("obj_line", data.lineObjName);
             Assert.Equal("obj_targetAnchor", data.targetAnchorName);
             Assert.Equal("obj_targetCap", data.targetCapName);
@@ -201,9 +202,10 @@ namespace Parsek.Tests
             var partConfig = MakeLinkedMeshConfig("obj_strut");
 
             CompoundPartData data;
-            GhostVisualBuilder.TryParseCompoundPartData(
+            bool result = GhostVisualBuilder.TryParseCompoundPartData(
                 partNode, partConfig, isCompoundPart: true, 300, "strutConnector", out data);
 
+            Assert.True(result);
             Assert.Equal("obj_strut", data.lineObjName);
             Assert.Equal("obj_targetAnchor", data.targetAnchorName);
             Assert.Equal("obj_targetCap", data.targetCapName);

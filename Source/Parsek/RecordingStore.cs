@@ -221,8 +221,9 @@ namespace Parsek
 
         // Set true by StashPendingTree during OnSceneChangeRequested.
         // Checked by ParsekScenario.OnLoad to distinguish a freshly-stashed pending
-        // (from the current revert — should show dialog) from a stale pending left
-        // over from a previous flight (should be discarded per #64).
+        // from the current scene transition (keep it long enough for revert-vs-
+        // quickload-vs-non-flight dispatch) from a stale pending left over from a
+        // previous flight (discard per #64).
         internal static bool PendingStashedThisTransition;
 
         // Merged to timeline — these auto-playback during flight.

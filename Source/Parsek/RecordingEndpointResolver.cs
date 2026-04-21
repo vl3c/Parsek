@@ -14,8 +14,28 @@ namespace Parsek
 
             if (TryGetPersistedEndpointDecision(rec, out _, out bodyName))
                 return true;
-
             return TryComputeEndpointDecisionFromData(rec, out _, out bodyName);
+        }
+
+        internal static string GetPreferredEndpointBodyName(Recording rec)
+            => TryGetPreferredEndpointBodyName(rec, out string bodyName) ? bodyName : "Kerbin";
+
+        internal static bool TryGetExplicitEndpointBodyName(Recording rec, out string bodyName)
+        {
+            bodyName = null;
+            if (rec == null)
+                return false;
+
+            RecordingEndpointPhase phase;
+            if (TryGetPersistedEndpointDecision(rec, out phase, out bodyName)
+                || TryComputeEndpointDecisionFromData(rec, out phase, out bodyName))
+            {
+                return phase != RecordingEndpointPhase.OrbitSegment
+                    && !string.IsNullOrEmpty(bodyName);
+            }
+
+            bodyName = null;
+            return false;
         }
 
         internal static bool TryGetPreferredEndpointBodyName(IPlaybackTrajectory traj, out string bodyName)
@@ -60,7 +80,6 @@ namespace Parsek
 
             return false;
         }
-
         internal static bool RefreshEndpointDecision(
             Recording rec,
             string context = null,

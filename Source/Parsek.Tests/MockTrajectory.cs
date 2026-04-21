@@ -49,7 +49,7 @@ namespace Parsek.Tests
         public double TerminalOrbitArgumentOfPeriapsis { get; set; }
         public double TerminalOrbitMeanAnomalyAtEpoch { get; set; }
         public double TerminalOrbitEpoch { get; set; }
-        public RecordingEndpointPhase EndpointPhase { get; set; }
+        public RecordingEndpointPhase EndpointPhase { get; set; } = RecordingEndpointPhase.Unknown;
         public string EndpointBodyName { get; set; }
 
         /// <summary>

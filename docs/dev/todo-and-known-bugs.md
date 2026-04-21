@@ -18,6 +18,19 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
+
+**Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
+
+**Fix:** opaque-window rebuilds are now gated on a ready normal background, lagging hover/focus/active states fall back to the ready normal texture instead of freezing a transparent cache, shared `ParsekUI` windows invalidate stale opaque styles across scene changes, and focused/active title-bar text colors are normalized so the opaque title bar stays readable after focus changes. The in-game regressions cover the missing-skin / lagging-state path, and the xUnit coverage now checks the readable title-text states too.
+
+**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/ParsekUI.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek.Tests/ParsekUITests.cs`.
+
+**Resolution:** shortcut path fixed on 2026-04-19 in `bug/487-test-runner-transparent`; the shared `ParsekUI` follow-up landed on 2026-04-20 so the Settings-hosted Test Runner and the rest of the Parsek subwindows now use the same guarded opaque-style rebuild instead of bypassing the original fix. A later live repro confirmed the transparent background was gone, and the final follow-up normalized title-bar text colors when window focus changed.
+**Status:** CLOSED. Fixed for v0.8.3.
+
+---
+
 ## ~~489. Headless xUnit finalization tests tripped the live incomplete-ballistic extrapolator through `FlightGlobals` before they reached their real fallback assertions~~
 
 **Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `Bug278FinalizeLimboTests.FinalizeIndividualRecording_*` and `EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`.
@@ -188,36 +201,6 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
-**Source:** review follow-up on `task/ibx-finalization` (2026-04-20).
-
-**Concern:** `IncompleteBallisticSceneExitFinalizer.TryApply()` only rejected `terminalUT = NaN`; a hook that returned `true` with an unset/default terminal state or a `terminalUT` earlier than the current commit/end boundary could still be applied. The caller-side scene-exit lifetime-extension path also force-nulled/backfilled `TerminalOrbitBody`, so a hook that had already stamped authoritative terminal-orbit data directly on the `Recording` could be overwritten by the last `OrbitSegment`. Separately, a ghost-only surface result with no new `TerminalPosition` could wipe existing surface metadata without any explanatory log.
-
-**Fix:** the hook contract is now validated before apply: `terminalState` must be set to a defined enum, `terminalUT` must stay monotonic against `max(commitUT, current EndUT)`, and real hook declines emit a VERBOSE diagnostic. Scene-exit lifetime extension now preserves hook-authored terminal-orbit metadata instead of force-backfilling over it, and ghost-only surface finalization keeps existing surface metadata (or leaves it unavailable) with an explicit WARN explaining what happened. Focused xUnit coverage lives in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
-
-**Status:** CLOSED 2026-04-20. Fixed for v0.8.3.
-
----
-
-## ~~487. Test runner window (Ctrl+Shift+T) goes fully transparent after staying open across a scene transition~~
-
-**Source:** `logs/2026-04-19_2228/KSP.log:9075` plus local repro notes (`Flight pad -> Space Center -> Flight pad` with the runner left open the whole time).
-
-**Concern:** the runner's opaque window style is reset on `GameEvents.onGameSceneLoadRequested`, which fires before the destination scene's IMGUI skin is ready. The next `OnGUI` during the transition sees `opaqueStyle == null`, clones `GUI.skin.window` while `GUI.skin.window.normal.background` is still null/stale, and caches a non-null `GUIStyle` whose backgrounds are all null. From that point the frame renders fully transparent until another scene transition happens to rebuild it at a safer moment.
-
-**Fix:** keep the current scene-reset flow, but gate opaque-style rebuild on `GUI.skin.window.normal.background != null`; if the destination skin is not ready yet, `OnGUI` now returns early and retries on a later frame instead of caching a transparent style. When the normal background is ready but hover/focus/active variants are still null, the builder now falls those states back to the ready normal texture so the cache never freezes in a partially transparent state. Scene-reset cleanup explicitly destroys the copied opaque textures before dropping the cached style, and the new in-game `TestRunner` regression clears any preexisting cache, invokes the private scene-change handler directly, exercises both the missing-background and lagging-state paths, and asserts the cache stays empty until a ready skin is supplied.
-
-**Files:** `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`.
-
-**Scope:** Small. No scene-hook swap required; the fix is a guarded rebuild plus cache cleanup and regression coverage.
-
-**Dependencies:** none.
-
-**Resolution:** fixed on 2026-04-19 in `bug/487-test-runner-transparent`. The runner now logs a rate-limited `Test runner: skin not ready, deferring opaque style rebuild` message on the deferred path, so future log captures will show the race if it ever reappears.
-
-**Status:** CLOSED 2026-04-19. Fixed for v0.8.3.
-
----
-
 ## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
 
 **Source:** `logs/2026-04-19_2126/KSP.log` + `saves/c2/persistent.sfs`. User reported: "There was a problem with the runway R0 recording — I did a save/load while on the runway and it caused problems — created two recordings (one landed, one in air) which looked weird."
@@ -308,6 +291,131 @@ Every readiness poll spins 11 strategy indices (0-10), each throwing the same NR
 **Resolution (2026-04-19):** Closed on `bug/484-terminal-orbit-preserve`. Investigation confirmed the current code contract comes from `#475`, not `#289`: `TerminalOrbit*` is a healable cache, not immutable finalized metadata. `PopulateTerminalOrbitFromLastSegment` now preserves existing data only when the full cached terminal-orbit tuple already matches the endpoint-aligned last `OrbitSegment`; stale same-body tuples and stale different-body tuples both heal from that segment. The FLIGHT and xUnit regressions were tightened to pin all three cases explicitly: preserve-on-full-match, heal-on-stale-same-body, and heal-on-stale-different-body.
 
 **Status:** CLOSED. Fixed for v0.8.3.
+
+---
+
+## ~~489. Manual-only runtime coverage for deferred merge commit and `Keep Vessel` playback existed locally; both now have live KSP validation~~
+
+**Source:** local audit work on `audit-test-coverage-2026-04-19` after `#488` closed. New tests now exist in `Source/Parsek/InGameTests/RuntimeTests.cs`:
+
+- `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+- `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+
+**What landed already:** the first test drives `ParsekScenario.ShowDeferredMergeDialog()` in `FLIGHT`, presses the real `Merge to Timeline` button, and asserts the synthetic pending tree moves into `RecordingStore.CommittedTrees` / `CommittedRecordings`. That path has now passed in a live KSP run. The second test commits a synthetic one-recording tree, calls `ParsekFlight.FastForwardToRecording(...)`, waits for a live ghost, and asserts the end-of-recording vessel spawn happens exactly once before cleanup/recovery.
+
+**Resolution:** the deferred-merge canary passed live earlier, and the later direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:32` closed the `Keep Vessel` side too. The first attempt hit the expected idle-flight guard and logged `SKIPPED`, but the actual row-play rerun passed once the session was idle. `KSP.log` shows the patched synthetic endpoint outside the KSC exclusion zone (`padDist≈240m`), a landed deferred spawn (`Vessel spawn for #2 ... sit=LANDED`), the runtime assertion log `Keep-vessel runtime: ... spawnedPid=...`, and the final `PASSED: FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce (6132.6ms)` line. That means both manual-only audit canaries are now live-validated.
+
+**Remaining gap after closure:**
+
+The next runtime scenario worth adding is no longer these synthetic canaries. It is the stock `record -> revert -> soft-unstash / no merge` flow, followed by the real non-revert scene-exit deferred merge path.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** CLOSED. Fixed for the audit branch; the next open player-flow gaps are the stock revert soft-unstash transition and the non-revert deferred merge path.
+
+---
+
+## ~~490. Manual-only stock `Revert to Launch` runtime coverage existed locally; it now has live KSP validation~~
+
+**Source:** follow-up audit work after closing `#489`, aligned with shipped #434 behavior and the current user guide text.
+
+**What landed already:** `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` now exists in `Source/Parsek/InGameTests/RuntimeTests.cs`. It starts a real recording on a prelaunch vessel, stages the active vessel, drives stock `FlightDriver.RevertToLaunch`, waits for the fresh FLIGHT scene, and asserts that:
+
+- the reverted mission did not commit into `RecordingStore.CommittedRecordings` / `CommittedTrees`
+- no Parsek `ParsekMerge` popup appears after the revert
+- the pending tree was soft-unstashed rather than committed or hard-discarded
+- the log stream contains the expected fresh-pending keep + soft-unstash lines from the #434 path
+
+**Why this matters:** the audit roadmap used to describe the next gap as `record -> revert -> merge`, but that is no longer the shipped product contract. The current documented behavior is: revert soft-unstashes; if the player wants the merge dialog they take a non-revert exit such as `Space Center`. This runtime canary is the missing end-to-end proof for the actual shipped revert path.
+
+**Resolution:** the direct `Kerbal Space Program/KSP.log` + `parsek-test-results.txt` rerun at `2026-04-20 00:57` now closes this. `parsek-test-results.txt` records `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog` as `FLIGHT PASSED (7318.7ms)`. `KSP.log` contains the full shipped #434 revert sequence in one live pass: `Revert: keeping freshly-stashed pending`, then `Unstashed pending tree 'Kerbal X' on revert ... sidecar files preserved`, then `Revert flow runtime: ... committedBefore=2 committedAfter=2`, and finally the `PASSED:` row. That means the canary now has real evidence for the current product contract: stock revert soft-unstashes, does not open the Parsek merge dialog, and does not commit the reverted mission into the timeline.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+
+**Status:** CLOSED. Fixed for the audit branch; the next open runtime player-flow gap is the non-revert scene-exit deferred merge path.
+
+---
+
+## 491. No live end-to-end runtime canary yet for the real non-revert scene-exit deferred merge path
+
+**Source:** audit follow-up after `#489` and `#490` both gained live KSP validation.
+
+**Current state:** the branch now has strong coverage for the synthetic FLIGHT deferred-merge popup (`RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`) and for stock revert semantics (`FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`). The next step is partially landed: `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree` and `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree` now exist locally, build cleanly, and drive the real `record -> launch -> stock save-and-exit to Space Center -> deferred merge dialog -> merge/discard` flow end-to-end. What is still missing is live KSP evidence for those two manual-only tests.
+
+**Why this matters:** after #434, revert is no longer the merge entry point. The remaining live confidence gap is not “revert then merge”; it is the non-revert exit path that still owns merge UI in production.
+
+**Proposed next step:** from `Parsek-audit-test-coverage`, build `Source/Parsek/Parsek.csproj`, then run both `SceneExitMerge` tests individually from a disposable prelaunch flight:
+
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
+- `FlightIntegrationTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
+
+Collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` afterward and close this item once both branches have clean live evidence.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
+## 492. First timing-sensitive part-event runtime canaries are local-only; they still need live KSP evidence
+
+**Source:** audit follow-up after implementing the first `PartEventTiming` tests in the audit worktree.
+
+**Current state:** the branch now contains `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt` and `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`. These are deterministic `FLIGHT` runtime tests that build synthetic ghost light / deployable states and assert `GhostPlaybackLogic.ApplyPartEvents(...)` flips them exactly at the authored UT boundaries. They build cleanly, but they have not been run in a live KSP session yet.
+
+**Why this matters:** the audit's remaining part-event gap was no longer "can ghost FX build at all?" Existing `PartEventFX` checks already cover that. The narrower missing confidence was timing: do visible state changes happen at the right moment? These two tests are the first concrete attempt to pin that down.
+
+**Proposed next step:** from a normal `FLIGHT` session in the audit build, run:
+
+- `RuntimeTests.PartEventTiming_LightToggle_AppliesAtEventUt`
+- `RuntimeTests.PartEventTiming_DeployableTransition_AppliesAtEventUt`
+
+Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pass cleanly.
+
+**Files:** `Source/Parsek/InGameTests/RuntimeTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
+
+---
+
+## 493. Destructive FLIGHT runtime tests now have a live-validated isolated batch mode
+
+**Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
+
+**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. A live run from `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` passed with `FLIGHT captured=170 Passed=132 Failed=0 Skipped=38` plus the two `SPACECENTER` scene-exit tests passing separately. The widened isolated-batch cohort is:
+
+- `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
+- `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
+- `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
+- `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+- `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
+- `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+- `FlightIntegrationTests.BridgeSurvivesSceneTransition`
+- `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
+- `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
+
+`SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
+
+Local verification on this combined branch is now healthy enough to be useful: `dotnet build Source/Parsek/Parsek.csproj --no-restore` succeeds, and the focused `InGameTestRunnerTests` / terminal-orbit xUnit slices pass. The remaining confidence signal is live KSP evidence when the isolated cohort changes again.
+
+**Update (2026-04-21):** `Quickload_MidRecording_ResumesSameActiveRecordingId` no longer depends on a manually pre-armed recording. From an idle `PRELAUNCH` vessel it now enables launch auto-record, stages, waits for a real in-flight `ActiveRecordingId` plus at least one recorded trajectory point, and only then drives F5/F9, so the isolated cohort still covers a true mid-recording resume instead of a synthetic pad-start recorder.
+
+**Update (2026-04-21, follow-up):** the launch-backed quickload canary now stays on `ParsekLog.TestObserverForTesting` instead of the sink-only hook, so the same F5/F9 assertion logs still reach the live `KSP.log` / `Player.log` bundle during isolated-batch validation.
+
+**Update (2026-04-21, stability follow-up):** the same canary now reuses `InGameTestRunner.WaitForStockStageManagerReady(...)` before staging, waits through transient-null `FlightInputHandler.state` until the input state stays stable, and then waits for the first real trajectory point even on already-live recordings. That keeps the stock staging rebuild guard without re-opening the null-input throttle/stage race, and it avoids failing purely because recording went live one sample before the first point landed.
+
+**Why this matters:** this is the first attempt to reduce the repeated game-load churn without weakening the safety of ordinary `Run All`. If it holds up live, most destructive FLIGHT canaries stop being "one test per game session" work and become practical batch coverage.
+
+**Current follow-up:** keep using a disposable prelaunch `FLIGHT` session for `Run All + Isolated` / `Run+`, and collect `KSP.log`, `Player.log`, and `parsek-test-results.txt` whenever the isolated cohort changes. The standing validation bar is:
+
+- the `[isolated]` tests above run in one session without manual reloads
+- the runner quickloads the baseline back between destructive tests
+- the widened isolated FLIGHT canaries (`QuickloadResume` bridge/mid-recording and `RevertFlow`) survive batch restore cleanly enough to keep the session usable
+- `SceneExitMerge` remains manual-only until the live post-run vessel/crash contamination is eliminated
+
+**Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
+
+**Status:** OPEN - IMPLEMENTED LOCALLY, LIVE VALIDATION PENDING.
 
 ---
 

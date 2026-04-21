@@ -21,6 +21,8 @@ namespace Parsek
 
         // Opaque window style (replaces KSP's semi-transparent default)
         private GUIStyle opaqueWindowStyle;
+        private GameScenes opaqueWindowStyleScene;
+        private bool hasOpaqueWindowStyleScene;
 
         // Shared header styles (promoted from CareerStateWindowUI so every window
         // renders section bars and column headers the same way). Lazy-initialized
@@ -410,31 +412,166 @@ namespace Parsek
         //  Opaque window style (shared by all sub-windows)
         // ════════════════════════════════════════════════════════════════
 
-        private void EnsureOpaqueWindowStyle()
+        private bool EnsureOpaqueWindowStyle(GUISkin skin)
         {
-            if (opaqueWindowStyle != null) return;
+            if (opaqueWindowStyle != null)
+            {
+                if (hasOpaqueWindowStyleScene
+                    && opaqueWindowStyleScene == HighLogic.LoadedScene
+                    && AreAllOpaqueStyleBackgroundsPresent(opaqueWindowStyle))
+                    return true;
 
-            // Copy KSP's default window style, then make background textures opaque
-            // while preserving all border/highlight details
-            opaqueWindowStyle = new GUIStyle(GUI.skin.window);
-            opaqueWindowStyle.normal.background = MakeOpaqueCopy(opaqueWindowStyle.normal.background);
-            opaqueWindowStyle.onNormal.background = MakeOpaqueCopy(opaqueWindowStyle.onNormal.background);
-            opaqueWindowStyle.focused.background = MakeOpaqueCopy(opaqueWindowStyle.focused.background);
-            opaqueWindowStyle.onFocused.background = MakeOpaqueCopy(opaqueWindowStyle.onFocused.background);
-            opaqueWindowStyle.active.background = MakeOpaqueCopy(opaqueWindowStyle.active.background);
-            opaqueWindowStyle.onActive.background = MakeOpaqueCopy(opaqueWindowStyle.onActive.background);
-            opaqueWindowStyle.hover.background = MakeOpaqueCopy(opaqueWindowStyle.hover.background);
-            opaqueWindowStyle.onHover.background = MakeOpaqueCopy(opaqueWindowStyle.onHover.background);
+                ParsekLog.VerboseRateLimited("UI", "opaque-style-cache-stale",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "ParsekUI: dropping cached opaque style before rebuild (built={0}, current={1})",
+                        opaqueWindowStyleScene, HighLogic.LoadedScene), 1f);
+                ResetCachedWindowStylesForSceneChange();
+            }
+
+            if (!IsOpaqueStyleSkinReady(skin))
+            {
+                ParsekLog.VerboseRateLimited("UI", "opaque-style-skin-not-ready",
+                    "ParsekUI: skin not ready, deferring opaque style rebuild", 1f);
+                return false;
+            }
+
+            opaqueWindowStyle = BuildOpaqueWindowStyleFromSource(skin.window);
 
             // Bigger title font + more breathing room above/below the title text so the
             // title bar is not cramped. Applied here because every Parsek window routes
             // through GetOpaqueWindowStyle() — one edit retitles them all.
-            int baseFontSize = GUI.skin.window.fontSize;
-            if (baseFontSize <= 0) baseFontSize = GUI.skin.label.fontSize;   // GUI.skin.window often reports 0
+            int baseFontSize = skin.window.fontSize;
+            if (baseFontSize <= 0) baseFontSize = skin.label.fontSize;       // GUI.skin.window often reports 0
             if (baseFontSize <= 0) baseFontSize = 12;                         // last-resort default
             opaqueWindowStyle.fontSize = baseFontSize + 2;
             var p = opaqueWindowStyle.padding;
             opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
+            opaqueWindowStyleScene = HighLogic.LoadedScene;
+            hasOpaqueWindowStyleScene = true;
+            return true;
+        }
+
+        private static bool IsOpaqueStyleSkinReady(GUISkin skin)
+        {
+            return skin != null
+                && skin.window != null
+                && skin.window.normal.background != null;
+        }
+
+        private static bool AreAllOpaqueStyleBackgroundsPresent(GUIStyle style)
+        {
+            return style != null
+                && style.normal.background != null
+                && style.onNormal.background != null
+                && style.focused.background != null
+                && style.onFocused.background != null
+                && style.active.background != null
+                && style.onActive.background != null
+                && style.hover.background != null
+                && style.onHover.background != null;
+        }
+
+        internal static GUIStyle BuildOpaqueWindowStyleFromSource(GUIStyle sourceStyle)
+        {
+            Texture2D normalSource = sourceStyle.normal.background;
+            var style = new GUIStyle(sourceStyle);
+            style.normal.background = MakeOpaqueCopy(normalSource);
+            style.onNormal.background = MakeOpaqueCopy(sourceStyle.onNormal.background ?? normalSource);
+            style.focused.background = MakeOpaqueCopy(sourceStyle.focused.background ?? normalSource);
+            style.onFocused.background = MakeOpaqueCopy(sourceStyle.onFocused.background ?? normalSource);
+            style.active.background = MakeOpaqueCopy(sourceStyle.active.background ?? normalSource);
+            style.onActive.background = MakeOpaqueCopy(sourceStyle.onActive.background ?? normalSource);
+            style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
+            style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
+            NormalizeOpaqueWindowTitleTextColors(style, sourceStyle);
+            return style;
+        }
+
+        internal static void NormalizeOpaqueWindowTitleTextColors(
+            GUIStyle style,
+            GUIStyle sourceStyle)
+        {
+            if (style == null || sourceStyle == null)
+                return;
+
+            Color baseTextColor = ResolveReadableWindowTitleTextColor(
+                sourceStyle.normal.textColor,
+                sourceStyle.onNormal.textColor);
+            Color toggledTextColor = ResolveReadableWindowTitleTextColor(
+                sourceStyle.onNormal.textColor,
+                sourceStyle.normal.textColor);
+
+            style.normal.textColor = baseTextColor;
+            style.hover.textColor = baseTextColor;
+            style.focused.textColor = baseTextColor;
+            style.active.textColor = baseTextColor;
+
+            style.onNormal.textColor = toggledTextColor;
+            style.onHover.textColor = toggledTextColor;
+            style.onFocused.textColor = toggledTextColor;
+            style.onActive.textColor = toggledTextColor;
+        }
+
+        internal static Color ResolveReadableWindowTitleTextColor(
+            Color preferred,
+            Color fallback)
+        {
+            if (IsReadableWindowTitleTextColor(preferred))
+                return preferred;
+            if (IsReadableWindowTitleTextColor(fallback))
+                return fallback;
+            return Color.white;
+        }
+
+        internal static bool IsReadableWindowTitleTextColor(Color color)
+        {
+            if (color.a < 0.5f)
+                return false;
+
+            float luminance = 0.2126f * color.r
+                + 0.7152f * color.g
+                + 0.0722f * color.b;
+            return luminance >= 0.55f;
+        }
+
+        private void ClearOpaqueWindowStyle()
+        {
+            if (opaqueWindowStyle == null)
+                return;
+
+            var destroyedBackgrounds = new HashSet<int>();
+            DestroyOpaqueBackground(opaqueWindowStyle.normal.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onNormal.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.focused.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onFocused.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.active.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onActive.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.hover.background, destroyedBackgrounds);
+            DestroyOpaqueBackground(opaqueWindowStyle.onHover.background, destroyedBackgrounds);
+            opaqueWindowStyle = null;
+            hasOpaqueWindowStyleScene = false;
+        }
+
+        private void ResetCachedWindowStylesForSceneChange()
+        {
+            ClearOpaqueWindowStyle();
+            sharedSectionHeaderStyle = null;
+            sharedColumnHeaderStyle = null;
+            versionStyle = null;
+        }
+
+        private static void DestroyOpaqueBackground(
+            Texture2D background,
+            HashSet<int> destroyedBackgrounds)
+        {
+            if (background == null)
+                return;
+
+            int id = background.GetInstanceID();
+            if (!destroyedBackgrounds.Add(id))
+                return;
+
+            UnityEngine.Object.Destroy(background);
         }
 
         /// <summary>
@@ -472,8 +609,45 @@ namespace Parsek
         /// </summary>
         public GUIStyle GetOpaqueWindowStyle()
         {
-            EnsureOpaqueWindowStyle();
+            if (!EnsureOpaqueWindowStyle(GUI.skin))
+                return null;
             return opaqueWindowStyle;
+        }
+
+        internal static void ResetWindowGuiColors(
+            out Color previousColor,
+            out Color previousBackgroundColor,
+            out Color previousContentColor)
+        {
+            previousColor = GUI.color;
+            previousBackgroundColor = GUI.backgroundColor;
+            previousContentColor = GUI.contentColor;
+            GUI.color = Color.white;
+            GUI.backgroundColor = Color.white;
+            GUI.contentColor = Color.white;
+        }
+
+        internal static void RestoreWindowGuiColors(
+            Color previousColor,
+            Color previousBackgroundColor,
+            Color previousContentColor)
+        {
+            GUI.color = previousColor;
+            GUI.backgroundColor = previousBackgroundColor;
+            GUI.contentColor = previousContentColor;
+        }
+
+        internal static T RunWithNormalizedWindowGuiColors<T>(Func<T> callback)
+        {
+            ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                return callback();
+            }
+            finally
+            {
+                RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -957,6 +1131,7 @@ namespace Parsek
             careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
+            ResetCachedWindowStylesForSceneChange();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.
         }

@@ -241,14 +241,24 @@ namespace Parsek
             string popupTitle = isGroupPopup ? "Set Parent Group" : "Manage Groups";
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            groupPopupRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekGroupPopup".GetHashCode(),
-                groupPopupRect,
-                (id) => DrawGroupPopupContents(rootNames, parentToChildren, cycleInvalid, allNames, isGroupPopup),
-                popupTitle,
-                opaqueWindowStyle,
-                GUILayout.Width(groupPopupRect.width),
-                GUILayout.Height(groupPopupRect.height));
+            if (opaqueWindowStyle == null)
+                return;
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                groupPopupRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekGroupPopup".GetHashCode(),
+                    groupPopupRect,
+                    (id) => DrawGroupPopupContents(rootNames, parentToChildren, cycleInvalid, allNames, isGroupPopup),
+                    popupTitle,
+                    opaqueWindowStyle,
+                    GUILayout.Width(groupPopupRect.width),
+                    GUILayout.Height(groupPopupRect.height));
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
         }
 
         private void DrawGroupPopupContents(List<string> rootNames,
