@@ -72,7 +72,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** the production reconciliation summary now includes `compared=` and `cutoffUT=`, but this fixture was still matching the older shorter string. That made the test fail even though the intended science-mismatch warning still fired and the reconciliation counters were correct.
 
-**Fix:** updated the fixture to assert the current summary shape explicitly, including `compared=1` and `cutoffUT=null`, so it stays pinned to the real production log contract instead of the older format.
+**Fix:** updated the fixture to assert the current summary shape explicitly, including `compared=1` and `cutoffUT=null`, while still pinning the underlying science-mismatch warning. That keeps the test anchored to the real production log contract instead of the older format.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
 

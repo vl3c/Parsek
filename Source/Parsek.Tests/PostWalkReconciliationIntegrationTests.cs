@@ -353,7 +353,8 @@ namespace Parsek.Tests
                 l.Contains("Earnings reconciliation (post-walk, sci)")
                 && l.Contains("ContractComplete"));
             Assert.Contains(logLines, l =>
-                l.Contains("Post-walk reconcile: actions=1, matches=0, mismatches(funds/rep/sci)=0/0/1"));
+                l.Contains("Post-walk reconcile: actions=1, compared=1, matches=0, mismatches(funds/rep/sci)=0/0/1")
+                && l.Contains("cutoffUT=null"));
         }
     }
 }
