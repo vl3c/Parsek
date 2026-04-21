@@ -120,7 +120,7 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 
 **Source:** follow-up from the test-coverage audit after repeated manual single-run passes for the destructive FLIGHT canaries became the main workflow bottleneck.
 
-**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. The first isolated-batch cohort is:
+**Current state:** the branch now has an explicit `Run All + Isolated` / `Run+` path in the in-game runner. That mode captures a temporary uniquely-named baseline save in `FLIGHT`, then quickloads that baseline between selected destructive tests. A live run from `logs/2026-04-21_1750_validate-batch-ui-terminalorbit-isolated` passed with `FLIGHT captured=170 Passed=132 Failed=0 Skipped=38` plus the two `SPACECENTER` scene-exit tests passing separately. The widened isolated-batch cohort is:
 
 - `RuntimeTests.AutoRecordOnLaunch_StartsExactlyOnce`
 - `RuntimeTests.AutoRecordOnEvaFromPad_StartsExactlyOnce`
@@ -128,8 +128,11 @@ Capture `KSP.log` and `parsek-test-results.txt`, then close this item if both pa
 - `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
 - `GhostPlaybackTests.RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs`
 - `FlightIntegrationTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
+- `FlightIntegrationTests.BridgeSurvivesSceneTransition`
+- `FlightIntegrationTests.Quickload_MidRecording_ResumesSameActiveRecordingId`
+- `FlightIntegrationTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
 
-Quickload/resume, revert, and scene-exit merge canaries intentionally remain manual-only because they exercise the same stock restore/exit paths the isolated harness would rely on if those tests failed.
+`SceneExitMerge` intentionally remains manual-only. The latest live logs show that although both scene-exit tests passed, the save still picked up a real post-run vessel crash (`Kerbal X crashed through terrain on Kerbin`), so the exit-to-KSC path is still too state-dirty to trust inside the isolated FLIGHT batch.
 
 Local CLI verification for this runner change is still blocked on this machine's `.NETFramework,Version=v4.7.2` targeting-pack / restore issues, so the next real confidence step is live KSP evidence plus code review rather than a healthy local `dotnet build`.
 
@@ -139,7 +142,8 @@ Local CLI verification for this runner change is still blocked on this machine's
 
 - the `[isolated]` tests above run in one session without manual reloads
 - the runner quickloads the baseline back between destructive tests
-- manual-only stock quickload / revert / scene-exit canaries remain excluded from the isolated batch path
+- the widened isolated FLIGHT canaries (`QuickloadResume` bridge/mid-recording and `RevertFlow`) survive batch restore cleanly enough to keep the session usable
+- `SceneExitMerge` remains manual-only until the live post-run vessel/crash contamination is eliminated
 
 **Files:** `Source/Parsek/InGameTests/InGameTestAttribute.cs`, `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs`, `Source/Parsek/InGameTests/InGameTestRunner.cs`, `Source/Parsek/InGameTests/TestRunnerShortcut.cs`, `Source/Parsek/UI/TestRunnerUI.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/InGameTestRunnerTests.cs`, `CHANGELOG.md`, `docs/dev/test-coverage-audit-2026-04-19.md`, `docs/dev/todo-and-known-bugs.md`.
 
