@@ -115,6 +115,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~504. `QuickloadResumeTests` stopped compiling after merging `main` because the fixture still seeded the old facility-upgrade enum name~~
+
+**Source:** post-merge `dotnet build --no-restore` failure on `Parsek-fix-xunit-failures` (2026-04-21): `CS0117` on `GameStateEventType.FacilityUpgrade`.
+
+**Concern:** `GameStateEventType` now exposes `FacilityUpgraded` / `FacilityDowngraded`, but the quickload-resume fixture was still seeding the removed `FacilityUpgrade` member. That is a pure test-side drift after merging `main`, but it stops the entire `Parsek.Tests` build before any of the real xUnit failures can run.
+
+**Fix:** updated the fixture to seed `GameStateEventType.FacilityUpgraded`, which matches the current production enum contract while preserving the exact milestone/event setup that the baseline-restore test needs.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
 
 **Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
@@ -194,6 +206,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 **Concern:** the test is meant to prove that when funds tracking is disabled, post-walk reconciliation still ignores the funds leg while correctly matching the tracked reputation leg and warning only on the mismatched science leg. But the fixture seeded all three observed events without a `recordingId`, and non-science post-walk reconciliation is recording-scoped. That makes the reputation event miss scope matching for the wrong reason, so the test can fail with a spurious rep warning even when the production code is behaving correctly.
 
 **Fix:** the partial-tracker fixture now tags its seeded `FundsChanged`, `ReputationChanged`, and `ScienceChanged` events with `recordingId = "rec-partial"`, matching the action under test. That restores the intended coverage shape: funds remains ignored because tracking is disabled, reputation matches cleanly, and the test isolates the science mismatch it was written to pin.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~503. `AutoRecordDecisionTests` stopped compiling after merging `main` because a public xUnit theory exposed the internal restore-mode enum directly~~
+
+**Source:** post-merge `dotnet test` compile failure on `Parsek-fix-xunit-failures` (2026-04-21): `CS0051` on `AutoRecordDecisionTests.ShouldIgnoreFlightReadyReset_RestoreOrMissingLiveState_ReturnsFalse(...)`.
+
+**Concern:** `ParsekScenario.ActiveTreeRestoreMode` is intentionally internal production state, but the merged xUnit theory surfaced it directly as a public method parameter. C# rejects that accessibility mismatch before the test run even starts, so the whole branch stops at compile time for a pure test-fixture reason.
+
+**Fix:** the theory now passes the restore mode as raw inline-data integers and casts to `ActiveTreeRestoreMode` inside the method body. That preserves the exact coverage without widening production visibility or introducing test-only public surfaces.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
 
