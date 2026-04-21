@@ -428,6 +428,30 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## 539. Two `GhostPlaybackEngineTests` cases stay permanently `[Fact(Skip = ...)]` because xUnit has no Unity runtime harness
+
+**Source:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` has two permanently-skipped cases: `UpdateLoopingPlayback_PendingCycleBoundary_DoesNotEmitRestartEvents` (line 1153, Skip: `UpdateLoopingPlayback` body references `GameObject.activeSelf / SetActive`, which trip .NET 4.7.2 JIT verification) and `SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT` (line 1509, Skip: Unity `GameObject` instantiation requires runtime). Today's `dotnet test` confirms them still skipped (7729 passed / 2 skipped).
+
+**Concern:** both behaviors are currently only covered by neighboring pure-logic siblings and in-game tests (`ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents`, `GhostPlayback.SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT_InGame` in `InGameTests/RuntimeTests.cs`). Skip messages explicitly say "do not re-enable without a Unity runtime harness". A standing xUnit Unity shim (or isolating the non-Unity portions so these scenarios can be unit-tested directly) would remove the coverage gap without requiring Ctrl+Shift+T.
+
+**Files:** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`, `Source/Parsek/GhostPlaybackEngine.cs`, `Source/Parsek/InGameTests/RuntimeTests.cs`, `Source/Parsek.Tests/Parsek.Tests.csproj`.
+
+**Status:** OPEN. Long-standing skip — revisit only with a Unity runtime harness or a refactor that isolates the non-Unity paths.
+
+---
+
+## 540. Three xUnit style warnings on `dotnet test` should be cleaned up
+
+**Source:** `dotnet test` on current `main` emits three xUnit analyzer warnings: `InGameTestRunnerTests.cs:259` (`xUnit1013` — `FormatCoroutineState_ReportsActiveAndIdleSlots` is public but missing `[Fact]`, so it silently does not run) and `KerbalsWindowUITests.cs:700-701` (two `xUnit2009` — `Assert.True(text.StartsWith(prefix, StringComparison.Ordinal))` should be `Assert.StartsWith(prefix, text, StringComparison.Ordinal)` for better failure messages).
+
+**Concern:** the `xUnit1013` case is a real correctness gap — the orphaned method sits between two `[Fact]`-attributed siblings and looks like a test that lost its attribute during an edit, so a code path currently believed to be tested is not. The two `xUnit2009` cases are presentation-only, but leaving analyzer warnings in the baseline trains reviewers to ignore real signals.
+
+**Files:** `Source/Parsek.Tests/InGameTestRunnerTests.cs` (add `[Fact]` to `FormatCoroutineState_ReportsActiveAndIdleSlots` or reduce visibility), `Source/Parsek.Tests/KerbalsWindowUITests.cs` (swap both `Assert.True(x.StartsWith(...))` for `Assert.StartsWith(...)`).
+
+**Status:** OPEN. Cheap cleanup; unblocks any later `TreatWarningsAsErrors` for the test project.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
