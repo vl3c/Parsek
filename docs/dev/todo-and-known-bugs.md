@@ -30,6 +30,54 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~494. Legacy exact-boundary recordings stopped backfilling an orbit endpoint after the same-UT stale-orbit guard landed~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingEndpointPersistenceTests.LoadRecordingFiles_LegacyRecording_BackfillsEndpointDecisionFromTerminalOrbitAlignedSegment`.
+
+**Concern:** the stricter same-UT terminal-orbit guard was correct for live stale-cache overwrite prevention, but `RecordingStore.LoadRecordingFilesFromPathsInternal()` also uses endpoint backfill on recordings that have no persisted endpoint phase yet. That made exact-boundary legacy files fall back to the last point body instead of persisting the recorded terminal-orbit body on load.
+
+**Fix:** `RecordingEndpointResolver.BackfillEndpointDecision()` now has a narrow legacy backfill path that only applies when there is no persisted endpoint decision, the recording already has an orbital terminal state, and the last orbit segment matches the cached terminal-orbit body. It logs the exact-boundary override and persists `EndpointPhase=OrbitSegment` without weakening the stricter live same-UT rejection used by `PopulateTerminalOrbitFromLastSegment()`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~495. Headless surface-snapshot repair still reached `FlightGlobals.Bodies` when it rewrote a landed ORBIT node~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the first headless body-registry seam covered snapshot `REF` decoding and body-name lookup, but `ApplySurfaceOrbitToSnapshot()` still used `FlightGlobals.Bodies.IndexOf(body)` when it rewrote a landed snapshot to `SMA=0/ECC=1`. In headless xUnit that left the stale orbit node untouched even though the endpoint repair path had already resolved the correct body through the test seam.
+
+**Fix:** `VesselSpawner` now resolves body indexes through a dedicated `BodyIndexResolverForTesting` seam, and both `ApplySurfaceOrbitToSnapshot()` and `SaveOrbitToNode()` use that helper instead of reading `FlightGlobals.Bodies` directly. The headless tests inject the same Kerbin/Mun registry for name, body, and index lookups, and the surface-repair path now emits a focused `VERBOSE` line if no body index can be resolved.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~496. Preserving legacy predicted orbit flags regressed two different recording-store paths~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `TrackSectionSerializationTests.SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag` and `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** the earlier `isPredicted` preservation fix broadened `SerializeOrbitSegment()` itself, so legacy `TRACK_SECTION` checkpoints started writing `isPredicted=True` even in format v4, while the accompanying fallback guard became strict enough to reject perfectly valid flat tails whose appended suffix simply used older/non-monotonic test UTs. Those are different surfaces with different compatibility rules: legacy flat sidecars must preserve predicted orbit flags, but legacy track-section checkpoints must not grow the field retroactively.
+
+**Fix:** `SerializeOrbitSegment()` now takes an explicit `writeLegacyPredictedFlag` switch. Flat trajectory sidecars opt in so legacy round-trips keep `isPredicted`, while `SerializeTrackSections()` leaves the flag omitted before `PredictedOrbitSegmentFormatVersion`. `FlatTrajectoryExtendsTrackSectionPayload()` also went back to its intended job: detect whether the flat lists extend the rebuilt section payload, without rejecting the suffix for unrelated monotonicity that only matters in the later healing paths.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~497. Post-walk partial-tracker integration still asserted the pre-`compared=` summary format~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
+
+**Concern:** the production reconciliation summary now includes `compared=` and `cutoffUT=`, but this fixture was still matching the older shorter string. That made the test fail even though the intended science-mismatch warning still fired and the reconciliation counters were correct.
+
+**Fix:** updated the fixture to assert the current summary shape explicitly, including `compared=1` and `cutoffUT=null`, so it stays pinned to the real production log contract instead of the older format.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
 
 **Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.

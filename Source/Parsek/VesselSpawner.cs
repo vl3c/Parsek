@@ -12,6 +12,7 @@ namespace Parsek
     {
         internal delegate bool ResolveBodyNameByIndexDelegate(int index, out string name);
         internal delegate bool ResolveBodyByNameDelegate(string bodyName, out CelestialBody body);
+        internal delegate bool ResolveBodyIndexDelegate(CelestialBody body, out int index);
 
         // Proximity offset removed — spawn collision detection now uses bounding box
         // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
@@ -25,6 +26,7 @@ namespace Parsek
 
         internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
         internal static ResolveBodyByNameDelegate BodyResolverForTesting;
+        internal static ResolveBodyIndexDelegate BodyIndexResolverForTesting;
 
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
@@ -2891,6 +2893,8 @@ namespace Parsek
         private static void SaveOrbitToNode(Orbit orbit, ConfigNode node, CelestialBody body)
         {
             var ic = CultureInfo.InvariantCulture;
+            if (!TryResolveBodyIndex(body, out int bodyIndex))
+                bodyIndex = -1;
             node.AddValue("SMA", orbit.semiMajorAxis.ToString("R", ic));
             node.AddValue("ECC", orbit.eccentricity.ToString("R", ic));
             node.AddValue("INC", orbit.inclination.ToString("R", ic));
@@ -2898,7 +2902,7 @@ namespace Parsek
             node.AddValue("LAN", orbit.LAN.ToString("R", ic));
             node.AddValue("MNA", orbit.meanAnomalyAtEpoch.ToString("R", ic));
             node.AddValue("EPH", orbit.epoch.ToString("R", ic));
-            node.AddValue("REF", FlightGlobals.Bodies.IndexOf(body).ToString(ic));
+            node.AddValue("REF", bodyIndex.ToString(ic));
         }
 
         private static void ReplaceSnapshotOrbitNode(ConfigNode snapshot, Orbit orbit, CelestialBody body)
@@ -2914,12 +2918,15 @@ namespace Parsek
 
         private static void ApplySurfaceOrbitToSnapshot(ConfigNode snapshot, CelestialBody body)
         {
-            if (snapshot == null || body == null || FlightGlobals.Bodies == null)
+            if (snapshot == null || body == null)
                 return;
 
-            int bodyIndex = FlightGlobals.Bodies.IndexOf(body);
-            if (bodyIndex < 0)
+            if (!TryResolveBodyIndex(body, out int bodyIndex))
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ApplySurfaceOrbitToSnapshot: unable to resolve body index for '{body.name ?? "(unknown)"}'");
                 return;
+            }
 
             snapshot.RemoveNode("ORBIT");
             ConfigNode orbitNode = new ConfigNode("ORBIT");
@@ -2932,6 +2939,23 @@ namespace Parsek
             orbitNode.AddValue("EPH", "0");
             orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
             snapshot.AddNode(orbitNode);
+        }
+
+        private static bool TryResolveBodyIndex(CelestialBody body, out int index)
+        {
+            index = -1;
+            if (body == null)
+                return false;
+
+            ResolveBodyIndexDelegate resolver = BodyIndexResolverForTesting;
+            if (resolver != null)
+                return resolver(body, out index);
+
+            if (FlightGlobals.Bodies == null)
+                return false;
+
+            index = FlightGlobals.Bodies.IndexOf(body);
+            return index >= 0;
         }
 
         /// <summary>
