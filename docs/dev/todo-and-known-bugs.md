@@ -18,6 +18,186 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 # Known Bugs
 
+## ~~505. Merge-time flat-trajectory preservation could keep a duplicated or non-monotonic suffix just because the rebuilt track-section payload matched the front of the list~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SessionMergerTests.MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy`.
+
+**Concern:** `RecordingStore.FlatTrajectoryExtendsTrackSectionPayload()` accepted any longer flat copy whose prefix matched the rebuilt track-section payload. That let a malformed tail like `[0,10,20,0,10,20]` count as a valid extension, so merge preserved the bad flat copy instead of rebuilding from the authoritative sections.
+
+**Fix:** flat-tail preservation now requires a safe suffix boundary that appends new points / orbit segments after the rebuilt payload and remains monotonic after dedupe stitching. If the suffix cannot satisfy that shape, merge falls back to rebuilding the flat trajectory from track sections.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~506. Headless `ParsekUI` xUnit coverage still touched Unity GUI object APIs after the shared opaque-window fix~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.NormalizeOpaqueWindowTitleTextColors_ReplacesDarkFocusedStatesWithReadableBaseColor` and `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI`.
+
+**Concern:** the production title-color normalization path is pure color selection, but the xUnit regression still constructed `GUIStyle` directly in plain .NET, which trips Unity native GUI calls. The `ParsekUI` smoke test also called `Cleanup()`, and the shared opaque-window fix now tears down copied textures during cleanup, which likewise touches Unity GUI objects that do not exist in headless xUnit.
+
+**Fix:** extracted a pure color-based `NormalizeOpaqueWindowTitleTextColors(...)` helper that the `GUIStyle` overload delegates to, so xUnit can assert the same focused/active text-color normalization without constructing `GUIStyle`. `ParsekUI` opaque-background teardown now also treats wrapped headless `SecurityException` chains as a no-op during cleanup, so the KSC smoke test can still verify the accessor wiring without crashing in teardown.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~507. The new headless body-index seam coverage did not actually hit the production resolver, and the landed surface-repair fixture forgot to install the seam at all~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the seam test was only calling its own helper instead of `VesselSpawner.TryResolveBodyIndex(...)`, so it could pass or fail without telling us whether the production override was wired correctly. Separately, the landed surface-repair fixture resolved body names through the new seam but never installed the matching body-index override, so the `REF` rewrite stayed on the stale orbit body even though the endpoint repair path was otherwise correct.
+
+**Fix:** the seam test now invokes the private production resolver via reflection, the landed surface-repair fixture installs `BodyIndexResolverForTesting`, and the fixture-local body-index resolver now uses the install order list directly instead of dictionary enumeration.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~508. Several remaining xUnit failures were assertion drift, not live logic regressions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `Bug219_PopulateTerminalOrbitFromLastSegmentTests.*DoesNotOverwrite`, `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`, and `SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments`.
+
+**Concern:** the two Bug219 preserve tests were filtering with `Contains("PopulateTerminalOrbitFromLastSegment")`, which also matches the newer `ShouldPopulateTerminalOrbitFromLastSegment...` preserve diagnostic and turns a passing preserve path into a false failure. The orbital-frame continuity tests were also comparing raw quaternion components on non-unit rotations, so equivalent preserved attitudes could fail the exact tuple check after canonicalization / recomposition even though the represented rotation stayed the same.
+
+**Fix:** tightened the Bug219 filter to the exact `PopulateTerminalOrbitFromLastSegment:` production prefix, and the orbital-frame assertions now normalize and canonicalize both quaternions before comparing components. That keeps the regressions pinned to real behavior changes instead of representational float drift.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~509. Safe flat-tail detection rejected the valid “predicted orbit segment appended after the checkpoint payload” shape~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** the first safe-suffix hardening pass correctly rejected duplicated / non-monotonic tails, but it also rejected the valid current-format case where the flat trajectory only appends one new orbit segment immediately after the rebuilt checkpoint payload. That made the helper report no safe extension even though the writer should still use the flat-binary fallback path for the extra predicted segment.
+
+**Fix:** `FindSafeOrbitSegmentSuffixStart()` now accepts the immediate post-payload suffix slot directly when the remainder of the flat orbit-segment list is monotonic. That keeps malformed tails rejected while preserving the intended “extra predicted orbit tail” fallback contract.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~510. A few xUnit follow-ups were still test-harness drift after the earlier cleanup pass~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI`, `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride`, `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`, and the two Bug219 preserve tests.
+
+**Concern:** `ParsekUI` cleanup still touched GUI-style state before the narrower destroy-site catch could run, the body-index override test was relying on `List<T>.IndexOf()` for Unity objects instead of explicit reference matching, and the Bug219 preserve tests were still matching `ShouldPopulateTerminalOrbitFromLastSegment...` because the substring filter was too broad.
+
+**Fix:** wrapped the whole opaque-style cleanup pass in the same headless-safe guard, restored the body-index seam helper to explicit `ReferenceEquals` matching over the installed test bodies, and tightened the Bug219 negative log assertions to the exact `[Flight] PopulateTerminalOrbitFromLastSegment:` prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~511. Body-index repair could still fail even after the new seam landed because Unity object equality was too brittle for headless test bodies~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the new body-index seam covered the right production path, but the fallback still depended on Unity object equality / `IndexOf(body)` semantics. In headless seam tests, uninitialized `CelestialBody` instances can fail those equality checks even when the body is present in the injected list, so landed repair leaves the stale `ORBIT.REF` untouched.
+
+**Fix:** `TryResolveBodyIndex()` now treats the seam as the first choice but falls back to an explicit scan of the loaded body list using `ReferenceEquals` and then stable body-name matching. That keeps the live path deterministic and makes the headless seam tests exercise the same repair outcome.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~512. The predicted-tail flat-fallback regression fixture appended its extra orbit segment at an earlier absolute UT than the checkpoint payload it was supposed to extend~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** after the safe-suffix hardening, the helper correctly rejected malformed non-monotonic tails. The test fixture, however, was still appending its “extra predicted tail” segment at `630 -> 930` even though the section-authoritative codec fixture lives around `20030 -> 20630`. That made the test assert a malformed earlier segment instead of a real tail beyond the track-section payload.
+
+**Fix:** the test now derives the appended predicted segment from the current last flat orbit segment's `endUT`, so it extends the payload exactly the way the production fallback path is supposed to handle.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~513. SOI attitude preservation still drifted when a frozen playback quaternion arrived as a scaled-but-non-unit value~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** the orbital-frame path already canonicalized quaternion sign, but it kept whatever magnitude the incoming frozen playback quaternion had. A scaled-but-non-unit orbital-frame quaternion still represents the same attitude after normalization, but carrying that scale through the SOI reframe path let the preserved world rotation drift enough for the continuity regression to fail.
+
+**Fix:** `BallisticExtrapolator` now normalizes and canonicalizes orbital-frame quaternions at the encode/decode seam, so frozen playback attitudes keep a stable unit representation across `ComputeOrbitalFrameRotationFromState()` and `ResolveWorldRotation()`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~514. Two remaining xUnit failures were still test-harness drift, not production regressions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `ParsekUITests.ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI` and the two Bug219 preserve tests.
+
+**Concern:** the `ParsekUI` KSC smoke test still called `Cleanup()` unguarded in a headless process even though the test only cares about constructor wiring, and the Bug219 negative log assertions were still matching the longer `ShouldPopulateTerminalOrbitFromLastSegment...` diagnostic because the filter was not anchored to the full production prefix.
+
+**Fix:** the KSC smoke test now treats headless `SecurityException` teardown as irrelevant to the constructor/accessor assertion, and the Bug219 negative log assertions now match the full `[Parsek][INFO][Flight] PopulateTerminalOrbitFromLastSegment:` prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~515. The new body-index seam test still used Unity null semantics, so the xUnit override declined valid synthetic bodies and left landed snapshot repair on the stale orbit~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `SpawnSafetyNetTests.ResolveBodyIndex_UsesResolverOverride` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the production seam was already correct, but the xUnit helper backing `BodyIndexResolverForTesting` still used `body == null`. For synthetic `CelestialBody` instances created with `FormatterServices`, Unity's overloaded null semantics can report a perfectly valid test fixture as null, so the override returned `false` and the landed repair path never rewrote `ORBIT.REF`.
+
+**Fix:** the body-index test helper now uses `object.ReferenceEquals(body, null)` and reference-based list matching, so the override consistently resolves the installed synthetic bodies and the landed surface-repair fixture exercises the real production seam.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~516. Hyperbolic predicted segments could rebuild the SOI handoff on the wrong outbound branch because true anomaly reconstruction used plain `Atan`~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** after the earlier quaternion normalization/canonicalization follow-up, the remaining SOI rotation failure was not in the attitude seam anymore. The parent-body segment itself was reconstructing its hyperbolic start state with `2 * Atan(...)`, which folds the outbound branch into the wrong quadrant for some escape states. That changed the rebuilt parent-frame velocity vector at the exact handoff UT, so the preserved world rotation was being compared against the wrong orbital frame even though the stored quaternion itself was stable.
+
+**Fix:** `BallisticExtrapolator.TwoBodyOrbit.GetStateAtUT()` now reconstructs hyperbolic true anomaly with the equivalent `Atan2` form that preserves the correct branch/quadrant. Added a direct regression that asserts the parent-body predicted segment starts from the exact transformed SOI boundary state before checking the preserved frozen playback attitude.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~517. Headless landed snapshot repair still treated synthetic endpoint bodies as null inside the final ORBIT rewrite helpers~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** even after the body-index resolver seam was fixed, the landed repair path still passed a synthetic `CelestialBody` into `ApplySurfaceOrbitToSnapshot()` and `ReplaceSnapshotOrbitNode()`, and those helpers were still using Unity's overloaded `body == null` check. In headless xUnit that pseudo-null check can reject a perfectly valid test fixture before the repaired `ORBIT` node is written, leaving the stale `SMA=700000` snapshot in place.
+
+**Fix:** the headless-sensitive orbit rewrite helpers now use `object.ReferenceEquals(body, null)`, so the synthetic endpoint body reaches the real surface-orbit rewrite path and the repaired `REF` value is written through the same production helper as live KSP.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~518. Equatorial hyperbolic SOI handoffs still serialized the parent segment with the wrong periapsis heading because `argumentOfPeriapsis` was left at zero when the ascending node was undefined~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_HyperbolicHomeEscape_PreservesParentSegmentStartState` and `Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** the remaining SOI handoff failures were not in the quaternion seam anymore. The parent segment is an equatorial eccentric/hyperbolic orbit, so the ascending node is undefined, but `TwoBodyOrbit.TryCreate()` still left `argumentOfPeriapsis = 0` in that case. That discards the real periapsis heading from the eccentricity vector, so `TryPropagate(segment, startUT)` rebuilds the parent segment on the wrong in-plane orientation and the preserved frozen attitude is resolved against the wrong world state.
+
+**Fix:** equatorial eccentric/hyperbolic segment creation now derives periapsis orientation directly from `atan2(eccentricityVector.y, eccentricityVector.x)` when the ascending node is undefined. The regression keeps asserting both the exact parent-segment start-state preservation and the frozen playback world-rotation continuity across the SOI handoff.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~519. The final SOI attitude xUnit failure was comparing exact quaternion components even when the handoff preserved the same rotation as `q` versus `-q`~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** after the hyperbolic handoff fixes, the only remaining mismatch was an exact sign-flip on the normalized quaternion (`q` versus `-q`). Those two tuples represent the same 3D rotation, so component-by-component comparison was stricter than the actual continuity contract the tests are meant to enforce.
+
+**Fix:** the shared SOI/finalization quaternion test helpers now compare normalized rotation equivalence using the absolute quaternion dot product instead of raw component equality, so the assertions fail only when the represented rotation changes, not when the same rotation chooses the opposite sign.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
@@ -30,6 +210,200 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 **Status:** CLOSED. Fixed for v0.8.3.
 
 ---
+
+## ~~489. Headless xUnit finalization tests tripped the live incomplete-ballistic extrapolator through `FlightGlobals` before they reached their real fallback assertions~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `Bug278FinalizeLimboTests.FinalizeIndividualRecording_*` and `EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`.
+
+**Concern:** `#442` wired `IncompleteBallisticSceneExitFinalizer.TryApply()` into the default scene-exit finalization path. In headless xUnit, Unity's native `FlightGlobals` runtime is unavailable, so the default extrapolator could trip `FlightGlobals` static initialization before the tests ever reached the branches they were actually written to assert. That turned pre-existing fallback tests into engine-startup failures unrelated to their purpose.
+
+**Fix:** `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording()` now probes `FlightGlobals.fetch` / `FlightGlobals.ready` behind a guarded cache and emits a focused `VERBOSE` line when the Unity runtime is unavailable. Permanent headless probe failures are cached so xUnit does not keep tripping the static initializer, but transient `ready=false` scene states are not cached, so a teardown frame cannot disable later live scene-exit finalization in the same KSP session. The default finalizer now also treats wrapped headless `SecurityException` chains as the same guarded decline path inside `TryFinalizeRecording()`, while the outer `TryApply()` fallback logs the same wrapped failure without permanently poisoning the cached runtime-availability state for later live KSP sessions. The Bug278 fixture explicitly resets the static finalizer seam between tests so cached/headless state cannot leak across unrelated fallback assertions. Hook / override-based tests still bypass the guard exactly as before. Added regression coverage in `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~497. Legacy exact-boundary recordings stopped backfilling an orbit endpoint after the same-UT stale-orbit guard landed~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `RecordingEndpointPersistenceTests.LoadRecordingFiles_LegacyRecording_BackfillsEndpointDecisionFromTerminalOrbitAlignedSegment`.
+
+**Concern:** the stricter same-UT terminal-orbit guard was correct for live stale-cache overwrite prevention, but `RecordingStore.LoadRecordingFilesFromPathsInternal()` also uses endpoint backfill on recordings that have no persisted endpoint phase yet. That made exact-boundary legacy files fall back to the last point body instead of persisting the recorded terminal-orbit body on load.
+
+**Fix:** `RecordingEndpointResolver.BackfillEndpointDecision()` now has a narrow legacy backfill path that only applies when there is no persisted endpoint decision, the recording already has an orbital terminal state, and the last orbit segment matches the cached terminal-orbit body. It logs the exact-boundary override and persists `EndpointPhase=OrbitSegment` without weakening the stricter live same-UT rejection used by `PopulateTerminalOrbitFromLastSegment()`.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~498. Headless surface-snapshot repair still reached `FlightGlobals.Bodies` when it rewrote a landed ORBIT node~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the first headless body-registry seam covered snapshot `REF` decoding and body-name lookup, but `ApplySurfaceOrbitToSnapshot()` still used `FlightGlobals.Bodies.IndexOf(body)` when it rewrote a landed snapshot to `SMA=0/ECC=1`. In headless xUnit that left the stale orbit node untouched even though the endpoint repair path had already resolved the correct body through the test seam.
+
+**Fix:** `VesselSpawner` now resolves body indexes through a dedicated `BodyIndexResolverForTesting` seam, and both `ApplySurfaceOrbitToSnapshot()` and `SaveOrbitToNode()` use that helper instead of reading `FlightGlobals.Bodies` directly. The headless tests inject the same Kerbin/Mun registry for name, body, and index lookups, and the surface-repair path now emits a focused `VERBOSE` line if no body index can be resolved.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~499. Preserving legacy predicted orbit flags regressed two different recording-store paths~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `TrackSectionSerializationTests.SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag` and `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** the earlier `isPredicted` preservation fix broadened `SerializeOrbitSegment()` itself, so legacy `TRACK_SECTION` checkpoints started writing `isPredicted=True` even in format v4, while the accompanying fallback guard became strict enough to reject perfectly valid flat tails whose appended suffix simply used older/non-monotonic test UTs. Those are different surfaces with different compatibility rules: legacy flat sidecars must preserve predicted orbit flags, but legacy track-section checkpoints must not grow the field retroactively.
+
+**Fix:** `SerializeOrbitSegment()` now takes an explicit `writeLegacyPredictedFlag` switch. Flat trajectory sidecars opt in so legacy round-trips keep `isPredicted`, while `SerializeTrackSections()` leaves the flag omitted before `PredictedOrbitSegmentFormatVersion`. `FlatTrajectoryExtendsTrackSectionPayload()` also went back to its intended job: detect whether the flat lists extend the rebuilt section payload, without rejecting the suffix for unrelated monotonicity that only matters in the later healing paths.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~500. Post-walk partial-tracker integration still asserted the pre-`compared=` summary format~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
+
+**Concern:** the production reconciliation summary now includes `compared=` and `cutoffUT=`, but this fixture was still matching the older shorter string. That made the test fail even though the intended science-mismatch warning still fired and the reconciliation counters were correct.
+
+**Fix:** updated the fixture to assert the current summary shape explicitly, including `compared=1` and `cutoffUT=null`, while still pinning the underlying science-mismatch warning. That keeps the test anchored to the real production log contract instead of the older format.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~501. Orbital-frame continuity started comparing equivalent quaternions with unstable raw signs across SOI and scene-exit frame reconstructions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments` and `SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments`.
+
+**Concern:** the new orbital-frame encode/decode seam correctly preserved attitude in world space, but it did not canonicalize quaternion sign. Once the code started comparing raw quaternion components across different frame reconstructions, two equivalent orientations could show up with different signs and fail exact component assertions even though the underlying rotation was unchanged.
+
+**Fix:** `BallisticExtrapolator` now canonicalizes quaternion sign when it computes or resolves orbital-frame-relative rotations. That keeps SOI handoffs and scene-exit seeded predicted tails on a deterministic raw-component representation without changing the represented world rotation.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~502. Narrowed sea-level impact scans could end exactly on the predicted crossing and miss the sign-change bracket entirely~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_LongHorizonSeaLevelImpact_NarrowsSurfaceScan`.
+
+**Concern:** when `FindLocalCutoff()` found an analytic sea-level crossing, it narrowed the dense scan window to end exactly at that UT. If the analytic estimate landed slightly early, every sampled surface delta in the window could still stay positive, so `FindSurfaceCrossing()` never saw the `>0 -> <=0` bracket it needs and the extrapolator fell through to `Orbiting` instead of `Destroyed`.
+
+**Fix:** the sea-level narrowed window now extends one cutoff sample step past the predicted crossing while staying clamped to the requested `endUT`. That preserves the narrowing optimization but guarantees the sampler still has room to capture the sign-change bracket when the analytic crossing lands a little early.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~504. `QuickloadResumeTests` stopped compiling after merging `main` because the fixture still seeded the old facility-upgrade enum name~~
+
+**Source:** post-merge `dotnet build --no-restore` failure on `Parsek-fix-xunit-failures` (2026-04-21): `CS0117` on `GameStateEventType.FacilityUpgrade`.
+
+**Concern:** `GameStateEventType` now exposes `FacilityUpgraded` / `FacilityDowngraded`, but the quickload-resume fixture was still seeding the removed `FacilityUpgrade` member. That is a pure test-side drift after merging `main`, but it stops the entire `Parsek.Tests` build before any of the real xUnit failures can run.
+
+**Fix:** updated the fixture to seed `GameStateEventType.FacilityUpgraded`, which matches the current production enum contract while preserving the exact milestone/event setup that the baseline-restore test needs.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
+
+**Concern:** the failing logic under test was spawn-safety provenance repair, but the setup path decoded the snapshot's `ORBIT.REF` by reading `FlightGlobals.Bodies[refIndex]` directly. In headless xUnit that pulls in Unity's body registry before the test can even reach its real assertion, so a body-name lookup detail masks the actual endpoint-body decision logic.
+
+**Fix:** `VesselSpawner` now routes snapshot `REF` decoding through `TryResolveBodyNameByIndex()`, with an internal `BodyNameResolverForTesting` override for headless tests. The later endpoint-body repair path now likewise resolves the loaded `CelestialBody` through `TryResolveBodyByName()`, with a matching `BodyResolverForTesting` override, so the stale-orbit / mismatch tests do not have to touch `FlightGlobals.Bodies` just to reach their real assertions. Production still defaults to the real Unity body registry, but both fallback lookups now decline with a focused `VERBOSE` log even when the headless `FlightGlobals` failure arrives through a deeper wrapped exception chain instead of a direct `TypeInitializationException(SecurityException)`. xUnit injects `{0: Kerbin, 1: Mun}` plus the matching test-body objects and pins both seams with direct regressions.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~491. Endpoint-aligned spawn-orbit selection could fall back across a body mismatch, while spawn-validation logs hid the vessel name behind generic caller context~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersTerminalOrbitMatchingEndpointBody`, `...ReturnsFalseWhenNoOrbitSeedMatchesEndpointBody`, and the snapshot-validation log assertions that expected vessel names like `Malformed Snapshot` / `Surface Repair`.
+
+**Concern:** `TryGetEndpointAlignedRecordedOrbitSeedForSpawn()` delegated to the strict endpoint-body resolver first, then silently fell back to the older preferred-seed resolver even when that fallback pointed at a different body. That let a Kerbin terminal orbit leak into a Mun endpoint decision instead of returning false. In the same area, `BuildValidatedRespawnSnapshot()` and friends logged only the external caller label when one was supplied, so a generic context like `spawn-test` hid the actual vessel name the tests and triage needed.
+
+**Fix:** endpoint-aligned orbit selection now stays strict: orbit-segment endpoints still prefer the last matching segment, non-orbit endpoints only accept a matching terminal-orbit tuple when the recording is still in an orbital terminal state, and if nothing matches the resolved endpoint body the helper returns false instead of broadening the search. The terminal-orbit-aligned branch now also refuses a same-UT conflicting last trajectory point on another body unless the final orbit segment truly extends past that point, and it emits a `VERBOSE` line with the conflicting bodies/UTs when that happens. That prevents landed/splashed recordings from reusing stale terminal-orbit tuples during malformed-snapshot repair or same-UT boundary cases. Spawn-validation messages now format context as `caller (VesselName)` when both exist, so repair/refusal logs keep the human vessel identity visible without dropping the caller label.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~492. Spawn-rotation coverage used Unity quaternion APIs directly inside headless xUnit tests~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: all ten `SpawnRotationTests.*`.
+
+**Concern:** the code under test is fine, but the test bodies themselves construct expected rotations with `Quaternion.Euler(...)`. That forces plain `net472` xUnit to execute Unity-native ECalls that only exist in a live KSP runtime, so the tests fail before they reach the actual spawn-rotation assertions.
+
+**Fix:** moved the full spawn-rotation suite into `Source/Parsek/InGameTests/SpawnRotationInGameTests.cs` under `Category = "SpawnRotation"` / `Scene = GameScenes.FLIGHT`, preserving the same helper/log assertions with `InGameAssert` and Unity-backed quaternion semantics, including the explicit null-body warning/no-rotation-mutation regression that was briefly dropped in the first port. The old xUnit file is deleted instead of being left behind as skipped coverage.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~493. `TrimBoringTail` treated identity terminal rotations as authored surface poses and refused to trim stable landed tails~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingOptimizerTests.TrimBoringTail_LandedStableTerminalState_StillTrims`.
+
+**Concern:** `TryGetTerminalSurfaceReference()` read `SurfacePosition.HasRecordedRotation`, which treats identity as recorded when `rotationRecorded` is absent. The later point matcher only treats non-identity rotations as meaningful, so a perfectly upright landed tail compared "recorded identity" on the terminal pose against "no meaningful rotation" on the tail points and bailed instead of trimming.
+
+**Fix:** `RecordingOptimizer` now normalizes terminal/surface poses the same way it already normalizes tail points: identity rotations are ignored for trim matching even when the serialized `SurfacePosition` reports them as recorded. The optimizer emits a focused `VERBOSE` line when it drops that identity rotation so the behavior stays pinned in tests.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~494. Legacy text trajectory sidecars silently dropped `OrbitSegment.isPredicted` on round-trip~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.TextTrajectorySidecar_PredictedOrbitSegment_RoundTrips`.
+
+**Concern:** `SerializeOrbitSegment()` only wrote `isPredicted` once the recording format version reached the modern predicted-orbit threshold. That made legacy text sidecars serialize the orbital geometry correctly but silently clear the predicted flag during round-trip, which is exactly the kind of state drift the sidecar tests are supposed to catch.
+
+**Fix:** text sidecar serialization now writes `isPredicted` whenever a segment is actually predicted, regardless of the legacy recording-format version. Older readers ignore the extra key, while current deserialization preserves the flag and the old-format round-trip keeps its predicted tail semantics intact.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~495. Flat-binary fallback detection rejected valid predicted tails because it re-validated monotonicity across the already-matched track-section prefix~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips`.
+
+**Concern:** `FlatTrajectoryExtendsTrackSectionPayload()` first proves that the rebuilt track-section payload matches the flat trajectory prefix, then immediately re-checks monotonicity across the whole flat list. That can reject a valid extension case purely because the already-matched prefix has its own duplicated boundary shape, which means the code never reaches the intended flat-binary fallback path for a real predicted tail beyond the checkpoint payload.
+
+**Fix:** the extension detector now applies its monotonicity guard only from the first appended point / orbit segment beyond the rebuilt track-section payload, while still checking the stitched boundary against the last rebuilt element. That keeps the defense against non-monotonic appended tails without misclassifying legitimate fallback cases that only extend a known-good section-authoritative prefix.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~496. Partial-tracker post-walk integration coverage seeded untagged events and created a spurious reputation mismatch~~
+
+**Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing example: `PostWalkReconciliationIntegrationTests.Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs`.
+
+**Concern:** the test is meant to prove that when funds tracking is disabled, post-walk reconciliation still ignores the funds leg while correctly matching the tracked reputation leg and warning only on the mismatched science leg. But the fixture seeded all three observed events without a `recordingId`, and non-science post-walk reconciliation is recording-scoped. That makes the reputation event miss scope matching for the wrong reason, so the test can fail with a spurious rep warning even when the production code is behaving correctly.
+
+**Fix:** the partial-tracker fixture now tags its seeded `FundsChanged`, `ReputationChanged`, and `ScienceChanged` events with `recordingId = "rec-partial"`, matching the action under test. That restores the intended coverage shape: funds remains ignored because tracking is disabled, reputation matches cleanly, and the test isolates the science mismatch it was written to pin.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~503. `AutoRecordDecisionTests` stopped compiling after merging `main` because a public xUnit theory exposed the internal restore-mode enum directly~~
+
+**Source:** post-merge `dotnet test` compile failure on `Parsek-fix-xunit-failures` (2026-04-21): `CS0051` on `AutoRecordDecisionTests.ShouldIgnoreFlightReadyReset_RestoreOrMissingLiveState_ReturnsFalse(...)`.
+
+**Concern:** `ParsekScenario.ActiveTreeRestoreMode` is intentionally internal production state, but the merged xUnit theory surfaced it directly as a public method parameter. C# rejects that accessibility mismatch before the test run even starts, so the whole branch stops at compile time for a pure test-fixture reason.
+
+**Fix:** the theory now passes the restore mode as `(int)ActiveTreeRestoreMode.X` inline-data casts and casts back to the enum at the production call site. That preserves the exact coverage without widening production visibility or introducing test-only public surfaces, and keeps each case readable by its enum name at the `[InlineData]` call site instead of surfacing raw magic integers.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
+## ~~488. Incomplete-ballistic scene-exit finalization accepted bad hook outputs and could overwrite hook-authored terminal endpoint data~~
 
 ## 486. Quicksave/quickload while recording on the runway produces a spurious-looking tree with a ~7s surface segment glued to a post-takeoff atmo segment — user-visible as "two recordings (landed + in air)" that both describe the same takeoff
 

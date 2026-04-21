@@ -191,22 +191,22 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(false, true, false, ParsekScenario.ActiveTreeRestoreMode.None)]
-        [InlineData(true, false, false, ParsekScenario.ActiveTreeRestoreMode.None)]
-        [InlineData(true, true, true, ParsekScenario.ActiveTreeRestoreMode.None)]
-        [InlineData(true, true, false, ParsekScenario.ActiveTreeRestoreMode.Quickload)]
-        [InlineData(true, true, false, ParsekScenario.ActiveTreeRestoreMode.VesselSwitch)]
+        [InlineData(false, true, false, (int)ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, false, false, (int)ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, true, true, (int)ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, true, false, (int)ParsekScenario.ActiveTreeRestoreMode.Quickload)]
+        [InlineData(true, true, false, (int)ParsekScenario.ActiveTreeRestoreMode.VesselSwitch)]
         public void ShouldIgnoreFlightReadyReset_RestoreOrMissingLiveState_ReturnsFalse(
             bool hasActiveRecorder,
             bool hasActiveTree,
             bool hasPendingTree,
-            ParsekScenario.ActiveTreeRestoreMode restoreMode)
+            int restoreMode)
         {
             bool result = ParsekFlight.ShouldIgnoreFlightReadyReset(
                 hasActiveRecorder,
                 hasActiveTree,
                 hasPendingTree,
-                restoreMode);
+                (ParsekScenario.ActiveTreeRestoreMode)restoreMode);
 
             Assert.False(result);
         }

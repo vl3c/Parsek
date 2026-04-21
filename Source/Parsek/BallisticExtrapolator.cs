@@ -472,7 +472,8 @@ namespace Parsek
                 return Quaternion.identity;
 
             Vector3d radialOut = position / radius;
-            return TrajectoryMath.ComputeOrbitalFrameRotation(worldRotation, velocity, radialOut);
+            return NormalizeAndCanonicalizeQuaternion(
+                TrajectoryMath.ComputeOrbitalFrameRotation(worldRotation, velocity, radialOut));
         }
 
         internal static Quaternion ResolveWorldRotation(
@@ -488,7 +489,8 @@ namespace Parsek
                 position,
                 velocity);
             Quaternion orbitalFrame = TrajectoryMath.PureInverse(inverseOrbitalFrame);
-            return TrajectoryMath.PureMultiply(orbitalFrame, orbitalFrameRotation);
+            return NormalizeAndCanonicalizeQuaternion(
+                TrajectoryMath.PureMultiply(orbitalFrame, orbitalFrameRotation));
         }
 
         internal static Quaternion ReframeOrbitalFrameRotation(
@@ -509,6 +511,30 @@ namespace Parsek
                 worldRotation,
                 toPosition,
                 toVelocity);
+        }
+
+        private static Quaternion CanonicalizeQuaternionSign(Quaternion quaternion)
+        {
+            if (quaternion.w < 0f
+                || (quaternion.w == 0f
+                    && (quaternion.z < 0f
+                        || (quaternion.z == 0f
+                            && (quaternion.y < 0f
+                                || (quaternion.y == 0f && quaternion.x < 0f))))))
+            {
+                return new Quaternion(
+                    -quaternion.x,
+                    -quaternion.y,
+                    -quaternion.z,
+                    -quaternion.w);
+            }
+
+            return quaternion;
+        }
+
+        private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)
+        {
+            return CanonicalizeQuaternionSign(TrajectoryMath.PureNormalize(quaternion));
         }
 
         internal static bool TryPropagate(
@@ -608,7 +634,7 @@ namespace Parsek
             if (TryFindDescendingRadiusCrossingUT(orbit, startUT, endUT, body.Radius, out double seaLevelCrossingUT))
             {
                 sampleStartUT = Math.Max(startUT, seaLevelCrossingUT - LocalCutoffDenseWindowSeconds);
-                sampleEndUT = seaLevelCrossingUT;
+                sampleEndUT = Math.Min(endUT, seaLevelCrossingUT + DefaultCutoffSampleStep);
                 windowReason = "sea-level";
             }
             else if (TryGetNextPeriapsisUT(orbit, startUT, endUT, out double periapsisUT))
@@ -1235,6 +1261,11 @@ namespace Parsek
             return 0.5 * Math.Log((1.0 + value) / (1.0 - value));
         }
 
+        private static double Asinh(double value)
+        {
+            return Math.Log(value + Math.Sqrt((value * value) + 1.0));
+        }
+
         private static double Acosh(double value)
         {
             return Math.Log(value + Math.Sqrt((value - 1.0) * (value + 1.0)));
@@ -1336,6 +1367,13 @@ namespace Parsek
                         if (eccentricityVector.z < 0.0)
                             argumentOfPeriapsis = (Math.PI * 2.0) - argumentOfPeriapsis;
                     }
+                    else
+                    {
+                        // Equatorial eccentric/hyperbolic orbit: the ascending node is undefined,
+                        // so periapsis orientation must come directly from the eccentricity vector.
+                        argumentOfPeriapsis = NormalizeAngle(
+                            Math.Atan2(eccentricityVector.y, eccentricityVector.x));
+                    }
 
                     trueAnomaly = AcosClamped(Vector3d.Dot(eccentricityVector, position)
                         / (eccentricity * radius));
@@ -1365,11 +1403,15 @@ namespace Parsek
                 }
                 else if (eccentricity > 1.0 + OrbitEpsilon)
                 {
-                    double halfAngle = Math.Tan(trueAnomaly * 0.5);
-                    double factor = Math.Sqrt((eccentricity - 1.0) / (eccentricity + 1.0));
-                    double hyperbolicArgument = Clamp(factor * halfAngle, -0.999999999, 0.999999999);
-                    double hyperbolicAnomaly = 2.0 * Atanh(hyperbolicArgument);
-                    meanAnomaly = eccentricity * Math.Sinh(hyperbolicAnomaly) - hyperbolicAnomaly;
+                    double denominator = 1.0 + eccentricity * Math.Cos(trueAnomaly);
+                    if (Math.Abs(denominator) <= StateVectorEpsilon)
+                        return false;
+
+                    double sinhHyperbolicAnomaly = Math.Sqrt((eccentricity * eccentricity) - 1.0)
+                        * Math.Sin(trueAnomaly)
+                        / denominator;
+                    double hyperbolicAnomaly = Asinh(sinhHyperbolicAnomaly);
+                    meanAnomaly = eccentricity * sinhHyperbolicAnomaly - hyperbolicAnomaly;
                 }
                 else
                 {
@@ -1465,9 +1507,9 @@ namespace Parsek
                     double hyperbolicAnomaly = SolveHyperbolicKepler(meanAnomaly, Eccentricity);
 
                     radius = SemiMajorAxis * (1.0 - Eccentricity * Math.Cosh(hyperbolicAnomaly));
-                    trueAnomaly = 2.0 * Math.Atan(
-                        Math.Sqrt((Eccentricity + 1.0) / (Eccentricity - 1.0))
-                        * Math.Tanh(hyperbolicAnomaly * 0.5));
+                    trueAnomaly = 2.0 * Math.Atan2(
+                        Math.Sqrt(Eccentricity + 1.0) * Math.Sinh(hyperbolicAnomaly * 0.5),
+                        Math.Sqrt(Eccentricity - 1.0) * Math.Cosh(hyperbolicAnomaly * 0.5));
                 }
 
                 double parameter = SemiMajorAxis * (1.0 - Eccentricity * Eccentricity);

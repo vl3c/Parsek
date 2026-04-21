@@ -279,6 +279,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Extrapolate_HyperbolicHomeEscape_PreservesParentSegmentStartState()
+        {
+            ParentFrameStateResolver fixedParentState = FixedState(
+                new Vector3d(200000000.0, 0.0, 0.0),
+                new Vector3d(0.0, 200.0, 0.0));
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Star"] = MakeBody("Star", StarGravParameter, StarRadius),
+                ["Home"] = MakeBody(
+                    "Home",
+                    KerbinGravParameter,
+                    KerbinRadius,
+                    atmosphereDepth: KerbinAtmosphereDepth,
+                    sphereOfInfluence: KerbinSoi,
+                    parentBodyName: "Star",
+                    parentFrameState: fixedParentState)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Home", KerbinRadius, altitude: 100000.0, tangentialSpeed: 3600.0),
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0005,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(2, result.segments.Count);
+            OrbitSegment homeSegment = result.segments[0];
+            OrbitSegment starSegment = result.segments[1];
+
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                homeSegment,
+                KerbinGravParameter,
+                homeSegment.endUT,
+                out Vector3d homeBoundaryPosition,
+                out Vector3d homeBoundaryVelocity));
+            fixedParentState(
+                homeSegment.endUT,
+                out Vector3d homeBodyPosition,
+                out Vector3d homeBodyVelocity);
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                starSegment,
+                StarGravParameter,
+                starSegment.startUT,
+                out Vector3d starBoundaryPosition,
+                out Vector3d starBoundaryVelocity));
+
+            Assert.True(Distance(homeBoundaryPosition + homeBodyPosition, starBoundaryPosition) < 1.0);
+            Assert.True(Distance(homeBoundaryVelocity + homeBodyVelocity, starBoundaryVelocity) < 0.01);
+        }
+
+        [Fact]
         public void Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments()
         {
             Quaternion frozenRotation = new Quaternion(-0.6f, -0.3f, 0.6f, 0.3f);
@@ -718,10 +772,49 @@ namespace Parsek.Tests
 
         private static void AssertQuaternionEqual(Quaternion expected, Quaternion actual, float tolerance = 0.0001f)
         {
-            Assert.True(Mathf.Abs(expected.x - actual.x) < tolerance, $"x={actual.x} expected={expected.x}");
-            Assert.True(Mathf.Abs(expected.y - actual.y) < tolerance, $"y={actual.y} expected={expected.y}");
-            Assert.True(Mathf.Abs(expected.z - actual.z) < tolerance, $"z={actual.z} expected={expected.z}");
-            Assert.True(Mathf.Abs(expected.w - actual.w) < tolerance, $"w={actual.w} expected={expected.w}");
+            expected = NormalizeAndCanonicalizeQuaternion(expected);
+            actual = NormalizeAndCanonicalizeQuaternion(actual);
+            float dot = Mathf.Abs(
+                (expected.x * actual.x)
+                + (expected.y * actual.y)
+                + (expected.z * actual.z)
+                + (expected.w * actual.w));
+            Assert.True(
+                1f - dot < tolerance,
+                $"dot={dot} expected={expected} actual={actual}");
+        }
+
+        private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)
+        {
+            float magnitude = Mathf.Sqrt(
+                quaternion.x * quaternion.x
+                + quaternion.y * quaternion.y
+                + quaternion.z * quaternion.z
+                + quaternion.w * quaternion.w);
+            if (magnitude > 1e-6f)
+            {
+                quaternion = new Quaternion(
+                    quaternion.x / magnitude,
+                    quaternion.y / magnitude,
+                    quaternion.z / magnitude,
+                    quaternion.w / magnitude);
+            }
+
+            if (quaternion.w < 0f
+                || (quaternion.w == 0f
+                    && (quaternion.z < 0f
+                        || (quaternion.z == 0f
+                            && (quaternion.y < 0f
+                                || (quaternion.y == 0f && quaternion.x < 0f))))))
+            {
+                quaternion = new Quaternion(
+                    -quaternion.x,
+                    -quaternion.y,
+                    -quaternion.z,
+                    -quaternion.w);
+            }
+
+            return quaternion;
         }
     }
 }

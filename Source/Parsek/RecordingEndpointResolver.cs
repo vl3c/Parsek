@@ -156,6 +156,25 @@ namespace Parsek
                 return false;
             }
 
+            if (TryGetLegacyTerminalOrbitBackfillDecision(rec, out RecordingEndpointPhase legacyPhase, out string legacyBodyName))
+            {
+                bool legacyChanged = rec.EndpointPhase != legacyPhase
+                    || !string.Equals(rec.EndpointBodyName, legacyBodyName, StringComparison.Ordinal);
+                rec.EndpointPhase = legacyPhase;
+                rec.EndpointBodyName = legacyBodyName;
+                LogEndpointDecision(
+                    "BackfillEndpointDecision",
+                    context,
+                    rec,
+                    phaseBefore,
+                    bodyBefore,
+                    rec.EndpointPhase,
+                    rec.EndpointBodyName,
+                    legacyChanged,
+                    resolved: true);
+                return legacyChanged;
+            }
+
             bool changed = RefreshEndpointDecision(rec, context, logDecision: false);
             LogEndpointDecision(
                 "BackfillEndpointDecision",
@@ -270,8 +289,11 @@ namespace Parsek
                 return false;
             }
 
-            if (endpointUsesOrbitSegment
-                && TryGetLastMatchingSegment(
+            bool hasMatchingTerminalOrbit = CanUseTerminalOrbitSeedForEndpoint(traj, endpointBody);
+
+            if (endpointUsesOrbitSegment)
+            {
+                if (TryGetLastMatchingSegment(
                     out inclination,
                     out eccentricity,
                     out semiMajorAxis,
@@ -280,13 +302,15 @@ namespace Parsek
                     out meanAnomalyAtEpoch,
                     out epoch,
                     out bodyName))
-            {
-                return true;
+                {
+                    return true;
+                }
+
+                if (!hasMatchingTerminalOrbit)
+                    return false;
             }
 
-            if (endpointUsesOrbitSegment
-                && HasRecordedTerminalOrbit(traj)
-                && string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            if (hasMatchingTerminalOrbit)
             {
                 inclination = traj.TerminalOrbitInclination;
                 eccentricity = traj.TerminalOrbitEccentricity;
@@ -299,16 +323,40 @@ namespace Parsek
                 return true;
             }
 
-            return !endpointUsesOrbitSegment
-                && TryGetLastMatchingSegment(
-                    out inclination,
-                    out eccentricity,
-                    out semiMajorAxis,
-                    out lan,
-                    out argumentOfPeriapsis,
-                    out meanAnomalyAtEpoch,
-                    out epoch,
-                    out bodyName);
+            return TryGetLastMatchingSegment(
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out bodyName);
+        }
+
+        private static bool CanUseTerminalOrbitSeedForEndpoint(
+            IPlaybackTrajectory traj,
+            string endpointBody)
+        {
+            if (!HasRecordedTerminalOrbit(traj)
+                || string.IsNullOrEmpty(endpointBody)
+                || !string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!traj.TerminalStateValue.HasValue)
+                return true;
+
+            switch (traj.TerminalStateValue.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.SubOrbital:
+                case TerminalState.Docked:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         internal static bool TryGetOrbitEndpointCoordinates(
@@ -565,6 +613,57 @@ namespace Parsek
             return orbitEndUT > pointEndUT + EndpointEpsilon;
         }
 
+        private static bool TryGetLegacyTerminalOrbitBackfillDecision(
+            Recording rec,
+            out RecordingEndpointPhase phase,
+            out string bodyName)
+        {
+            phase = RecordingEndpointPhase.Unknown;
+            bodyName = null;
+            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return false;
+
+            if (!HasRecordedTerminalOrbit(rec)
+                || !rec.TerminalStateValue.HasValue)
+            {
+                return false;
+            }
+
+            TerminalState terminalState = rec.TerminalStateValue.Value;
+            if (terminalState != TerminalState.Orbiting
+                && terminalState != TerminalState.SubOrbital
+                && terminalState != TerminalState.Docked)
+            {
+                return false;
+            }
+
+            OrbitSegment lastSegment = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+            if (string.IsNullOrEmpty(lastSegment.bodyName)
+                || !string.Equals(lastSegment.bodyName, rec.TerminalOrbitBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (rec.Points != null && rec.Points.Count > 0)
+            {
+                TrajectoryPoint lastPoint = rec.Points[rec.Points.Count - 1];
+                if (!string.IsNullOrEmpty(lastPoint.bodyName)
+                    && !string.Equals(lastPoint.bodyName, rec.TerminalOrbitBody, StringComparison.Ordinal)
+                    && lastSegment.endUT <= lastPoint.ut + EndpointEpsilon)
+                {
+                    ParsekLog.Verbose("EndpointDecision",
+                        "TryGetLegacyTerminalOrbitBackfillDecision: backfilling endpoint phase from terminal orbit " +
+                        $"terminalBody={rec.TerminalOrbitBody} pointBody={lastPoint.bodyName} " +
+                        $"segmentEndUT={lastSegment.endUT:F3} pointUT={lastPoint.ut:F3}");
+                    phase = RecordingEndpointPhase.OrbitSegment;
+                    bodyName = rec.TerminalOrbitBody;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool TryGetTerminalOrbitAlignedOrbitDecision(
             IPlaybackTrajectory traj,
             out string bodyName)
@@ -592,6 +691,21 @@ namespace Parsek
                 || !string.Equals(lastSegment.bodyName, traj.TerminalOrbitBody, StringComparison.Ordinal))
             {
                 return false;
+            }
+
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                TrajectoryPoint lastPoint = traj.Points[traj.Points.Count - 1];
+                if (!string.IsNullOrEmpty(lastPoint.bodyName)
+                    && !string.Equals(lastPoint.bodyName, traj.TerminalOrbitBody, StringComparison.Ordinal)
+                    && lastSegment.endUT <= lastPoint.ut + EndpointEpsilon)
+                {
+                    ParsekLog.Verbose("EndpointDecision",
+                        "TryGetTerminalOrbitAlignedOrbitDecision: rejected terminal-orbit match " +
+                        $"terminalBody={traj.TerminalOrbitBody} pointBody={lastPoint.bodyName} " +
+                        $"segmentEndUT={lastSegment.endUT:F3} pointUT={lastPoint.ut:F3}");
+                    return false;
+                }
             }
 
             bodyName = traj.TerminalOrbitBody;
