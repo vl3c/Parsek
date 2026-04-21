@@ -78,6 +78,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~501. Orbital-frame continuity started comparing equivalent quaternions with unstable raw signs across SOI and scene-exit frame reconstructions~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments` and `SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments`.
+
+**Concern:** the new orbital-frame encode/decode seam correctly preserved attitude in world space, but it did not canonicalize quaternion sign. Once the code started comparing raw quaternion components across different frame reconstructions, two equivalent orientations could show up with different signs and fail exact component assertions even though the underlying rotation was unchanged.
+
+**Fix:** `BallisticExtrapolator` now canonicalizes quaternion sign when it computes or resolves orbital-frame-relative rotations. That keeps SOI handoffs and scene-exit seeded predicted tails on a deterministic raw-component representation without changing the represented world rotation.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~490. Headless snapshot-validation tests reached Unity body lookup just to decode `VesselSnapshot.ORBIT.REF`~~
 
 **Source:** `Parsek-fix-xunit-failures` clean local `dotnet test` run on 2026-04-21. Failing examples: `SpawnSafetyNetTests.BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects` and `BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair`.
