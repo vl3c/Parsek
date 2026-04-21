@@ -715,6 +715,41 @@ namespace Parsek.InGameTests
             }
         }
 
+        private static IEnumerator WaitForStockStageManagerReadyForQuickloadSetup(float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            float stableStarted = -1f;
+            while (Time.time < deadline)
+            {
+                bool ready = KSP.UI.Screens.StageManager.Instance != null
+                    && KSP.UI.Screens.StageManager.StageCount > 0
+                    && FlightInputHandler.state != null;
+                if (ready)
+                {
+                    if (stableStarted < 0f)
+                    {
+                        stableStarted = Time.unscaledTime;
+                    }
+                    else if ((Time.unscaledTime - stableStarted) >= 0.5f)
+                    {
+                        yield break;
+                    }
+                }
+                else
+                {
+                    stableStarted = -1f;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForStockStageManagerReadyForQuickloadSetup timed out after {timeoutSeconds:F0}s " +
+                $"(hasStageManager={KSP.UI.Screens.StageManager.Instance != null}, " +
+                $"stageCount={(KSP.UI.Screens.StageManager.Instance != null ? KSP.UI.Screens.StageManager.StageCount : 0)}, " +
+                $"hasFlightInput={FlightInputHandler.state != null})");
+        }
+
         private static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -4622,22 +4657,89 @@ namespace Parsek.InGameTests
             }
 
             bool startedRecordingForTest = false;
-            if (!flight.IsRecording)
-            {
-                flight.StartRecording();
-                InGameAssert.IsTrue(flight.IsRecording,
-                    "ParsekFlight.StartRecording should start a live recording before F5");
-                startedRecordingForTest = true;
-                yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
-                yield return new WaitForSeconds(0.5f);
-            }
-
-            string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
-            InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
-            int preFlightInstanceId = flight.GetInstanceID();
+            bool originalAutoRecordOnLaunch = false;
+            float originalThrottle = 0f;
+            bool autoRecordStateCaptured = false;
+            bool throttleCaptured = false;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
 
             try
             {
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    captured.Add(line);
+                    priorObserver?.Invoke(line);
+                };
+
+                if (!flight.IsRecording)
+                {
+                    if (vessel.situation != Vessel.Situations.PRELAUNCH)
+                    {
+                        InGameAssert.Skip(
+                            $"requires either an already-live launched recording or an idle PRELAUNCH vessel, got {vessel.situation}");
+                        yield break;
+                    }
+                    if (ParsekSettings.Current == null)
+                    {
+                        InGameAssert.Skip("ParsekSettings.Current is null");
+                        yield break;
+                    }
+                    if (FlightInputHandler.state == null)
+                    {
+                        InGameAssert.Skip("FlightInputHandler.state is null");
+                        yield break;
+                    }
+
+                    originalAutoRecordOnLaunch = ParsekSettings.Current.autoRecordOnLaunch;
+                    originalThrottle = FlightInputHandler.state.mainThrottle;
+                    autoRecordStateCaptured = true;
+                    throttleCaptured = true;
+
+                    ParsekSettings.Current.autoRecordOnLaunch = true;
+                    yield return WaitForStockStageManagerReadyForQuickloadSetup(10f);
+                    FlightInputHandler.state.mainThrottle = 1f;
+                    KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                    yield return WaitForLaunchAutoRecordStart(10f);
+                    yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+                    yield return new WaitForSeconds(0.5f);
+
+                    startedRecordingForTest = true;
+                    flight = ParsekFlight.Instance;
+                    vessel = FlightGlobals.ActiveVessel;
+                    InGameAssert.IsNotNull(flight, "ParsekFlight.Instance must survive launch auto-record setup");
+                    InGameAssert.IsNotNull(vessel, "Active vessel must exist after launch auto-record setup");
+                    InGameAssert.IsTrue(vessel.situation != Vessel.Situations.PRELAUNCH,
+                        "Quickload mid-recording setup must leave PRELAUNCH before F5");
+
+                    int autoStartCount = captured.Count(
+                        l => l.Contains("[Flight]") && l.Contains("Auto-record started ("));
+                    InGameAssert.AreEqual(1, autoStartCount,
+                        $"Expected exactly one launch auto-record log line during quickload setup, got {autoStartCount}");
+                }
+                else if (vessel.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    InGameAssert.Skip("requires an already-live launched recording or an idle PRELAUNCH vessel");
+                    yield break;
+                }
+
+                string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
+                InGameAssert.IsTrue(
+                    flight.ActiveTreeForSerialization.Recordings.TryGetValue(preRecId, out var preRec)
+                    && preRec.Points != null
+                    && preRec.Points.Count > 0,
+                    "Quickload mid-recording setup must capture at least one trajectory point before F5");
+                int preFlightInstanceId = flight.GetInstanceID();
+
+                ParsekLog.Info("TestRunner",
+                    $"Quickload mid-recording setup: vessel='{FlightGlobals.ActiveVessel?.vesselName}' " +
+                    $"situation={FlightGlobals.ActiveVessel?.situation} preRecId={preRecId} " +
+                    $"points={preRec.Points.Count} startedRecordingForTest={startedRecordingForTest}");
+
                 // F5
                 Helpers.QuickloadResumeHelpers.TriggerQuicksave();
                 yield return new WaitForSeconds(2f); // accumulate post-F5 data
@@ -4659,6 +4761,13 @@ namespace Parsek.InGameTests
             }
             finally
             {
+                if (throttleCaptured && FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+                if (autoRecordStateCaptured && ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnLaunch = originalAutoRecordOnLaunch;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+
                 var cleanupFlight = ParsekFlight.Instance;
                 if (startedRecordingForTest && cleanupFlight != null && cleanupFlight.IsRecording)
                     cleanupFlight.StopRecording();
