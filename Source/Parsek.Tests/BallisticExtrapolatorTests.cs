@@ -774,10 +774,14 @@ namespace Parsek.Tests
         {
             expected = NormalizeAndCanonicalizeQuaternion(expected);
             actual = NormalizeAndCanonicalizeQuaternion(actual);
-            Assert.True(Mathf.Abs(expected.x - actual.x) < tolerance, $"x={actual.x} expected={expected.x}");
-            Assert.True(Mathf.Abs(expected.y - actual.y) < tolerance, $"y={actual.y} expected={expected.y}");
-            Assert.True(Mathf.Abs(expected.z - actual.z) < tolerance, $"z={actual.z} expected={expected.z}");
-            Assert.True(Mathf.Abs(expected.w - actual.w) < tolerance, $"w={actual.w} expected={expected.w}");
+            float dot = Mathf.Abs(
+                (expected.x * actual.x)
+                + (expected.y * actual.y)
+                + (expected.z * actual.z)
+                + (expected.w * actual.w));
+            Assert.True(
+                1f - dot < tolerance,
+                $"dot={dot} expected={expected} actual={actual}");
         }
 
         private static Quaternion NormalizeAndCanonicalizeQuaternion(Quaternion quaternion)

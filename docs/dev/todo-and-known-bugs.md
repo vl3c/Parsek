@@ -186,6 +186,18 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
+## ~~519. The final SOI attitude xUnit failure was comparing exact quaternion components even when the handoff preserved the same rotation as `q` versus `-q`~~
+
+**Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing example: `BallisticExtrapolatorTests.Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
+
+**Concern:** after the hyperbolic handoff fixes, the only remaining mismatch was an exact sign-flip on the normalized quaternion (`q` versus `-q`). Those two tuples represent the same 3D rotation, so component-by-component comparison was stricter than the actual continuity contract the tests are meant to enforce.
+
+**Fix:** the shared SOI/finalization quaternion test helpers now compare normalized rotation equivalence using the absolute quaternion dot product instead of raw component equality, so the assertions fail only when the represented rotation changes, not when the same rotation chooses the opposite sign.
+
+**Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
+
+---
+
 ## ~~487. Test Runner transparent background on scene change / Settings-hosted reopen path~~
 
 **Source:** follow-up on the transparent `TestRunner` window after scene transitions. The original fix hardened the global Ctrl+Shift+T shortcut path, but the shared `ParsekUI` cache used by the Settings-hosted Test Runner and other Parsek windows could still cache a transparent or unreadable window style after scene changes / skin-lag frames.
