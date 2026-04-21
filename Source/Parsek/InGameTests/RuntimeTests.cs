@@ -715,7 +715,7 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
+        internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
             while (Time.time < deadline)
@@ -743,7 +743,7 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
-        private static IEnumerator WaitForActiveRecordingPoint(ParsekFlight flight, float timeoutSeconds)
+        internal static IEnumerator WaitForActiveRecordingPoint(ParsekFlight flight, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
             while (Time.time < deadline)
@@ -4703,7 +4703,7 @@ namespace Parsek.InGameTests
                     FlightInputHandler.state.mainThrottle = 1f;
                     KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                    yield return WaitForLaunchAutoRecordStart(10f);
+                    yield return RuntimeTests.WaitForLaunchAutoRecordStart(10f);
                     yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
                     yield return new WaitForSeconds(0.5f);
 
@@ -4726,7 +4726,7 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
-                yield return WaitForActiveRecordingPoint(flight, 5f);
+                yield return RuntimeTests.WaitForActiveRecordingPoint(flight, 5f);
                 string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
                 InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
                 InGameAssert.IsTrue(
