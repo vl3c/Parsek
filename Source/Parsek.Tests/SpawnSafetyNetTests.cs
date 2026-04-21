@@ -1334,6 +1334,51 @@ namespace Parsek.Tests
                 out _));
         }
 
+        [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_SurfaceTerminalDoesNotReuseStaleTerminalOrbit()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Landed,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 450.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 300.0,
+                inclination = 1.0,
+                eccentricity = 0.3,
+                semiMajorAxis = 1200000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 200.0,
+                bodyName = "Kerbin"
+            });
+
+            Assert.False(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _));
+        }
+
         #endregion
 
         #region NormalizeOrbitalSpawnMetadata (#353)

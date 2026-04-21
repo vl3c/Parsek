@@ -251,8 +251,7 @@ namespace Parsek
                 return false;
             }
 
-            bool hasMatchingTerminalOrbit = HasRecordedTerminalOrbit(traj)
-                && string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+            bool hasMatchingTerminalOrbit = CanUseTerminalOrbitSeedForEndpoint(traj, endpointBody);
 
             if (endpointUsesOrbitSegment)
             {
@@ -295,6 +294,31 @@ namespace Parsek
                 out meanAnomalyAtEpoch,
                 out epoch,
                 out bodyName);
+        }
+
+        private static bool CanUseTerminalOrbitSeedForEndpoint(
+            IPlaybackTrajectory traj,
+            string endpointBody)
+        {
+            if (!HasRecordedTerminalOrbit(traj)
+                || string.IsNullOrEmpty(endpointBody)
+                || !string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!traj.TerminalStateValue.HasValue)
+                return true;
+
+            switch (traj.TerminalStateValue.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.SubOrbital:
+                case TerminalState.Docked:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         internal static bool TryGetOrbitEndpointCoordinates(
