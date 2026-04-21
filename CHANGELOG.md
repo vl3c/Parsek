@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 ### Tests
 
 - `#488` Quickload-resume in-game helpers now drive the stock `FlightDriver.StartAndFocusVessel` resume path instead of a bare `LoadScene(FLIGHT)`, and they now skip early on a missing/empty `quicksave.sfs` before attempting the scene reload.
+- Added headless coverage for the shared in-game Test Runner presentation rules by extracting the duplicated IMGUI label/tooltip/batch-notice logic into `TestRunnerPresentation`.
 - Added manual-only in-game coverage for the deferred FLIGHT `Merge to Timeline` commit path, a synthetic `Keep Vessel` playback-control canary that fast-forwards into playback and asserts the end-of-recording vessel spawn happens exactly once, a stock `Revert to Launch` canary that asserts the shipped soft-unstash / no-merge revert semantics, and two real `Space Center` exit canaries that drive the deferred merge-dialog `Merge to Timeline` and `Discard` branches end-to-end.
 - Added deterministic in-game `PartEventTiming` canaries that assert light-toggle and deployable-transform ghost playback flips exactly at their authored UT boundaries.
 - Added an explicit `Run All + Isolated` / `Run+` in-game test-runner mode that captures a temporary FLIGHT baseline save and quickloads it between selected destructive tests (`AutoRecord`, FLIGHT merge-dialog, watch-cleanup regression, `Keep Vessel`, and the `QuickloadResume` / `RevertFlow` canaries) while still leaving the `SceneExitMerge` stock-transition tests manual-only.
