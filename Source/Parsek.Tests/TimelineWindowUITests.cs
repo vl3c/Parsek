@@ -195,6 +195,7 @@ namespace Parsek.Tests
             Assert.Contains("TimelineWatchButtonAction watchAction = GetWatchButtonAction(isWatching);", watchBlock);
             Assert.Contains("GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);", watchBlock);
             Assert.Contains("if (watchAction == TimelineWatchButtonAction.Exit)", watchBlock);
+            Assert.Contains("flight.ExitWatchMode();", watchBlock);
             Assert.Contains("flight.EnterWatchMode(recIndex);", watchBlock);
         }
     }
