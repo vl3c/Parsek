@@ -4718,20 +4718,14 @@ namespace Parsek.InGameTests
                         InGameAssert.Skip("ParsekSettings.Current is null");
                         yield break;
                     }
-                    if (FlightInputHandler.state == null)
-                    {
-                        InGameAssert.Skip("FlightInputHandler.state is null");
-                        yield break;
-                    }
-
                     originalAutoRecordOnLaunch = ParsekSettings.Current.autoRecordOnLaunch;
-                    originalThrottle = FlightInputHandler.state.mainThrottle;
                     autoRecordStateCaptured = true;
-                    throttleCaptured = true;
 
                     ParsekSettings.Current.autoRecordOnLaunch = true;
                     yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
                     yield return RuntimeTests.WaitForFlightInputStateReady(5f);
+                    originalThrottle = FlightInputHandler.state.mainThrottle;
+                    throttleCaptured = true;
                     FlightInputHandler.state.mainThrottle = 1f;
                     KSP.UI.Screens.StageManager.ActivateNextStage();
 
