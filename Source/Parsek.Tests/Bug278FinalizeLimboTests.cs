@@ -140,6 +140,99 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_LeafWithSameUtPointAnchor_DoesNotOverwriteTerminalOrbitBody()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "leaf-same-ut-point-anchor-terminal-orbit",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000.0,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 1000.0,
+                bodyName = "Mun",
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000.0,
+                endUT = 2000.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+            });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, commitUT: 2000.0, isSceneExit: false);
+
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l =>
+                l.Contains("FinalizeIndividualRecording: preserved same-UT point-anchored terminal orbit")
+                && l.Contains("leaf-same-ut-point-anchor-terminal-orbit")
+                && l.Contains("pointBody=Mun")
+                && l.Contains("conflictingSegmentBody=Kerbin")
+                && l.Contains("conflictingSegmentStartUT=1000.000")
+                && l.Contains("pointUT=1000.000"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit")
+                && l.Contains("leaf-same-ut-point-anchor-terminal-orbit"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_LeafWithSameUtPointAnchor_HealsFromLastMatchingBodySegment()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "leaf-same-ut-point-anchor-heal-matching-body",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 125000.0,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 1000.0,
+                bodyName = "Mun",
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 900.0,
+                endUT = 1000.0,
+                bodyName = "Mun",
+                semiMajorAxis = 250000.0,
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000.0,
+                endUT = 2000.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+            });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, commitUT: 2000.0, isSceneExit: false);
+
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Contains(logLines, l =>
+                l.Contains("FinalizeIndividualRecording: healed same-UT point-anchored terminal orbit")
+                && l.Contains("leaf-same-ut-point-anchor-heal-matching-body")
+                && l.Contains("previousBody=Mun")
+                && l.Contains("previousSma=125000.0")
+                && l.Contains("healedBody=Mun")
+                && l.Contains("healedSma=250000.0")
+                && l.Contains("matchingSegmentEndUT=1000.000")
+                && l.Contains("conflictingSegmentBody=Kerbin")
+                && l.Contains("conflictingSegmentStartUT=1000.000")
+                && l.Contains("pointUT=1000.000"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit")
+                && l.Contains("leaf-same-ut-point-anchor-heal-matching-body"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_NonLeaf_SkipsTerminalStateAssignment()
         {
             // Non-leaf recordings (those with a ChildBranchPointId — interior nodes
