@@ -174,13 +174,13 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## ~~518. Hyperbolic segment serialization still distorted high-escape SOI handoffs because it seeded mean anomaly through a clamped `atanh(tan(nu/2))` shortcut~~
+## ~~518. Equatorial hyperbolic SOI handoffs still serialized the parent segment with the wrong periapsis heading because `argumentOfPeriapsis` was left at zero when the ascending node was undefined~~
 
 **Source:** `Parsek-fix-xunit-failures` rerun on 2026-04-21. Failing examples: `BallisticExtrapolatorTests.Extrapolate_HyperbolicHomeEscape_PreservesParentSegmentStartState` and `Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments`.
 
-**Concern:** the earlier quadrant-safe `GetStateAtUT()` follow-up fixed one half of the hyperbolic round-trip, but `TwoBodyOrbit.TryCreate()` was still deriving the serialized hyperbolic mean anomaly from a clamped `atanh(factor * tan(nu/2))` path. Near a real SOI escape boundary that clamp can distort the outgoing branch badly enough that `TryPropagate(segment, startUT)` no longer reproduces the transformed parent-frame handoff state, which in turn makes the frozen-attitude continuity check fail.
+**Concern:** the remaining SOI handoff failures were not in the quaternion seam anymore. The parent segment is an equatorial eccentric/hyperbolic orbit, so the ascending node is undefined, but `TwoBodyOrbit.TryCreate()` still left `argumentOfPeriapsis = 0` in that case. That discards the real periapsis heading from the eccentricity vector, so `TryPropagate(segment, startUT)` rebuilds the parent segment on the wrong in-plane orientation and the preserved frozen attitude is resolved against the wrong world state.
 
-**Fix:** hyperbolic segment creation now derives `H` from the direct `sinh(H)` relation and computes mean anomaly from that unclamped value. The new regression keeps asserting both the exact parent-segment start-state preservation and the frozen playback world-rotation continuity across the SOI handoff.
+**Fix:** equatorial eccentric/hyperbolic segment creation now derives periapsis orientation directly from `atan2(eccentricityVector.y, eccentricityVector.x)` when the ascending node is undefined. The regression keeps asserting both the exact parent-segment start-state preservation and the frozen playback world-rotation continuity across the SOI handoff.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
 

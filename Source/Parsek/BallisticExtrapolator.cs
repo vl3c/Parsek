@@ -1367,6 +1367,13 @@ namespace Parsek
                         if (eccentricityVector.z < 0.0)
                             argumentOfPeriapsis = (Math.PI * 2.0) - argumentOfPeriapsis;
                     }
+                    else
+                    {
+                        // Equatorial eccentric/hyperbolic orbit: the ascending node is undefined,
+                        // so periapsis orientation must come directly from the eccentricity vector.
+                        argumentOfPeriapsis = NormalizeAngle(
+                            Math.Atan2(eccentricityVector.y, eccentricityVector.x));
+                    }
 
                     trueAnomaly = AcosClamped(Vector3d.Dot(eccentricityVector, position)
                         / (eccentricity * radius));
