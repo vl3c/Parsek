@@ -123,10 +123,19 @@ namespace Parsek
         public float currentPower;
     }
 
+    internal enum GhostAudioPriorityClass
+    {
+        Explosion,
+        RocketEngine,
+        QuietEngine,
+        JetEngine
+    }
+
     internal class AudioGhostInfo
     {
         public uint partPersistentId;
         public int moduleIndex;
+        public GhostAudioPriorityClass priorityClass;
         public AudioSource audioSource;
         public AudioClip clip;
         public FloatCurve volumeCurve;

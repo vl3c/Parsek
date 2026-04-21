@@ -913,20 +913,26 @@ namespace Parsek
             if (result.audioInfos != null)
             {
                 // Cap audio sources per ghost to prevent channel exhaustion.
-                // Keeps the first N entries in build order (largest parts tend to be listed first
-                // in snapshot). No explicit sort — not worth the complexity for a 4-source cap.
+                // Keep the highest-value ghost sounds rather than the first N build-order entries
+                // so rockets beat quiet engines/jets when a complex vessel exceeds the cap.
                 var audioList = result.audioInfos;
                 if (audioList.Count > GhostAudioPresets.MaxAudioSourcesPerGhost)
                 {
-                    for (int i = GhostAudioPresets.MaxAudioSourcesPerGhost; i < audioList.Count; i++)
+                    var cappedAudioList = SelectHighestPriorityLoopedGhostAudioSources(
+                        audioList,
+                        GhostAudioPresets.MaxAudioSourcesPerGhost);
+                    var keptAudioInfos = new HashSet<AudioGhostInfo>(cappedAudioList);
+                    for (int i = 0; i < audioList.Count; i++)
                     {
+                        if (keptAudioInfos.Contains(audioList[i]))
+                            continue;
                         if (audioList[i].audioSource != null)
                             UnityEngine.Object.Destroy(audioList[i].audioSource);
                     }
-                    audioList = audioList.GetRange(0, GhostAudioPresets.MaxAudioSourcesPerGhost);
+                    audioList = cappedAudioList;
                     ParsekLog.Verbose("GhostAudio",
                         $"Capped audio sources to {GhostAudioPresets.MaxAudioSourcesPerGhost} " +
-                        $"(was {result.audioInfos.Count})");
+                        $"by priority (was {result.audioInfos.Count})");
                 }
 
                 state.audioInfos = new Dictionary<ulong, AudioGhostInfo>();
@@ -2302,6 +2308,64 @@ namespace Parsek
 
         #region Ghost Audio Control
 
+        internal static double ResolveAudioPriorityDistance(GhostPlaybackState state)
+        {
+            if (state == null)
+                return 0.0;
+
+            double distanceMeters = state.lastRenderDistance;
+            if (double.IsNaN(distanceMeters) || double.IsInfinity(distanceMeters) || distanceMeters < 0.0)
+                distanceMeters = state.lastDistance;
+            if (double.IsNaN(distanceMeters) || double.IsInfinity(distanceMeters) || distanceMeters < 0.0)
+                return 0.0;
+
+            return distanceMeters;
+        }
+
+        internal static void UpdateLoopedAudioPriority(GhostPlaybackState state, AudioGhostInfo info)
+        {
+            if (info?.audioSource == null)
+                return;
+
+            info.audioSource.priority = GhostAudioPresets.ComputeRuntimePriority(
+                info.priorityClass,
+                ResolveAudioPriorityDistance(state));
+        }
+
+        internal static List<AudioGhostInfo> SelectHighestPriorityLoopedGhostAudioSources(
+            IList<AudioGhostInfo> audioInfos, int maxSources)
+        {
+            var result = new List<AudioGhostInfo>();
+            if (audioInfos == null || maxSources <= 0)
+                return result;
+
+            var ranked = new List<(AudioGhostInfo info, int index)>(audioInfos.Count);
+            for (int i = 0; i < audioInfos.Count; i++)
+            {
+                AudioGhostInfo info = audioInfos[i];
+                if (info == null)
+                    continue;
+
+                ranked.Add((info, i));
+            }
+
+            ranked.Sort((a, b) =>
+            {
+                int priorityCompare = GhostAudioPresets.GetBasePriority(a.info.priorityClass)
+                    .CompareTo(GhostAudioPresets.GetBasePriority(b.info.priorityClass));
+                if (priorityCompare != 0)
+                    return priorityCompare;
+
+                return a.index.CompareTo(b.index);
+            });
+
+            int count = Math.Min(maxSources, ranked.Count);
+            for (int i = 0; i < count; i++)
+                result.Add(ranked[i].info);
+
+            return result;
+        }
+
         /// <summary>
         /// Set engine audio volume/pitch from recorded throttle power.
         /// Called alongside SetEngineEmission for EngineIgnited/Throttle/Shutdown events.
@@ -2326,6 +2390,7 @@ namespace Parsek
             if (info.audioSource == null) return;
 
             info.currentPower = power;
+            UpdateLoopedAudioPriority(state, info);
 
             if (power > 0f && state.atmosphereFactor > 0.001f)
             {
@@ -2411,6 +2476,9 @@ namespace Parsek
             float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
             if (vol <= 0f) return;
 
+            state.oneShotAudio.audioSource.priority = GhostAudioPresets.ComputeRuntimePriority(
+                GhostAudioPresets.ClassifyOneShotPriority(eventType),
+                ResolveAudioPriorityDistance(state));
             state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
                 $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
@@ -2558,6 +2626,7 @@ namespace Parsek
             foreach (var info in state.audioInfos.Values)
             {
                 if (info.audioSource == null) continue;
+                UpdateLoopedAudioPriority(state, info);
 
                 if (newFactor < 0.001f)
                 {
