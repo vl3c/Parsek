@@ -976,6 +976,7 @@ namespace Parsek
                         {
                             kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
                             kvp.Value.audioSource.loop = true;
+                            UpdateLoopedAudioPriority(state, kvp.Value);
                             if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
                                 kvp.Value.audioSource.Play();
                         }
@@ -1410,6 +1411,7 @@ namespace Parsek
                     {
                         kvp.Value.audioSource.volume = 0f;
                         kvp.Value.audioSource.loop = true;
+                        UpdateLoopedAudioPriority(state, kvp.Value);
                         if (CanStartLoopedGhostAudio(kvp.Value.audioSource))
                             kvp.Value.audioSource.Play();
                     }
