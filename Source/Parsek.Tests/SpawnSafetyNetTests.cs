@@ -16,6 +16,8 @@ namespace Parsek.Tests
         private readonly List<string> logLines = new List<string>();
         private readonly object originalFlightGlobalsBodies;
         private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
+        private static Dictionary<string, CelestialBody> installedBodiesByName;
 
         public SpawnSafetyNetTests()
         {
@@ -27,6 +29,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
+            originalBodyResolver = VesselSpawner.BodyResolverForTesting;
             originalFlightGlobalsBodies = typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.GetValue(null);
@@ -35,9 +38,11 @@ namespace Parsek.Tests
         public void Dispose()
         {
             VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
+            VesselSpawner.BodyResolverForTesting = originalBodyResolver;
             typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.SetValue(null, originalFlightGlobalsBodies);
+            installedBodiesByName = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -841,6 +846,7 @@ namespace Parsek.Tests
         {
             InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
             VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
+            VesselSpawner.BodyResolverForTesting = ResolveBodyByName;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "FLYING");
@@ -875,6 +881,7 @@ namespace Parsek.Tests
         {
             InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
             VesselSpawner.BodyNameResolverForTesting = ResolveBodyNameByIndex;
+            VesselSpawner.BodyResolverForTesting = ResolveBodyByName;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
@@ -947,6 +954,17 @@ namespace Parsek.Tests
 
             Assert.True(VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName));
             Assert.Equal("Mun", bodyName);
+        }
+
+        [Fact]
+        public void TryResolveBodyByName_UsesResolverOverride()
+        {
+            InstallTestBodies(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
+            VesselSpawner.BodyResolverForTesting = ResolveBodyByName;
+
+            Assert.True(VesselSpawner.TryResolveBodyByName("Mun", out CelestialBody body));
+            Assert.NotNull(body);
+            Assert.Equal("Mun", body.name);
         }
 
         [Fact]
@@ -1959,6 +1977,7 @@ namespace Parsek.Tests
         private static void InstallTestBodies(params (string name, double radius, double gravParameter)[] bodySpecs)
         {
             var bodies = new List<CelestialBody>();
+            installedBodiesByName = new Dictionary<string, CelestialBody>(System.StringComparer.Ordinal);
             foreach (var spec in bodySpecs)
             {
                 var body = (CelestialBody)FormatterServices.GetUninitializedObject(typeof(CelestialBody));
@@ -1966,6 +1985,7 @@ namespace Parsek.Tests
                 typeof(CelestialBody).GetField("Radius").SetValue(body, spec.radius);
                 typeof(CelestialBody).GetField("gravParameter").SetValue(body, spec.gravParameter);
                 bodies.Add(body);
+                installedBodiesByName[spec.name] = body;
             }
 
             typeof(FlightGlobals)
@@ -1987,6 +2007,19 @@ namespace Parsek.Tests
                     name = null;
                     return false;
             }
+        }
+
+        private static bool ResolveBodyByName(string bodyName, out CelestialBody body)
+        {
+            if (installedBodiesByName != null
+                && !string.IsNullOrEmpty(bodyName)
+                && installedBodiesByName.TryGetValue(bodyName, out body))
+            {
+                return true;
+            }
+
+            body = null;
+            return false;
         }
 
         #endregion

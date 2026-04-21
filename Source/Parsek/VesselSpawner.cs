@@ -11,6 +11,7 @@ namespace Parsek
     public static class VesselSpawner
     {
         internal delegate bool ResolveBodyNameByIndexDelegate(int index, out string name);
+        internal delegate bool ResolveBodyByNameDelegate(string bodyName, out CelestialBody body);
 
         // Proximity offset removed — spawn collision detection now uses bounding box
         // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
@@ -23,6 +24,7 @@ namespace Parsek
         internal const int MaxCollisionBlocks = 150;
 
         internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
+        internal static ResolveBodyByNameDelegate BodyResolverForTesting;
 
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
@@ -2654,6 +2656,22 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryResolveBodyByName(string bodyName, out CelestialBody body)
+        {
+            body = null;
+            if (string.IsNullOrEmpty(bodyName))
+                return false;
+
+            ResolveBodyByNameDelegate resolver = BodyResolverForTesting;
+            if (resolver != null)
+            {
+                return resolver(bodyName, out body);
+            }
+
+            body = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+            return body != null;
+        }
+
         internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)
         {
             string resolvedContext = DescribeSpawnValidationContext(rec, logContext);
@@ -2743,8 +2761,7 @@ namespace Parsek
                 return false;
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == endpointBodyName);
-            if (body == null)
+            if (!TryResolveBodyByName(endpointBodyName, out CelestialBody body))
             {
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +

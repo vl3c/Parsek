@@ -36,7 +36,7 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 **Concern:** the failing logic under test was spawn-safety provenance repair, but the setup path decoded the snapshot's `ORBIT.REF` by reading `FlightGlobals.Bodies[refIndex]` directly. In headless xUnit that pulls in Unity's body registry before the test can even reach its real assertion, so a body-name lookup detail masks the actual endpoint-body decision logic.
 
-**Fix:** `VesselSpawner` now routes snapshot `REF` decoding through `TryResolveBodyNameByIndex()`, with an internal `BodyNameResolverForTesting` override for headless tests. Production still defaults to the real `FlightGlobals.Bodies` lookup; xUnit now injects `{0: Kerbin, 1: Mun}` for the affected spawn-safety tests and pins the seam itself with a direct regression.
+**Fix:** `VesselSpawner` now routes snapshot `REF` decoding through `TryResolveBodyNameByIndex()`, with an internal `BodyNameResolverForTesting` override for headless tests. The later endpoint-body repair path now likewise resolves the loaded `CelestialBody` through `TryResolveBodyByName()`, with a matching `BodyResolverForTesting` override, so the stale-orbit / mismatch tests do not have to touch `FlightGlobals.Bodies` just to reach their real assertions. Production still defaults to the real Unity body registry; xUnit now injects `{0: Kerbin, 1: Mun}` plus the matching test-body objects and pins both seams with direct regressions.
 
 **Status:** CLOSED 2026-04-21. Fixed for v0.8.3.
 
