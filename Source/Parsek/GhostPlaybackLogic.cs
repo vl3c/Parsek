@@ -2459,7 +2459,7 @@ namespace Parsek
             if (state.audioMuted)
             {
                 // Keep tracked power in sync during warp so unmute resumes the correct state.
-                if (!ReferenceEquals(info.audioSource, null) && info.audioSource.isPlaying)
+                if (!ReferenceEquals(info.audioSource, null))
                     StopLoopedGhostAudio(info, "muted");
                 return;
             }
