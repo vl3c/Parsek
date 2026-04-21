@@ -19,10 +19,22 @@ Each retained bundle must include:
 - `Player.log`
 - `parsek-test-results.txt`
 - `log-validation.txt`
+- `release-bundle-validation.txt`
 
 Use `python scripts/collect-logs.py <label>` as the standard bundling path.
 That script copies `KSP.log`, `Player.log`, `parsek-test-results.txt`, and
 writes `log-validation.txt` into the timestamped bundle under `logs/`.
+
+Before capturing any release bundle, verify that the deployed
+`GameData/Parsek/Plugins/Parsek.dll` is the DLL you just built. Follow the
+`.claude/CLAUDE.md` verification recipe:
+
+- compare file size and mtime against the build output for the configuration
+  under test (`Source/Parsek/bin/Release/Parsek.dll` for RC / shipping bundles,
+  `Source/Parsek/bin/Debug/Parsek.dll` only for local debug-only validation)
+- grep the deployed DLL for a distinctive UTF-16 string from the build under
+  test
+- if they do not match, force-copy the worktree DLL before launching KSP
 
 ### `release-auto-record`
 
@@ -65,9 +77,15 @@ writes `log-validation.txt` into the timestamped bundle under `logs/`.
 - Use `python scripts/collect-logs.py <label>` immediately after each bundle
   while that bundle's `KSP.log` is still the latest session log. The script
   runs the validator and saves its output as `log-validation.txt`.
+- Run `python scripts/validate-release-bundle.py <bundle-dir>` on the collected
+  folder immediately afterward. That script writes
+  `release-bundle-validation.txt` and fails if the bundle is missing required
+  artifacts, the log validator did not pass, or any required runtime row is
+  missing / not `PASSED`.
 - Treat any non-zero validator result, missing `log-validation.txt`, missing
-  required rows, or required rows that are not `PASSED` after the explicit
-  reset/fresh-session boundary as a failed bundle.
+  `release-bundle-validation.txt`, missing required rows, or required rows that
+  are not `PASSED` after the explicit reset/fresh-session boundary as a failed
+  bundle.
 
 ## Recording + Timeline (core flow)
 
@@ -75,31 +93,33 @@ writes `log-validation.txt` into the timestamped bundle under `logs/`.
 2. Recording auto-starts on liftoff if enabled, or click `Start Recording` in the Parsek window
 3. Fly around for 30-60 seconds
 4. Click `Stop Recording` in the Parsek window
-5. Revert to Launch (Esc → Revert to Launch)
-6. Merge dialog appears - pick any option
-7. Wait on the pad until UT reaches the recording's timestamps
+5. Exit to Space Center (Esc → Space Center)
+6. Deferred merge dialog appears - pick any option
+7. Rewind / fast-forward back before the recording window so playback can run again
 8. Verify: opaque ghost vessel appears (original part meshes/textures) and replays the flight
 9. Verify: funds/science/reputation deltas are applied at the correct UT
 
 ## Merge Dialog Options
 
 ### Vessel destroyed
-1. Launch, crash into the ground, revert
-2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
-3. Pick "Merge to Timeline" - ghost plays back, no vessel spawns
+1. Launch, crash into the ground, then exit to Space Center
+2. Verify: deferred dialog shows "Merge to Timeline" and "Discard" buttons
+3. Pick "Merge to Timeline", rewind / fast-forward back before the recording
+   window, then verify: ghost plays back and no vessel spawns
 
 ### Vessel intact
-1. Launch to orbit, stop the recording from the Parsek window, revert
-2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
-3. Pick "Merge to Timeline" - vessel appears in Tracking Station after ghost finishes
+1. Launch to orbit, stop the recording from the Parsek window, then exit to Space Center
+2. Verify: deferred dialog shows "Merge to Timeline" and "Discard" buttons
+3. Pick "Merge to Timeline", rewind / fast-forward back before the recording
+   window, then verify: vessel appears in Tracking Station after ghost finishes
 
 ### Discard
-1. Record anything, revert
+1. Record anything, then exit to Space Center
 2. Pick "Discard" - no recording in timeline, no ghost
 
 ## Vessel Persistence
 
-1. Launch to orbit → record → revert → "Merge to Timeline"
+1. Launch to orbit → record → Space Center exit → "Merge to Timeline" → rewind / fast-forward back before recording start
 2. Go to Tracking Station → verify vessel appears in orbit
 
 ## Crew Replacement

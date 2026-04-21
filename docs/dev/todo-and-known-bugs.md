@@ -301,13 +301,13 @@ Review follow-up tightened the first version before closeout: the missing group-
 
 **Source:** audit backlog item 5 plus the "Priority 4" follow-up in `docs/dev/test-coverage-audit-2026-04-19.md`.
 
-**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
+**Current state (2026-04-21 follow-up):** this is no longer untouched, but it is not fully closed either. The sibling `audit-builder-tests-2026-04-21` worktree now has direct ownership-style suites for the two codec targets: `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs` covers unnamed-node fallback naming, unsupported codec probe metadata, checksum mismatch handling, and invalid wrapper rejection; `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs` covers version-to-encoding probe behavior, read-path no-demotion plus recording-id backfill, section-authoritative round-trip rebuild, and flat-fallback round-trip preserving a real monotonic predicted tail beyond the track-section payload. Review follow-up in that worktree also pinned the on-disk section-authoritative envelope (`flag` plus zero top-level point/orbit counts) so the binary layout itself is now part of the test contract. That same branch now adds direct fluent-builder coverage for `VesselSnapshotBuilder` / `RecordingBuilder` generator seams as well, so the remaining open gap is the runtime-heavy production builders themselves, not the synthetic test-data builders. `EngineFxBuilder` and `GhostVisualBuilder` still do not have matching ownership bundles.
 
 **Why this matters:** these systems are expensive when they fail, hard to debug from symptom-only playtests, and easy to regress via unrelated refactors because the current coverage is scattered.
 
 **Proposed next step:** keep the same bundle style for the remaining high-cost runtime-heavy owners, especially `EngineFxBuilder` and `GhostVisualBuilder`, while keeping actual Unity object construction / live visual confirmation in the in-game suite. The goal is not "more tests everywhere"; it is clearer ownership and quicker triage when a failure lands.
 
-**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
+**Files:** `Source/Parsek/EngineFxBuilder.cs`, `Source/Parsek/GhostVisualBuilder.cs`, `Source/Parsek/TrajectorySidecarBinary.cs`, `Source/Parsek/SnapshotSidecarCodec.cs`, `Source/Parsek.Tests/TrajectorySidecarBinaryTests.cs`, `Source/Parsek.Tests/SnapshotSidecarCodecTests.cs`, `Source/Parsek.Tests/GeneratorBuilderTests.cs`, `Source/Parsek.Tests/AutoRecordDecisionTests.cs`, `docs/dev/todo-and-known-bugs.md`.
 
 **Status:** OPEN - CODEC OWNERSHIP BUNDLES LANDED; BUILDER OWNERSHIP SUITES STILL MISSING.
 
@@ -325,12 +325,14 @@ The active process now requires:
 - starting from a fresh `parsek-test-results.txt` export (`Reset` before the evidence run)
 - requiring the named runtime rows in that file to be present and `PASSED`
 - requiring `scripts/validate-ksp-log.ps1` to pass on the bundled `KSP.log`
+- requiring `scripts/validate-release-bundle.py` to pass on the collected folder
+- verifying the deployed `GameData/Parsek/Plugins/Parsek.dll` against the worktree build via the `.claude/CLAUDE.md` UTF-16 / size+mtime recipe before trusting any in-game evidence
 
-Review follow-up also corrected the release doc wording to the shipped deferred merge-dialog scene-exit semantics and made the results-file gate strict enough to reject stale cumulative PASS rows.
+Review follow-up also corrected the release doc wording to the shipped deferred merge-dialog scene-exit semantics, made the reset / fresh-session boundary explicit so stale cumulative PASS rows do not count as valid evidence, and added an explicit bundle-validation artifact (`release-bundle-validation.txt`) on top of `log-validation.txt`.
 
 **Why this matters:** release conversations now have one canonical evidence bundle instead of relying on memory or ad-hoc packet selection.
 
-**Files:** `scripts/collect-logs.py`, `scripts/validate-ksp-log.ps1`, `docs/dev/manual-testing/test-general.md`, `docs/dev/development-workflow.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
+**Files:** `scripts/collect-logs.py`, `scripts/validate-ksp-log.ps1`, `scripts/validate-release-bundle.py`, `docs/dev/manual-testing/test-general.md`, `docs/dev/development-workflow.md`, `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
 **Status:** CLOSED (2026-04-21). Fixed for v0.8.3.
 

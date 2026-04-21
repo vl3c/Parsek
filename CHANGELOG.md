@@ -50,7 +50,7 @@ All notable changes to Parsek are documented here.
 ### Documentation
 
 - Added `docs/dev/test-coverage-matrix.md`, a current-tree subsystem matrix that maps major Parsek areas to their headless xUnit, in-game runtime, `KSP.log` validation, and manual coverage surfaces.
-- Release-closeout docs now standardize evidence bundles around `scripts/collect-logs.py`, a fresh `parsek-test-results.txt`, and a required `scripts/validate-ksp-log.ps1` pass on the bundled `KSP.log`.
+- Release-closeout docs now standardize evidence bundles around `scripts/collect-logs.py`, a fresh `parsek-test-results.txt`, a required `scripts/validate-ksp-log.ps1` pass on the bundled `KSP.log`, and a `scripts/validate-release-bundle.py` pass on the collected packet.
 - README now lists KSP Community Fixes in the Supported Mods table. KCF is fully compatible with Parsek; it replaces the body of `VesselPrecalculate.CalculatePhysicsStats` for performance, and Parsek's recording postfix on the same method composes cleanly.
 
 ### Bug Fixes
